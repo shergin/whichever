@@ -6,6 +6,17 @@
 
 Implements a trait for an enum by forwarding to whichever variant it holds.
 
+`enum_dispatch` showed that a macro can write this impl. `ambassador`,
+`enum_delegate`, `delegation`, `portrait`, `static-dispatch` and `delegate`
+followed, each closing some of its gaps and leaving others open.
+`whichever` is the modern one, built to close all of them at once: the
+trait and the enum in different crates, associated types and consts,
+`&Self` arguments, `-> Self`, generic and lifetime-generic traits, `std`
+traits, `Box` payloads, `Pin` receivers and hand-written exceptions. If
+you know `enum_dispatch`, you already know the two attributes. A mistake is
+one sentence on the offending line, and the generated code is the `match`
+you would write by hand, instruction for instruction.
+
 ```rust
 // In the crate that owns the trait.
 #[whichever::dispatchable]
@@ -51,32 +62,136 @@ That is the code a careful hand would write: no trait object, no closure,
 no conversion, and a variant's override of a default method is never hidden
 by the default.
 
-## Documentation
-
-- This file: what the attributes generate, every option, and the limits.
-  The API reference is on [docs.rs](https://docs.rs/whichever).
-- [When enum dispatch pays](docs/when-to-use-enum-dispatch.md): choosing
-  between an enum, a trait object and a generic, with the measurements
-  behind each piece of advice.
-- [Benchmarks](benchmarks/README.md): what is compared with what, how, and
-  how to run it; [results](benchmarks/RESULTS.md) from the last run.
-
 ## Why another one
 
 An enum over the implementors of a trait is the cheapest way to hold "one
-of these": no allocation, no vtable, and the compiler sees every arm. The
-forwarding impl is the price, paid again for every method and every variant.
+of these": no allocation, no vtable, and every arm visible to the
+optimiser. The forwarding impl is the price, paid again for every method
+and every variant, and every crate in this family exists to pay it for you.
 
-`enum_dispatch` made it automatic, but it keeps the trait's definition in a
-process-global cache inside the proc-macro server. That is why it cannot see
-a trait from another crate (the enum compiles with no impl and the first
-call fails), panics on associated types and receiver-less methods, and
-loses the spans of its errors. `whichever` keeps nothing between
-expansions: `#[dispatchable]` exports a hidden macro carrying the trait's
-tokens, re-exported under the trait's own name, and `#[dispatch]` calls it.
-The trait and the enum may live in different crates, in any order, and the
-shapes real traits have (associated types, `&Self` arguments, generic
-traits, several traits on one enum) dispatch too.
+`enum_dispatch` came first, and its mechanism is its limit. It keeps the
+trait's definition in a process-global cache inside the proc-macro server,
+and remembers it from one expansion to the next. That is why:
+
+- **An enum in another crate gets no impl, silently.** The cache is empty
+  when the enum's crate compiles, so the enum compiles without the trait and
+  the first call fails, far from the cause.
+- **Real trait shapes panic or are refused.** Associated types, associated
+  consts, methods without a receiver, `&Self` arguments and lifetime-generic
+  traits are out of reach.
+- **Errors lose their spans.** Tokens replayed from a cache no longer point
+  at your code.
+
+The crates that followed work across crates, but each supports a different
+slice of what real traits look like:
+
+- `ambassador` handles associated types and generic traits, but no `Self`
+  in arguments or returns, no associated consts and no `From` impls.
+- `enum_delegate` handles `-> Self` and unifies associated types, but
+  panics at runtime on `&Self` arguments, has no `async`, generic traits or
+  generic methods, and leaves out `#[inline]`, which costs from 15% to 4x
+  across a crate boundary.
+- `delegate` handles almost anything, because you list every signature
+  again by hand.
+- `portrait`, `delegation` and `static-dispatch` cover plain `&self`
+  methods, defaults and generic methods.
+
+Whichever you pick, the first trait with a `&Self` argument or an
+associated const sends you back to writing the `match` by hand.
+
+`whichever` keeps nothing between expansions. `#[dispatchable]` exports a
+hidden macro carrying the trait's tokens, re-exported under the trait's own
+name, and `#[dispatch]` calls it. The trait reaches the enum through
+ordinary name resolution, so it works across crates, in any order, and
+every span is the one you wrote.
+
+On top of that mechanism, `whichever` covers the shapes real traits have,
+several of them in no other crate of the family:
+
+- **Associated types and consts**, taken from the first variant and checked
+  to agree on every other, or fixed on the enum. Variants with their own
+  error types share one enum through `Into`:
+  `#[dispatch(Storage, Error = StorageError)]`.
+- **`Self` in signatures**: `&Self` and `Self` arguments with a declared
+  fallback for mismatched variants, and `-> Self`, `-> Option<Self>`,
+  `-> Result<Self, E>` wrapped back into the variant.
+- **Traits you do not own.** `Display`, `Debug`, `Error`, `PartialEq`,
+  `Iterator`, `Read`, `Write`, `BufRead` and `Seek` ship ready to dispatch;
+  any other trait is restated once.
+- **Some methods by hand, the rest forwarded**: constructors, methods
+  without a receiver, or a method the enum answers differently from every
+  payload.
+- **Generic traits** at a concrete instantiation, with type, lifetime and
+  const parameters.
+- **`Box<T>`, `Rc<T>` and `&T` payloads**, dispatched like a plain `T`.
+- **`async fn`, `impl Future`, `self: Pin<&mut Self>` and
+  `self: Box<Self>`.**
+- **Inherent methods** forwarded to some variants, with a fallback for the
+  rest.
+- **A struct forwarding to one field**, for the public wrapper around a
+  private dispatch enum.
+
+Every unsupported shape is still a clear error: one sentence on the trait
+item or variant at fault, and the rest of the enum compiles around it.
+Every capability above has a test in `tests/`, the generated impls are
+pinned by expansion goldens, and CI builds the trait and the enum in
+separate crates.
+
+## Moving from `enum_dispatch`
+
+The swap is mechanical:
+
+| `enum_dispatch` | `whichever` |
+| --- | --- |
+| `#[enum_dispatch]` on the trait | `#[whichever::dispatchable]` |
+| `#[enum_dispatch(Trait)]` on the enum | `#[whichever::dispatch(Trait)]` |
+| `#[enum_dispatch(A, B)]` | `#[whichever::dispatch(A)]` and `#[whichever::dispatch(B)]` |
+| `#[enum_dispatch(Enum)]` on the trait | name the trait on the enum instead |
+| `enum E { Circle, Square }` | `enum E { Circle(Circle), Square(Square) }` |
+| `From<Payload>` | the same, opt out with `from = false` |
+| `TryInto<Payload>`, error `&'static str` | `try_from = true`: `TryFrom<E> for Payload`, the error hands the enum back |
+
+Three things to watch:
+
+- The types in the trait's signatures must be in scope where the enum is,
+  as for a hand-written impl. `enum_dispatch` sometimes emitted the impl
+  next to the trait instead, so expect a few new `use` lines at the enum,
+  and a few unused ones at the trait.
+- With `#[async_trait]`, put `#[whichever::dispatchable]` below it.
+- A generic trait names its parameters: `#[whichever::dispatch(Visitor<'a>)]`.
+
+## Performance
+
+`whichever` costs nothing over the hand-written `match`.
+[`benchmarks/`](benchmarks/README.md) compares it with a hand-written impl,
+with `Box<dyn Trait>` and with the enums of `enum_dispatch`, `ambassador`,
+`enum_delegate`, `delegation` and `delegate`, calling from a crate other
+than the enum's, without LTO, over collections of 2 to 32 variants in
+uniform, cyclic and random layouts. From the last run, on an Apple M1 Pro
+([full tables](benchmarks/RESULTS.md)):
+
+- `whichever` performs the same as the hand-written `match`: the functions
+  it generates are identical to the hand-written ones, instruction for
+  instruction.
+- Over a random 8-variant collection, one `&self` call costs 1.7 ns per
+  element against 2.3 ns through a `Box<dyn Trait>` when the method bodies
+  can be inlined, and 2.1 ns against 2.3 ns when they cannot. Most of the
+  enum's advantage is what the optimiser gets to see, not the dispatch.
+- Where the payload's place matters, the gap is wide: 1.7 ns against 8.1 ns
+  per element over 4 Mi scattered elements, and a collection is built 13x
+  faster without a box per element.
+- A generated impl without `#[inline]` (`enum_delegate`, `delegation`) pays
+  an extra out-of-line call across the crate boundary, from 15% to 4x
+  depending on the method and the variant count.
+
+Whether an enum is the right choice for a given program, and how to get
+these numbers out of it, is the subject of
+[docs/when-to-use-enum-dispatch.md](docs/when-to-use-enum-dispatch.md).
+
+## Compared with the alternatives
+
+Every row where only `whichever` says yes is a trait that, with any other
+crate, goes back to a hand-written `match`.
 
 | | whichever | enum_dispatch 0.3 | ambassador 0.5 | portrait 0.3 | enum_delegate 0.2 | delegation 0.5 | static-dispatch 0.3 | delegate 0.13 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -110,35 +225,15 @@ Probed on 2026-11-01 against the versions shown, with the trait in one
 crate and the enum in another, on stable Rust. A dash means the case was
 not probed for that crate. The `whichever` column is what `tests/` checks.
 
-## Performance
+## Documentation
 
-The `match` the attribute writes is the one a careful hand writes, and so
-is the machine code. [`benchmarks/`](benchmarks/README.md) compares
-`whichever` with a hand-written impl, with `Box<dyn Trait>` and with the
-enums of `enum_dispatch`, `ambassador`, `enum_delegate`, `delegation` and
-`delegate`, calling from a crate other than the enum's, without LTO, over
-collections of 2 to 32 variants in uniform, cyclic and random layouts, with
-method bodies the optimiser can inline and bodies it cannot. From the last
-run, on an Apple M1 Pro ([full tables](benchmarks/RESULTS.md)):
-
-- `whichever` is within 1.4% of the hand-written `match` in every cell of
-  the main matrix, two families by three layouts by five variant counts, and
-  the functions it generates are identical to the hand-written ones
-  instruction for instruction.
-- Over a random 8-variant collection, one `&self` call costs 1.7 ns per
-  element against 2.3 ns through a `Box<dyn Trait>` when the method bodies
-  can be inlined, and 2.1 ns against 2.3 ns when they cannot. Most of the
-  enum's advantage is what the optimiser gets to see, not the dispatch.
-- Where the payload's place matters, the gap is wide: 1.7 ns against 8.1 ns
-  per element over 4 Mi scattered elements, and a collection is built 13x
-  faster without a box per element.
-- A generated impl without `#[inline]` (`enum_delegate`, `delegation`) pays
-  an extra out-of-line call across the crate boundary, from 15% to 4x
-  depending on the method and the variant count.
-
-Whether an enum is the right choice for a given program, and how to get
-these numbers out of it, is the subject of
-[docs/when-to-use-enum-dispatch.md](docs/when-to-use-enum-dispatch.md).
+- This file: what the attributes generate, every option, and the limits.
+  The API reference is on [docs.rs](https://docs.rs/whichever).
+- [When enum dispatch pays](docs/when-to-use-enum-dispatch.md): choosing
+  between an enum, a trait object and a generic, with the measurements
+  behind each piece of advice.
+- [Benchmarks](benchmarks/README.md): what is compared with what, how, and
+  how to run it; [results](benchmarks/RESULTS.md) from the last run.
 
 ## Options
 
