@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - Unreleased
+## 0.4.0 - 2026-11-02
 
 - `#[dispatch(Trait)]` on a struct forwards the trait to its one field, or
   to the field marked `#[dispatch]`, provided methods included, so a
