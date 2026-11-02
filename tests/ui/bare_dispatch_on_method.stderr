@@ -1,0 +1,5 @@
+error: name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them
+  --> tests/ui/bare_dispatch_on_method.rs:17:5
+   |
+17 |     #[dispatch]
+   |     ^^^^^^^^^^^

@@ -4,7 +4,7 @@ pub trait Eval {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Eval_e98d27d5849988bf_1_1 as Eval;
+pub use __whichever_Eval_47abfbf61b073792_1_1 as Eval;
 pub struct Leaf(pub u32);
 pub struct Wrap<T>(pub Box<T>);
 impl Eval for Leaf {
@@ -63,7 +63,7 @@ impl ::core::convert::TryFrom<Node> for Wrap<Node> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Node_f8e3760733de57a8_24_1 as Node;
+pub(crate) use __whichever_dispatch_Node_6f1d5cd6fd29226c_24_1 as Node;
 #[automatically_derived]
 impl Eval for Node {
     type Out = <Leaf as Eval>::Out;

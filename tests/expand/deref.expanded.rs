@@ -3,7 +3,7 @@ pub trait Area {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Area_84873a1f197b4768_1_1 as Area;
+pub use __whichever_Area_435c6d10ecc02ae3_1_1 as Area;
 pub struct Square(pub u32);
 impl Area for Square {
     fn area(&self) -> u32 {
@@ -38,7 +38,7 @@ impl<'a> ::core::convert::From<Square> for Shape<'a> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Shape_f91a9acede82a729_14_1 as Shape;
+pub(crate) use __whichever_dispatch_Shape_91a70a89b1e41dce_14_1 as Shape;
 #[automatically_derived]
 impl<'a> Area for Shape<'a> {
     #[inline]

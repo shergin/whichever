@@ -13,7 +13,9 @@ readme = "README.md"
 exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml"]
 
 [dependencies]
-whichever-macros = { version = "0.4.0", path = "macros" }
+# Pinned exactly: the facade's `__private` module and the macros' generated
+# code are one interface, and the two crates are released together.
+whichever-macros = { version = "=0.4.1", path = "macros" }
 
 [dev-dependencies]
 macrotest = "1"

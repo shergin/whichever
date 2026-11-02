@@ -2391,3 +2391,478 @@ mod recursive_payloads_and_conversions {
         assert_eq!(Leaf::try_from(Tree::Leaf(Leaf(1))), Err(()));
     }
 }
+
+// `Result<Self, Self::Error>` and `Option<Self::Error>` with `Error`
+// overridden: the value is rewrapped and the error converted, each on its
+// own.
+mod overridden_results {
+    #[whichever::dispatchable]
+    pub trait Parse: Sized {
+        type Error;
+        fn reparse(&self) -> Result<Self, Self::Error>;
+        fn error(&self) -> Option<Self::Error>;
+        fn error_or(&self, fallback: u8) -> Result<u8, Self::Error>;
+    }
+
+    pub struct Text;
+    pub struct Binary;
+
+    #[derive(Debug, PartialEq)]
+    pub struct TextError;
+    #[derive(Debug, PartialEq)]
+    pub struct BinaryError;
+    #[derive(Debug, PartialEq)]
+    pub struct ParseError(&'static str);
+
+    impl From<TextError> for ParseError {
+        fn from(_: TextError) -> Self {
+            ParseError("text")
+        }
+    }
+
+    impl From<BinaryError> for ParseError {
+        fn from(_: BinaryError) -> Self {
+            ParseError("binary")
+        }
+    }
+
+    impl Parse for Text {
+        type Error = TextError;
+        fn reparse(&self) -> Result<Self, TextError> {
+            Ok(Text)
+        }
+        fn error(&self) -> Option<TextError> {
+            None
+        }
+        fn error_or(&self, fallback: u8) -> Result<u8, TextError> {
+            Ok(fallback)
+        }
+    }
+
+    impl Parse for Binary {
+        type Error = BinaryError;
+        fn reparse(&self) -> Result<Self, BinaryError> {
+            Err(BinaryError)
+        }
+        fn error(&self) -> Option<BinaryError> {
+            Some(BinaryError)
+        }
+        fn error_or(&self, _fallback: u8) -> Result<u8, BinaryError> {
+            Err(BinaryError)
+        }
+    }
+
+    #[whichever::dispatch(Parse, Error = ParseError)]
+    pub enum AnyParser {
+        Text(Text),
+        Binary(Binary),
+    }
+
+    #[test]
+    fn the_value_is_rewrapped_and_the_error_converted() {
+        let text = AnyParser::Text(Text);
+        assert!(matches!(text.reparse(), Ok(AnyParser::Text(Text))));
+        assert_eq!(text.error(), None);
+        assert_eq!(text.error_or(7), Ok(7));
+        let binary = AnyParser::Binary(Binary);
+        assert!(matches!(binary.reparse(), Err(ParseError("binary"))));
+        assert_eq!(binary.error(), Some(ParseError("binary")));
+        assert_eq!(binary.error_or(7), Err(ParseError("binary")));
+    }
+}
+
+// A const override written as a tuple of paths parses as a type first; it
+// is read as a value once the trait says `RANGE` is a const.
+mod tuple_const_override {
+    #[whichever::dispatchable]
+    pub trait Ranged {
+        const RANGE: (u8, u8);
+    }
+
+    pub const LOW: u8 = 1;
+    pub const HIGH: u8 = 9;
+
+    pub struct Narrow;
+    pub struct Wide;
+
+    impl Ranged for Narrow {
+        const RANGE: (u8, u8) = (4, 5);
+    }
+
+    impl Ranged for Wide {
+        const RANGE: (u8, u8) = (0, 255);
+    }
+
+    #[whichever::dispatch(Ranged, RANGE = (LOW, HIGH))]
+    pub enum AnyRanged {
+        Narrow(Narrow),
+        Wide(Wide),
+    }
+
+    #[test]
+    fn the_tuple_is_the_enums_const() {
+        assert_eq!(<AnyRanged as Ranged>::RANGE, (1, 9));
+    }
+}
+
+// What a trait item carries onto the impl: an `unsafe trait` gives an
+// `unsafe impl`, an associated item under `#[cfg]` stays under it, and the
+// associated items come from the first variant that is always compiled in.
+mod carried_items {
+    /// A marker.
+    ///
+    /// # Safety
+    ///
+    /// Nothing to uphold; the trait is `unsafe` to show that the impl is.
+    #[whichever::dispatchable]
+    pub unsafe trait Marker {
+        type Tag;
+        #[cfg(any())]
+        type Hidden;
+        #[cfg(any())]
+        const HIDDEN: u8;
+        const TAG: u8;
+        fn tag(&self) -> u8;
+    }
+
+    pub struct Absent;
+    pub struct Present;
+
+    unsafe impl Marker for Absent {
+        type Tag = u16;
+        const TAG: u8 = 1;
+        fn tag(&self) -> u8 {
+            1
+        }
+    }
+
+    unsafe impl Marker for Present {
+        type Tag = u8;
+        const TAG: u8 = 2;
+        fn tag(&self) -> u8 {
+            2
+        }
+    }
+
+    #[whichever::dispatch(Marker)]
+    pub enum Any {
+        #[cfg(any())]
+        Absent(Absent),
+        Present(Present),
+    }
+
+    #[test]
+    fn the_first_compiled_in_variant_supplies_the_items() {
+        let tag: <Any as Marker>::Tag = 7u8;
+        assert_eq!(tag, 7);
+        assert_eq!(<Any as Marker>::TAG, 2);
+        assert_eq!(Any::Present(Present).tag(), 2);
+    }
+}
+
+// A generic method whose parameter no argument fixes is called with the
+// parameters spelled out.
+mod uninferred_generics {
+    use std::str::FromStr;
+
+    #[whichever::dispatchable]
+    pub trait Source {
+        fn parse<T: FromStr>(&self) -> Option<T>;
+        fn zeros<const N: usize>(&self) -> [u8; N];
+        fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32;
+    }
+
+    pub struct Text(pub &'static str);
+
+    impl Source for Text {
+        fn parse<T: FromStr>(&self) -> Option<T> {
+            self.0.parse().ok()
+        }
+        fn zeros<const N: usize>(&self) -> [u8; N] {
+            [0; N]
+        }
+        fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32 {
+            f(self.0.len() as u32)
+        }
+    }
+
+    #[whichever::dispatch(Source)]
+    pub enum Any {
+        Text(Text),
+    }
+
+    #[test]
+    fn the_parameters_are_spelled_out_when_needed() {
+        let any = Any::Text(Text("42"));
+        assert_eq!(any.parse::<u32>(), Some(42));
+        assert_eq!(any.zeros::<3>(), [0, 0, 0]);
+        assert_eq!(any.apply(|n| n + 1), 3);
+    }
+}
+
+// A `mismatch` written on the trait method may use a `Self` argument the
+// scrutinee moved: the fallback arm binds it again under its own name.
+mod mismatch_with_moved_arguments {
+    #[whichever::dispatchable]
+    pub trait Merge: Sized {
+        #[dispatch(mismatch = other)]
+        fn merge(self, other: Self) -> Self;
+        #[dispatch(mismatch = {
+            other.reset();
+            false
+        })]
+        fn absorb(&mut self, other: &mut Self) -> bool;
+        fn reset(&mut self);
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct A(pub u8);
+    #[derive(Debug, PartialEq)]
+    pub struct B(pub u8);
+
+    impl Merge for A {
+        fn merge(self, other: Self) -> Self {
+            A(self.0 + other.0)
+        }
+        fn absorb(&mut self, other: &mut Self) -> bool {
+            self.0 += other.0;
+            other.0 = 0;
+            true
+        }
+        fn reset(&mut self) {
+            self.0 = 0;
+        }
+    }
+
+    impl Merge for B {
+        fn merge(self, other: Self) -> Self {
+            B(self.0 + other.0)
+        }
+        fn absorb(&mut self, other: &mut Self) -> bool {
+            self.0 += other.0;
+            other.0 = 0;
+            true
+        }
+        fn reset(&mut self) {
+            self.0 = 0;
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Merge)]
+    pub enum Any {
+        A(A),
+        B(B),
+    }
+
+    #[test]
+    fn different_variants_take_the_fallback_with_the_arguments() {
+        assert_eq!(Any::A(A(1)).merge(Any::A(A(2))), Any::A(A(3)));
+        assert_eq!(Any::A(A(1)).merge(Any::B(B(5))), Any::B(B(5)));
+        let mut a = Any::A(A(1));
+        let mut b = Any::B(B(5));
+        assert!(!a.absorb(&mut b));
+        assert_eq!(b, Any::B(B(0)));
+        let mut other = Any::A(A(4));
+        assert!(a.absorb(&mut other));
+        assert_eq!((a, other), (Any::A(A(5)), Any::A(A(0))));
+    }
+}
+
+// The trait's parameter names are kept in the generated impl, whatever they
+// are: the engine's own bindings are hygienic and cannot collide with them.
+mod kept_parameter_names {
+    #[whichever::dispatchable]
+    pub trait Mixer {
+        #[allow(clippy::too_many_arguments)]
+        fn mix(
+            &self,
+            __inner: u32,
+            __same0: u32,
+            __value: u32,
+            __other: u32,
+            __argument0: u32,
+            inner: u32,
+        ) -> u32;
+        fn pair(&self, (a, b): (u32, u32), _: u32, mut rest: u32) -> u32 {
+            rest += a + b;
+            rest
+        }
+        #[dispatch(mismatch = __inner + inner)]
+        fn beside(&self, __inner: u32, other: &Self, inner: u32) -> u32;
+    }
+
+    pub struct Sum;
+    pub struct Zero;
+
+    impl Mixer for Sum {
+        fn mix(
+            &self,
+            __inner: u32,
+            __same0: u32,
+            __value: u32,
+            __other: u32,
+            __argument0: u32,
+            inner: u32,
+        ) -> u32 {
+            __inner + __same0 + __value + __other + __argument0 + inner
+        }
+        fn beside(&self, __inner: u32, _other: &Self, inner: u32) -> u32 {
+            __inner * inner
+        }
+    }
+
+    impl Mixer for Zero {
+        fn mix(&self, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32) -> u32 {
+            0
+        }
+        fn beside(&self, _: u32, _: &Self, _: u32) -> u32 {
+            0
+        }
+    }
+
+    #[whichever::dispatch(Mixer)]
+    pub enum Any {
+        Sum(Sum),
+        Zero(Zero),
+    }
+
+    #[test]
+    fn every_name_forwards() {
+        let sum = Any::Sum(Sum);
+        assert_eq!(sum.mix(1, 2, 3, 4, 5, 6), 21);
+        assert_eq!(sum.pair((1, 2), 9, 3), 6);
+        assert_eq!(sum.beside(2, &Any::Sum(Sum), 3), 6);
+        assert_eq!(sum.beside(2, &Any::Zero(Zero), 3), 5);
+    }
+}
+
+// The carrier that the `#[dispatchable]` of 0.4.0 wrote, next to a trait
+// written by hand: `implement!` keeps reading the message of that release.
+mod a_carrier_of_an_older_release {
+    pub trait Size {
+        fn size(&self) -> usize;
+    }
+
+    #[allow(unused_macros)]
+    macro_rules! __whichever_Size_of_0_4_0 {
+        (@v1 $facade:ident $($rest:tt)*) => {
+            ::$facade::__private::implement! {
+                @v1 trait { pub trait Size { fn size(&self) -> usize; } } $($rest)*
+            }
+        };
+    }
+
+    #[allow(unused_imports)]
+    pub(crate) use __whichever_Size_of_0_4_0 as Size;
+
+    pub struct Fixed(pub usize);
+
+    impl Size for Fixed {
+        fn size(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[whichever::dispatch(Size)]
+    pub enum Any {
+        Fixed(Fixed),
+    }
+
+    #[test]
+    fn it_is_still_read() {
+        assert_eq!(Any::Fixed(Fixed(3)).size(), 3);
+    }
+}
+
+// An inherent block forwards on a struct as on an enum, under `*` or the
+// field's name.
+mod inherent_block_on_a_struct {
+    pub struct Circle(pub u32);
+
+    impl Circle {
+        pub fn radius(&self) -> u32 {
+            self.0
+        }
+        pub fn describe(&self) -> String {
+            format!("circle {}", self.0)
+        }
+    }
+
+    #[whichever::dispatch]
+    pub struct Labelled {
+        #[dispatch]
+        shape: Circle,
+        pub label: &'static str,
+    }
+
+    #[whichever::dispatch]
+    impl Labelled {
+        #[dispatch(*)]
+        pub fn radius(&self) -> u32;
+
+        #[dispatch(shape, call = describe)]
+        pub fn text(&self) -> String;
+    }
+
+    #[test]
+    fn the_field_answers() {
+        let labelled = Labelled {
+            shape: Circle(2),
+            label: "a",
+        };
+        assert_eq!(labelled.radius(), 2);
+        assert_eq!(labelled.text(), "circle 2");
+        assert_eq!(labelled.label, "a");
+    }
+}
+
+// A partial impl block over a `foreign` declaration: `source` is the enum's
+// own, and `Display` is forwarded to the payload.
+mod partial_block_over_a_foreign_trait {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    pub struct Io;
+
+    impl fmt::Display for Io {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("io")
+        }
+    }
+
+    impl Error for Io {}
+
+    #[derive(Debug)]
+    pub struct Parse;
+
+    impl fmt::Display for Parse {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("parse")
+        }
+    }
+
+    impl Error for Parse {}
+
+    #[derive(Debug)]
+    #[whichever::dispatch(whichever::foreign::Display)]
+    pub enum Failure {
+        Io(Io),
+        Parse(Parse),
+    }
+
+    #[whichever::dispatch]
+    impl whichever::foreign::Error for Failure {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            None
+        }
+    }
+
+    #[test]
+    fn display_is_forwarded_and_source_is_the_enums() {
+        let failure: Failure = Parse.into();
+        assert_eq!(failure.to_string(), "parse");
+        assert!(Error::source(&failure).is_none());
+    }
+}

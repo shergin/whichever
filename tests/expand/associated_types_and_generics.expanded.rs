@@ -12,7 +12,7 @@ pub trait Encoder<F: Format> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Encoder_dfde4147047702ee_13_1 as Encoder;
+pub use __whichever_Encoder_5d924be7c95fb5b7_13_1 as Encoder;
 pub struct Compact;
 pub struct Pretty;
 impl Encoder<Json> for Compact {
@@ -51,23 +51,23 @@ impl ::core::convert::From<Pretty> for AnyEncoder {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyEncoder_40a764eed8e7ccb3_36_1 as AnyEncoder;
+pub(crate) use __whichever_dispatch_AnyEncoder_093a44e4abf4de6c_36_1 as AnyEncoder;
 #[automatically_derived]
 impl Encoder<Json> for AnyEncoder {
     type Error = u16;
     #[inline]
     async fn encode(
         &self,
-        __argument0: &<Json as Format>::Value,
+        value: &<Json as Format>::Value,
     ) -> Result<String, Self::Error> {
         match self {
             AnyEncoder::Compact(__inner) => {
-                <Compact as Encoder<Json>>::encode(__inner, __argument0)
+                <Compact as Encoder<Json>>::encode(__inner, value)
                     .await
                     .map_err(::core::convert::Into::into)
             }
             AnyEncoder::Pretty(__inner) => {
-                <Pretty as Encoder<Json>>::encode(__inner, __argument0)
+                <Pretty as Encoder<Json>>::encode(__inner, value)
                     .await
                     .map_err(::core::convert::Into::into)
             }

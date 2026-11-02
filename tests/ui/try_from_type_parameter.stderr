@@ -1,0 +1,5 @@
+error: `T` is a type parameter of `Kind`, so `TryFrom<Kind> for T` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant
+  --> tests/ui/try_from_type_parameter.rs:18:9
+   |
+18 |     Any(T),
+   |         ^

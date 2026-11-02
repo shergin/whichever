@@ -1,0 +1,5 @@
+error: `Circle` is named twice
+  --> tests/ui/duplicate_forwarding_variant.rs:17:24
+   |
+17 |     #[dispatch(Circle, Circle)]
+   |                        ^^^^^^

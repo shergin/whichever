@@ -1,21 +1,21 @@
 error[E0308]: `match` arms have incompatible types
-  --> tests/ui/associated_type_disagreement.rs:1:1
+  --> tests/ui/associated_type_disagreement.rs:4:8
    |
- 1 | #[whichever::dispatchable]
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | |
-   | expected `u32`, found `u64`
-   | this is found to be of type `u32`
-   | `match` arms have incompatible types
+ 4 |     fn first(&self) -> Self::Item;
+   |        ^^^^^------
+   |        |
+   |        expected `u32`, found `u64`
+   |        this is found to be of type `u32`
+   |        `match` arms have incompatible types
 ...
 24 | #[whichever::dispatch(Store)]
    | ----------------------------- in this attribute macro expansion
    |
-   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Store` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
 help: you can convert a `u64` to a `u32` and panic if the converted value doesn't fit
    |
- 1 | #[whichever::dispatchable].try_into().unwrap()
-   |                           ++++++++++++++++++++
+ 4 |     fn first.try_into().unwrap()(&self) -> Self::Item;
+   |             ++++++++++++++++++++
 
 error[E0271]: type mismatch resolving `<Wide as Store>::Item == u32`
   --> tests/ui/associated_type_disagreement.rs:27:10

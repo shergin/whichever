@@ -1,0 +1,579 @@
+//! Classifying the shapes of receivers, arguments and return types.
+use std::collections::HashSet;
+
+use proc_macro2::TokenStream as TokenStream2;
+use quote::quote;
+use syn::visit::Visit;
+use syn::{
+    Error, FnArg, GenericArgument, GenericParam, Ident, PathArguments, PathSegment, Receiver,
+    Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
+};
+
+use crate::options::TraitSpec;
+
+/// Returns the identifier of a bare single-segment path type without
+/// arguments, such as a type parameter or a primitive.
+pub(crate) fn bare_ident(ty: &Type) -> Option<&Ident> {
+    single_segment(ty)
+        .filter(|segment| segment.arguments.is_none())
+        .map(|segment| &segment.ident)
+}
+
+/// What the arms of a method do with the payload's result, in two parts
+/// that vary on their own: what wraps the value, and what the value itself
+/// needs. `Result<Self, Self::Error>` with `Error` overridden is a `Result`
+/// whose error converts, around a value that is rewrapped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ReturnModel {
+    pub(crate) wrapper: Wrapper,
+    pub(crate) value: Value,
+}
+
+/// The container a method returns its value in, recognised by the name the
+/// path ends in, so that `io::Result<T>` and `core::option::Option<T>`
+/// count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Wrapper {
+    None,
+    Option,
+    Result { error: Conversion },
+}
+
+/// What the returned value needs on its way out of an arm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Value {
+    Plain,
+    /// `Self`: the payload's result goes back into the variant that produced
+    /// it.
+    Rewrap,
+    /// `Self::X` with `X` overridden: the payload's own type converts with
+    /// `Into`.
+    Into,
+}
+
+/// What a position that cannot hold `Self` itself, such as a `Result`'s
+/// error, needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Conversion {
+    Keep,
+    Into,
+}
+
+pub(crate) fn single_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(TypePath { qself: None, path }) if path.segments.len() == 1 => {
+            Some(&path.segments[0])
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn is_self(ty: &Type) -> bool {
+    single_segment(ty).is_some_and(|segment| segment.ident == "Self" && segment.arguments.is_none())
+}
+
+/// Returns the name of the associated type in a `Self::Name` type.
+pub(crate) fn self_assoc(ty: &Type) -> Option<&Ident> {
+    match ty {
+        Type::Path(TypePath { qself: None, path })
+            if path.segments.len() == 2 && path.segments[0].ident == "Self" =>
+        {
+            Some(&path.segments[1].ident)
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn generic_type_args(segment: &PathSegment) -> Vec<&Type> {
+    match &segment.arguments {
+        PathArguments::AngleBracketed(arguments) => arguments
+            .args
+            .iter()
+            .filter_map(|argument| match argument {
+                GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Returns the last segment of a path type without a qualified self, so
+/// that `Result<Self, E>`, `io::Result<Self>` and `core::option::Option<Self>`
+/// are all seen by the name they end in.
+pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(TypePath { qself: None, path }) => path.segments.last(),
+        _ => None,
+    }
+}
+
+/// Returns the `Output` of a return-position `impl Future`: `Some(Some(T))`
+/// for `impl Future<Output = T>` with any further bounds, `Some(None)` for
+/// an `impl Future` without an `Output` binding, and `None` for any other
+/// type.
+pub(crate) fn future_output(ty: &Type) -> Option<Option<&Type>> {
+    let Type::ImplTrait(impl_trait) = ty else {
+        return None;
+    };
+    impl_trait.bounds.iter().find_map(|bound| {
+        let TypeParamBound::Trait(bound) = bound else {
+            return None;
+        };
+        let last = bound.path.segments.last()?;
+        if last.ident != "Future" {
+            return None;
+        }
+        let PathArguments::AngleBracketed(arguments) = &last.arguments else {
+            return Some(None);
+        };
+        Some(arguments.args.iter().find_map(|argument| match argument {
+            GenericArgument::AssocType(assoc) if assoc.ident == "Output" => Some(&assoc.ty),
+            _ => None,
+        }))
+    })
+}
+
+/// Classifies what the arms of a method must do with the payload's result,
+/// and whether the method returns `impl Future`, in which case the arms are
+/// awaited inside one `async` block and the classification applies to the
+/// future's `Output`. `spec` carries the associated type overrides of a
+/// trait; inherent methods have none.
+pub(crate) fn classify_return(
+    output: &ReturnType,
+    spec: Option<&TraitSpec>,
+) -> Result<(ReturnModel, bool)> {
+    let ReturnType::Type(_, ty) = output else {
+        return Ok((ReturnModel::PLAIN, false));
+    };
+    let (ty, returns_future) = match future_output(ty) {
+        Some(Some(output)) => (output, true),
+        Some(None) => return Ok((ReturnModel::PLAIN, true)),
+        None => (&**ty, false),
+    };
+    if let Type::ImplTrait(_) = ty {
+        return Err(Error::new_spanned(
+            ty,
+            "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
+        ));
+    }
+    Ok((return_model(ty, spec)?, returns_future))
+}
+
+impl ReturnModel {
+    const PLAIN: Self = Self {
+        wrapper: Wrapper::None,
+        value: Value::Plain,
+    };
+}
+
+/// Classifies a return type: an `Option` or a `Result` around a value, or
+/// the value itself. Errors are reported on the whole type, since the
+/// message speaks of the return type.
+pub(crate) fn return_model(ty: &Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
+    if let Some(segment) = last_segment(ty) {
+        let arguments = generic_type_args(segment);
+        let wrapped = match (segment.ident.to_string().as_str(), arguments.as_slice()) {
+            ("Option", [inner]) => Some((Wrapper::Option, *inner)),
+            // `io::Result<T>`: the alias fixes the error type.
+            ("Result", [inner]) => Some((
+                Wrapper::Result {
+                    error: Conversion::Keep,
+                },
+                *inner,
+            )),
+            ("Result", [inner, error]) => Some((
+                Wrapper::Result {
+                    error: conversion(error, ty, spec)?,
+                },
+                *inner,
+            )),
+            _ => None,
+        };
+        if let Some((wrapper, inner)) = wrapped {
+            return Ok(ReturnModel {
+                wrapper,
+                value: value(inner, ty, spec)?,
+            });
+        }
+    }
+    Ok(ReturnModel {
+        wrapper: Wrapper::None,
+        value: value(ty, ty, spec)?,
+    })
+}
+
+/// Classifies a value position of the return type `whole`: `Self`, or what
+/// a position that cannot be `Self` needs.
+fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Value> {
+    if is_self(ty) {
+        return Ok(Value::Rewrap);
+    }
+    Ok(match conversion(ty, whole, spec)? {
+        Conversion::Keep => Value::Plain,
+        Conversion::Into => Value::Into,
+    })
+}
+
+/// Classifies a position of the return type `whole` that cannot hold `Self`
+/// itself: an overridden `Self::X` converts, and any other mention of `Self`
+/// is a limit.
+fn conversion(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
+    if let Some(name) = self_assoc(ty) {
+        let overridden = spec.is_some_and(|spec| spec.is_overridden(name));
+        return Ok(if overridden {
+            Conversion::Into
+        } else {
+            Conversion::Keep
+        });
+    }
+    if mentions_self(ty) {
+        return Err(Error::new_spanned(
+            whole,
+            "this return type mentions `Self` where `whichever` cannot wrap the payload's result back into the enum; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand",
+        ));
+    }
+    Ok(Conversion::Keep)
+}
+
+/// Returns whether `ty` names the implementing type itself anywhere; the
+/// `Self` of a projection such as `Self::Item` or `<Self as Trait>::Item`
+/// names an associated type instead and does not count.
+pub(crate) fn mentions_self(ty: &Type) -> bool {
+    let mut finder = SelfFinder(false);
+    finder.visit_type(ty);
+    finder.0
+}
+
+pub(crate) struct SelfFinder(bool);
+
+impl<'ast> Visit<'ast> for SelfFinder {
+    fn visit_type_path(&mut self, type_path: &'ast TypePath) {
+        if let Some(qself) = &type_path.qself {
+            if !is_self(&qself.ty) {
+                self.visit_type(&qself.ty);
+            }
+            self.visit_path(&type_path.path);
+            return;
+        }
+        if type_path.path.segments.len() == 1 && type_path.path.segments[0].ident == "Self" {
+            self.0 = true;
+        }
+        syn::visit::visit_type_path(self, type_path);
+    }
+}
+
+/// How a method reaches its receiver or a `Self` argument.
+#[derive(Clone, Copy)]
+pub(crate) enum Access {
+    Shared,
+    Exclusive,
+    Owned,
+}
+
+pub(crate) enum ArgumentKind {
+    Plain,
+    SameVariant(Access),
+}
+
+/// The receivers a method can be dispatched on.
+#[derive(Clone, Copy)]
+pub(crate) enum ReceiverKind {
+    /// `self`, `&self` and `&mut self`, in the shorthand or the explicit
+    /// spelling: the payload is reached by matching on the value.
+    Value(Access),
+    /// `self: Box<Self>`: the box is moved out of and the payload's own box,
+    /// held by a `deref` variant, is handed over.
+    Boxed,
+    /// `self: Pin<&Self>` and `self: Pin<&mut Self>`: unpinned, matched, and
+    /// the payload pinned again, which needs every payload to be `Unpin`.
+    Pinned(Access),
+}
+
+pub(crate) fn reference_access(reference: &syn::TypeReference) -> Access {
+    if reference.mutability.is_some() {
+        Access::Exclusive
+    } else {
+        Access::Shared
+    }
+}
+
+/// Classifies a receiver by its type; any other type is an error.
+pub(crate) fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
+    let ty = &*receiver.ty;
+    if is_self(ty) {
+        return Ok(ReceiverKind::Value(Access::Owned));
+    }
+    if let Type::Reference(reference) = ty {
+        if is_self(&reference.elem) {
+            return Ok(ReceiverKind::Value(reference_access(reference)));
+        }
+    }
+    if let Some(segment) = last_segment(ty) {
+        if let [argument] = generic_type_args(segment).as_slice() {
+            if segment.ident == "Box" && is_self(argument) {
+                return Ok(ReceiverKind::Boxed);
+            }
+            if segment.ident == "Pin" {
+                if let Type::Reference(reference) = argument {
+                    if is_self(&reference.elem) {
+                        return Ok(ReceiverKind::Pinned(reference_access(reference)));
+                    }
+                }
+            }
+        }
+    }
+    Err(Error::new_spanned(
+        ty,
+        "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
+    ))
+}
+
+/// Returns the generic arguments a call of the method has to spell out:
+/// every type and const parameter, when at least one of them is named by
+/// no argument's type, so that inference could not find it. A hand writes
+/// the turbofish only then, and so does the generated call.
+pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
+    let mut named = IdentCollector::default();
+    for input in &signature.inputs {
+        if let FnArg::Typed(pat_type) = input {
+            named.visit_type(&pat_type.ty);
+        }
+    }
+    let parameters: Vec<&Ident> = signature
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            GenericParam::Type(param) => Some(&param.ident),
+            GenericParam::Const(param) => Some(&param.ident),
+            GenericParam::Lifetime(_) => None,
+        })
+        .collect();
+    let inferred = parameters
+        .iter()
+        .all(|parameter| named.0.contains(&parameter.to_string()));
+    if parameters.is_empty() || inferred {
+        return None;
+    }
+    Some(quote!(::<#(#parameters),*>))
+}
+
+/// Every identifier a type names: in its paths, their generic arguments,
+/// and the expressions of its array lengths.
+#[derive(Default)]
+struct IdentCollector(HashSet<String>);
+
+impl<'ast> Visit<'ast> for IdentCollector {
+    fn visit_ident(&mut self, ident: &'ast Ident) {
+        self.0.insert(ident.to_string());
+    }
+}
+
+/// Returns whether a method takes a `Self`, `&Self` or `&mut Self` argument,
+/// which the generated `match` looks at beside the receiver.
+pub(crate) fn takes_self_argument(signature: &Signature) -> bool {
+    signature.inputs.iter().any(|input| match input {
+        FnArg::Typed(pat_type) => {
+            matches!(
+                argument_kind(&pat_type.ty),
+                Ok(ArgumentKind::SameVariant(_))
+            )
+        }
+        FnArg::Receiver(_) => false,
+    })
+}
+
+pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
+    let (inner, access) = match ty {
+        Type::Reference(reference) if reference.mutability.is_some() => {
+            (&*reference.elem, Access::Exclusive)
+        }
+        Type::Reference(reference) => (&*reference.elem, Access::Shared),
+        other => (other, Access::Owned),
+    };
+    if is_self(inner) {
+        return Ok(ArgumentKind::SameVariant(access));
+    }
+    if mentions_self(ty) {
+        return Err(Error::new_spanned(
+            ty,
+            "only `Self`, `&Self` and `&mut Self` arguments can be dispatched; this type mentions `Self` elsewhere",
+        ));
+    }
+    Ok(ArgumentKind::Plain)
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn model(ty: Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
+        return_model(&ty, spec)
+    }
+
+    /// A spec fixing the associated type `name` on the enum.
+    fn overriding(name: &str) -> TraitSpec {
+        syn::parse_str(&format!("Trait, {name} = Fixed")).expect("a valid spec")
+    }
+
+    #[test]
+    fn wrappers_are_recognised_by_their_last_segment() {
+        let plain = ReturnModel {
+            wrapper: Wrapper::None,
+            value: Value::Plain,
+        };
+        assert_eq!(model(parse_quote!(u32), None).unwrap(), plain);
+        assert_eq!(
+            model(parse_quote!(Self), None).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::None,
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(io::Result<Self>), None).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Result {
+                    error: Conversion::Keep,
+                },
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(::core::option::Option<Self>), None)
+                .unwrap()
+                .wrapper,
+            Wrapper::Option
+        );
+    }
+
+    #[test]
+    fn an_overridden_associated_type_converts_in_every_position() {
+        let spec = overriding("Error");
+        let spec = Some(&spec);
+        assert_eq!(
+            model(parse_quote!(Self::Error), spec).unwrap().value,
+            Value::Into
+        );
+        assert_eq!(
+            model(parse_quote!(Option<Self::Error>), spec).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Option,
+                value: Value::Into,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(Result<Self, Self::Error>), spec).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Result {
+                    error: Conversion::Into,
+                },
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(Self::Other), spec).unwrap().value,
+            Value::Plain
+        );
+    }
+
+    #[test]
+    fn self_anywhere_else_is_a_limit() {
+        assert!(model(parse_quote!(Vec<Self>), None).is_err());
+        assert!(model(parse_quote!(Result<u32, Self>), None).is_err());
+        assert!(model(parse_quote!(Option<Option<Self>>), None).is_err());
+    }
+
+    #[test]
+    fn receivers_are_classified_by_their_type() {
+        let receiver = |receiver: Receiver| classify_receiver(&receiver);
+        assert!(matches!(
+            receiver(parse_quote!(&self)),
+            Ok(ReceiverKind::Value(Access::Shared))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(&mut self)),
+            Ok(ReceiverKind::Value(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self)),
+            Ok(ReceiverKind::Value(Access::Owned))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Box<Self>)),
+            Ok(ReceiverKind::Boxed)
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Pin<&mut Self>)),
+            Ok(ReceiverKind::Pinned(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Pin<&Self>)),
+            Ok(ReceiverKind::Pinned(Access::Shared))
+        ));
+        assert!(receiver(parse_quote!(self: Rc<Self>)).is_err());
+    }
+
+    #[test]
+    fn self_arguments_are_told_from_the_rest() {
+        assert!(matches!(
+            argument_kind(&parse_quote!(&Self)),
+            Ok(ArgumentKind::SameVariant(Access::Shared))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(&mut Self)),
+            Ok(ArgumentKind::SameVariant(Access::Exclusive))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(Self)),
+            Ok(ArgumentKind::SameVariant(Access::Owned))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(u32)),
+            Ok(ArgumentKind::Plain)
+        ));
+        assert!(argument_kind(&parse_quote!(Option<&Self>)).is_err());
+    }
+
+    #[test]
+    fn futures_are_awaited_and_other_opaque_returns_are_limits() {
+        let returns = |output: ReturnType| classify_return(&output, None);
+        let (model, future) = returns(parse_quote!(-> impl Future<Output = Self> + Send)).unwrap();
+        assert!(future);
+        assert_eq!(model.value, Value::Rewrap);
+        let (model, future) = returns(parse_quote!(-> impl Future)).unwrap();
+        assert!(future);
+        assert_eq!(model, ReturnModel::PLAIN);
+        assert!(returns(parse_quote!(-> impl Iterator<Item = u32>)).is_err());
+        let (_, future) = returns(parse_quote!()).unwrap();
+        assert!(!future);
+    }
+
+    #[test]
+    fn a_turbofish_is_written_only_when_no_argument_fixes_a_parameter() {
+        let spelled = |signature: Signature| turbofish(&signature).map(|tokens| tokens.to_string());
+        assert_eq!(
+            spelled(parse_quote!(fn parse<T: FromStr>(&self) -> Option<T>)),
+            Some(quote!(::<T>).to_string())
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32)),
+            None
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn zeros<const N: usize>(&self) -> [u8; N])),
+            Some(quote!(::<N>).to_string())
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn pick<'a, T>(&'a self, from: &'a [T]) -> &'a T)),
+            None
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn both<T, U>(&self, t: T) -> U)),
+            Some(quote!(::<T, U>).to_string())
+        );
+    }
+}

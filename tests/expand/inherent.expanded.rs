@@ -61,7 +61,7 @@ impl ::core::convert::TryFrom<AnyShape> for Square {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyShape_3091d3476d2b3a0e_19_1 as AnyShape;
+pub(crate) use __whichever_dispatch_AnyShape_ecc323c5dd12c245_19_1 as AnyShape;
 impl AnyShape {
     /// Only circles have a radius.
     pub fn radius(&self) -> Option<u32> {

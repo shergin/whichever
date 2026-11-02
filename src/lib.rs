@@ -88,9 +88,11 @@
 //!
 //! - `Name = Type` fixes the associated type `Name` instead of taking it
 //!   from the first variant. A method returning `Self::Name` is then
-//!   converted with [`Into`], and one returning `Result<_, Self::Name>` with
-//!   `map_err(Into::into)`, so variants whose own type converts into the
-//!   named one can share the enum. See [associated types](#associated-types).
+//!   converted with [`Into`], one returning `Result<_, Self::Name>` with
+//!   `map_err(Into::into)`, and `Option<Self::Name>`, `Result<Self::Name, E>`
+//!   and `Result<Self, Self::Name>` are mapped the same way, so variants
+//!   whose own type converts into the named one can share the enum. See
+//!   [associated types](#associated-types).
 //! - `Name = value` fixes the associated const `Name` instead of taking it
 //!   from the first variant, for a const that differs per payload by
 //!   design, such as a kind discriminator.
@@ -128,18 +130,20 @@
 //! | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
 //! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 //! | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`. |
+//! | generic method | Called with its type and const parameters spelled out when no argument fixes them. |
 //! | `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error. |
 //! | `self: Pin<&Self>`, `self: Pin<&mut Self>` | The enum is unpinned, matched, and the payload pinned again; every payload must be `Unpin`. |
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
 //! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. |
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
+//! | `unsafe trait` | An `unsafe impl`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 //! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
-//! | return `Self::X` with `X` overridden | Converted with `Into`; `Result<_, Self::X>` with `map_err(Into::into)`. |
+//! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
-//! | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
-//! | `#[inline]` | Added to every generated method unless the trait method carries its own. |
+//! | `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
+//! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
 //!
 //! # Generics
 //!
@@ -159,7 +163,10 @@
 //! or by `mismatch(congruent = false)` on the enum. Without one the expansion
 //! fails with an error naming the method. Only `Self`, `&Self` and
 //! `&mut Self` are accepted; a `Self` nested in another type
-//! (`Option<&Self>`) is an error.
+//! (`Option<&Self>`) is an error. An expression on the trait method may use
+//! the method's parameters, a `Self` argument included; one on the enum can
+//! use neither them nor `self`, since the trait's tokens reach the enum
+//! through a `macro_rules!` body and carry its hygiene.
 //!
 //! # Associated types
 //!
@@ -328,7 +335,8 @@
 //! calls a `Circle::grown` that returns a `Circle`. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
-//! on an enum registers it without dispatching a trait.
+//! on an enum registers it without dispatching a trait. A block on a
+//! dispatch struct forwards the same way, under `*` or the field's name.
 //!
 //! # Traits from `std` and other crates
 //!
@@ -542,5 +550,5 @@ pub mod foreign;
 
 #[doc(hidden)]
 pub mod __private {
-    pub use whichever_macros::{implement, implement_inherent};
+    pub use whichever_macros::{implement, implement_block};
 }

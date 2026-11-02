@@ -1,0 +1,11 @@
+error: `Storage` has no associated type or const `Eror`
+  --> tests/ui/unknown_option_names.rs:23:32
+   |
+23 | #[whichever::dispatch(Storage, Eror = (), mismatch(sane = false))]
+   |                                ^^^^
+
+error: `Storage` has no method `sane` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide
+  --> tests/ui/unknown_option_names.rs:23:52
+   |
+23 | #[whichever::dispatch(Storage, Eror = (), mismatch(sane = false))]
+   |                                                    ^^^^

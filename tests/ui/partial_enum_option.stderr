@@ -2,4 +2,4 @@ error: `from` and `try_from` are options of the enum; put them on its `#[dispatc
   --> tests/ui/partial_enum_option.rs:19:23
    |
 19 | #[whichever::dispatch(from = false)]
-   |                       ^^^^^^^^^^^^
+   |                       ^^^^
