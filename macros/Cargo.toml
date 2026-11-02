@@ -1,11 +1,12 @@
 [package]
 name = "whichever-macros"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.88"
 description = "Procedural macros of the whichever crate"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/shergin/whichever"
+readme = "README.md"
 
 [lib]
 proc-macro = true
