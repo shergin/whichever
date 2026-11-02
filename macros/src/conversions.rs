@@ -2,7 +2,7 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::visit_mut::VisitMut;
-use syn::{Error, GenericParam, Ident, Result, Type};
+use syn::{parse_quote, Error, GenericParam, Ident, Path, Result, Type};
 
 use crate::shape::bare_ident;
 use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
@@ -16,8 +16,9 @@ pub(crate) fn conversion_impls(
 ) -> Result<TokenStream2> {
     let (impl_generics, ty_generics, where_clause) = subject.generics().split_for_impl();
     let enum_ident = subject.ident();
-    let prefix = enum_ident.to_token_stream();
-    let self_type: Type = syn::parse_quote!(#enum_ident #ty_generics);
+    let prefix = Path::from(enum_ident.clone());
+    let self_path: Path = parse_quote!(Self);
+    let self_type: Type = parse_quote!(#enum_ident #ty_generics);
     let converting: Vec<(&Target, Conversions)> = targets(entries)
         .into_iter()
         .filter_map(|target| Some((target, target.conversions()?)))
@@ -60,7 +61,7 @@ pub(crate) fn conversion_impls(
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
         }
-        let built = target.rebuild(&quote!(Self), quote!(#value));
+        let built = target.rebuild(&self_path, quote!(#value));
         let pattern = target.pattern(&prefix, &value);
         if from {
             output.extend(quote! {

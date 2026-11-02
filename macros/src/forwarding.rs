@@ -7,15 +7,15 @@
 //! an arm does with the payload's result, and how the `match` becomes a
 //! body. The agreeing parts live here as data, a [`MethodPlan`] read off the
 //! signature, an [`Arm`] per target and the [`Forwarding`] that renders
-//! them; `implement.rs` and `inherent.rs` fill the data in.
+//! them; `implement.rs` and `block.rs` fill the data in.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, ToTokens};
 use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature, Token};
 
 use crate::options::TraitSpec;
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, payload_expression, receiver_expression,
-    scrutinee, Access, ArgumentKind, Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
+    argument_kind, classify_receiver, classify_return, Access, ArgumentKind, Conversion,
+    ReceiverKind, ReturnModel, Value, Wrapper,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -157,7 +157,7 @@ impl MethodPlan {
     /// Returns the expression the `match` looks at: the receiver, with the
     /// same-variant arguments beside it in a tuple.
     pub(crate) fn scrutinee(&self) -> TokenStream2 {
-        let receiver = scrutinee(self.receiver, &self.self_token);
+        let receiver = receiver_scrutinee(self.receiver, &self.self_token);
         if self.same_variant.is_empty() {
             return receiver;
         }
@@ -174,7 +174,7 @@ impl MethodPlan {
 
     /// Returns the pattern binding `target`'s payload to `binding`, with the
     /// same-variant arguments' payloads bound beside it.
-    fn pattern(&self, target: &Target, prefix: &TokenStream2, binding: &Ident) -> TokenStream2 {
+    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident) -> TokenStream2 {
         let own = target.pattern(prefix, binding);
         if self.same_variant.is_empty() {
             return own;
@@ -205,15 +205,14 @@ impl MethodPlan {
 
     /// Writes the arm for `target`: its pattern, the call, and what the arm
     /// does with the call's result.
-    pub(crate) fn arm(&self, target: &Target, arms: &Arms) -> Result<Arm> {
-        let Arms {
+    pub(crate) fn arm(&self, target: &Target, context: &ArmContext) -> Result<Arm> {
+        let ArmContext {
             callee,
             method,
             subject,
             prefix,
             lift,
-            hints,
-        } = arms;
+        } = context;
         let Target {
             ident: target_ident,
             payload,
@@ -235,7 +234,7 @@ impl MethodPlan {
         if *deref && matches!(needs, Value::Rewrap) {
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", hints.deref),
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand()),
             ));
         }
         let inner = hygienic("__inner");
@@ -261,7 +260,7 @@ impl MethodPlan {
         let rebuild_error = || {
             Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", hints.rebuild),
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", callee.rebuild_hint()),
             )
         };
         value = match (wrapper, needs) {
@@ -294,21 +293,21 @@ impl MethodPlan {
 }
 
 /// What every arm of one method shares.
-pub(crate) struct Arms<'a> {
+pub(crate) struct ArmContext<'a> {
     pub(crate) callee: Callee<'a>,
     /// The generated method's name, for messages.
     pub(crate) method: &'a Ident,
     /// The subject's name, for messages.
     pub(crate) subject: &'a Ident,
     /// What patterns are written on: the subject's name, or `Self`.
-    pub(crate) prefix: TokenStream2,
+    pub(crate) prefix: Path,
     /// A function every arm's result is wrapped in, the inherent
     /// `with = path`.
     pub(crate) lift: Option<&'a Path>,
-    pub(crate) hints: Hints,
 }
 
-/// How an arm calls the payload's method.
+/// How an arm calls the payload's method, which is also which of the two
+/// paths the method is on: a trait's, or an inherent block's.
 pub(crate) enum Callee<'a> {
     /// `<Target as Trait>::method(receiver, arguments..)`, so that an
     /// inherent method of the payload with the same name never takes over.
@@ -321,12 +320,25 @@ pub(crate) enum Callee<'a> {
     Method { name: &'a Ident },
 }
 
-/// The way out that a message offers when a method returning `Self` cannot
-/// be rebuilt: the trait path points at a partial impl block, the inherent
-/// path at the method's body.
-pub(crate) struct Hints {
-    pub(crate) deref: &'static str,
-    pub(crate) rebuild: &'static str,
+impl Callee<'_> {
+    /// The way out a message offers when a method cannot be forwarded as
+    /// written: the trait path points at an impl by hand, the inherent path
+    /// at the method's body.
+    fn by_hand(&self) -> &'static str {
+        match self {
+            Callee::Qualified { .. } => "implement the method by hand",
+            Callee::Method { .. } => "give it a body",
+        }
+    }
+
+    /// The way out when a method returning `Self` cannot be rebuilt around
+    /// the target.
+    fn rebuild_hint(&self) -> &'static str {
+        match self {
+            Callee::Qualified { .. } => "write the method in a `#[whichever::dispatch] impl` block",
+            Callee::Method { .. } => "give it a body instead",
+        }
+    }
 }
 
 /// One arm of the generated `match`.
@@ -340,7 +352,7 @@ impl Arm {
     /// The arm for a variant no method can forward to, with `value` as its
     /// result; it carries the variant's `cfg` like any other arm.
     pub(crate) fn unforwardable(
-        prefix: &TokenStream2,
+        prefix: &Path,
         unforwardable: &Unforwardable,
         value: TokenStream2,
     ) -> Self {
@@ -395,5 +407,60 @@ impl Forwarding {
         let mut group = Group::new(Delimiter::Brace, body);
         group.set_span(span);
         TokenTree::Group(group).into()
+    }
+}
+
+/// Returns the expression the generated `match` looks at for a receiver:
+/// the value itself, the enum moved out of its box, or the pinned reference
+/// unpinned.
+fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self]) -> TokenStream2 {
+    match kind {
+        ReceiverKind::Value(_) => quote!(#self_token),
+        ReceiverKind::Boxed => quote!(*#self_token),
+        ReceiverKind::Pinned(Access::Exclusive) => quote!(::core::pin::Pin::get_mut(#self_token)),
+        ReceiverKind::Pinned(_) => quote!(::core::pin::Pin::get_ref(#self_token)),
+    }
+}
+
+/// Returns the expression handing the payload bound to `binding` to the
+/// method as its receiver, or the error for a payload the receiver cannot
+/// reach.
+fn receiver_expression(
+    kind: ReceiverKind,
+    target: &Target,
+    binding: &Ident,
+    method: &Ident,
+) -> Result<TokenStream2> {
+    match kind {
+        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding)),
+        ReceiverKind::Boxed => {
+            if !target.holds_box() {
+                let ident = &target.ident;
+                let payload = &target.payload;
+                return Err(Error::new_spanned(
+                    payload,
+                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{}`; hold `Box<{}>` in a `#[dispatch(deref)]` variant, or implement the method by hand", payload.to_token_stream(), payload.to_token_stream()),
+                ));
+            }
+            Ok(quote!(#binding))
+        }
+        ReceiverKind::Pinned(access) => {
+            let payload = payload_expression(target.deref, access, binding);
+            Ok(quote!(::core::pin::Pin::new(#payload)))
+        }
+    }
+}
+
+/// Returns the expression that hands `binding`, bound to a variant's
+/// payload, to the trait method: the payload itself, or what it
+/// dereferences to for a `#[dispatch(deref)]` variant.
+fn payload_expression(deref: bool, access: Access, binding: &Ident) -> TokenStream2 {
+    if !deref {
+        return quote!(#binding);
+    }
+    match access {
+        Access::Shared => quote!(&**#binding),
+        Access::Exclusive => quote!(&mut **#binding),
+        Access::Owned => quote!(*#binding),
     }
 }

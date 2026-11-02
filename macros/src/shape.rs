@@ -1,23 +1,18 @@
 //! Classifying the shapes of receivers, arguments and return types.
-use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, ToTokens};
 use syn::visit::Visit;
 use syn::{
-    Error, GenericArgument, Ident, PathArguments, PathSegment, Receiver, Result, ReturnType, Token,
-    Type, TypeParamBound, TypePath,
+    Error, GenericArgument, Ident, PathArguments, PathSegment, Receiver, Result, ReturnType, Type,
+    TypeParamBound, TypePath,
 };
 
 use crate::options::TraitSpec;
-use crate::subject::Target;
 
-/// Returns the identifier of a bare single-segment path type.
+/// Returns the identifier of a bare single-segment path type without
+/// arguments, such as a type parameter or a primitive.
 pub(crate) fn bare_ident(ty: &Type) -> Option<&Ident> {
-    match ty {
-        Type::Path(TypePath { qself: None, path }) if path.segments.len() == 1 => {
-            Some(&path.segments[0].ident)
-        }
-        _ => None,
-    }
+    single_segment(ty)
+        .filter(|segment| segment.arguments.is_none())
+        .map(|segment| &segment.ident)
 }
 
 /// What the arms of a method do with the payload's result, in two parts
@@ -330,47 +325,6 @@ pub(crate) fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
     ))
 }
 
-/// Returns the expression the generated `match` looks at for a receiver:
-/// the value itself, the enum moved out of its box, or the pinned reference
-/// unpinned.
-pub(crate) fn scrutinee(kind: ReceiverKind, self_token: &Token![self]) -> TokenStream2 {
-    match kind {
-        ReceiverKind::Value(_) => quote!(#self_token),
-        ReceiverKind::Boxed => quote!(*#self_token),
-        ReceiverKind::Pinned(Access::Exclusive) => quote!(::core::pin::Pin::get_mut(#self_token)),
-        ReceiverKind::Pinned(_) => quote!(::core::pin::Pin::get_ref(#self_token)),
-    }
-}
-
-/// Returns the expression handing the payload bound to `binding` to the
-/// method as its receiver, or the error for a payload the receiver cannot
-/// reach.
-pub(crate) fn receiver_expression(
-    kind: ReceiverKind,
-    target: &Target,
-    binding: &Ident,
-    method: &Ident,
-) -> Result<TokenStream2> {
-    match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding)),
-        ReceiverKind::Boxed => {
-            if !target.holds_box() {
-                let ident = &target.ident;
-                let payload = &target.payload;
-                return Err(Error::new_spanned(
-                    payload,
-                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{}`; hold `Box<{}>` in a `#[dispatch(deref)]` variant, or implement the method by hand", payload.to_token_stream(), payload.to_token_stream()),
-                ));
-            }
-            Ok(quote!(#binding))
-        }
-        ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(target.deref, access, binding);
-            Ok(quote!(::core::pin::Pin::new(#payload)))
-        }
-    }
-}
-
 pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
     let (inner, access) = match ty {
         Type::Reference(reference) if reference.mutability.is_some() => {
@@ -389,20 +343,6 @@ pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
         ));
     }
     Ok(ArgumentKind::Plain)
-}
-
-/// Returns the expression that hands `binding`, bound to a variant's
-/// payload, to the trait method: the payload itself, or what it
-/// dereferences to for a `#[dispatch(deref)]` variant.
-pub(crate) fn payload_expression(deref: bool, access: Access, binding: &Ident) -> TokenStream2 {
-    if !deref {
-        return quote!(#binding);
-    }
-    match access {
-        Access::Shared => quote!(&**#binding),
-        Access::Exclusive => quote!(&mut **#binding),
-        Access::Owned => quote!(*#binding),
-    }
 }
 
 #[cfg(test)]

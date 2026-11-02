@@ -1,9 +1,10 @@
 //! The grammars of `#[dispatch(..)]` and `#[dispatchable(..)]`, one typed
-//! struct per position the attribute is written in: a subject or a partial
-//! impl block ([`TraitSpec`]), a variant or a field ([`TargetOptions`]), a
-//! method of an inherent block ([`ForwardingOptions`]), a trait method
-//! ([`method_mismatch`]) and a trait ([`DispatchableOptions`]).
-use proc_macro2::TokenStream as TokenStream2;
+//! struct per position the attribute is written in: a subject
+//! ([`DispatchAttribute`]), a partial impl block ([`TraitSpec`]), a variant
+//! or a field ([`TargetOptions`]), a method of an inherent block
+//! ([`ForwardingOptions`]), a trait method ([`method_mismatch`]) and a trait
+//! ([`DispatchableOptions`]).
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
@@ -40,17 +41,14 @@ fn parse_options(
     Ok(())
 }
 
-/// What follows the trait path in `#[dispatch(Trait, ..)]` on a subject or
-/// in `#[dispatch(..)]` on a partial impl block, and the path itself when
-/// one is written. The conversion switches are the subject's: only
-/// `#[dispatch]` on the subject reads them, and they do not travel to the
-/// implementation macro.
+/// A trait's options: the path written in `#[dispatch(Trait, ..)]` when
+/// there is one, the `Name = ..` overrides and the `mismatch` results. This
+/// is what travels to the implementation macro and what a partial impl
+/// block's attribute holds.
 pub(crate) struct TraitSpec {
     pub(crate) path: Option<Path>,
     pub(crate) overrides: Vec<Override>,
     pub(crate) mismatch: Vec<(Ident, Expr)>,
-    pub(crate) from: Option<bool>,
-    pub(crate) try_from: Option<bool>,
 }
 
 impl TraitSpec {
@@ -69,11 +67,6 @@ impl TraitSpec {
             .iter()
             .find(|(key, _)| key == method)
             .map(|(_, expr)| expr)
-    }
-
-    /// Returns whether a conversion switch is written.
-    pub(crate) fn has_switches(&self) -> bool {
-        self.from.is_some() || self.try_from.is_some()
     }
 
     /// Rejects a trait of `std`, `core` or `alloc`, which is never
@@ -97,6 +90,44 @@ impl TraitSpec {
 }
 
 impl Parse for TraitSpec {
+    /// The trait's options alone; a conversion switch belongs on the
+    /// subject.
+    fn parse(input: ParseStream) -> Result<Self> {
+        let DispatchAttribute { spec, switches } = input.parse()?;
+        if let Some(switch) = switches.first() {
+            return Err(Error::new(
+                switch.span(),
+                "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
+            ));
+        }
+        Ok(spec)
+    }
+}
+
+impl ToTokens for TraitSpec {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let mut parts: Vec<TokenStream2> =
+            self.path.iter().map(ToTokens::to_token_stream).collect();
+        parts.extend(self.overrides.iter().map(ToTokens::to_token_stream));
+        if !self.mismatch.is_empty() {
+            let pairs = self
+                .mismatch
+                .iter()
+                .map(|(method, expr)| quote!(#method = #expr));
+            parts.push(quote!(mismatch(#(#pairs),*)));
+        }
+        tokens.extend(quote!(#(#parts),*));
+    }
+}
+
+/// `#[dispatch(..)]` on a subject: a trait's options, and the subject's
+/// conversion switches, which only `#[dispatch]` on the subject reads.
+pub(crate) struct DispatchAttribute {
+    pub(crate) spec: TraitSpec,
+    pub(crate) switches: Switches,
+}
+
+impl Parse for DispatchAttribute {
     fn parse(input: ParseStream) -> Result<Self> {
         let starts_with_option =
             input.peek(Ident) && (input.peek2(Token![=]) || input.peek2(syn::token::Paren));
@@ -109,9 +140,8 @@ impl Parse for TraitSpec {
             path,
             overrides: vec![],
             mismatch: vec![],
-            from: None,
-            try_from: None,
         };
+        let mut switches = Switches::default();
         if spec.path.is_some() && !input.is_empty() {
             input.parse::<Token![,]>()?;
         }
@@ -132,30 +162,50 @@ impl Parse for TraitSpec {
             }
             input.parse::<Token![=]>()?;
             match key.to_string().as_str() {
-                "from" => spec.from = Some(input.parse::<LitBool>()?.value),
-                "try_from" => spec.try_from = Some(input.parse::<LitBool>()?.value),
+                "from" => switches.from = Some(Switch::parse(key, input)?),
+                "try_from" => switches.try_from = Some(Switch::parse(key, input)?),
                 _ => spec.overrides.push(Override::parse(key, input)?),
             }
             Ok(())
         })?;
-        Ok(spec)
+        Ok(Self { spec, switches })
     }
 }
 
-impl ToTokens for TraitSpec {
-    /// The path and the trait's options, without the subject's switches.
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
-        let mut parts: Vec<TokenStream2> =
-            self.path.iter().map(ToTokens::to_token_stream).collect();
-        parts.extend(self.overrides.iter().map(ToTokens::to_token_stream));
-        if !self.mismatch.is_empty() {
-            let pairs = self
-                .mismatch
-                .iter()
-                .map(|(method, expr)| quote!(#method = #expr));
-            parts.push(quote!(mismatch(#(#pairs),*)));
-        }
-        tokens.extend(quote!(#(#parts),*));
+/// The subject's say on its conversions.
+#[derive(Default)]
+pub(crate) struct Switches {
+    pub(crate) from: Option<Switch>,
+    pub(crate) try_from: Option<Switch>,
+}
+
+impl Switches {
+    /// Returns the first switch written, for a message about any of them.
+    pub(crate) fn first(&self) -> Option<&Switch> {
+        self.from.as_ref().or(self.try_from.as_ref())
+    }
+}
+
+/// One `from = ..` or `try_from = ..`, with where it was written.
+pub(crate) struct Switch {
+    key: Ident,
+    value: LitBool,
+}
+
+impl Switch {
+    fn parse(key: Ident, input: ParseStream) -> Result<Self> {
+        Ok(Self {
+            key,
+            value: input.parse()?,
+        })
+    }
+
+    pub(crate) fn value(&self) -> bool {
+        self.value.value
+    }
+
+    pub(crate) fn span(&self) -> Span {
+        self.key.span()
     }
 }
 

@@ -12,21 +12,22 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
 
+use crate::block::{expand_inherent, expand_partial};
 use crate::dispatch::{expand_impl_invocation, expand_subject};
 use crate::dispatchable::expand_dispatchable;
 use crate::implement::expand_implement;
-use crate::inherent::{expand_inherent, expand_partial};
 use crate::options::DispatchableOptions;
 use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
 
 mod agreement;
+mod block;
 mod conversions;
 mod dispatch;
 mod dispatchable;
 mod forwarding;
 mod implement;
-mod inherent;
+mod naming;
 mod options;
 mod protocol;
 mod shape;
@@ -210,7 +211,13 @@ pub fn implement(input: TokenStream) -> TokenStream {
 pub fn implement_block(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as BlockInput);
     let expanded = match input.partial {
-        Some(options) => expand_partial(input.rejected, input.subject, options, input.item_impl),
+        Some(spec) => expand_partial(
+            input.rejected,
+            &input.facade,
+            input.subject,
+            spec,
+            input.item_impl,
+        ),
         None => expand_inherent(input.rejected, input.subject, input.item_impl),
     };
     expanded

@@ -1,12 +1,11 @@
 //! `#[dispatchable]`: the carrier macro a trait leaves next to itself.
-use std::hash::{Hash, Hasher};
-
 use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
-use quote::{format_ident, quote, ToTokens};
+use quote::{quote, ToTokens};
 use syn::{ItemTrait, Result, TraitItem, Visibility};
 
+use crate::naming;
 use crate::options::{is_dispatch_attribute, DispatchableOptions};
-use crate::protocol::{carrier_macro, CarriedTrait, Fnv};
+use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
 
 pub(crate) fn expand_dispatchable(
     item_trait: ItemTrait,
@@ -37,24 +36,11 @@ pub(crate) fn expand_dispatchable(
     } else {
         quote!(#[allow(unused_macros)])
     };
-    let macro_name = match &options.name {
-        Some(name) => format_ident!("__whichever_{}_{}", trait_ident, name),
-        None => {
-            let mut hasher = Fnv::default();
-            captured.to_token_stream().to_string().hash(&mut hasher);
-            hash_token_positions(captured.to_token_stream(), &mut hasher);
-            format_ident!(
-                "__whichever_{}_{:016x}_{}_{}",
-                trait_ident,
-                hasher.finish(),
-                line,
-                column
-            )
-        }
-    };
+    let captured = captured.to_token_stream();
+    let name = naming::trait_carrier(&trait_ident, &captured, options.name.as_ref(), line, column);
     // The captured tokens expand inside the enum's crate, where `crate::`
     // would name the wrong crate; `$crate` resolves to this crate instead.
-    let captured = rewrite_crate_paths(captured.to_token_stream());
+    let captured = rewrite_crate_paths(captured);
     // A restated trait exists elsewhere; only its macro is emitted here, and
     // the impl is written for the real path.
     let remote = options
@@ -62,9 +48,9 @@ pub(crate) fn expand_dispatchable(
         .map(|path| rewrite_crate_paths(path.to_token_stream()));
     let emitted = remote.is_none().then_some(emitted);
     let carrier = carrier_macro(
-        &macro_name,
+        &name,
         quote!(#[doc(hidden)] #export),
-        "implement",
+        Implementation::Trait,
         CarriedTrait {
             tokens: &captured,
             remote: remote.as_ref(),
@@ -77,42 +63,12 @@ pub(crate) fn expand_dispatchable(
 
         #[doc(hidden)]
         #[allow(unused_imports)]
-        #vis use #macro_name as #trait_ident;
+        #vis use #name as #trait_ident;
     })
 }
 
-/// Hashes the file and position of every token in `tokens`, groups included.
-///
-/// The text alone does not tell apart the same trait emitted twice by one
-/// `macro_rules!` in two modules, and the call site of `#[dispatchable]`
-/// then lies inside the macro's body for both expansions. The tokens the
-/// invocation supplied, usually the trait's name, keep the file and position
-/// they were written at, so hashing those keeps the two apart. A trait
-/// written out in full in the macro's body is the one case this leaves.
-pub(crate) fn hash_token_positions(tokens: TokenStream2, hasher: &mut Fnv) {
-    for tree in tokens {
-        let span = tree.span().unwrap();
-        (file_key(&span.file()), span.line(), span.column()).hash(hasher);
-        if let TokenTree::Group(group) = tree {
-            hash_token_positions(group.stream(), hasher);
-        }
-    }
-}
-
-/// Returns the last two components of a source file's path. They tell
-/// `tokio/mod.rs` from `smol/mod.rs` without depending on where the checkout
-/// lives, so the carrier macros' names come out the same on every machine.
-pub(crate) fn file_key(path: &str) -> String {
-    let mut components = path.rsplit(['/', '\\']);
-    let file = components.next().unwrap_or_default();
-    match components.next() {
-        Some(directory) => format!("{directory}/{file}"),
-        None => file.to_owned(),
-    }
-}
-
 /// Replaces every `crate::` path prefix in `tokens` with `$crate::`.
-pub(crate) fn rewrite_crate_paths(tokens: TokenStream2) -> TokenStream2 {
+fn rewrite_crate_paths(tokens: TokenStream2) -> TokenStream2 {
     let mut output = TokenStream2::new();
     let mut iter = tokens.into_iter().peekable();
     while let Some(token) = iter.next() {

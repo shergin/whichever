@@ -4,16 +4,15 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    Attribute, Block, Error, ImplItem, ItemImpl, PathArguments, Result, Signature, Token,
-    Visibility,
+    parse_quote, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Signature,
+    Token, Visibility,
 };
 
-use crate::dispatch::facade_ident;
 use crate::forwarding::{
-    ArgumentNames, Arm, Arms, Callee, Forwarding, Hints, MethodPlan, SelfArguments,
+    ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
 use crate::options::{is_dispatch_attribute, ForwardingOptions, TraitSpec};
-use crate::protocol::TraitRequest;
+use crate::protocol::{carrier_path, TraitRequest};
 use crate::subject::{targets, Entry, Subject, Target};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
@@ -22,8 +21,9 @@ use crate::subject::{targets, Entry, Subject, Target};
 /// block is emitted as written; its one error is the missing items.
 pub(crate) fn expand_partial(
     rejected: bool,
+    facade: &Ident,
     subject: Subject,
-    options: TokenStream2,
+    mut spec: TraitSpec,
     item_impl: ItemImpl,
 ) -> Result<TokenStream2> {
     if rejected {
@@ -32,28 +32,10 @@ pub(crate) fn expand_partial(
     let Some((_, trait_path, _)) = &item_impl.trait_ else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
-    let mut spec: TraitSpec = syn::parse2(options.clone())?;
-    if spec.has_switches() {
-        return Err(Error::new_spanned(
-            &options,
-            "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
-        ));
-    }
-    if let Some(path) = &spec.path {
-        return Err(Error::new_spanned(
-            path,
-            "`#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements",
-        ));
-    }
     spec.path = Some(trait_path.clone());
-    let mut macro_path = trait_path.clone();
-    if let Some(last) = macro_path.segments.last_mut() {
-        last.arguments = PathArguments::None;
-    }
-    let spec = spec.to_token_stream();
-    let facade = facade_ident()?;
+    let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
-        facade: &facade,
+        facade,
         subject: &subject,
         spec: &spec,
         partial: Some(&item_impl),
@@ -76,6 +58,18 @@ impl Parse for BodylessMethod {
         input.parse::<Token![;]>()?;
         Ok(Self { attrs, vis, sig })
     }
+}
+
+/// Parses the options of a method's `#[dispatch(..)]`; a bare `#[dispatch]`
+/// names no variant.
+fn forwarding_options(attribute: &Attribute) -> Result<ForwardingOptions> {
+    if matches!(attribute.meta, Meta::Path(_)) {
+        return Err(Error::new_spanned(
+            attribute,
+            "name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them",
+        ));
+    }
+    attribute.parse_args()
 }
 
 /// Rewrites every marked method of the block. A method that cannot be
@@ -107,7 +101,7 @@ pub(crate) fn expand_inherent(
                     items.push(ImplItem::Fn(function));
                     continue;
                 };
-                let forwarded = attribute.parse_args().and_then(|forwarding| {
+                let forwarded = forwarding_options(&attribute).and_then(|forwarding| {
                     forward_method(
                         &function.attrs,
                         &function.vis,
@@ -150,7 +144,7 @@ pub(crate) fn expand_inherent(
                 let Some(variants) = &variants else {
                     continue;
                 };
-                let forwarded = attribute.parse_args().and_then(|forwarding| {
+                let forwarded = forwarding_options(&attribute).and_then(|forwarding| {
                     forward_method(&attrs, &vis, &sig, None, forwarding, variants, &subject)
                 });
                 match forwarded {
@@ -179,12 +173,13 @@ pub(crate) fn forward_method(
     subject: &Subject,
 ) -> Result<TokenStream2> {
     let subject_ident = subject.ident();
-    let prefix = quote!(Self);
+    let noun = subject.target_noun();
+    let prefix: Path = parse_quote!(Self);
     let method = &sig.ident;
     if sig.receiver().is_none() {
         return Err(Error::new_spanned(
             sig,
-            format!("`{method}` has no receiver, so there is no variant to forward to"),
+            format!("`{method}` has no receiver, so there is no {noun} to forward to"),
         ));
     }
     let mut signature = sig.clone();
@@ -220,7 +215,6 @@ pub(crate) fn forward_method(
                 if let Some(target) = variants.iter().find(|target| &target.ident == name) {
                     return Ok(*target);
                 }
-                let noun = subject.target_noun();
                 let message = match entries.iter().find(|entry| {
                     matches!(entry, Entry::Unforwardable(unforwardable) if &unforwardable.ident == name)
                 }) {
@@ -240,7 +234,7 @@ pub(crate) fn forward_method(
         (true, Some(body)) => {
             return Err(Error::new_spanned(
                 body,
-                format!("`{method}` is forwarded to every variant, so its body would never run; end the signature with `;` instead"),
+                format!("`{method}` is forwarded to every {noun}, so its body would never run; end the signature with `;` instead"),
             ))
         }
         (false, None) => {
@@ -251,7 +245,7 @@ pub(crate) fn forward_method(
         }
         _ => {}
     }
-    let shared = Arms {
+    let context = ArmContext {
         callee: Callee::Method {
             name: forwarding.call.as_ref().unwrap_or(method),
         },
@@ -259,14 +253,10 @@ pub(crate) fn forward_method(
         subject: subject_ident,
         prefix,
         lift: forwarding.with.as_ref(),
-        hints: Hints {
-            deref: "give it a body",
-            rebuild: "give it a body instead",
-        },
     };
     let mut arms = selected
         .iter()
-        .map(|target| plan.arm(target, &shared))
+        .map(|target| plan.arm(target, &context))
         .collect::<Result<Vec<_>>>()?;
     arms.extend(unforwardable_arms);
     let body = Forwarding {

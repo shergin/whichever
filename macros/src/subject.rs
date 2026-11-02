@@ -5,8 +5,8 @@ use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Error, Field, Fields, Ident, Index, Item, ItemEnum, ItemStruct, Member, Result,
-    Type, Variant,
+    Attribute, Error, Field, Fields, Ident, Index, Item, ItemEnum, ItemStruct, Member, Path,
+    Result, Type, Variant,
 };
 
 use crate::options::{is_dispatch_attribute, TargetOptions};
@@ -61,14 +61,6 @@ impl Subject {
             Subject::Enum(_) => "variant",
             Subject::Struct(_) => "field",
         }
-    }
-
-    /// Returns the subject without the `#[dispatch]` attributes on the item
-    /// itself; the variants or fields keep theirs.
-    pub(crate) fn without_item_attributes(mut self) -> Self {
-        self.attrs_mut()
-            .retain(|attribute| !is_dispatch_attribute(attribute));
-        self
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its
@@ -166,7 +158,7 @@ impl Target {
 
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
     /// which is the subject's name or `Self`.
-    pub(crate) fn pattern(&self, prefix: &TokenStream2, binding: &Ident) -> TokenStream2 {
+    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
             Place::Variant(_) => quote!(#prefix::#ident(#binding)),
@@ -183,11 +175,7 @@ impl Target {
 
     /// Returns the expression building the subject around `value`, or
     /// `None` when other fields would be missing.
-    pub(crate) fn rebuild(
-        &self,
-        prefix: &TokenStream2,
-        value: TokenStream2,
-    ) -> Option<TokenStream2> {
+    pub(crate) fn rebuild(&self, prefix: &Path, value: TokenStream2) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
             Place::Variant(_) => Some(quote!(#prefix::#ident(#value))),
@@ -206,7 +194,7 @@ impl Target {
     }
 
     /// Returns a function building the subject from a payload, for `map`.
-    pub(crate) fn constructor(&self, prefix: &TokenStream2) -> Option<TokenStream2> {
+    pub(crate) fn constructor(&self, prefix: &Path) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
             Place::Variant(_) => Some(quote!(#prefix::#ident)),
