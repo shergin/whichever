@@ -1180,7 +1180,7 @@ mod generic_enums_with_associated_types {
 }
 
 // The explicit forms are the point of this module.
-#[allow(clippy::needless_arbitrary_self_type)]
+#[allow(clippy::needless_arbitrary_self_type, clippy::needless_lifetimes)]
 mod explicit_receivers {
     #[whichever::dispatchable]
     trait Counter {
