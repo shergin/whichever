@@ -1,0 +1,10 @@
+error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+  --> tests/ui/impl_into_future.rs:5:24
+   |
+ 5 |     fn fetch(&self) -> impl IntoFuture<Output = u32>;
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+16 | #[whichever::dispatch(Fetch)]
+   | ----------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Fetch` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

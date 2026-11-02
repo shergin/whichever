@@ -123,9 +123,10 @@
 //! | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`. |
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
+//! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. |
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped. |
+//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body; an error when there is none. |
 //! | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
@@ -309,27 +310,36 @@
 //!
 //! `with = path` wraps each forwarded result in a call to `path` (`Some`
 //! above), `call = name` forwards to a payload method of another name, and
-//! methods without the attribute are left alone. The enum keeps its
+//! methods without the attribute are left alone. `async` methods and
+//! methods returning `impl Future` are awaited. A method returning `Self`,
+//! `Option<Self>` or `Result<Self, E>` wraps the payload's result back into
+//! the variant, as trait dispatch does; with `with`, the payload returns
+//! the plain value and `with` lifts the wrapped variant, so
+//! `#[dispatch(Circle, with = Some)]` on `fn grown(&self) -> Option<Self>`
+//! calls a `Circle::grown` that returns a `Circle`. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait.
 //!
 //! # Across crates
 //!
-//! `#[dispatchable]` emits the trait unchanged plus a hidden exported macro
-//! carrying the trait's tokens, re-exported under the trait's own name
-//! (macros live in their own namespace, so `use shapes::Shape;` imports
-//! both). `#[dispatch(Shape)]` invokes that macro, which hands the trait
-//! and the enum to a hidden proc macro that writes the impl. Nothing is
-//! cached between expansions, so the two attributes work across crates, in
-//! any order, and under rust-analyzer. Both crates depend on `whichever`; a
-//! renamed dependency is fine.
+//! `#[dispatchable]` emits the trait unchanged plus a hidden macro carrying
+//! the trait's tokens, re-exported under the trait's own name (macros live
+//! in their own namespace, so `use shapes::Shape;` imports both). For a
+//! `pub` trait the macro is exported at the crate root, which is the only
+//! way another crate can reach it; a trait of any other visibility keeps it
+//! in its module. `#[dispatch(Shape)]` invokes that macro, which hands the
+//! trait and the enum to a hidden proc macro that writes the impl. Nothing
+//! is cached between expansions, so the two attributes work across crates,
+//! in any order, and under rust-analyzer. Both crates depend on
+//! `whichever`; a renamed dependency is fine.
 //!
 //! The types named in the trait's signatures are written into the enum's
 //! module, so they must be in scope there, exactly as for a hand-written
-//! impl. Paths starting with `crate::` are rewritten to the trait's crate;
-//! `super::` and `self::` paths cannot be and must not appear in a
-//! dispatchable trait's signatures.
+//! impl, and nameable from there: a private alias or type in a signature
+//! limits the trait to its own crate. Paths starting with `crate::` are
+//! rewritten to the trait's crate; `super::` and `self::` paths cannot be
+//! and must not appear in a dispatchable trait's signatures.
 //!
 //! # Requirements and limits
 //!
@@ -338,7 +348,8 @@
 //!   gets no `From` impl.
 //! - A method without a receiver needs a default body; the enum uses it.
 //! - Return-position `impl Trait` cannot be dispatched by a `match`: every
-//!   variant would return a different opaque type.
+//!   variant would return a different opaque type. `impl Future<Output = T>`
+//!   is the exception; it is awaited like an `async fn`.
 //! - Generic associated types and `self: Type` receivers are not supported.
 //! - Associated consts are taken from the first variant without a check.
 //! - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules

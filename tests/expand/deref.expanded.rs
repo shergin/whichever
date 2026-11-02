@@ -3,7 +3,7 @@ pub trait Area {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Area_834eb53e547dd842_1_1 as Area;
+pub use __whichever_Area_84873a1f197b4768_1_1 as Area;
 pub struct Square(pub u32);
 impl Area for Square {
     fn area(&self) -> u32 {

@@ -1,4 +1,4 @@
-error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object
+error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
   --> tests/ui/rpitit.rs:3:24
    |
  3 |     fn items(&self) -> impl Iterator<Item = u32> + '_;

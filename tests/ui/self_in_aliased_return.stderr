@@ -1,0 +1,10 @@
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into the enum; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand
+  --> tests/ui/self_in_aliased_return.rs:5:26
+   |
+ 5 |     fn rebuild(&self) -> Fallible<Self>
+   |                          ^^^^^^^^^^^^^^
+...
+18 | #[whichever::dispatch(Rebuild)]
+   | ------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Rebuild` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

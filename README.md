@@ -97,7 +97,7 @@ traits, several traits on one enum) dispatch too.
 | Several traits on one enum | yes | yes | yes | yes | no | no | yes | yes |
 | Payload with a same-named inherent method | safe | safe | safe | safe | safe | safe | safe | calls it, unless `#[through]` |
 | `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
-| `-> impl Trait` | no | no | no | no | no | no | no | no |
+| `-> impl Trait` | `impl Future<Output = T>` only | no | no | no | no | no | no | no |
 | `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 
@@ -224,10 +224,16 @@ impl AnyShape {
 ```
 
 `with = path` wraps each forwarded result, `call = name` forwards to a
-method of another name, `async` methods are awaited, and methods without
-the attribute are left alone. The `impl` block has to be in the enum's
-crate, which inherent impls are anyway; a bare `#[dispatch]` on an enum
-registers it for this without dispatching a trait.
+method of another name, `async` methods and methods returning
+`impl Future` are awaited, and methods without the attribute are left
+alone. A method returning `Self`, `Option<Self>` or `Result<Self, E>` wraps
+the payload's result back into the variant, as trait dispatch does. With
+`with`, the payload returns the plain value and `with` lifts the wrapped
+variant: `#[dispatch(Circle, with = Some)]` on `fn grown(&self) ->
+Option<Self>` calls a `Circle::grown` that returns a `Circle`. The `impl`
+block has to be in the enum's crate, which inherent impls are anyway; a
+bare `#[dispatch]` on an enum registers it for this without dispatching a
+trait.
 
 ## What each trait item becomes
 
@@ -238,8 +244,9 @@ registers it for this without dispatching a trait.
 | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]`. |
 | default body | Ignored: forwarded like any other method. |
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
+| `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped. |
+| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 | method without a receiver | Left to the trait's default body; an error when there is none. |
 | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
 
@@ -247,13 +254,16 @@ registers it for this without dispatching a trait.
 
 - Every variant holds exactly one unnamed field, `Name(Payload)`, and
   every payload implements the trait.
-- Return-position `impl Trait` cannot be dispatched by a `match`.
+- Return-position `impl Trait` cannot be dispatched by a `match`, except
+  `impl Future<Output = T>`, which is awaited like an `async fn`.
 - A `deref` variant cannot take part in a method returning `Self`: there is
   no way to put the result back behind the pointer.
 - Generic associated types and `self: Type` receivers are not supported.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
+  They must also be nameable from there: a private alias or type in a
+  signature limits the trait to its own crate.
 - Associated consts are taken from the first variant without a check.
 - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
   when at least one token of the trait, its name or a method's, comes from
@@ -262,7 +272,9 @@ registers it for this without dispatching a trait.
   defined multiple times.
 
 Every unsupported shape is reported as one sentence on the offending trait
-item or variant; see `tests/ui` for all of them.
+item or variant; see `tests/ui` for all of them. A rejected enum is still
+emitted, so the derives, uses and impl blocks around it compile and that
+one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
 marked `#[dispatchable]`, or the trait, which carries the macro, is not
@@ -274,6 +286,12 @@ imported where the enum is.
 supported Rust version is 1.88. Both the crate that owns the trait and the
 crate that owns the enum depend on `whichever`; renaming the dependency is
 fine.
+
+`#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro
+to the crate root, named after the trait and the position of its tokens,
+which is how another crate's enum reaches the trait's signatures. A trait
+of any other visibility keeps its macro in its own module and adds nothing
+to the crate root.
 
 ## License
 

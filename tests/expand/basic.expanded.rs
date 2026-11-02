@@ -6,7 +6,7 @@ pub trait Describe {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Describe_985717814bac1bae_1_1 as Describe;
+pub use __whichever_Describe_ee8911ec9f8c3da5_1_1 as Describe;
 pub struct Cat;
 pub struct Dog;
 impl Describe for Cat {

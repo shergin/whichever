@@ -1339,3 +1339,277 @@ mod explicit_receivers {
         assert_eq!(counter.take(), 15);
     }
 }
+
+// The desugared `-> impl Future` spelling is the point of this module.
+#[allow(clippy::manual_async_fn, clippy::needless_lifetimes)]
+mod impl_future_returns {
+    use std::future::Future;
+
+    #[whichever::dispatchable]
+    trait Store {
+        fn truncate(&mut self, max: u64) -> impl Future<Output = Result<(), ()>> + Send;
+        fn consume(self, tag: &str) -> impl Future<Output = usize> + Send
+        where
+            Self: Sized;
+        fn first<'a, 'b>(&'a self, s: &'b str) -> impl Future<Output = (&'a u8, usize)> + Send;
+        fn copied(&self) -> impl Future<Output = Self> + Send
+        where
+            Self: Sized;
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Memory(u8);
+    #[derive(Debug, PartialEq)]
+    struct Disk(u8);
+
+    impl Store for Memory {
+        fn truncate(&mut self, max: u64) -> impl Future<Output = Result<(), ()>> + Send {
+            self.0 = self.0.min(max as u8);
+            async { Ok(()) }
+        }
+        fn consume(self, tag: &str) -> impl Future<Output = usize> + Send {
+            async move { tag.len() + usize::from(self.0) }
+        }
+        fn first<'a, 'b>(&'a self, s: &'b str) -> impl Future<Output = (&'a u8, usize)> + Send {
+            async move { (&self.0, s.len()) }
+        }
+        fn copied(&self) -> impl Future<Output = Self> + Send {
+            async move { Memory(self.0) }
+        }
+    }
+
+    impl Store for Disk {
+        fn truncate(&mut self, _max: u64) -> impl Future<Output = Result<(), ()>> + Send {
+            async { Err(()) }
+        }
+        fn consume(self, tag: &str) -> impl Future<Output = usize> + Send {
+            async move { tag.len() * usize::from(self.0) }
+        }
+        fn first<'a, 'b>(&'a self, s: &'b str) -> impl Future<Output = (&'a u8, usize)> + Send {
+            async move { (&self.0, s.len()) }
+        }
+        fn copied(&self) -> impl Future<Output = Self> + Send {
+            async move { Disk(self.0) }
+        }
+    }
+
+    impl Memory {
+        fn fetch(&self) -> impl Future<Output = u8> + Send + '_ {
+            async move { self.0 }
+        }
+    }
+
+    impl Disk {
+        fn fetch(&self) -> impl Future<Output = u8> + Send + '_ {
+            async move { self.0 * 10 }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Store)]
+    enum AnyStore {
+        Memory(Memory),
+        Disk(Disk),
+    }
+
+    #[whichever::dispatch]
+    impl AnyStore {
+        #[dispatch(*)]
+        fn fetch(&self) -> impl Future<Output = u8> + Send + '_;
+    }
+
+    /// Compiles only when the enum's futures are `Send`.
+    fn spawnable<T: Store + Sync>(
+        store: &mut T,
+    ) -> impl Future<Output = Result<(), ()>> + Send + '_ {
+        store.truncate(1)
+    }
+
+    #[test]
+    fn every_arm_is_awaited_inside_one_future() {
+        let mut memory: AnyStore = Memory(9).into();
+        assert_eq!(pollster::block_on(spawnable(&mut memory)), Ok(()));
+        assert_eq!(memory, AnyStore::Memory(Memory(1)));
+        let mut disk: AnyStore = Disk(2).into();
+        assert_eq!(pollster::block_on(disk.truncate(1)), Err(()));
+        assert_eq!(pollster::block_on(disk.first("ab")), (&2, 2));
+        assert_eq!(pollster::block_on(disk.copied()), AnyStore::Disk(Disk(2)));
+        assert_eq!(pollster::block_on(disk.fetch()), 20);
+        assert_eq!(pollster::block_on(disk.consume("abc")), 6);
+    }
+}
+
+mod qualified_self_returns {
+    use std::io;
+
+    #[whichever::dispatchable]
+    trait Rebuild {
+        fn reload(&self) -> io::Result<Self>
+        where
+            Self: Sized;
+        fn twin(&self) -> std::result::Result<Self, u8>
+        where
+            Self: Sized;
+        fn maybe(&self) -> core::option::Option<Self>
+        where
+            Self: Sized;
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Small(u8);
+    #[derive(Debug, PartialEq)]
+    struct Big(u32);
+
+    impl Rebuild for Small {
+        fn reload(&self) -> io::Result<Self> {
+            Ok(Small(self.0))
+        }
+        fn twin(&self) -> Result<Self, u8> {
+            Ok(Small(self.0))
+        }
+        fn maybe(&self) -> Option<Self> {
+            None
+        }
+    }
+
+    impl Rebuild for Big {
+        fn reload(&self) -> io::Result<Self> {
+            Err(io::Error::other("offline"))
+        }
+        fn twin(&self) -> Result<Self, u8> {
+            Err(self.0 as u8)
+        }
+        fn maybe(&self) -> Option<Self> {
+            Some(Big(self.0))
+        }
+    }
+
+    impl Small {
+        fn copy(&self) -> Self {
+            Small(self.0)
+        }
+        fn halved(&self) -> Option<Self> {
+            self.0.is_multiple_of(2).then_some(Small(self.0 / 2))
+        }
+        fn grown(&self) -> Self {
+            Small(self.0 + 1)
+        }
+    }
+
+    impl Big {
+        fn copy(&self) -> Self {
+            Big(self.0)
+        }
+        fn halved(&self) -> Option<Self> {
+            Some(Big(self.0 / 2))
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Rebuild)]
+    enum Number {
+        Small(Small),
+        Big(Big),
+    }
+
+    #[whichever::dispatch]
+    impl Number {
+        #[dispatch(*)]
+        fn copy(&self) -> Self;
+
+        #[dispatch(*)]
+        fn halved(&self) -> Option<Self>;
+
+        /// The payload returns the plain value; `with` lifts the variant.
+        #[dispatch(Small, with = Some)]
+        fn grown(&self) -> Option<Self> {
+            None
+        }
+    }
+
+    #[test]
+    fn qualified_and_aliased_paths_are_mapped_like_the_bare_ones() {
+        let small: Number = Small(4).into();
+        let big: Number = Big(7).into();
+        assert_eq!(small.reload().unwrap(), Number::Small(Small(4)));
+        assert_eq!(big.reload().unwrap_err().to_string(), "offline");
+        assert_eq!(small.twin(), Ok(Number::Small(Small(4))));
+        assert_eq!(big.twin(), Err(7));
+        assert_eq!(
+            (small.maybe(), big.maybe()),
+            (None, Some(Number::Big(Big(7))))
+        );
+    }
+
+    #[test]
+    fn inherent_methods_wrap_self_back_into_the_variant() {
+        let small: Number = Small(4).into();
+        let big: Number = Big(7).into();
+        assert_eq!(small.copy(), Number::Small(Small(4)));
+        assert_eq!(big.halved(), Some(Number::Big(Big(3))));
+        assert_eq!(Number::from(Small(3)).halved(), None);
+        assert_eq!(small.grown(), Some(Number::Small(Small(5))));
+        assert_eq!(big.grown(), None);
+    }
+}
+
+mod non_pub_traits_stay_in_their_module {
+    // Declared before the traits' module on purpose: the enum reaches the
+    // carrier macro through the trait's re-export, not through textual order.
+    mod enums {
+        use super::traits::{Area, Sealed};
+
+        pub(super) struct Square(pub u32);
+        pub(super) struct Circle(pub u32);
+
+        impl Area for Square {
+            fn area(&self) -> u32 {
+                self.0 * self.0
+            }
+        }
+
+        impl Area for Circle {
+            fn area(&self) -> u32 {
+                3 * self.0 * self.0
+            }
+        }
+
+        impl Sealed for Square {}
+        impl Sealed for Circle {
+            fn sealed(&self) -> bool {
+                false
+            }
+        }
+
+        #[whichever::dispatch(Area)]
+        #[whichever::dispatch(Sealed)]
+        pub(super) enum Shape {
+            Square(Square),
+            Circle(Circle),
+        }
+    }
+
+    mod traits {
+        #[whichever::dispatchable]
+        pub(crate) trait Area {
+            fn area(&self) -> u32;
+        }
+
+        #[whichever::dispatchable]
+        pub(super) trait Sealed {
+            fn sealed(&self) -> bool {
+                true
+            }
+        }
+    }
+
+    #[test]
+    fn a_crate_private_trait_dispatches_from_a_sibling_module() {
+        use traits::{Area, Sealed};
+        let square: enums::Shape = enums::Square(2).into();
+        let circle: enums::Shape = enums::Circle(1).into();
+        assert_eq!((square.area(), circle.area()), (4, 3));
+        assert!(square.sealed());
+        assert!(!circle.sealed());
+    }
+}

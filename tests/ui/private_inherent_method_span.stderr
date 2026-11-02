@@ -1,0 +1,14 @@
+error[E0624]: method `radius` is private
+  --> tests/ui/private_inherent_method_span.rs:26:19
+   |
+20 |         fn radius(&self) -> u32;
+   |         ----------------------- private method defined here
+...
+26 |     let _ = shape.radius();
+   |                   ^^^^^^ private method
+   |
+note: the method `radius` exists on the type `Circle`
+  --> tests/ui/private_inherent_method_span.rs:7:9
+   |
+ 7 |         pub fn radius(&self) -> u32 {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^

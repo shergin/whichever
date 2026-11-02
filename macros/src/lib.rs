@@ -12,7 +12,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use proc_macro::TokenStream;
-use proc_macro2::{Group, Punct, Spacing, Span, TokenStream as TokenStream2, TokenTree};
+use proc_macro2::{Delimiter, Group, Punct, Spacing, Span, TokenStream as TokenStream2, TokenTree};
 use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
@@ -91,9 +91,18 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
     }
     let trait_ident = emitted.ident.clone();
     let vis = emitted.vis.clone();
-    // The exported macro lives at the crate root, so its name carries the
-    // trait's text, the position of every token and the call site to keep
-    // same-named traits apart.
+    // A `pub` trait may be dispatched from another crate, which reaches a
+    // `macro_rules!` only through `#[macro_export]`; the macro then lives at
+    // the crate root, so its name carries the trait's text, the position of
+    // every token and the call site to keep same-named traits apart. A trait
+    // of any other visibility cannot leave the crate, so its macro stays a
+    // plain `macro_rules!` in the trait's module, reachable through the
+    // re-export wherever the trait is, and adds nothing to the crate root.
+    let export = if matches!(vis, Visibility::Public(_)) {
+        quote!(#[macro_export])
+    } else {
+        quote!(#[allow(unused_macros)])
+    };
     let mut hasher = DefaultHasher::new();
     captured.to_token_stream().to_string().hash(&mut hasher);
     hash_token_positions(captured.to_token_stream(), &mut hasher);
@@ -111,7 +120,7 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
         #emitted
 
         #[doc(hidden)]
-        #[macro_export]
+        #export
         macro_rules! #macro_name {
             (@v1 $facade:ident $($rest:tt)*) => {
                 ::$facade::__private::implement! { @v1 trait { #captured } $($rest)* }
@@ -124,21 +133,33 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
     })
 }
 
-/// Hashes the position of every token in `tokens`, groups included.
+/// Hashes the file and position of every token in `tokens`, groups included.
 ///
 /// The text alone does not tell apart the same trait emitted twice by one
 /// `macro_rules!` in two modules, and the call site of `#[dispatchable]`
 /// then lies inside the macro's body for both expansions. The tokens the
-/// invocation supplied, usually the trait's name, keep the position they
-/// were written at, so hashing positions keeps the two apart. A trait
+/// invocation supplied, usually the trait's name, keep the file and position
+/// they were written at, so hashing those keeps the two apart. A trait
 /// written out in full in the macro's body is the one case this leaves.
 fn hash_token_positions(tokens: TokenStream2, hasher: &mut DefaultHasher) {
     for tree in tokens {
         let span = tree.span().unwrap();
-        (span.line(), span.column()).hash(hasher);
+        (file_key(&span.file()), span.line(), span.column()).hash(hasher);
         if let TokenTree::Group(group) = tree {
             hash_token_positions(group.stream(), hasher);
         }
+    }
+}
+
+/// Returns the last two components of a source file's path. They tell
+/// `tokio/mod.rs` from `smol/mod.rs` without depending on where the checkout
+/// lives, so the hidden names come out the same on every machine.
+fn file_key(path: &str) -> String {
+    let mut components = path.rsplit(['/', '\\']);
+    let file = components.next().unwrap_or_default();
+    match components.next() {
+        Some(directory) => format!("{directory}/{file}"),
+        None => file.to_owned(),
     }
 }
 
@@ -331,16 +352,74 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let (line, column) = (site.line(), site.column());
     let item = parse_macro_input!(item as Item);
     let expanded = match item {
-        Item::Enum(item_enum) => expand_dispatch(attr.into(), item_enum, line, column),
-        Item::Impl(item_impl) => expand_inherent_invocation(attr.into(), item_impl),
-        other => Err(Error::new_spanned(
-            other,
-            "`#[dispatch]` goes on an enum, or on an inherent impl block of a dispatch enum",
-        )),
+        Item::Enum(item_enum) => {
+            // A rejected enum is still emitted, with its macro, so that its
+            // derives, its uses and its impl blocks resolve and the one real
+            // error is not buried under theirs.
+            let emitted = without_dispatch_attributes(item_enum.clone());
+            let enum_macro = enum_macro(&emitted, true, line, column);
+            expand_dispatch(attr.into(), item_enum, line, column).unwrap_or_else(|error| {
+                let error = error.to_compile_error();
+                quote! { #emitted #enum_macro #error }
+            })
+        }
+        Item::Impl(item_impl) => expand_inherent_invocation(attr.into(), item_impl)
+            .unwrap_or_else(|error| error.to_compile_error()),
+        other => {
+            let error = Error::new_spanned(
+                &other,
+                "`#[dispatch]` goes on an enum, or on an inherent impl block of a dispatch enum",
+            )
+            .to_compile_error();
+            quote! { #other #error }
+        }
     };
-    expanded
-        .unwrap_or_else(|error| error.to_compile_error())
-        .into()
+    expanded.into()
+}
+
+/// Returns `item_enum` without the `#[dispatch]` attributes on the enum and
+/// on its variants.
+fn without_dispatch_attributes(mut item_enum: ItemEnum) -> ItemEnum {
+    item_enum
+        .attrs
+        .retain(|attribute| !is_dispatch_attribute(attribute));
+    for variant in &mut item_enum.variants {
+        variant
+            .attrs
+            .retain(|attribute| !is_dispatch_attribute(attribute));
+    }
+    item_enum
+}
+
+/// Writes the enum's own macro, which carries its definition to `#[dispatch]`
+/// on an impl block. Impl blocks live in the enum's crate, so the macro stays
+/// crate-local and is reached through the alias. `rejected` tells the impl
+/// side that the enum itself was rejected, so it must not report the same
+/// error again.
+fn enum_macro(emitted: &ItemEnum, rejected: bool, line: usize, column: usize) -> TokenStream2 {
+    let enum_ident = &emitted.ident;
+    let mut hasher = DefaultHasher::new();
+    emitted.to_token_stream().to_string().hash(&mut hasher);
+    let macro_name = format_ident!(
+        "__whichever_enum_{}_{:016x}_{}_{}",
+        enum_ident,
+        hasher.finish(),
+        line,
+        column
+    );
+    let rejected = rejected.then(|| quote!(rejected));
+    quote! {
+        #[allow(unused_macros)]
+        macro_rules! #macro_name {
+            (@v1 $facade:ident $($rest:tt)*) => {
+                ::$facade::__private::implement_inherent! { @v1 #rejected enum { #emitted } $($rest)* }
+            };
+        }
+
+        #[doc(hidden)]
+        #[allow(unused_imports)]
+        pub(crate) use #macro_name as #enum_ident;
+    }
 }
 
 fn expand_dispatch(
@@ -378,12 +457,7 @@ fn expand_dispatch(
         .map(variant_info)
         .collect::<Result<Vec<_>>>()?;
     let captured = item_enum.clone();
-    let mut emitted = item_enum;
-    for variant in &mut emitted.variants {
-        variant
-            .attrs
-            .retain(|attribute| !is_dispatch_attribute(attribute));
-    }
+    let emitted = without_dispatch_attributes(item_enum);
     let facade = facade_ident()?;
     let parsed_specs = specs
         .iter()
@@ -403,34 +477,11 @@ fn expand_dispatch(
             #macro_path! { @v1 #facade enum { #captured } spec { #tokens } }
         });
     }
-    // The enum's own macro carries its definition to `#[dispatch]` on an
-    // inherent impl block. Inherent impls live in the enum's crate, so the
-    // macro stays crate-local and is reached through the alias.
-    let enum_ident = &emitted.ident;
-    let mut hasher = DefaultHasher::new();
-    emitted.to_token_stream().to_string().hash(&mut hasher);
-    let enum_macro = format_ident!(
-        "__whichever_enum_{}_{:016x}_{}_{}",
-        enum_ident,
-        hasher.finish(),
-        line,
-        column
-    );
+    let enum_macro = enum_macro(&emitted, false, line, column);
     Ok(quote! {
         #emitted
         #conversions
-
-        #[allow(unused_macros)]
-        macro_rules! #enum_macro {
-            (@v1 $facade:ident $($rest:tt)*) => {
-                ::$facade::__private::implement_inherent! { @v1 enum { #emitted } $($rest)* }
-            };
-        }
-
-        #[doc(hidden)]
-        #[allow(unused_imports)]
-        pub(crate) use #enum_macro as #enum_ident;
-
+        #enum_macro
         #invocations
     })
 }
@@ -1034,27 +1085,78 @@ fn generic_type_args(segment: &PathSegment) -> Vec<&Type> {
     }
 }
 
-fn classify_return(output: &ReturnType, spec: &TraitSpec) -> Result<ReturnShape> {
-    let ReturnType::Type(_, ty) = output else {
-        return Ok(ReturnShape::Plain);
+/// Returns the last segment of a path type without a qualified self, so
+/// that `Result<Self, E>`, `io::Result<Self>` and `core::option::Option<Self>`
+/// are all seen by the name they end in.
+fn last_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(TypePath { qself: None, path }) => path.segments.last(),
+        _ => None,
+    }
+}
+
+/// Returns the `Output` of a return-position `impl Future`: `Some(Some(T))`
+/// for `impl Future<Output = T>` with any further bounds, `Some(None)` for
+/// an `impl Future` without an `Output` binding, and `None` for any other
+/// type.
+fn future_output(ty: &Type) -> Option<Option<&Type>> {
+    let Type::ImplTrait(impl_trait) = ty else {
+        return None;
     };
-    if let Type::ImplTrait(_) = **ty {
+    impl_trait.bounds.iter().find_map(|bound| {
+        let TypeParamBound::Trait(bound) = bound else {
+            return None;
+        };
+        let last = bound.path.segments.last()?;
+        if last.ident != "Future" {
+            return None;
+        }
+        let PathArguments::AngleBracketed(arguments) = &last.arguments else {
+            return Some(None);
+        };
+        Some(arguments.args.iter().find_map(|argument| match argument {
+            GenericArgument::AssocType(assoc) if assoc.ident == "Output" => Some(&assoc.ty),
+            _ => None,
+        }))
+    })
+}
+
+/// Classifies what the arms of a method must do with the payload's result,
+/// and whether the method returns `impl Future`, in which case the arms are
+/// awaited inside one `async` block and the classification applies to the
+/// future's `Output`. `spec` carries the associated type overrides of a
+/// trait; inherent methods have none.
+fn classify_return(output: &ReturnType, spec: Option<&TraitSpec>) -> Result<(ReturnShape, bool)> {
+    let ReturnType::Type(_, ty) = output else {
+        return Ok((ReturnShape::Plain, false));
+    };
+    let (ty, returns_future) = match future_output(ty) {
+        Some(Some(output)) => (output, true),
+        Some(None) => return Ok((ReturnShape::Plain, true)),
+        None => (&**ty, false),
+    };
+    if let Type::ImplTrait(_) = ty {
         return Err(Error::new_spanned(
             ty,
-            "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object",
+            "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
+    Ok((return_shape(ty, spec)?, returns_future))
+}
+
+fn return_shape(ty: &Type, spec: Option<&TraitSpec>) -> Result<ReturnShape> {
+    let overridden = |name: &Ident| spec.is_some_and(|spec| spec.assoc_override(name).is_some());
     if is_self(ty) {
         return Ok(ReturnShape::RewrapSelf);
     }
     if let Some(name) = self_assoc(ty) {
-        return Ok(if spec.assoc_override(name).is_some() {
+        return Ok(if overridden(name) {
             ReturnShape::IntoOverridden
         } else {
             ReturnShape::Plain
         });
     }
-    if let Some(segment) = single_segment(ty) {
+    if let Some(segment) = last_segment(ty) {
         let args = generic_type_args(segment);
         let wraps_self = args.first().is_some_and(|first| is_self(first));
         if (segment.ident == "Option" || segment.ident == "Result") && wraps_self {
@@ -1062,23 +1164,42 @@ fn classify_return(output: &ReturnType, spec: &TraitSpec) -> Result<ReturnShape>
         }
         if segment.ident == "Result" && args.len() == 2 {
             if let Some(name) = self_assoc(args[1]) {
-                if spec.assoc_override(name).is_some() {
+                if overridden(name) {
                     return Ok(ReturnShape::MapErrOverridden);
                 }
             }
         }
     }
+    if mentions_self(ty) {
+        return Err(Error::new_spanned(
+            ty,
+            "this return type mentions `Self` where `whichever` cannot wrap the payload's result back into the enum; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand",
+        ));
+    }
     Ok(ReturnShape::Plain)
+}
+
+/// Returns whether `ty` names the implementing type itself anywhere; the
+/// `Self` of a projection such as `Self::Item` or `<Self as Trait>::Item`
+/// names an associated type instead and does not count.
+fn mentions_self(ty: &Type) -> bool {
+    let mut finder = SelfFinder(false);
+    finder.visit_type(ty);
+    finder.0
 }
 
 struct SelfFinder(bool);
 
 impl<'ast> Visit<'ast> for SelfFinder {
     fn visit_type_path(&mut self, type_path: &'ast TypePath) {
-        if type_path.qself.is_none()
-            && type_path.path.segments.len() == 1
-            && type_path.path.segments[0].ident == "Self"
-        {
+        if let Some(qself) = &type_path.qself {
+            if !is_self(&qself.ty) {
+                self.visit_type(&qself.ty);
+            }
+            self.visit_path(&type_path.path);
+            return;
+        }
+        if type_path.path.segments.len() == 1 && type_path.path.segments[0].ident == "Self" {
             self.0 = true;
         }
         syn::visit::visit_type_path(self, type_path);
@@ -1126,9 +1247,7 @@ fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
     if is_self(inner) {
         return Ok(ArgumentKind::SameVariant(access));
     }
-    let mut finder = SelfFinder(false);
-    finder.visit_type(ty);
-    if finder.0 {
+    if mentions_self(ty) {
         return Err(Error::new_spanned(
             ty,
             "only `Self`, `&Self` and `&mut Self` arguments can be dispatched; this type mentions `Self` elsewhere",
@@ -1216,8 +1335,8 @@ fn expand_method(
         }
         argument_idents.push(ident);
     }
-    let return_shape = classify_return(&signature.output, spec)?;
-    let is_async = signature.asyncness.is_some();
+    let (return_shape, returns_future) = classify_return(&signature.output, Some(spec))?;
+    let is_async = signature.asyncness.is_some() || returns_future;
     let is_unsafe = signature.unsafety.is_some();
     let mismatch = match spec.mismatch_for(&method) {
         Some(expr) => Some(expr.clone()),
@@ -1311,17 +1430,33 @@ fn expand_method(
         quote! { #[inline] }
     };
     let cfgs = cfg_attributes(&function.attrs);
+    let body = method_body(
+        quote! { match #scrutinee { #arms #fallback } },
+        returns_future,
+        method.span(),
+    );
     Ok(quote! {
         #(#cfgs)*
         #inline
         #allow_unreachable
-        #signature {
-            match #scrutinee {
-                #arms
-                #fallback
-            }
-        }
+        #signature #body
     })
+}
+
+/// Wraps a generated `match` into a method body: inside an `async move`
+/// block when the method returns `impl Future`, so that every arm is awaited
+/// where an `async fn` would await it, and in braces carrying the method's
+/// own span, so that the item rustc points at as "defined here" is the
+/// method and not the attribute that generated it.
+fn method_body(body: TokenStream2, returns_future: bool, span: Span) -> TokenStream2 {
+    let body = if returns_future {
+        quote! { async move { #body } }
+    } else {
+        body
+    };
+    let mut group = Group::new(Delimiter::Brace, body);
+    group.set_span(span);
+    TokenTree::Group(group).into()
 }
 
 // ---------------------------------------------------------------------------
@@ -1329,6 +1464,9 @@ fn expand_method(
 // ---------------------------------------------------------------------------
 
 struct InherentInput {
+    /// Whether `#[dispatch]` rejected the enum itself, whose error is then
+    /// already reported.
+    rejected: bool,
     item_enum: ItemEnum,
     item_impl: ItemImpl,
 }
@@ -1343,6 +1481,15 @@ impl Parse for InherentInput {
                 "unsupported `whichever` protocol version",
             ));
         }
+        let rejected = if input.peek(Ident) {
+            let flag: Ident = input.parse()?;
+            if flag != "rejected" {
+                return Err(Error::new_spanned(flag, "expected `rejected`"));
+            }
+            true
+        } else {
+            false
+        };
         input.parse::<Token![enum]>()?;
         let enum_tokens;
         braced!(enum_tokens in input);
@@ -1352,6 +1499,7 @@ impl Parse for InherentInput {
         braced!(impl_tokens in input);
         let item_impl: ItemImpl = impl_tokens.parse()?;
         Ok(Self {
+            rejected,
             item_enum,
             item_impl,
         })
@@ -1442,17 +1590,30 @@ impl Parse for BodylessMethod {
     }
 }
 
+/// Rewrites every marked method of the block. A method that cannot be
+/// forwarded is reported and kept as written, without the attribute, or
+/// dropped when it has no body, so that the rest of the block still
+/// compiles and the real error stands alone. When the enum itself was
+/// rejected nothing is reported here.
 fn expand_inherent(input: InherentInput) -> Result<TokenStream2> {
     let InherentInput {
+        rejected,
         item_enum,
         mut item_impl,
     } = input;
-    let variants = item_enum
-        .variants
-        .iter()
-        .map(variant_info)
-        .collect::<Result<Vec<_>>>()?;
+    let variants = if rejected {
+        None
+    } else {
+        Some(
+            item_enum
+                .variants
+                .iter()
+                .map(variant_info)
+                .collect::<Result<Vec<_>>>()?,
+        )
+    };
     let mut items = Vec::with_capacity(item_impl.items.len());
+    let mut errors: Vec<Error> = vec![];
     for item in std::mem::take(&mut item_impl.items) {
         match item {
             ImplItem::Fn(mut function) => {
@@ -1460,63 +1621,86 @@ fn expand_inherent(input: InherentInput) -> Result<TokenStream2> {
                     items.push(ImplItem::Fn(function));
                     continue;
                 };
-                let forwarding: Forwarding = function.attrs.remove(position).parse_args()?;
-                let generated = forward_method(
-                    function.attrs,
-                    function.vis,
-                    function.sig,
-                    Some(function.block),
-                    forwarding,
-                    &variants,
-                    &item_enum.ident,
-                )?;
-                items.push(ImplItem::Verbatim(generated));
+                let attribute = function.attrs.remove(position);
+                let Some(variants) = &variants else {
+                    items.push(ImplItem::Fn(function));
+                    continue;
+                };
+                let forwarded = attribute.parse_args().and_then(|forwarding| {
+                    forward_method(
+                        &function.attrs,
+                        &function.vis,
+                        &function.sig,
+                        Some(&function.block),
+                        forwarding,
+                        variants,
+                        &item_enum.ident,
+                    )
+                });
+                match forwarded {
+                    Ok(generated) => items.push(ImplItem::Verbatim(generated)),
+                    Err(error) => {
+                        errors.push(error);
+                        items.push(ImplItem::Fn(function));
+                    }
+                }
             }
             ImplItem::Verbatim(tokens) => {
-                let method: BodylessMethod = syn::parse2(tokens.clone()).map_err(|_| {
-                    Error::new_spanned(
+                let Ok(method) = syn::parse2::<BodylessMethod>(tokens.clone()) else {
+                    errors.push(Error::new_spanned(
                         &tokens,
                         "only methods, with or without a body, are forwarded in a `#[dispatch]` impl block",
-                    )
-                })?;
+                    ));
+                    continue;
+                };
                 let BodylessMethod {
                     mut attrs,
                     vis,
                     sig,
                 } = method;
                 let Some(position) = attrs.iter().position(is_dispatch_attribute) else {
-                    return Err(Error::new_spanned(
+                    errors.push(Error::new_spanned(
                         &sig,
                         "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
                     ));
+                    continue;
                 };
-                let forwarding: Forwarding = attrs.remove(position).parse_args()?;
-                let generated = forward_method(
-                    attrs,
-                    vis,
-                    sig,
-                    None,
-                    forwarding,
-                    &variants,
-                    &item_enum.ident,
-                )?;
-                items.push(ImplItem::Verbatim(generated));
+                let attribute = attrs.remove(position);
+                let Some(variants) = &variants else {
+                    continue;
+                };
+                let forwarded = attribute.parse_args().and_then(|forwarding| {
+                    forward_method(
+                        &attrs,
+                        &vis,
+                        &sig,
+                        None,
+                        forwarding,
+                        variants,
+                        &item_enum.ident,
+                    )
+                });
+                match forwarded {
+                    Ok(generated) => items.push(ImplItem::Verbatim(generated)),
+                    Err(error) => errors.push(error),
+                }
             }
             other => items.push(other),
         }
     }
     item_impl.items = items;
-    Ok(item_impl.to_token_stream())
+    let errors = errors.into_iter().map(|error| error.to_compile_error());
+    Ok(quote! { #item_impl #(#errors)* })
 }
 
 /// Writes one forwarded inherent method: a `match` with one arm per selected
 /// variant calling the payload's own method, and the body as the arm for
 /// every other variant.
 fn forward_method(
-    attrs: Vec<Attribute>,
-    vis: Visibility,
-    sig: Signature,
-    body: Option<Block>,
+    attrs: &[Attribute],
+    vis: &Visibility,
+    sig: &Signature,
+    body: Option<&Block>,
     forwarding: Forwarding,
     variants: &[VariantInfo],
     enum_ident: &Ident,
@@ -1524,7 +1708,7 @@ fn forward_method(
     let method = &sig.ident;
     let Some(FnArg::Receiver(receiver)) = sig.inputs.first() else {
         return Err(Error::new_spanned(
-            &sig,
+            sig,
             format!("`{method}` has no receiver, so there is no variant to forward to"),
         ));
     };
@@ -1566,7 +1750,7 @@ fn forward_method(
         || variants
             .iter()
             .all(|variant| forwarding.variants.contains(&variant.ident));
-    match (covers_all, &body) {
+    match (covers_all, body) {
         (true, Some(body)) => {
             return Err(Error::new_spanned(
                 body,
@@ -1575,7 +1759,7 @@ fn forward_method(
         }
         (false, None) => {
             return Err(Error::new_spanned(
-                &sig,
+                sig,
                 format!("`{method}` is forwarded to some variants only; give it a body, which is what the other variants return"),
             ))
         }
@@ -1583,26 +1767,33 @@ fn forward_method(
     }
     let inner = Ident::new("__inner", Span::mixed_site());
     let call_name = forwarding.call.as_ref().unwrap_or(method);
-    let awaited = sig.asyncness.is_some();
+    let (return_shape, returns_future) = classify_return(&sig.output, None)?;
+    let awaited = sig.asyncness.is_some() || returns_future;
     let arms = selected.iter().map(|variant| {
         let VariantInfo { ident, cfgs, .. } = variant;
         let mut call = quote! { #inner.#call_name(#(#arguments),*) };
         if awaited {
             call = quote! { #call.await };
         }
+        // A payload's `Self` comes back as the variant. Without `with`, the
+        // payload's own `Option` or `Result` is mapped; with it, the payload
+        // returns the plain value and `with` lifts the variant into the
+        // declared `Option` or `Result`.
+        call = match (&return_shape, &forwarding.with) {
+            (ReturnShape::MapSelf, None) => quote! { #call.map(Self::#ident) },
+            (ReturnShape::RewrapSelf | ReturnShape::MapSelf, _) => quote! { Self::#ident(#call) },
+            _ => call,
+        };
         if let Some(with) = &forwarding.with {
             call = quote! { #with(#call) };
         }
         quote! { #(#cfgs)* Self::#ident(#inner) => #call, }
     });
     let fallback = body.map(|body| quote! { _ => #body, });
-    Ok(quote! {
-        #(#attrs)*
-        #vis #sig {
-            match #self_token {
-                #(#arms)*
-                #fallback
-            }
-        }
-    })
+    let body = method_body(
+        quote! { match #self_token { #(#arms)* #fallback } },
+        returns_future,
+        method.span(),
+    );
+    Ok(quote! { #(#attrs)* #vis #sig #body })
 }

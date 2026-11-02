@@ -4,7 +4,7 @@ pub trait Shape {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Shape_96d7133919062382_1_1 as Shape;
+pub use __whichever_Shape_6c25e6bfcb1ca68a_1_1 as Shape;
 pub struct Circle(u32);
 pub struct Square(u32);
 impl Shape for Circle {

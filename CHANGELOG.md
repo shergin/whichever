@@ -2,13 +2,37 @@
 
 ## 0.2.2 - Unreleased
 
+- A trait method returning `impl Future<Output = T>`, with `Send` or any
+  other bound, dispatches: the `match` is written in one `async move` block
+  with every arm awaited, so the enum's future is `Send` whenever the
+  payloads' are. The same works for inherent methods. Other return-position
+  `impl Trait` is still rejected, now with a message that names the
+  exception.
+- A trait of any visibility other than `pub` no longer puts an exported
+  macro at the crate root. Its carrier macro stays in the trait's module and
+  is re-exported with the trait's visibility, which is where a `pub(crate)`
+  or private trait can be dispatched from anyway.
 - The hidden macro that `#[dispatchable]` exports is named after the
   position of every token of the trait as well as its text, so one
   `macro_rules!` may emit the same trait in several modules when the
   invocation supplies the trait's name or any other token. Before, both
   expansions got the same name and rustc reported it as defined multiple
-  times. A trait written out in full in the macro's body still collides;
-  the limit is documented.
+  times. The position includes the last two components of the file's path,
+  so two files with the invocation at the same line do not collide either.
+  A trait written out in full in the macro's body still collides; the limit
+  is documented.
+- `Option<Self>` and `Result<Self, E>` returns are recognised under any
+  path, `io::Result<Self>` and `core::option::Option<Self>` included. A
+  `Self` anywhere else in a return type, such as in a user alias, is
+  reported in one sentence on the return type instead of rustc's type
+  mismatch. Inherent methods returning `Self`, `Option<Self>` or
+  `Result<Self, E>` wrap the payload's result back into the variant.
+- A rejected enum is still emitted, with the macro its impl blocks use, so
+  derives, `use` lines and inherent blocks compile and the one real error
+  stands alone. An inherent block keeps the methods that can be forwarded
+  when one of them cannot.
+- rustc notes such as "private method defined here" point at the generated
+  method instead of the enum's attribute.
 
 ## 0.2.1 - 2026-11-02
 
