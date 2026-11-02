@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.2 - Unreleased
+## 0.2.2 - 2026-11-02
 
 - A trait method returning `impl Future<Output = T>`, with `Send` or any
   other bound, dispatches: the `match` is written in one `async move` block
