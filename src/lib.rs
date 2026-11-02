@@ -100,10 +100,12 @@
 //!   type, with the enum itself as the error, so a mismatch hands the value
 //!   back.
 //!
-//! One option goes on a variant: `#[dispatch(deref)]` calls the trait on
-//! what the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T`
-//! and `&mut T` payloads dispatch like a plain `T`. See
-//! [dereferenced payloads](#dereferenced-payloads).
+//! Two options go on a variant. `#[dispatch(from = false)]` leaves the
+//! variant out of the `From` and `TryFrom` impls, for a payload such as
+//! `String` that should not convert into the enum. `#[dispatch(deref)]`
+//! calls the trait on what the payload dereferences to, so `Box<T>`,
+//! `Rc<T>`, `Arc<T>`, `&T` and `&mut T` payloads dispatch like a plain `T`.
+//! See [dereferenced payloads](#dereferenced-payloads).
 //!
 //! Several traits are dispatched by repeating the attribute, one trait per
 //! attribute; a supertrait is just one more attribute:
@@ -321,6 +323,43 @@
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait.
 //!
+//! # Traits from `std` and other crates
+//!
+//! A trait that is not `#[dispatchable]`, because another crate owns it,
+//! is restated once with `remote` naming the real trait. Nothing is emitted
+//! for the restatement but the hidden macro, and dispatching it implements
+//! the real trait, forwarding exactly the methods restated:
+//!
+//! ```
+//! use std::io::{self, Cursor};
+//!
+//! #[whichever::dispatchable(remote = std::io::Write)]
+//! trait Write {
+//!     fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
+//!     fn flush(&mut self) -> io::Result<()>;
+//!     fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
+//! }
+//!
+//! #[whichever::dispatch(Write)]
+//! pub enum Sink {
+//!     Memory(Vec<u8>),
+//!     Cursor(Cursor<Vec<u8>>),
+//! }
+//!
+//! fn main() -> io::Result<()> {
+//!     let mut sink: Sink = Vec::new().into();
+//!     io::Write::write_all(&mut sink, b"hello")?;
+//!     assert!(matches!(sink, Sink::Memory(bytes) if bytes == b"hello"));
+//!     Ok(())
+//! }
+//! ```
+//!
+//! The restatements an enum most often needs ship in [`foreign`]:
+//! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
+//! `BufRead` and `Seek`. `#[dispatch(whichever::foreign::Display)]` on an
+//! error enum replaces the hand-written `match`, and a variant holding a
+//! `String` stays out of the `From` impls with `#[dispatch(from = false)]`.
+//!
 //! # Methods the enum implements itself
 //!
 //! A trait method without a receiver has no variant to dispatch on, and
@@ -419,11 +458,14 @@
 //!   when at least one token of the trait, its name or a method's, comes
 //!   from the invocation. A trait written out in full in the macro's body
 //!   gets the same hidden macro name at every invocation, and rustc reports
-//!   it as defined multiple times.
+//!   it as defined multiple times, unless each invocation passes its own
+//!   `#[dispatchable(name = ..)]`.
 //!
 //! "cannot find macro `Shape` in this scope" at the enum means the trait is
 //! not marked `#[dispatchable]`, or the trait (which carries the macro) is
-//! not imported where the enum is.
+//! not imported where the enum is. A `std::`, `core::` or `alloc::` path in
+//! `#[dispatch]` is reported directly, naming the [`foreign`] declaration
+//! or the `remote` restatement to use instead.
 //!
 //! The crate is `no_std`: the generated code names only `core` items. The
 //! minimum supported Rust version is 1.88.
@@ -432,6 +474,8 @@
 #![deny(missing_docs)]
 
 pub use whichever_macros::{dispatch, dispatchable};
+
+pub mod foreign;
 
 #[doc(hidden)]
 pub mod __private {

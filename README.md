@@ -81,6 +81,7 @@ traits, several traits on one enum) dispatch too.
 | | whichever | enum_dispatch 0.3 | ambassador 0.5 | portrait 0.3 | enum_delegate 0.2 | delegation 0.5 | static-dispatch 0.3 | delegate 0.13 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Trait and enum in different crates | yes | no, silently | yes | yes | yes | yes | yes | yes, signatures re-listed |
+| Traits of `std` or a crate you do not own | yes, `Display`, `io::Read` and more shipped; others restated once | no | yes, restated | - | - | - | - | yes, signatures re-listed |
 | Default methods forwarded | yes | yes | yes | yes | yes | yes | yes | if listed |
 | `Self`, `&Self`, `&mut Self` arguments | yes, with a declared fallback | no | no | no | panics at runtime | no | no | no |
 | `-> Self` | yes | yes | no | no | yes | no | no | with `#[into]` |
@@ -171,9 +172,11 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
   with the enum as the error, so a mismatch hands the value back.
 
-One option goes on a variant. `#[dispatch(deref)]` calls the trait on what
-the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
-`&mut T` payloads dispatch like a plain `T`:
+Two options go on a variant. `#[dispatch(from = false)]` leaves the
+variant out of the `From` and `TryFrom` impls, for a payload such as
+`String` that should not convert into the enum. `#[dispatch(deref)]` calls
+the trait on what the payload dereferences to, so `Box<T>`, `Rc<T>`,
+`Arc<T>`, `&T` and `&mut T` payloads dispatch like a plain `T`:
 
 ```rust
 #[whichever::dispatch(Shape)]
@@ -235,6 +238,56 @@ Option<Self>` calls a `Circle::grown` that returns a `Circle`. The `impl`
 block has to be in the enum's crate, which inherent impls are anyway; a
 bare `#[dispatch]` on an enum registers it for this without dispatching a
 trait.
+
+## Traits from `std` and other crates
+
+`#[dispatch]` reads a trait's signatures from the hidden macro that
+`#[dispatchable]` leaves next to the trait, so a trait from `std` or from a
+crate you do not own cannot be dispatched as it is. Restate it once, with
+`remote` naming the real trait, and dispatch the restatement:
+
+```rust
+#[whichever::dispatchable(remote = std::io::Write)]
+trait Write {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>;
+    fn flush(&mut self) -> std::io::Result<()>;
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()>;
+}
+
+#[whichever::dispatch(Write)] // implements std::io::Write
+pub enum Stream {
+    Tcp(TcpStream),
+    #[cfg(unix)]
+    Unix(UnixStream),
+}
+```
+
+Nothing is emitted for the restatement but the macro, so the name is free
+for `use std::io::Write;` in the same module. Exactly the methods restated
+are forwarded, provided ones included; a changed signature fails to compile
+against the real trait. The restatements an enum most often needs ship in
+[`whichever::foreign`](https://docs.rs/whichever/latest/whichever/foreign/):
+`Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
+`BufRead` and `Seek`, each forwarding every provided method a `match` can
+forward. `#[dispatch(whichever::foreign::Display)]` on an error enum
+replaces the usual hand-written `match`, and the variant that holds a
+`String` keeps `From` away with `#[dispatch(from = false)]`:
+
+```rust
+#[derive(Debug)]
+#[whichever::dispatch(whichever::foreign::Display)]
+#[whichever::dispatch(whichever::foreign::Error)]
+pub enum ClientError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    #[dispatch(from = false)]
+    BadUrl(String),
+}
+```
+
+A method the enum answers differently from every payload, such as
+`Error::source` returning `None` for some variants, goes in a
+[partial impl block](#methods-the-enum-implements-itself).
 
 ## Methods the enum implements itself
 
@@ -301,7 +354,8 @@ be in the enum's crate.
   when at least one token of the trait, its name or a method's, comes from
   the invocation. A trait written out in full in the macro's body gets the
   same hidden macro name at every invocation, and rustc reports it as
-  defined multiple times.
+  defined multiple times, unless each invocation passes its own
+  `#[dispatchable(name = ..)]`.
 
 Every unsupported shape is reported as one sentence on the offending trait
 item or variant; see `tests/ui` for all of them. A rejected enum is still
@@ -310,7 +364,13 @@ one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
 marked `#[dispatchable]`, or the trait, which carries the macro, is not
-imported where the enum is.
+imported where the enum is. A `std::`, `core::` or `alloc::` path in
+`#[dispatch]` is reported directly, with the `whichever::foreign`
+declaration or the `remote` restatement to use instead.
+
+One `macro_rules!` that emits the same `pub` trait, written out in full,
+at two places gets the same hidden macro name twice; `#[dispatchable(name =
+tokio)]` names the macro explicitly and tells the two apart.
 
 ## Compatibility
 

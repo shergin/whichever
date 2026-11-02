@@ -1,6 +1,6 @@
 #[whichever::dispatchable(Kind)]
-trait Value {
-    fn value(&self) -> u32;
+trait Shape {
+    fn area(&self) -> u32;
 }
 
 fn main() {}

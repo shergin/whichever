@@ -48,9 +48,9 @@ fn is_dispatch_attribute(attribute: &Attribute) -> bool {
 /// Makes a trait available to `#[dispatch]`, from this crate or any other.
 ///
 /// The trait is emitted unchanged, except that `#[dispatch(..)]` attributes
-/// on its methods are consumed. The attribute takes no arguments. The only
-/// method option is `mismatch`, which gives the result of a method taking
-/// `Self` arguments when the arguments hold a different variant than `self`:
+/// on its methods are consumed. The only method option is `mismatch`, which
+/// gives the result of a method taking `Self` arguments when the arguments
+/// hold a different variant than `self`:
 ///
 /// ```rust,ignore
 /// #[whichever::dispatchable]
@@ -61,25 +61,82 @@ fn is_dispatch_attribute(attribute: &Attribute) -> bool {
 /// }
 /// ```
 ///
+/// Options:
+/// - `remote = path` declares a trait of another crate: the item is a
+///   restatement of that trait's signatures, nothing is emitted for it but
+///   the hidden macro, and `#[dispatch]` of the declaration implements the
+///   trait at `path`. Only the methods restated are forwarded.
+/// - `name = ident` names the hidden macro after `ident` instead of the
+///   trait's text and position, for a trait that one `macro_rules!` emits
+///   several times with identical tokens.
+///
+/// ```rust,ignore
+/// #[whichever::dispatchable(remote = std::io::Write)]
+/// trait Write {
+///     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>;
+///     fn flush(&mut self) -> std::io::Result<()>;
+///     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()>;
+/// }
+/// ```
+///
 /// The trait's signature types are later written into the dispatching
 /// enum's module, so they must be nameable there; `crate::` paths are
 /// rewritten to this crate, `super::` and `self::` paths are not and must
 /// not be used.
 #[proc_macro_attribute]
 pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
-    if !attr.is_empty() {
-        return Error::new(Span::call_site(), "`#[dispatchable]` takes no arguments")
-            .to_compile_error()
-            .into();
-    }
+    let options = parse_macro_input!(attr as DispatchableOptions);
     let item_trait = parse_macro_input!(item as ItemTrait);
     let site = proc_macro::Span::call_site();
-    expand_dispatchable(item_trait, site.line(), site.column())
+    expand_dispatchable(item_trait, options, site.line(), site.column())
         .unwrap_or_else(|error| error.to_compile_error())
         .into()
 }
 
-fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Result<TokenStream2> {
+/// The options of `#[dispatchable(..)]`.
+struct DispatchableOptions {
+    /// The real path of a trait restated on behalf of another crate.
+    remote: Option<Path>,
+    /// A name for the hidden macro, in place of the trait's text and
+    /// position.
+    name: Option<Ident>,
+}
+
+impl Parse for DispatchableOptions {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut options = Self {
+            remote: None,
+            name: None,
+        };
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            if !input.peek(Token![=]) || !(key == "remote" || key == "name") {
+                return Err(Error::new(
+                    key.span(),
+                    format!("unknown option `{key}`; the options are `remote = path` and `name = ident`"),
+                ));
+            }
+            input.parse::<Token![=]>()?;
+            if key == "remote" {
+                options.remote = Some(input.parse()?);
+            } else {
+                options.name = Some(input.parse()?);
+            }
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+        }
+        Ok(options)
+    }
+}
+
+fn expand_dispatchable(
+    item_trait: ItemTrait,
+    options: DispatchableOptions,
+    line: usize,
+    column: usize,
+) -> Result<TokenStream2> {
     let captured = item_trait.clone();
     let mut emitted = item_trait;
     for item in &mut emitted.items {
@@ -103,19 +160,31 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
     } else {
         quote!(#[allow(unused_macros)])
     };
-    let mut hasher = DefaultHasher::new();
-    captured.to_token_stream().to_string().hash(&mut hasher);
-    hash_token_positions(captured.to_token_stream(), &mut hasher);
-    let macro_name = format_ident!(
-        "__whichever_{}_{:016x}_{}_{}",
-        trait_ident,
-        hasher.finish(),
-        line,
-        column
-    );
+    let macro_name = match &options.name {
+        Some(name) => format_ident!("__whichever_{}_{}", trait_ident, name),
+        None => {
+            let mut hasher = DefaultHasher::new();
+            captured.to_token_stream().to_string().hash(&mut hasher);
+            hash_token_positions(captured.to_token_stream(), &mut hasher);
+            format_ident!(
+                "__whichever_{}_{:016x}_{}_{}",
+                trait_ident,
+                hasher.finish(),
+                line,
+                column
+            )
+        }
+    };
     // The captured tokens expand inside the enum's crate, where `crate::`
     // would name the wrong crate; `$crate` resolves to this crate instead.
     let captured = rewrite_crate_paths(captured.to_token_stream());
+    // A restated trait exists elsewhere; only its macro is emitted here, and
+    // the impl is written for the real path.
+    let remote = options
+        .remote
+        .map(|path| rewrite_crate_paths(path.to_token_stream()))
+        .map(|path| quote!(remote { #path }));
+    let emitted = remote.is_none().then_some(emitted);
     Ok(quote! {
         #emitted
 
@@ -123,7 +192,7 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
         #export
         macro_rules! #macro_name {
             (@v1 $facade:ident $($rest:tt)*) => {
-                ::$facade::__private::implement! { @v1 trait { #captured } $($rest)* }
+                ::$facade::__private::implement! { @v1 trait { #captured } #remote $($rest)* }
             };
         }
 
@@ -489,6 +558,19 @@ fn expand_dispatch(
         .iter()
         .map(|tokens| syn::parse2::<TraitSpec>(tokens.clone()))
         .collect::<Result<Vec<_>>>()?;
+    for path in parsed_specs.iter().filter_map(|spec| spec.path.as_ref()) {
+        // A standard library trait is never `#[dispatchable]`; rustc would
+        // only say that the macro of that name is missing.
+        let first = &path.segments[0].ident;
+        if path.segments.len() > 1 && (first == "std" || first == "core" || first == "alloc") {
+            let spelled = path.to_token_stream().to_string().replace(' ', "");
+            let name = &path.segments.last().expect("checked above").ident;
+            return Err(Error::new_spanned(
+                path,
+                format!("`{spelled}` is not `#[dispatchable]`; dispatch `whichever::foreign::{name}` if it is one of the traits `whichever` declares, or restate the trait with `#[whichever::dispatchable(remote = {spelled})]`"),
+            ));
+        }
+    }
     let generate_from = !parsed_specs.iter().any(|spec| spec.from == Some(false));
     let generate_try_from = parsed_specs.iter().any(|spec| spec.try_from == Some(true));
     let conversions = conversion_impls(&emitted, &variants, generate_from, generate_try_from);
@@ -567,6 +649,8 @@ struct VariantInfo {
     cfgs: Vec<Attribute>,
     /// Whether the trait is called on what the payload dereferences to.
     deref: bool,
+    /// Whether the variant takes part in the `From` and `TryFrom` impls.
+    from: bool,
 }
 
 fn variant_info(variant: &Variant) -> Result<VariantInfo> {
@@ -583,25 +667,32 @@ fn variant_info(variant: &Variant) -> Result<VariantInfo> {
         ));
     }
     let mut deref = false;
+    let mut from = true;
     for attribute in variant
         .attrs
         .iter()
         .filter(|attribute| is_dispatch_attribute(attribute))
     {
-        let option: Ident = attribute.parse_args()?;
-        if option != "deref" {
-            return Err(Error::new_spanned(
-                &option,
-                format!("unknown variant option `{option}`; the only one is `deref`"),
-            ));
-        }
-        deref = true;
+        attribute.parse_nested_meta(|meta| {
+            if meta.path.is_ident("deref") {
+                deref = true;
+            } else if meta.path.is_ident("from") {
+                from = meta.value()?.parse::<LitBool>()?.value;
+            } else {
+                let option = meta.path.to_token_stream();
+                return Err(meta.error(format!(
+                    "unknown variant option `{option}`; the options are `deref` and `from = false`"
+                )));
+            }
+            Ok(())
+        })?;
     }
     Ok(VariantInfo {
         ident: variant.ident.clone(),
         payload: fields.unnamed[0].ty.clone(),
         cfgs: cfg_attributes(&variant.attrs),
         deref,
+        from,
     })
 }
 
@@ -634,9 +725,10 @@ fn conversion_impls(
     let (impl_generics, ty_generics, where_clause) = item_enum.generics.split_for_impl();
     let enum_ident = &item_enum.ident;
     // A payload type held by two variants gets no conversion: the impls
-    // would conflict, and neither variant is the obvious target.
+    // would conflict, and neither variant is the obvious target. A variant
+    // marked `from = false` takes no part at all.
     let mut payload_counts = std::collections::HashMap::<String, usize>::new();
-    for variant in variants {
+    for variant in variants.iter().filter(|variant| variant.from) {
         *payload_counts
             .entry(variant.payload.to_token_stream().to_string())
             .or_default() += 1;
@@ -644,7 +736,7 @@ fn conversion_impls(
     let value = Ident::new("__value", Span::mixed_site());
     let other = Ident::new("__other", Span::mixed_site());
     let mut output = TokenStream2::new();
-    for variant in variants {
+    for variant in variants.iter().filter(|variant| variant.from) {
         let VariantInfo {
             ident,
             payload,
@@ -693,6 +785,9 @@ fn conversion_impls(
 
 struct ImplementInput {
     item_trait: ItemTrait,
+    /// The real path of a trait restated with `remote = ..`, which the impl
+    /// is written for.
+    remote: Option<Path>,
     item_enum: ItemEnum,
     spec: TraitSpec,
     /// The impl block the user wrote, holding the items the enum implements
@@ -714,6 +809,17 @@ impl Parse for ImplementInput {
         let trait_tokens;
         braced!(trait_tokens in input);
         let item_trait: ItemTrait = trait_tokens.parse()?;
+        let remote = if input.peek(Ident) {
+            let tag: Ident = input.parse()?;
+            if tag != "remote" {
+                return Err(Error::new_spanned(tag, "expected `remote`"));
+            }
+            let remote_tokens;
+            braced!(remote_tokens in input);
+            Some(remote_tokens.parse::<Path>()?)
+        } else {
+            None
+        };
         input.parse::<Token![enum]>()?;
         let enum_tokens;
         braced!(enum_tokens in input);
@@ -735,6 +841,7 @@ impl Parse for ImplementInput {
         };
         Ok(Self {
             item_trait,
+            remote,
             item_enum,
             spec,
             partial,
@@ -931,17 +1038,32 @@ impl VisitMut for Substitution {
 fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
         item_trait,
+        remote,
         item_enum,
         mut spec,
         partial,
     } = input;
     let enum_ident = &item_enum.ident;
-    let Some(trait_path) = &spec.path else {
+    let Some(spec_path) = &spec.path else {
         return Err(Error::new(
             Span::call_site(),
             "the trait to implement is missing",
         ));
     };
+    // A restated trait is implemented at its real path, with the generic
+    // arguments the enum named on the declaration's path.
+    let implemented = match remote {
+        Some(mut remote) => {
+            if let (Some(last), Some(named)) =
+                (remote.segments.last_mut(), spec_path.segments.last())
+            {
+                last.arguments = named.arguments.clone();
+            }
+            remote
+        }
+        None => spec_path.clone(),
+    };
+    let trait_path = &implemented;
     // A partial impl block supplies the impl's header and the items the enum
     // implements itself; an associated type written there is an override
     // like the `Name = Type` option.
@@ -1453,6 +1575,7 @@ fn expand_method(
             payload,
             cfgs,
             deref,
+            ..
         } = variant;
         if *deref && matches!(return_shape, ReturnShape::RewrapSelf | ReturnShape::MapSelf) {
             return Err(Error::new_spanned(

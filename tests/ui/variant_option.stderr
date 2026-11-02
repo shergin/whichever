@@ -1,4 +1,4 @@
-error: unknown variant option `boxed`; the only one is `deref`
+error: unknown variant option `boxed`; the options are `deref` and `from = false`
   --> tests/ui/variant_option.rs:16:16
    |
 16 |     #[dispatch(boxed)]

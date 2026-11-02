@@ -9,6 +9,21 @@
   options go on the block's attribute, and an associated type written in
   the block is an override. The enum then leaves that trait out of its own
   attribute.
+- `#[dispatchable(remote = path)]` restates a trait of another crate:
+  nothing is emitted for the restatement but the hidden macro, and
+  dispatching it implements the trait at `path`, forwarding exactly the
+  methods restated. `whichever::foreign` ships such declarations for
+  `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
+  `BufRead` and `Seek`, each forwarding every provided method a `match` can
+  forward. A `std::`, `core::` or `alloc::` path in `#[dispatch]` is now
+  reported with the declaration or the restatement to use.
+- `#[dispatchable(name = ident)]` names the hidden macro explicitly, for a
+  `pub` trait that one `macro_rules!` emits several times with identical
+  tokens.
+- `#[dispatch(from = false)]` on a variant leaves it out of the `From` and
+  `TryFrom` impls.
+- `#[dispatchable]` with an argument that is not an option is reported as
+  such; before, every argument was rejected.
 
 ## 0.2.2 - 2026-11-02
 

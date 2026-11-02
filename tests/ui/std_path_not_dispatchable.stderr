@@ -1,0 +1,5 @@
+error: `std::fmt::Display` is not `#[dispatchable]`; dispatch `whichever::foreign::Display` if it is one of the traits `whichever` declares, or restate the trait with `#[whichever::dispatchable(remote = std::fmt::Display)]`
+ --> tests/ui/std_path_not_dispatchable.rs:9:23
+  |
+9 | #[whichever::dispatch(std::fmt::Display)]
+  |                       ^^^^^^^^^^^^^^^^^
