@@ -3,7 +3,7 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
-use syn::{Error, Ident, ItemImpl, Meta, Result, Type};
+use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Result, Type};
 
 use crate::conversions::conversion_impls;
 use crate::naming;
@@ -177,14 +177,43 @@ fn expand_dispatch(
     })
 }
 
+/// Expands `#[dispatch]` on an impl block. A rejected inherent block is
+/// still emitted, without the method attributes that are this crate's, so
+/// that the methods it declares resolve and the one real error stands
+/// alone. A rejected trait impl block is incomplete without the forwarding,
+/// which rustc would report on top, so it is dropped.
+pub(crate) fn expand_block(attr: TokenStream2, item_impl: ItemImpl) -> TokenStream2 {
+    let kept = item_impl
+        .trait_
+        .is_none()
+        .then(|| without_method_attributes(item_impl.clone()));
+    expand_impl_invocation(attr, item_impl).unwrap_or_else(|error| {
+        let error = error.to_compile_error();
+        quote! { #kept #error }
+    })
+}
+
+/// Returns the block without `#[dispatch]` on its methods, and without the
+/// methods declared without a body, which only a forwarding could give one.
+fn without_method_attributes(mut item_impl: ItemImpl) -> ItemImpl {
+    item_impl
+        .items
+        .retain(|item| !matches!(item, ImplItem::Verbatim(_)));
+    for item in &mut item_impl.items {
+        if let ImplItem::Fn(function) = item {
+            function
+                .attrs
+                .retain(|attribute| !is_dispatch_attribute(attribute));
+        }
+    }
+    item_impl
+}
+
 /// Turns `#[dispatch]` on an impl block into a call of the subject's
 /// carrier, which supplies the subject's definition. An inherent block is
 /// forwarded method by method; a trait impl block is a partial impl, whose
 /// options travel along for the trait's carrier macro.
-pub(crate) fn expand_impl_invocation(
-    attr: TokenStream2,
-    item_impl: ItemImpl,
-) -> Result<TokenStream2> {
+fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<TokenStream2> {
     let Type::Path(self_type) = &*item_impl.self_ty else {
         return Err(Error::new_spanned(
             &item_impl.self_ty,

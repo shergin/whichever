@@ -1,0 +1,5 @@
+error: an associated type or const is fixed with an option after the path, `Name = ..`, not inside it
+  --> tests/ui/assoc_binding_in_path.rs:17:31
+   |
+17 | #[whichever::dispatch(Storage<Error = ()>)]
+   |                               ^^^^^^^^^^

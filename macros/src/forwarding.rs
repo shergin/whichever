@@ -14,8 +14,8 @@ use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature
 
 use crate::options::TraitSpec;
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, Access, ArgumentKind, Conversion,
-    ReceiverKind, ReturnModel, Value, Wrapper,
+    argument_kind, classify_receiver, classify_return, last_segment, Access, ArgumentKind,
+    Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -437,9 +437,17 @@ fn receiver_expression(
             if !target.holds_box() {
                 let ident = &target.ident;
                 let payload = &target.payload;
+                let spelled = payload.to_token_stream().to_string().replace(' ', "");
+                // A payload that already is a `Box` only lacks `deref`.
+                let advice = if last_segment(payload).is_some_and(|segment| segment.ident == "Box")
+                {
+                    format!("add `#[dispatch(deref)]` to `{ident}`")
+                } else {
+                    format!("hold `Box<{spelled}>` in a `#[dispatch(deref)]` variant")
+                };
                 return Err(Error::new_spanned(
                     payload,
-                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{}`; hold `Box<{}>` in a `#[dispatch(deref)]` variant, or implement the method by hand", payload.to_token_stream(), payload.to_token_stream()),
+                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or implement the method by hand"),
                 ));
             }
             Ok(quote!(#binding))

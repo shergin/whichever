@@ -10,11 +10,13 @@ use syn::{
 };
 
 use crate::agreement::{associated_const_check, associated_type_check};
+use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
 use crate::options::{method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
+use crate::shape::takes_self_argument;
 use crate::subject::{cfg_attributes, shape_errors, targets, Entry, Subject};
 use crate::substitution::Substitution;
 
@@ -110,6 +112,51 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         match generated {
             Ok(tokens) => items.extend(tokens),
             Err(error) => errors.push(error),
+        }
+    }
+    // An option naming an item the trait does not have is a typo, which
+    // would otherwise turn into a type error somewhere else.
+    let trait_ident = &trait_path
+        .segments
+        .last()
+        .expect("a path has at least one segment")
+        .ident;
+    let associated: HashSet<String> = item_trait
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            TraitItem::Type(assoc) => Some(assoc.ident.to_string()),
+            TraitItem::Const(constant) => Some(constant.ident.to_string()),
+            _ => None,
+        })
+        .collect();
+    for fixed in &spec.overrides {
+        if !associated.contains(&fixed.name.to_string()) {
+            errors.push(Error::new(
+                fixed.name.span(),
+                format!(
+                    "`{trait_ident}` has no associated type or const `{}`",
+                    fixed.name
+                ),
+            ));
+        }
+    }
+    let deciding: HashSet<String> = item_trait
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            TraitItem::Fn(function) if takes_self_argument(&function.sig) => {
+                Some(function.sig.ident.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    for (method, _) in &spec.mismatch {
+        if !deciding.contains(&method.to_string()) {
+            errors.push(Error::new(
+                method.span(),
+                format!("`{trait_ident}` has no method `{method}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide"),
+            ));
         }
     }
     if let Some(error) = combined(errors) {
@@ -269,16 +316,6 @@ fn associated_const<'a>(
         }
     };
     Ok(quote! { const #name: #ty = #value; })
-}
-
-/// Folds `errors` into the first, so that all of them are reported at once.
-fn combined(errors: Vec<Error>) -> Option<Error> {
-    let mut errors = errors.into_iter();
-    let mut first = errors.next()?;
-    for error in errors {
-        first.combine(error);
-    }
-    Some(first)
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every

@@ -1,0 +1,5 @@
+error: `Error` is given twice
+  --> tests/ui/duplicate_override.rs:17:44
+   |
+17 | #[whichever::dispatch(Storage, Error = (), Error = u8)]
+   |                                            ^^^^^

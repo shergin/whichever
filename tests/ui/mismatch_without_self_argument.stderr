@@ -1,0 +1,5 @@
+error: `mismatch` decides between two different variants, and `area` takes no `Self`, `&Self` or `&mut Self` argument
+ --> tests/ui/mismatch_without_self_argument.rs:5:5
+  |
+5 |     #[dispatch(mismatch = 0)]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^

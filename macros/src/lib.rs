@@ -13,12 +13,22 @@ use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
 
 use crate::block::{expand_inherent, expand_partial};
-use crate::dispatch::{expand_impl_invocation, expand_subject};
+use crate::dispatch::{expand_block, expand_subject};
 use crate::dispatchable::expand_dispatchable;
 use crate::implement::expand_implement;
 use crate::options::DispatchableOptions;
 use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
+
+/// Folds `errors` into the first, so that all of them are reported at once.
+pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
+    let mut errors = errors.into_iter();
+    let mut first = errors.next()?;
+    for error in errors {
+        first.combine(error);
+    }
+    Some(first)
+}
 
 mod agreement;
 mod block;
@@ -180,8 +190,7 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Struct(item_struct) => {
             expand_subject(attr.into(), Subject::Struct(item_struct), line, column)
         }
-        Item::Impl(item_impl) => expand_impl_invocation(attr.into(), item_impl)
-            .unwrap_or_else(|error| error.to_compile_error()),
+        Item::Impl(item_impl) => expand_block(attr.into(), item_impl),
         other => {
             let error = Error::new_spanned(
                 &other,

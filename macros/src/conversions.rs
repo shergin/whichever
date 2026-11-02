@@ -29,14 +29,7 @@ pub(crate) fn conversion_impls(
     // only report conflicting implementations on the attribute.
     if from && converting.len() > 1 {
         for (target, _) in &converting {
-            let Some(ident) = bare_ident(&target.payload) else {
-                continue;
-            };
-            let is_parameter =
-                subject.generics().params.iter().any(
-                    |param| matches!(param, GenericParam::Type(param) if &param.ident == ident),
-                );
-            if is_parameter {
+            if let Some(ident) = type_parameter(subject, target) {
                 return Err(Error::new_spanned(
                     &target.payload,
                     format!("`{ident}` is a type parameter of `{enum_ident}`, so `From<{ident}>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
@@ -76,6 +69,15 @@ pub(crate) fn conversion_impls(
             });
         }
         if conversions.try_from.unwrap_or(try_from) {
+            // `TryFrom<Enum<T>> for T` implements a foreign trait for a type
+            // parameter, which the orphan rules forbid; rustc would report
+            // that on the enum's generics.
+            if let Some(ident) = type_parameter(subject, target) {
+                return Err(Error::new_spanned(
+                    payload,
+                    format!("`{ident}` is a type parameter of `{enum_ident}`, so `TryFrom<{enum_ident}> for {ident}` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant"),
+                ));
+            }
             // The payload is the impl's own type here, so a `Self` it names
             // must be spelled out as the enum.
             let mut outside = payload.clone();
@@ -98,4 +100,16 @@ pub(crate) fn conversion_impls(
         }
     }
     Ok(output)
+}
+
+/// Returns the payload of `target` when it is a bare type parameter of the
+/// subject.
+fn type_parameter<'t>(subject: &Subject, target: &'t Target) -> Option<&'t Ident> {
+    bare_ident(&target.payload).filter(|ident| {
+        subject
+            .generics()
+            .params
+            .iter()
+            .any(|param| matches!(param, GenericParam::Type(param) if &param.ident == *ident))
+    })
 }

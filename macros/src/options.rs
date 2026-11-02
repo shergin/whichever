@@ -150,8 +150,12 @@ impl Parse for DispatchAttribute {
                 let content;
                 parenthesized!(content in input);
                 let pairs = Punctuated::<KeyedExpr, Token![,]>::parse_terminated(&content)?;
-                spec.mismatch
-                    .extend(pairs.into_iter().map(|pair| (pair.key, pair.value)));
+                for pair in pairs {
+                    if spec.mismatch_for(&pair.key).is_some() {
+                        return Err(given_twice(&pair.key));
+                    }
+                    spec.mismatch.push((pair.key, pair.value));
+                }
                 return Ok(());
             }
             if !input.peek(Token![=]) {
@@ -162,14 +166,21 @@ impl Parse for DispatchAttribute {
             }
             input.parse::<Token![=]>()?;
             match key.to_string().as_str() {
+                "from" if switches.from.is_some() => return Err(given_twice(&key)),
+                "try_from" if switches.try_from.is_some() => return Err(given_twice(&key)),
                 "from" => switches.from = Some(Switch::parse(key, input)?),
                 "try_from" => switches.try_from = Some(Switch::parse(key, input)?),
+                _ if spec.is_overridden(&key) => return Err(given_twice(&key)),
                 _ => spec.overrides.push(Override::parse(key, input)?),
             }
             Ok(())
         })?;
         Ok(Self { spec, switches })
     }
+}
+
+fn given_twice(key: &Ident) -> Error {
+    Error::new(key.span(), format!("`{key}` is given twice"))
 }
 
 /// The subject's say on its conversions.
@@ -398,6 +409,12 @@ impl Parse for ForwardingOptions {
                         }
                     }
                 } else {
+                    if forwarding.variants.contains(&ident) {
+                        return Err(Error::new(
+                            ident.span(),
+                            format!("`{ident}` is named twice"),
+                        ));
+                    }
                     forwarding.variants.push(ident);
                 }
             }

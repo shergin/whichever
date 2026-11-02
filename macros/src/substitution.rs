@@ -22,21 +22,21 @@ impl Substitution {
             .segments
             .last()
             .expect("a path has at least one segment");
-        let args: Vec<&GenericArgument> = match &last.arguments {
-            PathArguments::AngleBracketed(arguments) => arguments
-                .args
-                .iter()
-                .filter(|argument| {
-                    !matches!(
+        let mut args: Vec<&GenericArgument> = vec![];
+        if let PathArguments::AngleBracketed(arguments) = &last.arguments {
+            for argument in &arguments.args {
+                if let GenericArgument::AssocType(_)
+                | GenericArgument::AssocConst(_)
+                | GenericArgument::Constraint(_) = argument
+                {
+                    return Err(Error::new_spanned(
                         argument,
-                        GenericArgument::AssocType(_)
-                            | GenericArgument::AssocConst(_)
-                            | GenericArgument::Constraint(_)
-                    )
-                })
-                .collect(),
-            _ => vec![],
-        };
+                        "an associated type or const is fixed with an option after the path, `Name = ..`, not inside it",
+                    ));
+                }
+                args.push(argument);
+            }
+        }
         if args.len() != params.len() {
             return Err(Error::new_spanned(
                 trait_path,

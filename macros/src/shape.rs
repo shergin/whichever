@@ -1,8 +1,8 @@
 //! Classifying the shapes of receivers, arguments and return types.
 use syn::visit::Visit;
 use syn::{
-    Error, GenericArgument, Ident, PathArguments, PathSegment, Receiver, Result, ReturnType, Type,
-    TypeParamBound, TypePath,
+    Error, FnArg, GenericArgument, Ident, PathArguments, PathSegment, Receiver, Result, ReturnType,
+    Signature, Type, TypeParamBound, TypePath,
 };
 
 use crate::options::TraitSpec;
@@ -323,6 +323,20 @@ pub(crate) fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
         ty,
         "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
     ))
+}
+
+/// Returns whether a method takes a `Self`, `&Self` or `&mut Self` argument,
+/// which the generated `match` looks at beside the receiver.
+pub(crate) fn takes_self_argument(signature: &Signature) -> bool {
+    signature.inputs.iter().any(|input| match input {
+        FnArg::Typed(pat_type) => {
+            matches!(
+                argument_kind(&pat_type.ty),
+                Ok(ArgumentKind::SameVariant(_))
+            )
+        }
+        FnArg::Receiver(_) => false,
+    })
 }
 
 pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {

@@ -1,11 +1,13 @@
 //! `#[dispatchable]`: the carrier macro a trait leaves next to itself.
 use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, ToTokens};
-use syn::{ItemTrait, Result, TraitItem, Visibility};
+use syn::{Error, ItemTrait, Result, TraitItem, TraitItemFn, Visibility};
 
+use crate::combined;
 use crate::naming;
-use crate::options::{is_dispatch_attribute, DispatchableOptions};
+use crate::options::{is_dispatch_attribute, method_mismatch, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
+use crate::shape::takes_self_argument;
 
 pub(crate) fn expand_dispatchable(
     item_trait: ItemTrait,
@@ -15,12 +17,24 @@ pub(crate) fn expand_dispatchable(
 ) -> Result<TokenStream2> {
     let captured = item_trait.clone();
     let mut emitted = item_trait;
+    let mut errors = vec![];
     for item in &mut emitted.items {
         if let TraitItem::Fn(function) = item {
+            if let Err(error) = check_method_attributes(function) {
+                errors.push(error);
+            }
             function
                 .attrs
                 .retain(|attribute| !is_dispatch_attribute(attribute));
         }
+    }
+    // A trait with a bad attribute is still emitted, so that its impls
+    // compile; without the carrier, dispatching it reports the missing
+    // macro, which this error explains.
+    if let Some(error) = combined(errors) {
+        let error = error.to_compile_error();
+        let emitted = options.remote.is_none().then_some(&emitted);
+        return Ok(quote! { #emitted #error });
     }
     let trait_ident = emitted.ident.clone();
     let vis = emitted.vis.clone();
@@ -65,6 +79,34 @@ pub(crate) fn expand_dispatchable(
         #[allow(unused_imports)]
         #vis use #name as #trait_ident;
     })
+}
+
+/// Checks a trait method's `#[dispatch(..)]`: one at most, `mismatch = expr`
+/// only, and only on a method with a `Self` argument to decide for.
+fn check_method_attributes(function: &TraitItemFn) -> Result<()> {
+    let mut attributes = function
+        .attrs
+        .iter()
+        .filter(|attribute| is_dispatch_attribute(attribute));
+    let Some(first) = attributes.next() else {
+        return Ok(());
+    };
+    if let Some(second) = attributes.next() {
+        return Err(Error::new_spanned(
+            second,
+            "one `#[dispatch]` attribute per method",
+        ));
+    }
+    if method_mismatch(function)?.is_some() && !takes_self_argument(&function.sig) {
+        return Err(Error::new_spanned(
+            first,
+            format!(
+                "`mismatch` decides between two different variants, and `{}` takes no `Self`, `&Self` or `&mut Self` argument",
+                function.sig.ident
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Replaces every `crate::` path prefix in `tokens` with `$crate::`.
