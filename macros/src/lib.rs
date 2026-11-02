@@ -239,13 +239,20 @@ fn expand_dispatch(first: TokenStream2, mut item_enum: ItemEnum) -> Result<Token
         specs.push(list.tokens.clone());
     }
     item_enum.attrs = kept;
-    let captured = item_enum.clone();
-    let mut emitted = item_enum;
-    for variant in &mut emitted.variants {
-        variant
+    for variant in &item_enum.variants {
+        let option = variant
             .attrs
-            .retain(|attribute| !is_dispatch_attribute(attribute));
+            .iter()
+            .find(|attribute| is_dispatch_attribute(attribute));
+        if let Some(attribute) = option {
+            return Err(Error::new_spanned(
+                attribute,
+                "options on variants are not supported yet",
+            ));
+        }
     }
+    let captured = item_enum.clone();
+    let emitted = item_enum;
     let facade = facade_ident()?;
     let parsed_specs = specs
         .iter()
