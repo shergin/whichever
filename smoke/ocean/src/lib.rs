@@ -210,8 +210,8 @@ impl SwapSmartContractErased for Pool3 {
     }
 }
 
-#[dispatch(SmartContract)]
-#[dispatch(SwapSmartContractErased)]
+#[whichever::dispatch(SmartContract)]
+#[whichever::dispatch(SwapSmartContractErased)]
 #[derive(Debug, Clone)]
 pub enum SwapSmartContractKind {
     Pool2(Pool2),

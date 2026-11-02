@@ -30,6 +30,16 @@ use syn::{
 /// resolved through `proc-macro-crate`.
 const FACADE: &str = "whichever";
 
+/// Returns whether `attribute` is this crate's `dispatch` attribute, written
+/// bare or as `whichever::dispatch`.
+fn is_dispatch_attribute(attribute: &Attribute) -> bool {
+    attribute
+        .path()
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "dispatch")
+}
+
 // ---------------------------------------------------------------------------
 // Trait side
 // ---------------------------------------------------------------------------
@@ -59,7 +69,7 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
         if let TraitItem::Fn(function) = item {
             function
                 .attrs
-                .retain(|attribute| !attribute.path().is_ident("dispatch"));
+                .retain(|attribute| !is_dispatch_attribute(attribute));
         }
     }
     let trait_ident = emitted.ident.clone();
@@ -216,7 +226,7 @@ fn expand_dispatch(first: TokenStream2, mut item_enum: ItemEnum) -> Result<Token
     let mut specs = vec![first];
     let mut kept = vec![];
     for attribute in std::mem::take(&mut item_enum.attrs) {
-        if !attribute.path().is_ident("dispatch") {
+        if !is_dispatch_attribute(&attribute) {
             kept.push(attribute);
             continue;
         }
@@ -234,7 +244,7 @@ fn expand_dispatch(first: TokenStream2, mut item_enum: ItemEnum) -> Result<Token
     for variant in &mut emitted.variants {
         variant
             .attrs
-            .retain(|attribute| !attribute.path().is_ident("dispatch"));
+            .retain(|attribute| !is_dispatch_attribute(attribute));
     }
     let facade = facade_ident()?;
     let parsed_specs = specs
@@ -698,7 +708,7 @@ fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
 /// Returns the `mismatch` expression given on the trait method itself.
 fn method_mismatch(function: &TraitItemFn) -> Result<Option<Expr>> {
     for attribute in &function.attrs {
-        if !attribute.path().is_ident("dispatch") {
+        if !is_dispatch_attribute(attribute) {
             continue;
         }
         let pair: KeyedExpr = attribute.parse_args()?;
