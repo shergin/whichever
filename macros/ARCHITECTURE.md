@@ -1,7 +1,8 @@
 # Architecture of `whichever-macros`
 
 Status: landed. Written 2026-11-02 as a plan against 0.4.0 and carried out
-the same day, stage by stage. Sections 1 and 3 describe the crate as it is,
+the same day, stage by stage; a second round followed from two independent
+reviews of the result. Sections 1 and 3 describe the crate as it is,
 section 2 records what the shape was before, and each stage in section 4
 carries the status line written when it landed.
 
@@ -97,56 +98,72 @@ what became of each point.
 ```
 src/
   lib.rs           crate docs; the four proc-macro entry points; `mod` lines
-  dispatchable.rs  `#[dispatchable]`: options, carrier emission, naming
+  dispatchable.rs  `#[dispatchable]`: the trait's carrier, its method attributes checked
   dispatch.rs      `#[dispatch]` on a subject or an impl block: what is emitted
+  naming.rs        how the carrier macros are named: a fixed hash of text and token positions
   subject.rs       Subject, Target, Place, Entry; reading variants and fields
-  options.rs       every `#[dispatch(..)]` grammar, one parser per position
-  protocol.rs      the `@v1` messages: one struct each, `ToTokens` and `Parse`
+  options.rs       every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar, one struct per position
+  protocol.rs      the `@v1` messages: one struct each, `ToTokens` and `Parse`, and the carrier builder
   implement.rs     `implement!`: the forwarding impl for one trait
-  inherent.rs      `implement_block!`: inherent blocks and partial impl blocks
+  block.rs         `implement_block!`: inherent blocks and partial impl blocks
   forwarding.rs    the engine: a plan per method, arms per target, one renderer
-  shape.rs         classifying receivers, arguments and return types
+  shape.rs         classifying receivers, arguments, return types and generics
   substitution.rs  the trait's generics replaced by the subject's arguments
   agreement.rs     the associated type and const checks
   conversions.rs   `From` and `TryFrom`
 ```
 
-Stage 1 creates the files by moving code; later stages change what is in
-them. `shape.rs` gets unit tests through `parse_quote!`, which the monolith
-made impractical; `substitution.rs` and `options.rs` can follow the same
-pattern.
+Stage 1 created the files by moving code; later stages changed what is in
+them. `shape.rs`, `options.rs` and `protocol.rs` have unit tests through
+`parse_quote!`, which the monolith made impractical; `substitution.rs` can
+follow the same pattern.
 
 ### 3.2 The forwarding engine
 
 One method body is one value:
 
 ```rust
-struct Forwarding {
-    scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, or a tuple with the Self arguments
-    arms: Vec<Arm>,              // one per selected target, cfgs carried
-    fallback: Fallback,          // None | Mismatch(expr) | Body(block) | Unreachable(variants)
-    future: bool,                // wrap in `async move { .. }`
+struct MethodPlan {              // read off the signature once
+    receiver: ReceiverKind,      // Value(access) | Boxed | Pinned(access)
+    self_token: Token![self],    // reused, so the `match` shares its hygiene
+    arguments: Vec<Ident>,       // the bindings after the receiver
+    same_variant: Vec<(usize, Access)>, // the `Self` arguments, matched beside the receiver
+    turbofish: Option<TokenStream>,     // the generics a call spells out when inference could not
+    return_model: ReturnModel,
+    future: bool, awaited: bool, unsafety: bool,
+}
+
+struct ArmContext<'a> {          // what every arm of one method shares
+    callee: Callee<'a>,          // Qualified { trait_path, method } | Method { name }
+    method: &'a Ident, subject: &'a Ident,
+    prefix: Path,                // the subject's name, or `Self`
+    lift: Option<&'a Path>,      // the inherent `with = path`
+    site: Span,                  // the span every written token carries
 }
 
 struct Arm { cfgs: Vec<Attribute>, pattern: TokenStream, value: TokenStream }
 
-struct Call {
-    callee: Callee,              // Qualified { target_type, trait_path } | Method
-    method: Ident,
-    receiver: TokenStream,       // the payload expression handed over as `self`
-    arguments: Vec<TokenStream>,
-    awaited: bool,
-    unsafety: bool,
+struct Forwarding {
+    scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, or a tuple with the Self arguments
+    arms: Vec<Arm>,              // one per selected target, plus the unforwardable ones
+    fallback: Option<Arm>,       // the mismatch arm, or the inherent fallback body
+    future: bool,                // wrap in `async move { .. }`
 }
 ```
 
-Both entry points do the same three things: classify the signature into a
-`MethodPlan` (receiver kind, same-variant arguments, return model, async,
-unsafe), build a `Call` per selected target and run it through the return
-model to get an `Arm`, and hand the `Forwarding` to the one renderer. What
-differs between a trait method and an inherent method becomes data: the
-`Callee`, which targets are selected, the `Fallback`, the `with = path`
-lift, and two policies that are deliberate once named. In a trait method
+Both entry points do the same three things: read the signature into a
+`MethodPlan`, build an `Arm` per selected target with `MethodPlan::arm`
+and the shared `ArmContext`, and hand the `Forwarding` to the one renderer.
+What differs between a trait method and an inherent method becomes data:
+the `Callee`, which also tells the two paths apart and so supplies the way
+out each error message offers, which targets are selected, the fallback,
+the `with = path` lift, and two policies that are deliberate once named.
+`MethodPlan::fallback` writes the arm for two different variants and binds
+again the same-variant arguments the scrutinee moved, so that a `mismatch`
+on the trait method may use them. Every token the engine writes carries the
+context's `site`, the subject's or the method's own span: a proc macro's
+call site inside a carrier's expansion is the trait's attribute, which may
+be in another crate. In a trait method
 `Self` is the implementor, so a `&Self` argument is matched on the same
 variant and needs a mismatch; in an inherent method `Self` is the enum
 itself, so a `&Self` argument is handed to the payload's method as it is,
@@ -183,56 +200,77 @@ two values of it can hold different targets (an enum can, so a `Self`
 argument needs a mismatch arm), whether it has conversions, and the shape
 errors of its unforwardable entries. `from` and `try_from` move from
 `Target` into `Place::Variant`, since only a variant has them. The subject's
-carrier is named `__whichever_subject_..` for both cases.
+carrier is named `__whichever_dispatch_..` for both cases, after the
+attribute that writes it.
 
 ### 3.5 The protocol
 
 `protocol.rs` holds one struct per message, each with `ToTokens` for the
-sender and `Parse` for the receiver, and the grammar in one place:
+sender and `Parse` for the receiver, the one builder both carrier macros
+are written by, and the grammar in one place:
 
 ```
 @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]       sent by #[dispatch] to a trait's carrier
-@v1 trait { <trait> } [remote { <path> }] <the message above>               what the carrier hands implement!
+@v1 trait { <trait> } [remote { <path> }] <the rest of the message above>   what the carrier hands implement!
 @v1 <facade> [partial { <options> }] impl { <block> }                        sent by #[dispatch] to a subject's carrier
-@v1 [rejected] enum { <subject> } <the message above>                        what the carrier hands implement_block!
+@v1 [rejected] facade { <facade> } enum { <subject> } <the rest above>       what the carrier hands implement_block!
 ```
 
-The trait's carrier is compiled into the trait's crate and read by whatever
-version of this crate the subject's crate builds with, so the first two
-lines are a compatibility surface: a segment is only ever added, optional,
-and `v1` becomes `v2` when a segment changes meaning or order. The
-subject's carrier never leaves its crate. `implement_inherent!` is renamed
-`implement_block!`; the name `implement!` cannot change.
+The options travel typed: a `TraitRequest` carries a `TraitSpec`, a
+`BlockRequest` the partial block's options, parsed and checked at the
+attribute. The trait's carrier is compiled into the trait's crate and read
+by whatever version of this crate the subject's crate builds with, so the
+first two lines are a compatibility surface. Between two keywords a message
+is a run of segments, `tag` or `tag { .. }`; a segment is only ever added,
+and the readers skip a tag they do not know, so an older reader accepts a
+newer carrier, which a unit test and a behaviour test with a carrier of the
+0.4.0 shape pin. `v1` becomes `v2` when a segment changes meaning or order.
+The subject's carrier never leaves its crate and forwards the facade's
+name, so a partial impl needs no second lookup. The facade pins the macros
+crate exactly: `__private` and the generated code are one interface.
+`implement_inherent!` is renamed `implement_block!`; the name `implement!`
+cannot change.
 
 ### 3.6 Options
 
 `options.rs` owns every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar,
-one typed struct per position: the trait attribute on a subject, the
-subject-level switches, a variant or field, an inherent method, a partial
-block. The right-hand side of `Name = ..` stays a `TokenStream` until
-`implement!` knows whether `Name` is an associated type or const, and is
-parsed as a `Type` or an `Expr` then. Subject-level `from` and `try_from`
-are read where the subject is expanded and are not sent through the
-carrier. Each struct validates itself once; the three scattered checks go.
+one typed struct per position. On a subject the attribute is a
+`DispatchAttribute`: a `TraitSpec`, the trait's path and options, which is
+what travels to `implement!` and what a partial block's attribute holds,
+beside the `Switches`, the subject's `from` and `try_from`, each with the
+span it was written at, read where the subject is expanded and never sent.
+The right-hand side of `Name = ..` stays a `TokenStream` until `implement!`
+knows whether `Name` is an associated type or const, and is parsed as a
+`Type` or an `Expr` then. The grammar rejects an option or a variant given
+twice; `implement!` rejects an override or a `mismatch` naming nothing in
+the trait; `#[dispatchable]` rejects a method attribute that is not one
+`mismatch = ..` on a method with a `Self` argument.
 
 ### 3.7 Carrier naming
 
-The hash becomes FNV-1a over the trait's text and token positions, written
-in the crate, so the name is stable by construction rather than by the
+The hash is FNV-1a over the trait's text and token positions, written out
+in `naming.rs`, so the name is stable by construction rather than by the
 accident of one compiler per build. Token positions stay in the name, and
-with them the 1.88 minimum, which the crate docs then state as the reason.
+with them the 1.88 minimum.
 
 ### 3.8 Diagnostics policy
 
 Every generator collects errors with `syn::Error::combine` and reports all
-of them; a rejected subject is still emitted, as today. A trait method's
-parameter keeps its own name when its pattern is a plain identifier and gets
-`__argument<n>` otherwise, so expansions read like the trait, and a
-`mismatch` expression written on the trait method may name the arguments.
-One written on the enum cannot: the trait's tokens reach the enum through
-a `macro_rules!` body and carry its hygiene, while the enum's attribute
-carries the enum's, which is also why the generated `match` reuses the
-receiver's own `self` token.
+of them. The two paths then differ on purpose: the trait path withholds
+the impl, since an impl missing items would draw a second error from rustc
+and the user is about to fix the trait or the enum anyway; the inherent
+path keeps the block and the methods it could forward, since they stand on
+their own. A rejected subject is still emitted, and so is a rejected
+inherent block. A trait method's parameter keeps its own name when its
+pattern is a plain identifier and gets `__argument<n>` otherwise, so
+expansions read like the trait, and a `mismatch` expression written on the
+trait method may name the arguments, a moved `Self` argument included,
+which the fallback arm binds again. One written on the enum cannot: the
+trait's tokens reach the enum through a `macro_rules!` body and carry its
+hygiene, while the enum's attribute carries the enum's, which is also why
+the generated `match` reuses the receiver's own `self` token. Errors rustc
+finds in generated code land on the enum or on the trait method, never on
+the trait's attribute.
 
 ## 4. Plan
 
@@ -332,6 +370,54 @@ file's entry for the implementation macros still names
 `implement_inherent!`; it is being edited outside this branch and gets the
 new name when the two meet.
 
+### Round two
+
+After stage 7 two reviews read the result fresh, one the design and one
+the behaviour through probe crates; their findings, consolidated, landed in
+five more commits, each through the same gate.
+
+### Stage 8: structure
+
+Status: landed. The protocol's option fields are typed, its readers skip
+unknown segments, and the subject's carrier forwards the facade; carrier
+names live in `naming.rs`; `inherent.rs` is `block.rs`; `Arms` is
+`ArmContext`, with the hints derived from the `Callee`; the rendering
+helpers left `shape.rs`; `ImplHeader` names the impl's header; three
+duplications went; the facade pins the macros crate exactly. Two
+compile-fail snapshots narrowed to the switch they report.
+
+### Stage 9: validation
+
+Status: landed. Eight shapes that passed silently or reached rustc badly
+are one sentence each, a rejected inherent block keeps its methods, and the
+`Box<Self>` message spells the payload as written. Nine compile-fail cases.
+
+### Stage 10: generated code
+
+Status: landed. `unsafe trait` gives `unsafe impl`; a method's own
+`#[inline(..)]` is carried; a generic method is called with its parameters
+spelled out when no argument fixes them; the associated items come from the
+first variant without a `#[cfg]`, with an error when there is none, and an
+associated item under `#[cfg]` stays under it; the fallback arm rebinds
+moved `Self` arguments; the impl header and every engine token carry the
+subject's or the method's span. Two goldens, three behaviour tests, one
+compile-fail case; two existing snapshots moved from the trait's attribute
+to the enum or the method.
+
+### Stage 11: tests
+
+Status: landed. Kept parameter names under every name the engine uses, a
+carrier of the 0.4.0 shape read by the new reader, an inherent block on a
+struct, a partial block over a `foreign` declaration, the enum-side
+`mismatch` hygiene boundary, and unit tests for `protocol.rs`,
+`options.rs` and `shape.rs`.
+
+### Stage 12: record
+
+Status: landed. The README's `foreign::Error` example, which did not
+compile, the semantics tables, the `mismatch` hygiene note, the changelog
+and this file.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
@@ -341,7 +427,7 @@ new name when the two meet.
   method's own `self` token; `#[cfg]` is carried onto arms and methods.
 - Nothing is kept between expansions.
 - `implement!` keeps its name and accepts every `@v1` message a 0.x carrier
-  emits.
+  emits; the facade and the macros crate move as one version.
 - A rejected subject is still emitted, with its carrier, so the code around
   it compiles.
 - The facade stays `no_std` and dependency-free; the minimum Rust version
@@ -363,3 +449,14 @@ new name when the two meet.
 - A trait parameter with two or more bounds leaves `Arg::Assoc` unqualified
   and rustc reports E0223. A whichever error naming the parameter is a
   small addition to `substitution.rs` once it has unit tests.
+- An enum with two partial impl blocks, or a dispatched trait and a partial
+  block, reports an unforwardable variant once per block. Nothing stateless
+  can tell the blocks apart; the duplicate is left.
+- Under `*`, an unforwardable variant and a body give two errors in turn,
+  "the body would never run" and then the arm's. Reading `*` as "every
+  forwardable variant" with the body for the rest would be one; a design
+  call for later.
+- The trait path withholds the impl on an error where the inherent path
+  keeps the block. Emitting the impl with the failing methods left out
+  would trade the cascade at call sites for one E0046 from rustc; the
+  present choice keeps every compile-fail output to the whichever errors.

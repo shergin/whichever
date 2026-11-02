@@ -124,7 +124,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `try_from = true`: a `TryFrom<Enum> for Payload` impl per payload type,
 ///   returning the enum unchanged when it holds another variant.
 ///
-/// Two options go on a variant. `#[dispatch(deref)]` calls the trait on what
+/// Three options go on a variant. `#[dispatch(deref)]` calls the trait on what
 /// the payload dereferences to, for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
 /// `&mut T` payloads; such a variant cannot take part in a method that
 /// returns `Self`. `#[dispatch(from = false)]` leaves the variant out of the
