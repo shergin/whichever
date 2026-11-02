@@ -332,3 +332,105 @@ fn missing(segment: &str) -> Error {
         format!("the request has no `{segment}` segment"),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn subject() -> Subject {
+        Subject::Enum(parse_quote!(
+            enum Any {
+                A(A),
+            }
+        ))
+    }
+
+    /// The tokens a carrier sees: a request without its `@v1 <facade>`.
+    fn rest_of(request: impl ToTokens) -> TokenStream2 {
+        request.to_token_stream().into_iter().skip(3).collect()
+    }
+
+    #[test]
+    fn a_trait_request_reads_back_behind_its_carried_trait() {
+        let facade: Ident = parse_quote!(whichever);
+        let subject = subject();
+        let spec: TraitSpec = syn::parse_str("Trait, Error = X").unwrap();
+        let block: ItemImpl = parse_quote!(
+            impl Trait for Any {
+                fn make() -> Self {
+                    todo!()
+                }
+            }
+        );
+        let request = TraitRequest {
+            facade: &facade,
+            subject: &subject,
+            spec: &spec,
+            partial: Some(&block),
+        };
+        let trait_tokens = quote!(
+            pub trait Trait {
+                type Error;
+                fn make() -> Self;
+            }
+        );
+        let remote = quote!(::other::Trait);
+        let carried = CarriedTrait {
+            tokens: &trait_tokens,
+            remote: Some(&remote),
+        };
+        let rest = rest_of(request);
+        let input: ImplementInput = syn::parse2(quote!(#carried #rest)).unwrap();
+        assert_eq!(input.item_trait.ident, "Trait");
+        assert_eq!(
+            input.remote.map(|path| path.to_token_stream().to_string()),
+            Some(remote.to_string())
+        );
+        assert_eq!(input.subject.ident(), "Any");
+        assert!(input.spec.is_overridden(&parse_quote!(Error)));
+        assert_eq!(input.partial.map(|block| block.items.len()), Some(1));
+    }
+
+    #[test]
+    fn a_block_request_reads_back_behind_its_carried_subject() {
+        let facade: Ident = parse_quote!(wh);
+        let block: ItemImpl = parse_quote!(
+            impl Any {
+                fn plain(&self) {}
+            }
+        );
+        let spec: TraitSpec = syn::parse_str("Error = X").unwrap();
+        let request = BlockRequest {
+            facade: &facade,
+            partial: Some(&spec),
+            block: &block,
+        };
+        let rest = rest_of(request);
+        let subject = subject();
+        // What `CarriedSubject` writes, with the carrier's `$facade` filled in.
+        let message = quote!(@v1 rejected facade { wh } enum { #subject } #rest);
+        let input: BlockInput = syn::parse2(message).unwrap();
+        assert!(input.rejected);
+        assert_eq!(input.facade, "wh");
+        assert!(input
+            .partial
+            .is_some_and(|spec| spec.is_overridden(&parse_quote!(Error))));
+        assert_eq!(input.item_impl.items.len(), 1);
+    }
+
+    #[test]
+    fn unknown_segments_are_skipped_and_a_wrong_version_is_not() {
+        let subject = subject();
+        let newer = quote! {
+            @v1 trait { trait T { fn f(&self); } } later { 1 } enum { #subject } spec { T } someday
+        };
+        assert!(syn::parse2::<ImplementInput>(newer).is_ok());
+        let other_version = quote!(@v2 trait { trait T {} } enum { #subject } spec { T });
+        assert!(syn::parse2::<ImplementInput>(other_version).is_err());
+        let without_spec = quote!(@v1 trait { trait T {} } enum { #subject });
+        assert!(syn::parse2::<ImplementInput>(without_spec).is_err());
+    }
+}

@@ -469,3 +469,92 @@ impl Parse for DispatchableOptions {
         Ok(options)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn attribute(tokens: &str) -> DispatchAttribute {
+        syn::parse_str(tokens).expect("a valid attribute")
+    }
+
+    #[test]
+    fn an_override_reaches_as_far_as_a_type_or_a_value_does() {
+        let attribute = attribute(
+            "T, N = -1, S = \"s\", R = (A, B), E = Result<A, B>, F = Foo::<T>::bar(), L = [u8; 4]",
+        );
+        let fixed = |name: &str| {
+            let name: Ident = syn::parse_str(name).unwrap();
+            attribute.spec.override_for(&name).expect("an override")
+        };
+        assert_eq!(attribute.spec.overrides.len(), 6);
+        assert!(fixed("N").as_value().is_ok());
+        assert!(fixed("N").as_type().is_err());
+        assert!(fixed("S").as_value().is_ok());
+        assert!(
+            fixed("R").as_value().is_ok(),
+            "a tuple of paths reads as a value"
+        );
+        assert!(fixed("R").as_type().is_ok());
+        assert!(
+            fixed("E").as_type().is_ok(),
+            "the comma inside `Result<A, B>` is the type's"
+        );
+        assert!(fixed("F").as_value().is_ok());
+        assert!(fixed("L").as_type().is_ok());
+    }
+
+    #[test]
+    fn the_path_is_optional_and_the_switches_are_the_subjects() {
+        let switches_only = attribute("from = false, try_from = true");
+        assert!(switches_only.spec.path.is_none());
+        assert_eq!(
+            switches_only.switches.from.as_ref().map(Switch::value),
+            Some(false)
+        );
+        assert_eq!(
+            switches_only.switches.try_from.as_ref().map(Switch::value),
+            Some(true)
+        );
+        let with_path = attribute("a::Trait<X>, mismatch(same = false, other = 1)");
+        assert!(with_path.spec.path.is_some());
+        assert_eq!(with_path.spec.mismatch.len(), 2);
+        assert!(
+            syn::parse_str::<TraitSpec>("Trait, from = false").is_err(),
+            "a trait's options alone take no switch"
+        );
+        assert!(syn::parse_str::<DispatchAttribute>("Trait, Error = A, Error = B").is_err());
+        assert!(syn::parse_str::<DispatchAttribute>("Trait, from = false, from = true").is_err());
+        assert!(syn::parse_str::<DispatchAttribute>("Trait, bogus").is_err());
+    }
+
+    #[test]
+    fn forwarding_names_variants_or_everything() {
+        let options: ForwardingOptions =
+            syn::parse_str("Circle, Square, with = Some, call = r").unwrap();
+        assert_eq!(options.variants.len(), 2);
+        assert!(options.with.is_some() && options.call.is_some() && !options.all);
+        assert!(syn::parse_str::<ForwardingOptions>("*").unwrap().all);
+        assert!(syn::parse_str::<ForwardingOptions>("*, Circle").is_err());
+        assert!(syn::parse_str::<ForwardingOptions>("Circle, Circle").is_err());
+        assert!(syn::parse_str::<ForwardingOptions>("with = Some").is_err());
+    }
+
+    #[test]
+    fn target_options_differ_between_a_variant_and_a_field() {
+        let attributes: Vec<Attribute> = vec![
+            parse_quote!(#[dispatch(deref, from = false)]),
+            parse_quote!(#[dispatch(try_from = true)]),
+        ];
+        let variant = TargetOptions::read(&attributes, true).unwrap();
+        assert!(variant.deref && !variant.from && variant.try_from == Some(true));
+        assert!(
+            TargetOptions::read(&attributes, false).is_err(),
+            "a field takes `deref` only"
+        );
+        let bare: Vec<Attribute> = vec![parse_quote!(#[dispatch])];
+        assert!(TargetOptions::read(&bare, false).unwrap().from);
+    }
+}

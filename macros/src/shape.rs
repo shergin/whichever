@@ -486,4 +486,94 @@ mod tests {
         assert!(model(parse_quote!(Result<u32, Self>), None).is_err());
         assert!(model(parse_quote!(Option<Option<Self>>), None).is_err());
     }
+
+    #[test]
+    fn receivers_are_classified_by_their_type() {
+        let receiver = |receiver: Receiver| classify_receiver(&receiver);
+        assert!(matches!(
+            receiver(parse_quote!(&self)),
+            Ok(ReceiverKind::Value(Access::Shared))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(&mut self)),
+            Ok(ReceiverKind::Value(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self)),
+            Ok(ReceiverKind::Value(Access::Owned))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Box<Self>)),
+            Ok(ReceiverKind::Boxed)
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Pin<&mut Self>)),
+            Ok(ReceiverKind::Pinned(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Pin<&Self>)),
+            Ok(ReceiverKind::Pinned(Access::Shared))
+        ));
+        assert!(receiver(parse_quote!(self: Rc<Self>)).is_err());
+    }
+
+    #[test]
+    fn self_arguments_are_told_from_the_rest() {
+        assert!(matches!(
+            argument_kind(&parse_quote!(&Self)),
+            Ok(ArgumentKind::SameVariant(Access::Shared))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(&mut Self)),
+            Ok(ArgumentKind::SameVariant(Access::Exclusive))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(Self)),
+            Ok(ArgumentKind::SameVariant(Access::Owned))
+        ));
+        assert!(matches!(
+            argument_kind(&parse_quote!(u32)),
+            Ok(ArgumentKind::Plain)
+        ));
+        assert!(argument_kind(&parse_quote!(Option<&Self>)).is_err());
+    }
+
+    #[test]
+    fn futures_are_awaited_and_other_opaque_returns_are_limits() {
+        let returns = |output: ReturnType| classify_return(&output, None);
+        let (model, future) = returns(parse_quote!(-> impl Future<Output = Self> + Send)).unwrap();
+        assert!(future);
+        assert_eq!(model.value, Value::Rewrap);
+        let (model, future) = returns(parse_quote!(-> impl Future)).unwrap();
+        assert!(future);
+        assert_eq!(model, ReturnModel::PLAIN);
+        assert!(returns(parse_quote!(-> impl Iterator<Item = u32>)).is_err());
+        let (_, future) = returns(parse_quote!()).unwrap();
+        assert!(!future);
+    }
+
+    #[test]
+    fn a_turbofish_is_written_only_when_no_argument_fixes_a_parameter() {
+        let spelled = |signature: Signature| turbofish(&signature).map(|tokens| tokens.to_string());
+        assert_eq!(
+            spelled(parse_quote!(fn parse<T: FromStr>(&self) -> Option<T>)),
+            Some(quote!(::<T>).to_string())
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32)),
+            None
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn zeros<const N: usize>(&self) -> [u8; N])),
+            Some(quote!(::<N>).to_string())
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn pick<'a, T>(&'a self, from: &'a [T]) -> &'a T)),
+            None
+        );
+        assert_eq!(
+            spelled(parse_quote!(fn both<T, U>(&self, t: T) -> U)),
+            Some(quote!(::<T, U>).to_string())
+        );
+    }
 }

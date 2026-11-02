@@ -2668,3 +2668,201 @@ mod mismatch_with_moved_arguments {
         assert_eq!((a, other), (Any::A(A(5)), Any::A(A(0))));
     }
 }
+
+// The trait's parameter names are kept in the generated impl, whatever they
+// are: the engine's own bindings are hygienic and cannot collide with them.
+mod kept_parameter_names {
+    #[whichever::dispatchable]
+    pub trait Mixer {
+        #[allow(clippy::too_many_arguments)]
+        fn mix(
+            &self,
+            __inner: u32,
+            __same0: u32,
+            __value: u32,
+            __other: u32,
+            __argument0: u32,
+            inner: u32,
+        ) -> u32;
+        fn pair(&self, (a, b): (u32, u32), _: u32, mut rest: u32) -> u32 {
+            rest += a + b;
+            rest
+        }
+        #[dispatch(mismatch = __inner + inner)]
+        fn beside(&self, __inner: u32, other: &Self, inner: u32) -> u32;
+    }
+
+    pub struct Sum;
+    pub struct Zero;
+
+    impl Mixer for Sum {
+        fn mix(
+            &self,
+            __inner: u32,
+            __same0: u32,
+            __value: u32,
+            __other: u32,
+            __argument0: u32,
+            inner: u32,
+        ) -> u32 {
+            __inner + __same0 + __value + __other + __argument0 + inner
+        }
+        fn beside(&self, __inner: u32, _other: &Self, inner: u32) -> u32 {
+            __inner * inner
+        }
+    }
+
+    impl Mixer for Zero {
+        fn mix(&self, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32) -> u32 {
+            0
+        }
+        fn beside(&self, _: u32, _: &Self, _: u32) -> u32 {
+            0
+        }
+    }
+
+    #[whichever::dispatch(Mixer)]
+    pub enum Any {
+        Sum(Sum),
+        Zero(Zero),
+    }
+
+    #[test]
+    fn every_name_forwards() {
+        let sum = Any::Sum(Sum);
+        assert_eq!(sum.mix(1, 2, 3, 4, 5, 6), 21);
+        assert_eq!(sum.pair((1, 2), 9, 3), 6);
+        assert_eq!(sum.beside(2, &Any::Sum(Sum), 3), 6);
+        assert_eq!(sum.beside(2, &Any::Zero(Zero), 3), 5);
+    }
+}
+
+// The carrier that the `#[dispatchable]` of 0.4.0 wrote, next to a trait
+// written by hand: `implement!` keeps reading the message of that release.
+mod a_carrier_of_an_older_release {
+    pub trait Size {
+        fn size(&self) -> usize;
+    }
+
+    #[allow(unused_macros)]
+    macro_rules! __whichever_Size_of_0_4_0 {
+        (@v1 $facade:ident $($rest:tt)*) => {
+            ::$facade::__private::implement! {
+                @v1 trait { pub trait Size { fn size(&self) -> usize; } } $($rest)*
+            }
+        };
+    }
+
+    #[allow(unused_imports)]
+    pub(crate) use __whichever_Size_of_0_4_0 as Size;
+
+    pub struct Fixed(pub usize);
+
+    impl Size for Fixed {
+        fn size(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[whichever::dispatch(Size)]
+    pub enum Any {
+        Fixed(Fixed),
+    }
+
+    #[test]
+    fn it_is_still_read() {
+        assert_eq!(Any::Fixed(Fixed(3)).size(), 3);
+    }
+}
+
+// An inherent block forwards on a struct as on an enum, under `*` or the
+// field's name.
+mod inherent_block_on_a_struct {
+    pub struct Circle(pub u32);
+
+    impl Circle {
+        pub fn radius(&self) -> u32 {
+            self.0
+        }
+        pub fn describe(&self) -> String {
+            format!("circle {}", self.0)
+        }
+    }
+
+    #[whichever::dispatch]
+    pub struct Labelled {
+        #[dispatch]
+        shape: Circle,
+        pub label: &'static str,
+    }
+
+    #[whichever::dispatch]
+    impl Labelled {
+        #[dispatch(*)]
+        pub fn radius(&self) -> u32;
+
+        #[dispatch(shape, call = describe)]
+        pub fn text(&self) -> String;
+    }
+
+    #[test]
+    fn the_field_answers() {
+        let labelled = Labelled {
+            shape: Circle(2),
+            label: "a",
+        };
+        assert_eq!(labelled.radius(), 2);
+        assert_eq!(labelled.text(), "circle 2");
+        assert_eq!(labelled.label, "a");
+    }
+}
+
+// A partial impl block over a `foreign` declaration: `source` is the enum's
+// own, and `Display` is forwarded to the payload.
+mod partial_block_over_a_foreign_trait {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    pub struct Io;
+
+    impl fmt::Display for Io {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("io")
+        }
+    }
+
+    impl Error for Io {}
+
+    #[derive(Debug)]
+    pub struct Parse;
+
+    impl fmt::Display for Parse {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("parse")
+        }
+    }
+
+    impl Error for Parse {}
+
+    #[derive(Debug)]
+    #[whichever::dispatch(whichever::foreign::Display)]
+    pub enum Failure {
+        Io(Io),
+        Parse(Parse),
+    }
+
+    #[whichever::dispatch]
+    impl whichever::foreign::Error for Failure {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            None
+        }
+    }
+
+    #[test]
+    fn display_is_forwarded_and_source_is_the_enums() {
+        let failure: Failure = Parse.into();
+        assert_eq!(failure.to_string(), "parse");
+        assert!(Error::source(&failure).is_none());
+    }
+}
