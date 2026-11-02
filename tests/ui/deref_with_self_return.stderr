@@ -1,0 +1,5 @@
+error: `scaled` returns `Self`, which cannot be wrapped back into the dereferenced payload of variant `Boxed`; drop `deref` on it or implement the method by hand
+  --> tests/ui/deref_with_self_return.rs:17:11
+   |
+17 |     Boxed(Box<Square>),
+   |           ^^^^^^^^^^^

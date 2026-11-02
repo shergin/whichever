@@ -282,19 +282,15 @@ fn expand_dispatch(first: TokenStream2, mut item_enum: ItemEnum) -> Result<Token
     }
     item_enum.attrs = kept;
     for variant in &item_enum.variants {
-        let option = variant
-            .attrs
-            .iter()
-            .find(|attribute| is_dispatch_attribute(attribute));
-        if let Some(attribute) = option {
-            return Err(Error::new_spanned(
-                attribute,
-                "options on variants are not supported yet",
-            ));
-        }
+        variant_info(variant)?;
     }
     let captured = item_enum.clone();
-    let emitted = item_enum;
+    let mut emitted = item_enum;
+    for variant in &mut emitted.variants {
+        variant
+            .attrs
+            .retain(|attribute| !is_dispatch_attribute(attribute));
+    }
     let facade = facade_ident()?;
     let parsed_specs = specs
         .iter()
@@ -337,6 +333,8 @@ struct VariantInfo {
     ident: Ident,
     payload: Type,
     cfgs: Vec<Attribute>,
+    /// Whether the trait is called on what the payload dereferences to.
+    deref: bool,
 }
 
 fn variant_info(variant: &Variant) -> Result<VariantInfo> {
@@ -352,11 +350,38 @@ fn variant_info(variant: &Variant) -> Result<VariantInfo> {
             "a dispatch variant must hold exactly one payload",
         ));
     }
+    let mut deref = false;
+    for attribute in variant
+        .attrs
+        .iter()
+        .filter(|attribute| is_dispatch_attribute(attribute))
+    {
+        let option: Ident = attribute.parse_args()?;
+        if option != "deref" {
+            return Err(Error::new_spanned(
+                &option,
+                format!("unknown variant option `{option}`; the only one is `deref`"),
+            ));
+        }
+        deref = true;
+    }
     Ok(VariantInfo {
         ident: variant.ident.clone(),
         payload: fields.unnamed[0].ty.clone(),
         cfgs: cfg_attributes(&variant.attrs),
+        deref,
     })
+}
+
+/// Returns the type the trait is called on for `variant`: its payload, or
+/// what the payload dereferences to.
+fn target_type(variant: &VariantInfo) -> TokenStream2 {
+    let payload = &variant.payload;
+    if variant.deref {
+        quote!(<#payload as ::core::ops::Deref>::Target)
+    } else {
+        quote!(#payload)
+    }
 }
 
 fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
@@ -383,6 +408,7 @@ fn from_impls(item_enum: &ItemEnum) -> Result<TokenStream2> {
             ident,
             payload,
             cfgs,
+            ..
         } = variant_info(variant)?;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
@@ -650,7 +676,8 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             "a dispatch enum needs at least one variant",
         ));
     };
-    let first_payload = &first.payload;
+    let first_target = target_type(first);
+    let first_payload = &first_target;
     let mut substitution = Substitution::new(&item_trait, trait_path)?;
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
@@ -723,7 +750,7 @@ fn associated_type_check(
     names: &[&Ident],
     variants: &[VariantInfo],
     trait_path: &Path,
-    first_payload: &Type,
+    first_payload: &TokenStream2,
     generics: &syn::Generics,
 ) -> TokenStream2 {
     if names.is_empty() || variants.len() < 2 {
@@ -746,7 +773,7 @@ fn associated_type_check(
     }
     let (impl_generics, _, where_clause) = generics.split_for_impl();
     let checks = variants.iter().skip(1).map(|variant| {
-        let payload = &variant.payload;
+        let payload = target_type(variant);
         let cfgs = &variant.cfgs;
         quote! { #(#cfgs)* __same_as_first_variant::<#payload>(); }
     });
@@ -859,18 +886,29 @@ impl<'ast> Visit<'ast> for SelfFinder {
     }
 }
 
+/// How a method reaches its receiver or a `Self` argument.
+#[derive(Clone, Copy)]
+enum Access {
+    Shared,
+    Exclusive,
+    Owned,
+}
+
 enum ArgumentKind {
     Plain,
-    SameVariant,
+    SameVariant(Access),
 }
 
 fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
-    let inner = match ty {
-        Type::Reference(reference) => &*reference.elem,
-        other => other,
+    let (inner, access) = match ty {
+        Type::Reference(reference) if reference.mutability.is_some() => {
+            (&*reference.elem, Access::Exclusive)
+        }
+        Type::Reference(reference) => (&*reference.elem, Access::Shared),
+        other => (other, Access::Owned),
     };
     if is_self(inner) {
-        return Ok(ArgumentKind::SameVariant);
+        return Ok(ArgumentKind::SameVariant(access));
     }
     let mut finder = SelfFinder(false);
     finder.visit_type(ty);
@@ -881,6 +919,20 @@ fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
         ));
     }
     Ok(ArgumentKind::Plain)
+}
+
+/// Returns the expression that hands `binding`, bound to a variant's
+/// payload, to the trait method: the payload itself, or what it
+/// dereferences to for a `#[dispatch(deref)]` variant.
+fn payload_expression(deref: bool, access: Access, binding: &Ident) -> TokenStream2 {
+    if !deref {
+        return quote!(#binding);
+    }
+    match access {
+        Access::Shared => quote!(&**#binding),
+        Access::Exclusive => quote!(&mut **#binding),
+        Access::Owned => quote!(*#binding),
+    }
 }
 
 /// Returns the `mismatch` expression given on the trait method itself.
@@ -927,12 +979,17 @@ fn expand_method(
             "explicit `self: Type` receivers are not supported",
         ));
     }
+    let receiver_access = match (&receiver.reference, &receiver.mutability) {
+        (None, _) => Access::Owned,
+        (Some(_), None) => Access::Shared,
+        (Some(_), Some(_)) => Access::Exclusive,
+    };
     // Generated bindings get `macro_rules`-style hygiene, so they can never
     // collide with identifiers written by the user.
     let hygienic = |name: &str| Ident::new(name, Span::mixed_site());
     let inner = hygienic("__inner");
     let mut argument_idents = vec![];
-    let mut same_variant = vec![];
+    let mut same_variant: Vec<(usize, Access)> = vec![];
     for (index, input) in signature.inputs.iter_mut().skip(1).enumerate() {
         let FnArg::Typed(pat_type) = input else {
             unreachable!("receiver handled above")
@@ -945,8 +1002,8 @@ fn expand_method(
             ident: ident.clone(),
             subpat: None,
         });
-        if let ArgumentKind::SameVariant = argument_kind(&pat_type.ty)? {
-            same_variant.push(index);
+        if let ArgumentKind::SameVariant(access) = argument_kind(&pat_type.ty)? {
+            same_variant.push((index, access));
         }
         argument_idents.push(ident);
     }
@@ -963,16 +1020,30 @@ fn expand_method(
             ident: variant_ident,
             payload,
             cfgs,
+            deref,
         } = variant;
+        if *deref && matches!(return_shape, ReturnShape::RewrapSelf | ReturnShape::MapSelf) {
+            return Err(Error::new_spanned(
+                payload,
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of variant `{variant_ident}`; drop `deref` on it or implement the method by hand"),
+            ));
+        }
+        let target = target_type(variant);
+        let receiver_expression = payload_expression(*deref, receiver_access, &inner);
         let call_arguments = argument_idents.iter().enumerate().map(|(index, ident)| {
-            if same_variant.contains(&index) {
-                let same = hygienic(&format!("__same{index}"));
-                quote!(#same)
-            } else {
-                quote!(#ident)
+            match same_variant
+                .iter()
+                .find(|(same_index, _)| *same_index == index)
+            {
+                Some((_, access)) => {
+                    payload_expression(*deref, *access, &hygienic(&format!("__same{index}")))
+                }
+                None => quote!(#ident),
             }
         });
-        let mut call = quote! { <#payload as #trait_path>::#method(#inner #(, #call_arguments)*) };
+        let mut call = quote! {
+            <#target as #trait_path>::#method(#receiver_expression #(, #call_arguments)*)
+        };
         if is_unsafe {
             call = quote! { unsafe { #call } };
         }
@@ -991,7 +1062,7 @@ fn expand_method(
         let pattern = if same_variant.is_empty() {
             quote! { #enum_ident::#variant_ident(#inner) }
         } else {
-            let same_patterns = same_variant.iter().map(|index| {
+            let same_patterns = same_variant.iter().map(|(index, _)| {
                 let same = hygienic(&format!("__same{index}"));
                 quote! { #enum_ident::#variant_ident(#same) }
             });
@@ -1002,7 +1073,9 @@ fn expand_method(
     let scrutinee = if same_variant.is_empty() {
         quote!(self)
     } else {
-        let arguments = same_variant.iter().map(|index| &argument_idents[*index]);
+        let arguments = same_variant
+            .iter()
+            .map(|(index, _)| &argument_idents[*index]);
         quote! { (self, #(#arguments),*) }
     };
     let (fallback, allow_unreachable) = if same_variant.is_empty() {

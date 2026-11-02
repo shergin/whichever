@@ -13,7 +13,7 @@ impl Value for A {
 
 #[whichever::dispatch(Value)]
 enum Kind {
-    #[dispatch(deref)]
+    #[dispatch(boxed)]
     A(Box<A>),
 }
 

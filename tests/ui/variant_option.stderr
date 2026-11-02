@@ -1,5 +1,5 @@
-error: options on variants are not supported yet
-  --> tests/ui/variant_option.rs:16:5
+error: unknown variant option `boxed`; the only one is `deref`
+  --> tests/ui/variant_option.rs:16:16
    |
-16 |     #[dispatch(deref)]
-   |     ^^^^^^^^^^^^^^^^^^
+16 |     #[dispatch(boxed)]
+   |                ^^^^^
