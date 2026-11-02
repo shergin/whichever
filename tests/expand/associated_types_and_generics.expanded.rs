@@ -51,7 +51,7 @@ impl ::core::convert::From<Pretty> for AnyEncoder {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyEncoder_40a764eed8e7ccb3_36_1 as AnyEncoder;
+pub(crate) use __whichever_dispatch_AnyEncoder_40a764eed8e7ccb3_36_1 as AnyEncoder;
 #[automatically_derived]
 impl Encoder<Json> for AnyEncoder {
     type Error = u16;

@@ -63,7 +63,7 @@ impl ::core::convert::TryFrom<Node> for Wrap<Node> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Node_f8e3760733de57a8_24_1 as Node;
+pub(crate) use __whichever_dispatch_Node_f8e3760733de57a8_24_1 as Node;
 #[automatically_derived]
 impl Eval for Node {
     type Out = <Leaf as Eval>::Out;

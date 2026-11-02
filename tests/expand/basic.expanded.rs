@@ -39,7 +39,7 @@ impl ::core::convert::From<Dog> for Animal {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Animal_52774b0d1fd69278_24_1 as Animal;
+pub(crate) use __whichever_dispatch_Animal_52774b0d1fd69278_24_1 as Animal;
 #[automatically_derived]
 impl Describe for Animal {
     #[inline]

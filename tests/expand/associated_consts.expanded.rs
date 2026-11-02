@@ -42,7 +42,7 @@ impl ::core::convert::From<Ordering> for AnyProof {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyProof_01d6d10efd4dbec6_27_1 as AnyProof;
+pub(crate) use __whichever_dispatch_AnyProof_01d6d10efd4dbec6_27_1 as AnyProof;
 #[automatically_derived]
 impl Proof for AnyProof {
     const KIND: &'static str = "any";

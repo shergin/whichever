@@ -59,7 +59,7 @@ impl ::core::convert::From<Binary> for AnyParser {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyParser_c3737dc8b631e730_47_1 as AnyParser;
+pub(crate) use __whichever_dispatch_AnyParser_c3737dc8b631e730_47_1 as AnyParser;
 #[automatically_derived]
 impl Parse for AnyParser {
     type Error = ParseError;

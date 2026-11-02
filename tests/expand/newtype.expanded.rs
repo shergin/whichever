@@ -45,7 +45,7 @@ impl ::core::convert::From<Square> for AnyShape {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyShape_24d80d085656751b_30_1 as AnyShape;
+pub(crate) use __whichever_dispatch_AnyShape_24d80d085656751b_30_1 as AnyShape;
 #[automatically_derived]
 impl Shape for AnyShape {
     #[inline]
@@ -74,7 +74,7 @@ impl Shape for AnyShape {
 pub struct Wrapped(AnyShape);
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Wrapped_ea4ff03bb5df9e0c_37_1 as Wrapped;
+pub(crate) use __whichever_dispatch_Wrapped_ea4ff03bb5df9e0c_37_1 as Wrapped;
 #[automatically_derived]
 impl Shape for Wrapped {
     #[inline]
@@ -99,7 +99,7 @@ pub struct Labelled {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Labelled_f80b87cee4c64ca9_40_1 as Labelled;
+pub(crate) use __whichever_dispatch_Labelled_f80b87cee4c64ca9_40_1 as Labelled;
 impl Shape for Labelled {
     #[inline]
     fn area(&self) -> u32 {

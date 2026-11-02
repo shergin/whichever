@@ -32,7 +32,7 @@ impl ::core::convert::From<Box<Ready>> for AnySource {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnySource_0e78ff65ae1eabf1_25_1 as AnySource;
+pub(crate) use __whichever_dispatch_AnySource_0e78ff65ae1eabf1_25_1 as AnySource;
 #[automatically_derived]
 impl Source for AnySource {
     #[inline]

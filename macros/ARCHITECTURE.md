@@ -272,7 +272,12 @@ golden, and every other golden is unchanged.
 
 ### Stage 4: the subject and the protocol
 
-Status: not started.
+Status: landed. `Place::Variant` holds the conversion switches, `Subject`
+answers `can_mismatch`, `has_conversions` and `target_noun` instead of
+`is_enum`, `protocol.rs` holds the four messages and the one carrier
+builder, `implement_inherent!` is `implement_block!`, and the subject's
+carrier is named `__whichever_dispatch_..`. Every golden changed on that
+one alias line and nowhere else; every `.stderr` file is unchanged.
 
 `Place::Variant` takes the conversion switches, `is_enum()` leaves the
 generators, `protocol.rs` gets the four messages with encoder and decoder

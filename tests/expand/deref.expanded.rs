@@ -38,7 +38,7 @@ impl<'a> ::core::convert::From<Square> for Shape<'a> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Shape_f91a9acede82a729_14_1 as Shape;
+pub(crate) use __whichever_dispatch_Shape_f91a9acede82a729_14_1 as Shape;
 #[automatically_derived]
 impl<'a> Area for Shape<'a> {
     #[inline]

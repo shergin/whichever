@@ -50,7 +50,7 @@ pub(crate) fn subject_macro(
     let mut hasher = DefaultHasher::new();
     captured.to_token_stream().to_string().hash(&mut hasher);
     let macro_name = format_ident!(
-        "__whichever_enum_{}_{:016x}_{}_{}",
+        "__whichever_dispatch_{}_{:016x}_{}_{}",
         ident,
         hasher.finish(),
         line,

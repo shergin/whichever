@@ -43,7 +43,7 @@ impl ::core::convert::From<Square> for AnyShape {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyShape_3091d3476d2b3a0e_29_1 as AnyShape;
+pub(crate) use __whichever_dispatch_AnyShape_3091d3476d2b3a0e_29_1 as AnyShape;
 #[automatically_derived]
 impl Shape for AnyShape {
     #[inline]

@@ -51,7 +51,7 @@ impl ::core::convert::From<Map> for AnyHandler {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyHandler_b35853d5996e491b_36_1 as AnyHandler;
+pub(crate) use __whichever_dispatch_AnyHandler_b35853d5996e491b_36_1 as AnyHandler;
 impl Handler for AnyHandler {
     #[inline]
     fn value(&self) -> Self::Value {

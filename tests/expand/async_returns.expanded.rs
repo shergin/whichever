@@ -63,7 +63,7 @@ impl ::core::convert::From<Disk> for AnyStore {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyStore_bc7134310d176a55_51_1 as AnyStore;
+pub(crate) use __whichever_dispatch_AnyStore_bc7134310d176a55_51_1 as AnyStore;
 #[automatically_derived]
 impl Store for AnyStore {
     #[inline]
