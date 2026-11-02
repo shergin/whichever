@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 - 2026-11-02
+
+- `#[dispatch]` on an inherent `impl` block forwards each method marked
+  `#[dispatch(Variant, ..)]` to those variants' own method, with the body as
+  the arm for every other variant; `*` names every variant and the method
+  is then written without a body; `with = path` wraps the result and
+  `call = name` renames the target. A bare `#[dispatch]` on an enum
+  registers it for this without dispatching a trait.
+- `try_from = true` adds `TryFrom<Enum> for Payload`, returning the enum
+  when it holds another variant.
+- The generated `match` uses the receiver's own `self` token, so methods
+  written in an impl block resolve it correctly.
+
 ## 0.1.0 - 2026-11-01
 
 Initial release.

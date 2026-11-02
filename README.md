@@ -88,7 +88,8 @@ traits, several traits on one enum) dispatch too.
 | Payload with a same-named inherent method | safe | safe | safe | safe | safe | safe | safe | calls it, unless `#[through]` |
 | `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
 | `-> impl Trait` | no | no | no | no | no | no | no | no |
-| `From<Payload>` impls | yes, opt-out | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
+| `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
+| Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one
 crate and the enum in another, on stable Rust. A dash means the case was
@@ -126,6 +127,8 @@ All options follow the trait path in `#[dispatch(..)]`.
   ```
 
 - `from = false` suppresses the `From<Payload>` impls.
+- `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
+  with the enum as the error, so a mismatch hands the value back.
 
 One option goes on a variant. `#[dispatch(deref)]` calls the trait on what
 the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
@@ -155,6 +158,36 @@ A generic trait is dispatched at a concrete instantiation:
 `#[whichever::dispatch(Encoder<Json>)]`. Type, lifetime and const parameters
 are substituted in every signature, and `F::Value` becomes
 `<Json as Format>::Value` when `F` has one bound.
+
+## Inherent methods
+
+An enum often needs methods of its own that only some variants can answer.
+`#[dispatch]` on an inherent `impl` block forwards each marked method to the
+named variants' method of the same name; the body is what every other
+variant returns. `*` names every variant, and the method then has no body:
+
+```rust
+#[whichever::dispatch]
+impl AnyShape {
+    /// Only circles have a radius.
+    #[dispatch(Circle, with = Some)]
+    pub fn radius(&self) -> Option<f64> {
+        None
+    }
+
+    #[dispatch(*)]
+    pub fn describe(&self) -> String;
+
+    #[dispatch(*, call = describe)]
+    pub fn label(&self) -> String;
+}
+```
+
+`with = path` wraps each forwarded result, `call = name` forwards to a
+method of another name, `async` methods are awaited, and methods without
+the attribute are left alone. The `impl` block has to be in the enum's
+crate, which inherent impls are anyway; a bare `#[dispatch]` on an enum
+registers it for this without dispatching a trait.
 
 ## What each trait item becomes
 
