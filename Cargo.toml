@@ -10,7 +10,7 @@ documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/.github", "/rust-toolchain.toml"]
+exclude = ["/smoke", "/benchmarks", "/.github", "/rust-toolchain.toml"]
 
 [dependencies]
 whichever-macros = { version = "0.2.1", path = "macros" }
@@ -21,4 +21,20 @@ pollster = "0.4"
 trybuild = "1"
 
 [workspace]
-members = ["macros", "smoke/traits", "smoke/enums", "smoke/renamed", "smoke/no_std"]
+members = [
+    "macros",
+    "smoke/traits",
+    "smoke/enums",
+    "smoke/renamed",
+    "smoke/no_std",
+    "benchmarks",
+    "benchmarks/subjects",
+]
+
+# The benchmarks run under the default `bench` profile, where each crate is
+# optimised on its own; this profile shows what link-time optimisation
+# changes: `cargo bench -p whichever-benchmarks --profile bench-lto`.
+[profile.bench-lto]
+inherits = "bench"
+lto = "fat"
+codegen-units = 1

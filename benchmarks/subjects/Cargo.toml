@@ -1,0 +1,14 @@
+[package]
+name = "dispatch-subjects"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "What the whichever benchmarks measure: one trait, 32 payload types and enums of 2 to 32 variants, dispatched by every strategy under comparison"
+
+[dependencies]
+whichever = { path = "../.." }
+enum_dispatch = "0.3.13"
+ambassador = "0.5.1"
+enum_delegate = "0.2.0"
+delegation = "0.5.0"
+delegate = "0.13.5"

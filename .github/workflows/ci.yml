@@ -48,6 +48,17 @@ jobs:
           targets: thumbv7em-none-eabi
       - run: cargo check -p smoke-no-std --target thumbv7em-none-eabi
 
+  benchmarks:
+    name: benchmarks compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo bench -p whichever-benchmarks --no-run
+      # Compiles the probe to assembly and compares every subject with the
+      # hand-written match; exercises the script's x86-64 path.
+      - run: python3 benchmarks/scripts/codegen.py
+
   lint:
     name: fmt, clippy, docs
     runs-on: ubuntu-latest

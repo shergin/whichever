@@ -95,6 +95,32 @@ Probed on 2026-11-01 against the versions shown, with the trait in one
 crate and the enum in another, on stable Rust. A dash means the case was
 not probed for that crate. The `whichever` column is what `tests/` checks.
 
+## Performance
+
+The `match` the attribute writes is the one a careful hand writes, and so
+is the machine code. [`benchmarks/`](benchmarks/README.md) compares
+`whichever` with a hand-written impl, with `Box<dyn Trait>` and with the
+enums of `enum_dispatch`, `ambassador`, `enum_delegate`, `delegation` and
+`delegate`, calling from a crate other than the enum's, without LTO, over
+collections of 2 to 32 variants in uniform, cyclic and random layouts, with
+method bodies the optimiser can inline and bodies it cannot. From the last
+run, on an Apple M1 Pro ([full tables](benchmarks/RESULTS.md)):
+
+- `whichever` is within 1.4% of the hand-written `match` in every cell of
+  the main matrix, two families by three layouts by five variant counts, and
+  the functions it generates are identical to the hand-written ones
+  instruction for instruction.
+- Over a random 8-variant collection, one `&self` call costs 1.7 ns per
+  element against 2.3 ns through a `Box<dyn Trait>` when the method bodies
+  can be inlined, and 2.1 ns against 2.3 ns when they cannot. Most of the
+  enum's advantage is what the optimiser gets to see, not the dispatch.
+- Where the payload's place matters, the gap is wide: 1.7 ns against 8.1 ns
+  per element over 4 Mi scattered elements, and a collection is built 13x
+  faster without a box per element.
+- A generated impl without `#[inline]` (`enum_delegate`, `delegation`) pays
+  an extra out-of-line call across the crate boundary, from 15% to 4x
+  depending on the method and the variant count.
+
 ## Options
 
 All options follow the trait path in `#[dispatch(..)]`.

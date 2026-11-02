@@ -1,0 +1,22 @@
+[package]
+name = "whichever-benchmarks"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Benchmarks comparing whichever with hand-written forwarding, dynamic dispatch and the other enum-dispatch crates"
+
+[dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+dispatch-subjects = { path = "subjects" }
+
+[[bench]]
+name = "dispatch"
+harness = false
+
+[[bench]]
+name = "methods"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false
