@@ -1,0 +1,12 @@
+[package]
+name = "smoke-ocean"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+whichever = { path = "../.." }
+smoke-engine = { path = "../engine" }
+
+[dev-dependencies]
+pollster = "0.4"
