@@ -1,0 +1,5 @@
+error: unknown option `inline`; the options are `Name = Type` for an associated type, `mismatch(method = expr)` and `from = false`
+  --> tests/ui/unknown_option.rs:14:30
+   |
+14 | #[whichever::dispatch(Value, inline)]
+   |                              ^^^^^^

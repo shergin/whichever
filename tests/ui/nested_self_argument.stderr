@@ -1,0 +1,10 @@
+error: only `Self`, `&Self` and `&mut Self` arguments can be dispatched; this type mentions `Self` elsewhere
+  --> tests/ui/nested_self_argument.rs:3:28
+   |
+ 3 |     fn merge(&self, other: Option<&Self>) -> u32;
+   |                            ^^^^^^^^^^^^^
+...
+21 | #[whichever::dispatch(Merge)]
+   | ----------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Merge` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

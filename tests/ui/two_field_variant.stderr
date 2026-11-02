@@ -1,0 +1,5 @@
+error: a dispatch variant must hold exactly one payload
+  --> tests/ui/two_field_variant.rs:16:5
+   |
+16 |     A(A, u32),
+   |     ^^^^^^^^^

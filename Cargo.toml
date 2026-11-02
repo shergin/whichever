@@ -8,9 +8,16 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/shergin/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
+readme = "README.md"
+exclude = ["/smoke", "/.github"]
 
 [dependencies]
 whichever-macros = { version = "0.1.0", path = "macros" }
 
+[dev-dependencies]
+macrotest = "1"
+pollster = "0.4"
+trybuild = "1"
+
 [workspace]
-members = ["macros", "smoke/engine", "smoke/ocean"]
+members = ["macros", "smoke/engine", "smoke/ocean", "smoke/renamed", "smoke/no_std"]

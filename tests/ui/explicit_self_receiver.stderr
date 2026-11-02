@@ -1,0 +1,10 @@
+error: explicit `self: Type` receivers are not supported
+  --> tests/ui/explicit_self_receiver.rs:3:16
+   |
+ 3 |     fn consume(self: Box<Self>) -> u32;
+   |                ^^^^^^^^^^^^^^^
+...
+14 | #[whichever::dispatch(Consume)]
+   | ------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Consume` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

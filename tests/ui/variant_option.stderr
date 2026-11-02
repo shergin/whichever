@@ -1,0 +1,5 @@
+error: options on variants are not supported yet
+  --> tests/ui/variant_option.rs:16:5
+   |
+16 |     #[dispatch(deref)]
+   |     ^^^^^^^^^^^^^^^^^^

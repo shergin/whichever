@@ -1,0 +1,7 @@
+error: cannot find macro `Value` in this scope
+  --> tests/ui/not_dispatchable.rs:13:23
+   |
+13 | #[whichever::dispatch(Value)]
+   |                       ^^^^^
+   |
+   = note: `Value` is in scope, but it is a trait, not a macro

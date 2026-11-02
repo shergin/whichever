@@ -1,0 +1,23 @@
+error[E0277]: the trait bound `B: Value` is not satisfied
+  --> tests/ui/missing_impl.rs:18:7
+   |
+18 |     B(B),
+   |       ^ unsatisfied trait bound
+   |
+help: the trait `Value` is not implemented for `B`
+  --> tests/ui/missing_impl.rs:7:1
+   |
+ 7 | struct B;
+   | ^^^^^^^^
+help: the following other types implement trait `Value`
+  --> tests/ui/missing_impl.rs:1:1
+   |
+ 1 | #[whichever::dispatchable]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `Kind`
+...
+ 9 | impl Value for A {
+   | ^^^^^^^^^^^^^^^^ `A`
+...
+15 | #[whichever::dispatch(Value)]
+   | ----------------------------- in this attribute macro expansion
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

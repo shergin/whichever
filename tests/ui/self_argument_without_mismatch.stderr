@@ -1,0 +1,10 @@
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on the enum
+  --> tests/ui/self_argument_without_mismatch.rs:3:5
+   |
+ 3 |     fn same(&self, other: &Self) -> bool;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+21 | #[whichever::dispatch(Same)]
+   | ---------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Same` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

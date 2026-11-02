@@ -1,0 +1,12 @@
+error: generic associated types are not supported
+  --> tests/ui/generic_associated_type.rs:3:5
+   |
+ 3 | /     type Item<'a>
+ 4 | |     where
+ 5 | |         Self: 'a;
+   | |_________________^
+...
+18 |   #[whichever::dispatch(Lend)]
+   |   ---------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Lend` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

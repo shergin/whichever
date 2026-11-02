@@ -1,0 +1,5 @@
+error: a dispatch variant must be `Name(Payload)`
+  --> tests/ui/struct_variant.rs:16:5
+   |
+16 |     A { inner: A },
+   |     ^^^^^^^^^^^^^^

@@ -1,0 +1,7 @@
+error: `#[dispatchable]` takes no arguments
+ --> tests/ui/dispatchable_with_arguments.rs:1:1
+  |
+1 | #[whichever::dispatchable(Kind)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `whichever::dispatchable` (in Nightly builds, run with -Z macro-backtrace for more info)

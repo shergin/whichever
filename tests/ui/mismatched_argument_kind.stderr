@@ -1,0 +1,5 @@
+error: generic argument does not match the trait's parameter
+  --> tests/ui/mismatched_argument_kind.rs:14:31
+   |
+14 | #[whichever::dispatch(Convert<'static>)]
+   |                               ^^^^^^^

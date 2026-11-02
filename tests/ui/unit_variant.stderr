@@ -1,0 +1,5 @@
+error: a dispatch variant must be `Name(Payload)`
+  --> tests/ui/unit_variant.rs:17:5
+   |
+17 |     Nothing,
+   |     ^^^^^^^
