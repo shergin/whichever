@@ -328,6 +328,13 @@ fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
 fn from_impls(item_enum: &ItemEnum) -> Result<TokenStream2> {
     let (impl_generics, ty_generics, where_clause) = item_enum.generics.split_for_impl();
     let enum_ident = &item_enum.ident;
+    // A payload type held by two variants gets no `From`: the impls would
+    // conflict, and neither variant is the obvious target.
+    let mut payload_counts = std::collections::HashMap::<String, usize>::new();
+    for variant in &item_enum.variants {
+        let payload = variant_info(variant)?.payload.to_token_stream().to_string();
+        *payload_counts.entry(payload).or_default() += 1;
+    }
     let mut output = TokenStream2::new();
     for variant in &item_enum.variants {
         let VariantInfo {
@@ -335,6 +342,9 @@ fn from_impls(item_enum: &ItemEnum) -> Result<TokenStream2> {
             payload,
             cfgs,
         } = variant_info(variant)?;
+        if payload_counts[&payload.to_token_stream().to_string()] > 1 {
+            continue;
+        }
         output.extend(quote! {
             #(#cfgs)*
             #[automatically_derived]
