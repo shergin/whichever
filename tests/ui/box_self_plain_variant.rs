@@ -13,7 +13,9 @@ impl Consume for A {
 
 #[whichever::dispatch(Consume)]
 enum Kind {
-    A(A),
+    #[dispatch(deref)]
+    Boxed(Box<A>),
+    Plain(A),
 }
 
 fn main() {}

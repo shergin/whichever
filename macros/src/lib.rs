@@ -22,11 +22,11 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    braced, parenthesized, parse_macro_input, Attribute, Block, Error, Expr, Fields, FnArg,
-    GenericArgument, GenericParam, Ident, ImplItem, Item, ItemEnum, ItemImpl, ItemTrait, Lifetime,
-    LitBool, Meta, Pat, PatIdent, Path, PathArguments, PathSegment, QSelf, Receiver, Result,
-    ReturnType, Signature, Token, TraitItem, TraitItemFn, Type, TypeParamBound, TypePath, Variant,
-    Visibility,
+    braced, parenthesized, parse_macro_input, Attribute, Block, Error, Expr, Field, Fields, FnArg,
+    GenericArgument, GenericParam, Ident, ImplItem, Index, Item, ItemEnum, ItemImpl, ItemStruct,
+    ItemTrait, Lifetime, LitBool, Member, Meta, Pat, PatIdent, Path, PathArguments, PathSegment,
+    QSelf, Receiver, Result, ReturnType, Signature, Token, TraitItem, TraitItemFn, Type,
+    TypeParamBound, TypePath, Variant, Visibility,
 };
 
 /// The name the facade crate is published under; a renamed dependency is
@@ -436,10 +436,16 @@ impl Parse for TraitSpec {
 /// - `try_from = true`: a `TryFrom<Enum> for Payload` impl per payload type,
 ///   returning the enum unchanged when it holds another variant.
 ///
-/// The one variant option, `#[dispatch(deref)]`, calls the trait on what the
-/// payload dereferences to, for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
+/// Two options go on a variant. `#[dispatch(deref)]` calls the trait on what
+/// the payload dereferences to, for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
 /// `&mut T` payloads; such a variant cannot take part in a method that
-/// returns `Self`.
+/// returns `Self`. `#[dispatch(from = false)]` leaves the variant out of the
+/// conversions, and `#[dispatch(try_from = true)]` adds the `TryFrom` impl
+/// for that payload alone.
+///
+/// On a struct, the trait is forwarded to its one field, or to the field
+/// marked `#[dispatch]`, with `#[dispatch(deref)]` for a field behind a
+/// pointer. A struct gets no conversions.
 ///
 /// On an inherent `impl` block of a dispatch enum, in the same crate, every
 /// method carrying `#[dispatch(..)]` is forwarded to the named variants'
@@ -491,23 +497,17 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as Item);
     let expanded = match item {
         Item::Enum(item_enum) => {
-            // A rejected enum is still emitted, with its macro, so that its
-            // derives, its uses and its impl blocks resolve and the one real
-            // error is not buried under theirs.
-            let captured = without_enum_attributes(item_enum.clone());
-            let emitted = without_variant_attributes(captured.clone());
-            let enum_macro = enum_macro(&captured, true, line, column);
-            expand_dispatch(attr.into(), item_enum, line, column).unwrap_or_else(|error| {
-                let error = error.to_compile_error();
-                quote! { #emitted #enum_macro #error }
-            })
+            expand_subject(attr.into(), Subject::Enum(item_enum), line, column)
+        }
+        Item::Struct(item_struct) => {
+            expand_subject(attr.into(), Subject::Struct(item_struct), line, column)
         }
         Item::Impl(item_impl) => expand_impl_invocation(attr.into(), item_impl)
             .unwrap_or_else(|error| error.to_compile_error()),
         other => {
             let error = Error::new_spanned(
                 &other,
-                "`#[dispatch]` goes on an enum, or on an impl block of a dispatch enum",
+                "`#[dispatch]` goes on an enum or a struct, or on an impl block of one",
             )
             .to_compile_error();
             quote! { #other #error }
@@ -516,37 +516,130 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     expanded.into()
 }
 
-/// Returns `item_enum` without the `#[dispatch]` attributes on the enum
-/// itself; the variants keep theirs.
-fn without_enum_attributes(mut item_enum: ItemEnum) -> ItemEnum {
-    item_enum
-        .attrs
-        .retain(|attribute| !is_dispatch_attribute(attribute));
-    item_enum
+/// The item an impl is written for: an enum over implementors, or a struct
+/// wrapping one.
+#[derive(Clone)]
+enum Subject {
+    Enum(ItemEnum),
+    Struct(ItemStruct),
 }
 
-/// Returns `item_enum` without the `#[dispatch]` attributes on its variants.
-fn without_variant_attributes(mut item_enum: ItemEnum) -> ItemEnum {
-    for variant in &mut item_enum.variants {
-        variant
-            .attrs
-            .retain(|attribute| !is_dispatch_attribute(attribute));
+impl Subject {
+    fn ident(&self) -> &Ident {
+        match self {
+            Subject::Enum(item) => &item.ident,
+            Subject::Struct(item) => &item.ident,
+        }
     }
-    item_enum
+
+    fn generics(&self) -> &syn::Generics {
+        match self {
+            Subject::Enum(item) => &item.generics,
+            Subject::Struct(item) => &item.generics,
+        }
+    }
+
+    fn attrs_mut(&mut self) -> &mut Vec<Attribute> {
+        match self {
+            Subject::Enum(item) => &mut item.attrs,
+            Subject::Struct(item) => &mut item.attrs,
+        }
+    }
+
+    fn is_enum(&self) -> bool {
+        matches!(self, Subject::Enum(_))
+    }
+
+    /// Returns the subject without the `#[dispatch]` attributes on the item
+    /// itself; the variants or fields keep theirs.
+    fn without_item_attributes(mut self) -> Self {
+        self.attrs_mut()
+            .retain(|attribute| !is_dispatch_attribute(attribute));
+        self
+    }
+
+    /// Returns the subject without the `#[dispatch]` attributes on its
+    /// variants or fields.
+    fn without_inner_attributes(mut self) -> Self {
+        match &mut self {
+            Subject::Enum(item) => {
+                for variant in &mut item.variants {
+                    variant
+                        .attrs
+                        .retain(|attribute| !is_dispatch_attribute(attribute));
+                }
+            }
+            Subject::Struct(item) => {
+                for field in &mut item.fields {
+                    field
+                        .attrs
+                        .retain(|attribute| !is_dispatch_attribute(attribute));
+                }
+            }
+        }
+        self
+    }
+
+    /// Returns every variant of the enum, or the one field of the struct
+    /// that is forwarded to. A variant that is not `Name(Payload)` is an
+    /// entry too, so that the methods which do not forward to it can tell.
+    fn entries(&self) -> Result<Vec<Entry>> {
+        match self {
+            Subject::Enum(item) => item.variants.iter().map(variant_entry).collect(),
+            Subject::Struct(item) => Ok(vec![Entry::Target(struct_target(item)?)]),
+        }
+    }
 }
 
-/// Writes the enum's own macro, which carries its definition, variant
-/// options included, to `#[dispatch]` on an impl block. Impl blocks live in
-/// the enum's crate, so the macro stays crate-local and is reached through
-/// the alias. `rejected` tells the impl side that the enum itself was
-/// rejected, so it must not report the same error again.
-fn enum_macro(captured: &ItemEnum, rejected: bool, line: usize, column: usize) -> TokenStream2 {
-    let enum_ident = &captured.ident;
+impl Parse for Subject {
+    fn parse(input: ParseStream) -> Result<Self> {
+        match input.parse::<Item>()? {
+            Item::Enum(item) => Ok(Subject::Enum(item)),
+            Item::Struct(item) => Ok(Subject::Struct(item)),
+            other => Err(Error::new_spanned(other, "expected an enum or a struct")),
+        }
+    }
+}
+
+impl ToTokens for Subject {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        match self {
+            Subject::Enum(item) => item.to_tokens(tokens),
+            Subject::Struct(item) => item.to_tokens(tokens),
+        }
+    }
+}
+
+/// Expands `#[dispatch]` on an enum or a struct. A rejected item is still
+/// emitted, with its macro, so that its derives, its uses and its impl
+/// blocks resolve and the one real error is not buried under theirs.
+fn expand_subject(
+    attr: TokenStream2,
+    subject: Subject,
+    line: usize,
+    column: usize,
+) -> TokenStream2 {
+    let captured = subject.clone().without_item_attributes();
+    let emitted = captured.clone().without_inner_attributes();
+    let subject_macro = subject_macro(&captured, true, line, column);
+    expand_dispatch(attr, subject, line, column).unwrap_or_else(|error| {
+        let error = error.to_compile_error();
+        quote! { #emitted #subject_macro #error }
+    })
+}
+
+/// Writes the subject's own macro, which carries its definition, variant
+/// and field options included, to `#[dispatch]` on an impl block. Impl
+/// blocks live in the subject's crate, so the macro stays crate-local and
+/// is reached through the alias. `rejected` tells the impl side that the
+/// item itself was rejected, so it must not report the same error again.
+fn subject_macro(captured: &Subject, rejected: bool, line: usize, column: usize) -> TokenStream2 {
+    let ident = captured.ident();
     let mut hasher = DefaultHasher::new();
     captured.to_token_stream().to_string().hash(&mut hasher);
     let macro_name = format_ident!(
         "__whichever_enum_{}_{:016x}_{}_{}",
-        enum_ident,
+        ident,
         hasher.finish(),
         line,
         column
@@ -562,13 +655,13 @@ fn enum_macro(captured: &ItemEnum, rejected: bool, line: usize, column: usize) -
 
         #[doc(hidden)]
         #[allow(unused_imports)]
-        pub(crate) use #macro_name as #enum_ident;
+        pub(crate) use #macro_name as #ident;
     }
 }
 
 fn expand_dispatch(
     first: TokenStream2,
-    mut item_enum: ItemEnum,
+    mut subject: Subject,
     line: usize,
     column: usize,
 ) -> Result<TokenStream2> {
@@ -577,14 +670,14 @@ fn expand_dispatch(
         specs.push(first);
     }
     let mut kept = vec![];
-    for attribute in std::mem::take(&mut item_enum.attrs) {
+    for attribute in std::mem::take(subject.attrs_mut()) {
         if !is_dispatch_attribute(&attribute) {
             kept.push(attribute);
             continue;
         }
         match &attribute.meta {
             Meta::List(list) => specs.push(list.tokens.clone()),
-            // A bare `#[dispatch]` registers the enum without a trait.
+            // A bare `#[dispatch]` registers the item without a trait.
             Meta::Path(_) => {}
             Meta::NameValue(_) => {
                 return Err(Error::new_spanned(
@@ -594,14 +687,10 @@ fn expand_dispatch(
             }
         }
     }
-    item_enum.attrs = kept;
-    let variants = item_enum
-        .variants
-        .iter()
-        .map(variant_info)
-        .collect::<Result<Vec<_>>>()?;
-    let captured = item_enum;
-    let emitted = without_variant_attributes(captured.clone());
+    *subject.attrs_mut() = kept;
+    let entries = subject.entries()?;
+    let captured = subject;
+    let emitted = captured.clone().without_inner_attributes();
     let facade = facade_ident()?;
     let parsed_specs = specs
         .iter()
@@ -622,7 +711,34 @@ fn expand_dispatch(
     }
     let generate_from = !parsed_specs.iter().any(|spec| spec.from == Some(false));
     let generate_try_from = parsed_specs.iter().any(|spec| spec.try_from == Some(true));
-    let conversions = conversion_impls(&emitted, &variants, generate_from, generate_try_from);
+    let conversions = if captured.is_enum() {
+        conversion_impls(&captured, &entries, generate_from, generate_try_from)?
+    } else {
+        if parsed_specs
+            .iter()
+            .any(|spec| spec.from.is_some() || spec.try_from.is_some())
+        {
+            return Err(Error::new(
+                Span::call_site(),
+                "`from` and `try_from` are options of an enum; a struct gets no conversions",
+            ));
+        }
+        TokenStream2::new()
+    };
+    // Every variant must be forwardable when the item dispatches a trait.
+    // The error carries the variant's `cfg`, so a variant that is compiled
+    // out is no error, and it is reported here once rather than per trait.
+    let shape_errors = if parsed_specs.iter().any(|spec| spec.path.is_some()) {
+        entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
+                Entry::Target(_) => None,
+            })
+            .collect()
+    } else {
+        TokenStream2::new()
+    };
     let mut invocations = TokenStream2::new();
     for (spec, tokens) in parsed_specs.iter().zip(&specs) {
         let Some(path) = &spec.path else { continue };
@@ -634,24 +750,25 @@ fn expand_dispatch(
             #macro_path! { @v1 #facade enum { #captured } spec { #tokens } }
         });
     }
-    let enum_macro = enum_macro(&captured, false, line, column);
+    let subject_macro = subject_macro(&captured, false, line, column);
     Ok(quote! {
         #emitted
         #conversions
-        #enum_macro
+        #subject_macro
+        #shape_errors
         #invocations
     })
 }
 
-/// Turns `#[dispatch]` on an impl block into a call of the enum's macro,
-/// which supplies the enum's definition. An inherent block is forwarded
+/// Turns `#[dispatch]` on an impl block into a call of the subject's macro,
+/// which supplies the subject's definition. An inherent block is forwarded
 /// method by method; a trait impl block is a partial impl, whose options
 /// travel along for the trait's carrier macro.
 fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<TokenStream2> {
     let Type::Path(self_type) = &*item_impl.self_ty else {
         return Err(Error::new_spanned(
             &item_impl.self_ty,
-            "the impl must name a dispatch enum by path",
+            "the impl must name a dispatch enum or struct by path",
         ));
     };
     let mut macro_path = self_type.path.clone();
@@ -692,68 +809,313 @@ fn facade_ident() -> Result<Ident> {
     }
 }
 
-struct VariantInfo {
+/// A variant or field a method forwards to.
+struct Target {
+    /// The variant's name, or the field's name; an unnamed field is
+    /// `_<index>`.
     ident: Ident,
+    place: Place,
     payload: Type,
     cfgs: Vec<Attribute>,
     /// Whether the trait is called on what the payload dereferences to.
     deref: bool,
     /// Whether the variant takes part in the `From` and `TryFrom` impls.
     from: bool,
+    /// The variant's own say on its `TryFrom` impl, over the enum's option.
+    try_from: Option<bool>,
 }
 
-fn variant_info(variant: &Variant) -> Result<VariantInfo> {
-    let Fields::Unnamed(fields) = &variant.fields else {
-        return Err(Error::new_spanned(
-            variant,
-            "a dispatch variant must be `Name(Payload)`",
-        ));
-    };
-    if fields.unnamed.len() != 1 {
-        return Err(Error::new_spanned(
-            variant,
-            "a dispatch variant must hold exactly one payload",
-        ));
+/// How a target is matched and built.
+enum Place {
+    /// `Enum::Variant(payload)`.
+    Variant,
+    /// `Struct { member: payload, .. }` or `Struct(_, payload, ..)`;
+    /// `rebuildable` when the struct has no other field, so that the value
+    /// built around a payload is whole.
+    Field { member: Member, rebuildable: bool },
+}
+
+impl Target {
+    /// Returns the pattern binding the payload to `binding`, on `prefix`,
+    /// which is the subject's name or `Self`.
+    fn pattern(&self, prefix: &TokenStream2, binding: &Ident) -> TokenStream2 {
+        let ident = &self.ident;
+        match &self.place {
+            Place::Variant => quote!(#prefix::#ident(#binding)),
+            Place::Field {
+                member: Member::Unnamed(index),
+                ..
+            } => {
+                let skipped = (0..index.index).map(|_| quote!(_));
+                quote!(#prefix(#(#skipped,)* #binding, ..))
+            }
+            Place::Field { member, .. } => quote!(#prefix { #member: #binding, .. }),
+        }
     }
-    let mut deref = false;
-    let mut from = true;
-    for attribute in variant
-        .attrs
+
+    /// Returns the expression building the subject around `value`, or
+    /// `None` when other fields would be missing.
+    fn rebuild(&self, prefix: &TokenStream2, value: TokenStream2) -> Option<TokenStream2> {
+        let ident = &self.ident;
+        match &self.place {
+            Place::Variant => Some(quote!(#prefix::#ident(#value))),
+            Place::Field {
+                member: Member::Unnamed(_),
+                rebuildable: true,
+            } => Some(quote!(#prefix(#value))),
+            Place::Field {
+                member,
+                rebuildable: true,
+            } => Some(quote!(#prefix { #member: #value })),
+            Place::Field {
+                rebuildable: false, ..
+            } => None,
+        }
+    }
+
+    /// Returns a function building the subject from a payload, for `map`.
+    fn constructor(&self, prefix: &TokenStream2) -> Option<TokenStream2> {
+        let ident = &self.ident;
+        match &self.place {
+            Place::Variant => Some(quote!(#prefix::#ident)),
+            Place::Field {
+                member: Member::Unnamed(_),
+                rebuildable: true,
+            } => Some(quote!(#prefix)),
+            Place::Field {
+                member,
+                rebuildable: true,
+            } => {
+                let value = Ident::new("__value", Span::mixed_site());
+                Some(quote!(|#value| #prefix { #member: #value }))
+            }
+            Place::Field {
+                rebuildable: false, ..
+            } => None,
+        }
+    }
+
+    /// Returns the type the trait is called on: the payload, or what it
+    /// dereferences to.
+    fn target_type(&self) -> TokenStream2 {
+        let payload = &self.payload;
+        if self.deref {
+            quote!(<#payload as ::core::ops::Deref>::Target)
+        } else {
+            quote!(#payload)
+        }
+    }
+
+    /// Returns the same type for a position outside the subject's own
+    /// impls, where a `Self` the payload names would not be the subject.
+    fn target_type_outside(&self, self_type: &Type) -> TokenStream2 {
+        let mut payload = self.payload.clone();
+        SelfReplacer(self_type.clone()).visit_type_mut(&mut payload);
+        if self.deref {
+            quote!(<#payload as ::core::ops::Deref>::Target)
+        } else {
+            quote!(#payload)
+        }
+    }
+
+    /// Returns whether the payload is a `Box`, dereferenced to the
+    /// implementor, which is what a `self: Box<Self>` receiver needs.
+    fn holds_box(&self) -> bool {
+        self.deref && last_segment(&self.payload).is_some_and(|segment| segment.ident == "Box")
+    }
+}
+
+/// Replaces `Self` with the subject's type, for a payload type written
+/// outside the subject's own impls.
+struct SelfReplacer(Type);
+
+impl VisitMut for SelfReplacer {
+    fn visit_type_mut(&mut self, ty: &mut Type) {
+        if is_self(ty) {
+            *ty = self.0.clone();
+            return;
+        }
+        visit_mut::visit_type_mut(self, ty);
+    }
+}
+
+/// A variant that is not `Name(Payload)`, which no method can forward to.
+/// Inherent methods leave it to their fallback body; a dispatched trait
+/// reports it, under its own `cfg`.
+struct Unforwardable {
+    ident: Ident,
+    cfgs: Vec<Attribute>,
+    error: Error,
+}
+
+impl Unforwardable {
+    fn compile_error(&self) -> TokenStream2 {
+        let cfgs = &self.cfgs;
+        let error = self.error.to_compile_error();
+        quote! { #(#cfgs)* #error }
+    }
+}
+
+// Short-lived and few; the size difference does not matter here.
+#[allow(clippy::large_enum_variant)]
+enum Entry {
+    Target(Target),
+    Unforwardable(Unforwardable),
+}
+
+/// Returns the targets among `entries`.
+fn targets(entries: &[Entry]) -> Vec<&Target> {
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Target(target) => Some(target),
+            Entry::Unforwardable(_) => None,
+        })
+        .collect()
+}
+
+/// The `#[dispatch(..)]` options of a variant or field.
+struct TargetOptions {
+    deref: bool,
+    from: bool,
+    try_from: Option<bool>,
+}
+
+/// Parses the options of a variant or field: `deref` on either, `from =
+/// false` and `try_from = true` on a variant.
+fn target_options(attributes: &[Attribute], on_variant: bool) -> Result<TargetOptions> {
+    let mut options = TargetOptions {
+        deref: false,
+        from: true,
+        try_from: None,
+    };
+    for attribute in attributes
         .iter()
         .filter(|attribute| is_dispatch_attribute(attribute))
     {
+        if matches!(attribute.meta, Meta::Path(_)) {
+            // A bare `#[dispatch]` marks the field to forward to.
+            continue;
+        }
         attribute.parse_nested_meta(|meta| {
             if meta.path.is_ident("deref") {
-                deref = true;
-            } else if meta.path.is_ident("from") {
-                from = meta.value()?.parse::<LitBool>()?.value;
+                options.deref = true;
+            } else if meta.path.is_ident("from") && on_variant {
+                options.from = meta.value()?.parse::<LitBool>()?.value;
+            } else if meta.path.is_ident("try_from") && on_variant {
+                options.try_from = Some(meta.value()?.parse::<LitBool>()?.value);
             } else {
                 let option = meta.path.to_token_stream();
-                return Err(meta.error(format!(
-                    "unknown variant option `{option}`; the options are `deref` and `from = false`"
-                )));
+                let known = if on_variant {
+                    "the options are `deref`, `from = false` and `try_from = true`"
+                } else {
+                    "the only one is `deref`"
+                };
+                return Err(meta.error(format!("unknown option `{option}`; {known}")));
             }
             Ok(())
         })?;
     }
-    Ok(VariantInfo {
+    Ok(options)
+}
+
+fn variant_entry(variant: &Variant) -> Result<Entry> {
+    let TargetOptions {
+        deref,
+        from,
+        try_from,
+    } = target_options(&variant.attrs, true)?;
+    let payload = match &variant.fields {
+        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields.unnamed[0].ty.clone(),
+        Fields::Unnamed(_) => {
+            return Ok(Entry::Unforwardable(Unforwardable {
+                ident: variant.ident.clone(),
+                cfgs: cfg_attributes(&variant.attrs),
+                error: Error::new_spanned(
+                    variant,
+                    "a dispatch variant must hold exactly one payload",
+                ),
+            }))
+        }
+        _ => {
+            return Ok(Entry::Unforwardable(Unforwardable {
+                ident: variant.ident.clone(),
+                cfgs: cfg_attributes(&variant.attrs),
+                error: Error::new_spanned(variant, "a dispatch variant must be `Name(Payload)`"),
+            }))
+        }
+    };
+    Ok(Entry::Target(Target {
         ident: variant.ident.clone(),
-        payload: fields.unnamed[0].ty.clone(),
+        place: Place::Variant,
+        payload,
         cfgs: cfg_attributes(&variant.attrs),
         deref,
         from,
-    })
+        try_from,
+    }))
 }
 
-/// Returns the type the trait is called on for `variant`: its payload, or
-/// what the payload dereferences to.
-fn target_type(variant: &VariantInfo) -> TokenStream2 {
-    let payload = &variant.payload;
-    if variant.deref {
-        quote!(<#payload as ::core::ops::Deref>::Target)
-    } else {
-        quote!(#payload)
-    }
+/// Returns the one field of a struct that is forwarded to: its only field,
+/// or the one marked `#[dispatch]`.
+fn struct_target(item: &ItemStruct) -> Result<Target> {
+    let fields: Vec<(Member, &Field)> = item
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let member = match &field.ident {
+                Some(ident) => Member::Named(ident.clone()),
+                None => Member::Unnamed(Index::from(index)),
+            };
+            (member, field)
+        })
+        .collect();
+    let marked: Vec<&(Member, &Field)> = fields
+        .iter()
+        .filter(|(_, field)| field.attrs.iter().any(is_dispatch_attribute))
+        .collect();
+    let (member, field) = match (fields.as_slice(), marked.as_slice()) {
+        ([], _) => {
+            return Err(Error::new_spanned(
+                &item.ident,
+                "a dispatch struct needs a field to forward to",
+            ))
+        }
+        ([(member, field)], _) | (_, [(member, field)]) => (member.clone(), *field),
+        (_, []) => {
+            return Err(Error::new_spanned(
+                &item.ident,
+                format!(
+                    "`{}` has several fields; mark the one to forward to with `#[dispatch]`",
+                    item.ident
+                ),
+            ))
+        }
+        (_, [_, (_, second), ..]) => {
+            return Err(Error::new_spanned(
+                second,
+                "only one field can be forwarded to",
+            ))
+        }
+    };
+    let TargetOptions { deref, .. } = target_options(&field.attrs, false)?;
+    let ident = match &member {
+        Member::Named(ident) => ident.clone(),
+        Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),
+    };
+    Ok(Target {
+        ident,
+        place: Place::Field {
+            member,
+            rebuildable: fields.len() == 1,
+        },
+        payload: field.ty.clone(),
+        cfgs: vec![],
+        deref,
+        from: false,
+        try_from: None,
+    })
 }
 
 fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
@@ -766,35 +1128,58 @@ fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
 
 /// Writes the `From<Payload>` and `TryFrom<Enum>` impls that were asked for.
 fn conversion_impls(
-    item_enum: &ItemEnum,
-    variants: &[VariantInfo],
+    subject: &Subject,
+    entries: &[Entry],
     from: bool,
     try_from: bool,
-) -> TokenStream2 {
-    let (impl_generics, ty_generics, where_clause) = item_enum.generics.split_for_impl();
-    let enum_ident = &item_enum.ident;
+) -> Result<TokenStream2> {
+    let (impl_generics, ty_generics, where_clause) = subject.generics().split_for_impl();
+    let enum_ident = subject.ident();
+    let prefix = enum_ident.to_token_stream();
+    let self_type: Type = syn::parse_quote!(#enum_ident #ty_generics);
+    let converting: Vec<&Target> = targets(entries)
+        .into_iter()
+        .filter(|target| target.from)
+        .collect();
+    // A payload that is a type parameter of the enum can be any type, the
+    // other payloads included, so its `From` overlaps theirs; rustc would
+    // only report conflicting implementations on the attribute.
+    if from && converting.len() > 1 {
+        for target in &converting {
+            let Some(ident) = bare_ident(&target.payload) else {
+                continue;
+            };
+            let is_parameter =
+                subject.generics().params.iter().any(
+                    |param| matches!(param, GenericParam::Type(param) if &param.ident == ident),
+                );
+            if is_parameter {
+                return Err(Error::new_spanned(
+                    &target.payload,
+                    format!("`{ident}` is a type parameter of `{enum_ident}`, so `From<{ident}>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
+                ));
+            }
+        }
+    }
     // A payload type held by two variants gets no conversion: the impls
     // would conflict, and neither variant is the obvious target. A variant
     // marked `from = false` takes no part at all.
     let mut payload_counts = std::collections::HashMap::<String, usize>::new();
-    for variant in variants.iter().filter(|variant| variant.from) {
+    for target in &converting {
         *payload_counts
-            .entry(variant.payload.to_token_stream().to_string())
+            .entry(target.payload.to_token_stream().to_string())
             .or_default() += 1;
     }
     let value = Ident::new("__value", Span::mixed_site());
     let other = Ident::new("__other", Span::mixed_site());
     let mut output = TokenStream2::new();
-    for variant in variants.iter().filter(|variant| variant.from) {
-        let VariantInfo {
-            ident,
-            payload,
-            cfgs,
-            ..
-        } = variant;
+    for target in converting {
+        let Target { payload, cfgs, .. } = target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
         }
+        let built = target.rebuild(&quote!(Self), quote!(#value));
+        let pattern = target.pattern(&prefix, &value);
         if from {
             output.extend(quote! {
                 #(#cfgs)*
@@ -802,22 +1187,26 @@ fn conversion_impls(
                 impl #impl_generics ::core::convert::From<#payload> for #enum_ident #ty_generics #where_clause {
                     #[inline]
                     fn from(#value: #payload) -> Self {
-                        Self::#ident(#value)
+                        #built
                     }
                 }
             });
         }
-        if try_from {
+        if target.try_from.unwrap_or(try_from) {
+            // The payload is the impl's own type here, so a `Self` it names
+            // must be spelled out as the enum.
+            let mut outside = payload.clone();
+            SelfReplacer(self_type.clone()).visit_type_mut(&mut outside);
             output.extend(quote! {
                 #(#cfgs)*
                 #[automatically_derived]
-                impl #impl_generics ::core::convert::TryFrom<#enum_ident #ty_generics> for #payload #where_clause {
+                impl #impl_generics ::core::convert::TryFrom<#enum_ident #ty_generics> for #outside #where_clause {
                     type Error = #enum_ident #ty_generics;
                     #[inline]
                     #[allow(unreachable_patterns)]
                     fn try_from(#value: #enum_ident #ty_generics) -> ::core::result::Result<Self, Self::Error> {
                         match #value {
-                            #enum_ident::#ident(#value) => ::core::result::Result::Ok(#value),
+                            #pattern => ::core::result::Result::Ok(#value),
                             #other => ::core::result::Result::Err(#other),
                         }
                     }
@@ -825,7 +1214,7 @@ fn conversion_impls(
             });
         }
     }
-    output
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -837,10 +1226,10 @@ struct ImplementInput {
     /// The real path of a trait restated with `remote = ..`, which the impl
     /// is written for.
     remote: Option<Path>,
-    item_enum: ItemEnum,
+    subject: Subject,
     spec: TraitSpec,
-    /// The impl block the user wrote, holding the items the enum implements
-    /// itself; the rest is generated around them.
+    /// The impl block the user wrote, holding the items the subject
+    /// implements itself; the rest is generated around them.
     partial: Option<ItemImpl>,
 }
 
@@ -870,9 +1259,9 @@ impl Parse for ImplementInput {
             None
         };
         input.parse::<Token![enum]>()?;
-        let enum_tokens;
-        braced!(enum_tokens in input);
-        let item_enum: ItemEnum = enum_tokens.parse()?;
+        let subject_tokens;
+        braced!(subject_tokens in input);
+        let subject: Subject = subject_tokens.parse()?;
         let tag: Ident = input.parse()?;
         if tag != "spec" {
             return Err(Error::new_spanned(tag, "expected `spec`"));
@@ -891,7 +1280,7 @@ impl Parse for ImplementInput {
         Ok(Self {
             item_trait,
             remote,
-            item_enum,
+            subject,
             spec,
             partial,
         })
@@ -1088,11 +1477,11 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
         item_trait,
         remote,
-        item_enum,
+        subject,
         mut spec,
         partial,
     } = input;
-    let enum_ident = &item_enum.ident;
+    let subject_ident = subject.ident();
     let Some(spec_path) = &spec.path else {
         return Err(Error::new(
             Span::call_site(),
@@ -1145,10 +1534,10 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             )
         }
         None => {
-            let (_, ty_generics, _) = item_enum.generics.split_for_impl();
+            let (_, ty_generics, _) = subject.generics().split_for_impl();
             (
-                &item_enum.generics,
-                quote!(#enum_ident #ty_generics),
+                subject.generics(),
+                quote!(#subject_ident #ty_generics),
                 &[][..],
                 None,
             )
@@ -1156,19 +1545,32 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     };
     let derived = partial.is_none().then(|| quote!(#[automatically_derived]));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let variants = item_enum
-        .variants
-        .iter()
-        .map(variant_info)
-        .collect::<Result<Vec<_>>>()?;
+    let entries = subject.entries()?;
+    let variants = targets(&entries);
     let Some(first) = variants.first() else {
         return Err(Error::new_spanned(
-            &item_enum,
+            &subject,
             "a dispatch enum needs at least one variant",
         ));
     };
-    let first_target = target_type(first);
+    // A partial block is the only dispatch of its trait, so a variant that
+    // cannot be forwarded to is reported here, under its own `cfg`.
+    let shape_errors: TokenStream2 = match &partial {
+        Some(_) => entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
+                Entry::Target(_) => None,
+            })
+            .collect(),
+        None => TokenStream2::new(),
+    };
+    let first_target = first.target_type();
     let first_payload = &first_target;
+    // The checks live outside the impl, where a `Self` in a payload type
+    // has to be spelled out as the implementing type.
+    let self_type: Type = syn::parse2(self_ty.clone())?;
+    let first_outside = first.target_type_outside(&self_type);
     let mut substitution = Substitution::new(&item_trait, trait_path)?;
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
@@ -1223,8 +1625,8 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 }
                 items.extend(expand_method(
                     function,
-                    &variants,
-                    enum_ident,
+                    &entries,
+                    &subject,
                     trait_path,
                     &spec,
                     &mut substitution,
@@ -1243,15 +1645,17 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         &agreed_types,
         &variants,
         trait_path,
-        first_payload,
+        &first_outside,
         generics,
+        &self_type,
     );
     let const_check = associated_const_check(
         &agreed_consts,
         &variants,
         trait_path,
-        first_payload,
+        &first_outside,
         generics,
+        &self_type,
     );
     Ok(quote! {
         #(#impl_attrs)*
@@ -1262,6 +1666,7 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         }
         #agreement_check
         #const_check
+        #shape_errors
     })
 }
 
@@ -1298,10 +1703,11 @@ fn const_comparison(ty: &Type) -> Option<ConstComparison> {
 /// generic enum gets no check.
 fn associated_const_check(
     consts: &[(&Ident, Type)],
-    variants: &[VariantInfo],
+    variants: &[&Target],
     trait_path: &Path,
     first_payload: &TokenStream2,
     generics: &syn::Generics,
+    self_type: &Type,
 ) -> TokenStream2 {
     if variants.len() < 2 || !generics.params.is_empty() {
         return TokenStream2::new();
@@ -1313,7 +1719,7 @@ fn associated_const_check(
             continue;
         };
         for variant in variants.iter().skip(1) {
-            let payload = target_type(variant);
+            let payload = variant.target_type_outside(self_type);
             let cfgs = &variant.cfgs;
             let message = format!(
                 "`{name}` of variant `{}` differs from the first variant's; set it on the enum with `{name} = value`",
@@ -1373,10 +1779,11 @@ fn associated_const_check(
 /// could not name them; the outer function passes them on to each call.
 fn associated_type_check(
     names: &[&Ident],
-    variants: &[VariantInfo],
+    variants: &[&Target],
     trait_path: &Path,
     first_payload: &TokenStream2,
     generics: &syn::Generics,
+    self_type: &Type,
 ) -> TokenStream2 {
     if names.is_empty() || variants.len() < 2 {
         return TokenStream2::new();
@@ -1412,7 +1819,7 @@ fn associated_type_check(
         })
         .collect();
     let checks = variants.iter().skip(1).map(|variant| {
-        let payload = target_type(variant);
+        let payload = variant.target_type_outside(self_type);
         let cfgs = &variant.cfgs;
         quote! { #(#cfgs)* __same_as_first_variant::<#(#enum_arguments,)* #payload>(); }
     });
@@ -1609,20 +2016,97 @@ enum ArgumentKind {
     SameVariant(Access),
 }
 
-/// Returns how a receiver reaches the value, from its type: `self` and
-/// `self: Self` own it, `&self` and `self: &Self` share it, `&mut self` and
-/// `self: &mut Self` have it exclusively. Any other receiver type is an
-/// error.
-fn receiver_access(receiver: &Receiver) -> Result<Access> {
-    match &*receiver.ty {
-        ty if is_self(ty) => Ok(Access::Owned),
-        Type::Reference(reference) if is_self(&reference.elem) => {
-            Ok(if reference.mutability.is_some() { Access::Exclusive } else { Access::Shared })
+/// The receivers a method can be dispatched on.
+#[derive(Clone, Copy)]
+enum ReceiverKind {
+    /// `self`, `&self` and `&mut self`, in the shorthand or the explicit
+    /// spelling: the payload is reached by matching on the value.
+    Value(Access),
+    /// `self: Box<Self>`: the box is moved out of and the payload's own box,
+    /// held by a `deref` variant, is handed over.
+    Boxed,
+    /// `self: Pin<&Self>` and `self: Pin<&mut Self>`: unpinned, matched, and
+    /// the payload pinned again, which needs every payload to be `Unpin`.
+    Pinned(Access),
+}
+
+fn reference_access(reference: &syn::TypeReference) -> Access {
+    if reference.mutability.is_some() {
+        Access::Exclusive
+    } else {
+        Access::Shared
+    }
+}
+
+/// Classifies a receiver by its type; any other type is an error.
+fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
+    let ty = &*receiver.ty;
+    if is_self(ty) {
+        return Ok(ReceiverKind::Value(Access::Owned));
+    }
+    if let Type::Reference(reference) = ty {
+        if is_self(&reference.elem) {
+            return Ok(ReceiverKind::Value(reference_access(reference)));
         }
-        other => Err(Error::new_spanned(
-            other,
-            "this receiver type is not supported; a receiver is `self`, `&self` or `&mut self`, also written `self: Self`, `self: &Self` or `self: &mut Self`",
-        )),
+    }
+    if let Some(segment) = last_segment(ty) {
+        if let [argument] = generic_type_args(segment).as_slice() {
+            if segment.ident == "Box" && is_self(argument) {
+                return Ok(ReceiverKind::Boxed);
+            }
+            if segment.ident == "Pin" {
+                if let Type::Reference(reference) = argument {
+                    if is_self(&reference.elem) {
+                        return Ok(ReceiverKind::Pinned(reference_access(reference)));
+                    }
+                }
+            }
+        }
+    }
+    Err(Error::new_spanned(
+        ty,
+        "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
+    ))
+}
+
+/// Returns the expression the generated `match` looks at for a receiver:
+/// the value itself, the enum moved out of its box, or the pinned reference
+/// unpinned.
+fn scrutinee(kind: ReceiverKind, self_token: &Token![self]) -> TokenStream2 {
+    match kind {
+        ReceiverKind::Value(_) => quote!(#self_token),
+        ReceiverKind::Boxed => quote!(*#self_token),
+        ReceiverKind::Pinned(Access::Exclusive) => quote!(::core::pin::Pin::get_mut(#self_token)),
+        ReceiverKind::Pinned(_) => quote!(::core::pin::Pin::get_ref(#self_token)),
+    }
+}
+
+/// Returns the expression handing the payload bound to `binding` to the
+/// method as its receiver, or the error for a payload the receiver cannot
+/// reach.
+fn receiver_expression(
+    kind: ReceiverKind,
+    target: &Target,
+    binding: &Ident,
+    method: &Ident,
+) -> Result<TokenStream2> {
+    match kind {
+        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding)),
+        ReceiverKind::Boxed => {
+            if !target.holds_box() {
+                let ident = &target.ident;
+                let payload = &target.payload;
+                return Err(Error::new_spanned(
+                    payload,
+                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{}`; hold `Box<{}>` in a `#[dispatch(deref)]` variant, or implement the method by hand", payload.to_token_stream(), payload.to_token_stream()),
+                ));
+            }
+            Ok(quote!(#binding))
+        }
+        ReceiverKind::Pinned(access) => {
+            let payload = payload_expression(target.deref, access, binding);
+            Ok(quote!(::core::pin::Pin::new(#payload)))
+        }
     }
 }
 
@@ -1680,12 +2164,14 @@ fn method_mismatch(function: &TraitItemFn) -> Result<Option<Expr>> {
 
 fn expand_method(
     function: &TraitItemFn,
-    variants: &[VariantInfo],
-    enum_ident: &Ident,
+    entries: &[Entry],
+    subject: &Subject,
     trait_path: &Path,
     spec: &TraitSpec,
     substitution: &mut Substitution,
 ) -> Result<TokenStream2> {
+    let subject_ident = subject.ident();
+    let prefix = subject_ident.to_token_stream();
     let mut signature: Signature = function.sig.clone();
     substitution.visit_signature_mut(&mut signature);
     let method = signature.ident.clone();
@@ -1700,10 +2186,10 @@ fn expand_method(
             .ident;
         return Err(Error::new_spanned(
             &function.sig,
-            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl {trait_ident} for {enum_ident}` block"),
+            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl {trait_ident} for {subject_ident}` block"),
         ));
     };
-    let receiver_access = receiver_access(receiver)?;
+    let receiver_kind = classify_receiver(receiver)?;
     // `self` is resolved like a local variable, so the generated `match`
     // must use the receiver's own token to share its hygiene.
     let self_token = receiver.self_token;
@@ -1738,22 +2224,36 @@ fn expand_method(
         None => method_mismatch(function)?,
     };
     let mut arms = TokenStream2::new();
-    for variant in variants {
-        let VariantInfo {
+    for entry in entries {
+        let target = match entry {
+            Entry::Target(target) => target,
+            // The variant is reported elsewhere, under its `cfg`; this arm
+            // only keeps the `match` exhaustive while that error stands.
+            Entry::Unforwardable(unforwardable) => {
+                if same_variant.is_empty() {
+                    let Unforwardable { ident, cfgs, .. } = unforwardable;
+                    arms.extend(
+                        quote! { #(#cfgs)* #prefix::#ident { .. } => ::core::unreachable!(), },
+                    );
+                }
+                continue;
+            }
+        };
+        let Target {
             ident: variant_ident,
             payload,
             cfgs,
             deref,
             ..
-        } = variant;
+        } = target;
         if *deref && matches!(return_shape, ReturnShape::RewrapSelf | ReturnShape::MapSelf) {
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of variant `{variant_ident}`; drop `deref` on it or implement the method by hand"),
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{variant_ident}`; drop `deref` on it or implement the method by hand"),
             ));
         }
-        let target = target_type(variant);
-        let receiver_expression = payload_expression(*deref, receiver_access, &inner);
+        let target_type = target.target_type();
+        let receiver_expression = receiver_expression(receiver_kind, target, &inner, &method)?;
         let call_arguments = argument_idents.iter().enumerate().map(|(index, ident)| {
             match same_variant
                 .iter()
@@ -1766,7 +2266,7 @@ fn expand_method(
             }
         });
         let mut call = quote! {
-            <#target as #trait_path>::#method(#receiver_expression #(, #call_arguments)*)
+            <#target_type as #trait_path>::#method(#receiver_expression #(, #call_arguments)*)
         };
         if is_unsafe {
             call = quote! { unsafe { #call } };
@@ -1774,35 +2274,47 @@ fn expand_method(
         if is_async {
             call = quote! { #call.await };
         }
+        let rebuild_error = || {
+            Error::new_spanned(
+                payload,
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject_ident}`; write the method in a `#[whichever::dispatch] impl` block"),
+            )
+        };
         call = match return_shape {
             ReturnShape::Plain => call,
-            ReturnShape::RewrapSelf => quote! { #enum_ident::#variant_ident(#call) },
-            ReturnShape::MapSelf => quote! { #call.map(#enum_ident::#variant_ident) },
+            ReturnShape::RewrapSelf => target.rebuild(&prefix, call).ok_or_else(rebuild_error)?,
+            ReturnShape::MapSelf => {
+                let constructor = target.constructor(&prefix).ok_or_else(rebuild_error)?;
+                quote! { #call.map(#constructor) }
+            }
             ReturnShape::IntoOverridden => quote! { ::core::convert::Into::into(#call) },
             ReturnShape::MapErrOverridden => {
                 quote! { #call.map_err(::core::convert::Into::into) }
             }
         };
         let pattern = if same_variant.is_empty() {
-            quote! { #enum_ident::#variant_ident(#inner) }
+            target.pattern(&prefix, &inner)
         } else {
-            let same_patterns = same_variant.iter().map(|(index, _)| {
-                let same = hygienic(&format!("__same{index}"));
-                quote! { #enum_ident::#variant_ident(#same) }
-            });
-            quote! { (#enum_ident::#variant_ident(#inner), #(#same_patterns),*) }
+            let own = target.pattern(&prefix, &inner);
+            let same_patterns = same_variant
+                .iter()
+                .map(|(index, _)| target.pattern(&prefix, &hygienic(&format!("__same{index}"))));
+            quote! { (#own, #(#same_patterns),*) }
         };
         arms.extend(quote! { #(#cfgs)* #pattern => #call, });
     }
+    let scrutinee = scrutinee(receiver_kind, &self_token);
     let scrutinee = if same_variant.is_empty() {
-        quote!(#self_token)
+        scrutinee
     } else {
         let arguments = same_variant
             .iter()
             .map(|(index, _)| &argument_idents[*index]);
-        quote! { (#self_token, #(#arguments),*) }
+        quote! { (#scrutinee, #(#arguments),*) }
     };
-    let (fallback, allow_unreachable) = if same_variant.is_empty() {
+    // Two values of a struct always hold the same field, so only an enum
+    // needs the arm for two different variants.
+    let (fallback, allow_unreachable) = if same_variant.is_empty() || !subject.is_enum() {
         (TokenStream2::new(), TokenStream2::new())
     } else {
         let Some(expr) = mismatch else {
@@ -1860,10 +2372,10 @@ fn method_body(body: TokenStream2, returns_future: bool, span: Span) -> TokenStr
 // ---------------------------------------------------------------------------
 
 struct InherentInput {
-    /// Whether `#[dispatch]` rejected the enum itself, whose error is then
-    /// already reported.
+    /// Whether `#[dispatch]` rejected the subject itself, whose error is
+    /// then already reported.
     rejected: bool,
-    item_enum: ItemEnum,
+    subject: Subject,
     /// The options of a `#[dispatch(..)]` on a trait impl block, which make
     /// the block a partial impl of that trait.
     partial: Option<TokenStream2>,
@@ -1890,9 +2402,9 @@ impl Parse for InherentInput {
             false
         };
         input.parse::<Token![enum]>()?;
-        let enum_tokens;
-        braced!(enum_tokens in input);
-        let item_enum: ItemEnum = enum_tokens.parse()?;
+        let subject_tokens;
+        braced!(subject_tokens in input);
+        let subject: Subject = subject_tokens.parse()?;
         let partial = if input.peek(Ident) {
             let tag: Ident = input.parse()?;
             if tag != "partial" {
@@ -1910,22 +2422,22 @@ impl Parse for InherentInput {
         let item_impl: ItemImpl = impl_tokens.parse()?;
         Ok(Self {
             rejected,
-            item_enum,
+            subject,
             partial,
             item_impl,
         })
     }
 }
 
-/// Rewrites an impl block of a dispatch enum; called by the macro that
-/// `#[dispatch]` defines for the enum.
+/// Rewrites an impl block of a dispatch enum or struct; called by the macro
+/// that `#[dispatch]` defines for the item.
 #[doc(hidden)]
 #[proc_macro]
 pub fn implement_inherent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as InherentInput);
     let expanded = match input.partial {
-        Some(options) => expand_partial(input.rejected, input.item_enum, options, input.item_impl),
-        None => expand_inherent(input.rejected, input.item_enum, input.item_impl),
+        Some(options) => expand_partial(input.rejected, input.subject, options, input.item_impl),
+        None => expand_inherent(input.rejected, input.subject, input.item_impl),
     };
     expanded
         .unwrap_or_else(|error| error.to_compile_error())
@@ -1933,12 +2445,12 @@ pub fn implement_inherent(input: TokenStream) -> TokenStream {
 }
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
-/// with the enum, so that `implement!` can write the rest of the impl around
-/// the items the block holds. When the enum was rejected the block is
-/// emitted as written; its one error is the missing items.
+/// with the subject, so that `implement!` can write the rest of the impl
+/// around the items the block holds. When the subject was rejected the
+/// block is emitted as written; its one error is the missing items.
 fn expand_partial(
     rejected: bool,
-    item_enum: ItemEnum,
+    subject: Subject,
     options: TokenStream2,
     item_impl: ItemImpl,
 ) -> Result<TokenStream2> {
@@ -1966,7 +2478,7 @@ fn expand_partial(
     };
     let facade = facade_ident()?;
     Ok(quote! {
-        #macro_path! { @v1 #facade enum { #item_enum } spec { #spec } impl { #item_impl } }
+        #macro_path! { @v1 #facade enum { #subject } spec { #spec } impl { #item_impl } }
     })
 }
 
@@ -2050,19 +2562,13 @@ impl Parse for BodylessMethod {
 /// rejected nothing is reported here.
 fn expand_inherent(
     rejected: bool,
-    item_enum: ItemEnum,
+    subject: Subject,
     mut item_impl: ItemImpl,
 ) -> Result<TokenStream2> {
     let variants = if rejected {
         None
     } else {
-        Some(
-            item_enum
-                .variants
-                .iter()
-                .map(variant_info)
-                .collect::<Result<Vec<_>>>()?,
-        )
+        Some(subject.entries()?)
     };
     let mut items = Vec::with_capacity(item_impl.items.len());
     let mut errors: Vec<Error> = vec![];
@@ -2086,7 +2592,7 @@ fn expand_inherent(
                         Some(&function.block),
                         forwarding,
                         variants,
-                        &item_enum.ident,
+                        &subject,
                     )
                 });
                 match forwarded {
@@ -2122,15 +2628,7 @@ fn expand_inherent(
                     continue;
                 };
                 let forwarded = attribute.parse_args().and_then(|forwarding| {
-                    forward_method(
-                        &attrs,
-                        &vis,
-                        &sig,
-                        None,
-                        forwarding,
-                        variants,
-                        &item_enum.ident,
-                    )
+                    forward_method(&attrs, &vis, &sig, None, forwarding, variants, &subject)
                 });
                 match forwarded {
                     Ok(generated) => items.push(ImplItem::Verbatim(generated)),
@@ -2154,9 +2652,11 @@ fn forward_method(
     sig: &Signature,
     body: Option<&Block>,
     forwarding: Forwarding,
-    variants: &[VariantInfo],
-    enum_ident: &Ident,
+    entries: &[Entry],
+    subject: &Subject,
 ) -> Result<TokenStream2> {
+    let subject_ident = subject.ident();
+    let prefix = quote!(Self);
     let method = &sig.ident;
     let Some(FnArg::Receiver(receiver)) = sig.inputs.first() else {
         return Err(Error::new_spanned(
@@ -2164,7 +2664,7 @@ fn forward_method(
             format!("`{method}` has no receiver, so there is no variant to forward to"),
         ));
     };
-    receiver_access(receiver)?;
+    let receiver_kind = classify_receiver(receiver)?;
     let self_token = receiver.self_token;
     let mut arguments = Vec::new();
     for input in sig.inputs.iter().skip(1) {
@@ -2179,29 +2679,45 @@ fn forward_method(
         };
         arguments.push(pattern.ident.clone());
     }
-    let selected: Vec<&VariantInfo> = if forwarding.all {
-        variants.iter().collect()
+    let variants = targets(entries);
+    // Under `*`, a variant that holds no payload cannot be forwarded to and
+    // the method has no body to fall back on, so the arm for it is an
+    // error, which fires only when the variant is compiled in.
+    let mut unforwardable_arms = TokenStream2::new();
+    let selected: Vec<&Target> = if forwarding.all {
+        for entry in entries {
+            if let Entry::Unforwardable(Unforwardable { ident, cfgs, .. }) = entry {
+                let message = format!("`{method}` is forwarded to every variant, but `{ident}` holds no payload to forward to; name the variants that do and give the method a body for the rest");
+                unforwardable_arms.extend(quote_spanned! { method.span() =>
+                    #(#cfgs)* #prefix::#ident { .. } => ::core::compile_error!(#message),
+                });
+            }
+        }
+        variants.clone()
     } else {
         forwarding
             .variants
             .iter()
             .map(|name| {
-                variants
-                    .iter()
-                    .find(|variant| &variant.ident == name)
-                    .ok_or_else(|| {
-                        Error::new(
-                            name.span(),
-                            format!("`{enum_ident}` has no variant `{name}`"),
-                        )
-                    })
+                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
+                    return Ok(*target);
+                }
+                let noun = if subject.is_enum() { "variant" } else { "field" };
+                let message = match entries.iter().find(|entry| {
+                    matches!(entry, Entry::Unforwardable(unforwardable) if &unforwardable.ident == name)
+                }) {
+                    Some(_) => format!("`{name}` holds no payload to forward to"),
+                    None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                };
+                Err(Error::new(name.span(), message))
             })
             .collect::<Result<_>>()?
     };
     let covers_all = forwarding.all
-        || variants
-            .iter()
-            .all(|variant| forwarding.variants.contains(&variant.ident));
+        || entries.iter().all(|entry| match entry {
+            Entry::Target(target) => forwarding.variants.contains(&target.ident),
+            Entry::Unforwardable(_) => false,
+        });
     match (covers_all, body) {
         (true, Some(body)) => {
             return Err(Error::new_spanned(
@@ -2221,9 +2737,18 @@ fn forward_method(
     let call_name = forwarding.call.as_ref().unwrap_or(method);
     let (return_shape, returns_future) = classify_return(&sig.output, None)?;
     let awaited = sig.asyncness.is_some() || returns_future;
-    let arms = selected.iter().map(|variant| {
-        let VariantInfo { ident, cfgs, .. } = variant;
-        let mut call = quote! { #inner.#call_name(#(#arguments),*) };
+    let mut arms = TokenStream2::new();
+    for target in selected {
+        let Target { cfgs, payload, .. } = target;
+        // Method-call syntax reaches through a `deref` payload by itself;
+        // a pinned receiver is pinned again around the payload.
+        let callee = match receiver_kind {
+            ReceiverKind::Pinned(_) | ReceiverKind::Boxed => {
+                receiver_expression(receiver_kind, target, &inner, method)?
+            }
+            ReceiverKind::Value(_) => quote!(#inner),
+        };
+        let mut call = quote! { #callee.#call_name(#(#arguments),*) };
         if awaited {
             call = quote! { #call.await };
         }
@@ -2231,19 +2756,32 @@ fn forward_method(
         // payload's own `Option` or `Result` is mapped; with it, the payload
         // returns the plain value and `with` lifts the variant into the
         // declared `Option` or `Result`.
+        let rebuild_error = || {
+            Error::new_spanned(
+                payload,
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject_ident}`; give it a body instead"),
+            )
+        };
         call = match (&return_shape, &forwarding.with) {
-            (ReturnShape::MapSelf, None) => quote! { #call.map(Self::#ident) },
-            (ReturnShape::RewrapSelf | ReturnShape::MapSelf, _) => quote! { Self::#ident(#call) },
+            (ReturnShape::MapSelf, None) => {
+                let constructor = target.constructor(&prefix).ok_or_else(rebuild_error)?;
+                quote! { #call.map(#constructor) }
+            }
+            (ReturnShape::RewrapSelf | ReturnShape::MapSelf, _) => {
+                target.rebuild(&prefix, call).ok_or_else(rebuild_error)?
+            }
             _ => call,
         };
         if let Some(with) = &forwarding.with {
             call = quote! { #with(#call) };
         }
-        quote! { #(#cfgs)* Self::#ident(#inner) => #call, }
-    });
+        let pattern = target.pattern(&prefix, &inner);
+        arms.extend(quote! { #(#cfgs)* #pattern => #call, });
+    }
     let fallback = body.map(|body| quote! { _ => #body, });
+    let scrutinee = scrutinee(receiver_kind, &self_token);
     let body = method_body(
-        quote! { match #self_token { #(#arms)* #fallback } },
+        quote! { match #scrutinee { #arms #unforwardable_arms #fallback } },
         returns_future,
         method.span(),
     );

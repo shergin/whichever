@@ -103,12 +103,14 @@
 //!   type, with the enum itself as the error, so a mismatch hands the value
 //!   back.
 //!
-//! Two options go on a variant. `#[dispatch(from = false)]` leaves the
+//! Three options go on a variant. `#[dispatch(from = false)]` leaves the
 //! variant out of the `From` and `TryFrom` impls, for a payload such as
-//! `String` that should not convert into the enum. `#[dispatch(deref)]`
-//! calls the trait on what the payload dereferences to, so `Box<T>`,
-//! `Rc<T>`, `Arc<T>`, `&T` and `&mut T` payloads dispatch like a plain `T`.
-//! See [dereferenced payloads](#dereferenced-payloads).
+//! `String` that should not convert into the enum, and
+//! `#[dispatch(try_from = true)]` adds the `TryFrom` impl for that payload
+//! alone. `#[dispatch(deref)]` calls the trait on what the payload
+//! dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and `&mut T`
+//! payloads dispatch like a plain `T`. See
+//! [dereferenced payloads](#dereferenced-payloads).
 //!
 //! Several traits are dispatched by repeating the attribute, one trait per
 //! attribute; a supertrait is just one more attribute:
@@ -126,6 +128,8 @@
 //! | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
 //! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 //! | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`. |
+//! | `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error. |
+//! | `self: Pin<&Self>`, `self: Pin<&mut Self>` | The enum is unpinned, matched, and the payload pinned again; every payload must be `Unpin`. |
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
 //! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. |
@@ -425,6 +429,52 @@
 //! header, bounds included, becomes the impl's. Like inherent blocks, it
 //! has to be in the enum's crate.
 //!
+//! # Wrapping the enum in a struct
+//!
+//! A dispatch enum is often private behind a public struct that forwards
+//! the same trait. `#[dispatch]` on the struct forwards to its one field,
+//! or to the field marked `#[dispatch]`, provided methods included, so a
+//! payload's override reaches the public type:
+//!
+//! ```
+//! #[whichever::dispatchable]
+//! pub trait Shape {
+//!     fn area(&self) -> u32;
+//!     fn name(&self) -> &'static str {
+//!         "shape"
+//!     }
+//! }
+//!
+//! pub struct Square(pub u32);
+//! # impl Shape for Square {
+//! #     fn area(&self) -> u32 { self.0 * self.0 }
+//! #     fn name(&self) -> &'static str { "square" }
+//! # }
+//!
+//! #[whichever::dispatch(Shape)]
+//! enum AnyShape {
+//!     Square(Square),
+//! }
+//!
+//! #[whichever::dispatch(Shape)]
+//! pub struct Labelled {
+//!     #[dispatch]
+//!     shape: AnyShape,
+//!     label: &'static str,
+//! }
+//!
+//! fn main() {
+//!     let labelled = Labelled { shape: Square(3).into(), label: "a" };
+//!     assert_eq!((labelled.area(), labelled.name()), (9, "square"));
+//! }
+//! ```
+//!
+//! `#[dispatch(deref)]` on the field reaches through a `Box` or another
+//! pointer. A method returning `Self` is rebuilt only around a struct with
+//! no other field; otherwise it goes in a partial impl block, which works on
+//! a struct as on an enum. A struct gets no `From` impls, and its `Self`
+//! arguments need no `mismatch`.
+//!
 //! # Across crates
 //!
 //! `#[dispatchable]` emits the trait unchanged plus a hidden macro carrying
@@ -447,15 +497,23 @@
 //!
 //! # Requirements and limits
 //!
-//! - Every variant holds exactly one unnamed field, `Name(Payload)`, and
-//!   every payload implements the trait. A payload type used by two variants
-//!   gets no `From` impl.
+//! - Every variant a trait is dispatched to holds exactly one unnamed
+//!   field, `Name(Payload)`, and every payload implements the trait. A
+//!   variant of another shape is reported under its own `#[cfg]`, so a
+//!   variant compiled out is no error, and an enum that only forwards
+//!   inherent methods may hold such variants, which take the method's body.
+//!   A payload type used by two variants gets no `From` impl.
 //! - A method without a receiver needs a default body, which the enum uses,
 //!   or an implementation in a `#[dispatch]` impl block.
 //! - Return-position `impl Trait` cannot be dispatched by a `match`: every
 //!   variant would return a different opaque type. `impl Future<Output = T>`
 //!   is the exception; it is awaited like an `async fn`.
-//! - Generic associated types and `self: Type` receivers are not supported.
+//! - Generic associated types are not supported.
+//! - Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` on
+//!   `deref` variants holding a `Box`, and `self: Pin<&Self>` or
+//!   `self: Pin<&mut Self>` when every payload is `Unpin`. `Rc<Self>`,
+//!   `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
+//!   allocation, so they are not.
 //! - An associated const of a type other than an integer, `bool`, `char` or
 //!   `&str`, or on a generic enum, is taken from the first variant without
 //!   a check.

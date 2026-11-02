@@ -1,0 +1,6 @@
+error: a dispatch variant must be `Name(Payload)`
+  --> tests/ui/cfg_enabled_bad_variant.rs:20:5
+   |
+20 | /     #[cfg(all())]
+21 | |     Mock,
+   | |________^

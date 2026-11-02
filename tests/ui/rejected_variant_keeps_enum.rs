@@ -1,5 +1,6 @@
-//! The one error is the variant's shape. The derive, the `use` in another
-//! module, the inherent block and the calls all resolve against the enum.
+//! The variant's shape is reported once, where a trait is dispatched, and
+//! once more where `*` would forward to it; the derive, the `use` in another
+//! module, the other inherent methods and the calls all resolve.
 #[whichever::dispatchable]
 trait Value {
     fn value(&self) -> u32;
@@ -10,6 +11,15 @@ struct A;
 
 impl Value for A {
     fn value(&self) -> u32 {
+        1
+    }
+}
+
+impl A {
+    fn only_a(&self) -> u32 {
+        1
+    }
+    fn bodyless(&self) -> u32 {
         1
     }
 }

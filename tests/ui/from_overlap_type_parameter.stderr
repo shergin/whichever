@@ -1,0 +1,5 @@
+error: `I` is a type parameter of `Adapter`, so `From<I>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+  --> tests/ui/from_overlap_type_parameter.rs:14:10
+   |
+14 |     Iter(I),
+   |          ^

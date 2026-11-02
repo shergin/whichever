@@ -1,0 +1,5 @@
+error: `grown` returns `Self`, which cannot be built around the other fields of `Labelled`; write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/struct_self_return_other_fields.rs:19:12
+   |
+19 |     shape: Square,
+   |            ^^^^^^

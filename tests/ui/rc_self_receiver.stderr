@@ -1,0 +1,10 @@
+error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`
+  --> tests/ui/rc_self_receiver.rs:5:22
+   |
+ 5 |     fn consume(self: Rc<Self>) -> u32;
+   |                      ^^^^^^^^
+...
+16 | #[whichever::dispatch(Consume)]
+   | ------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Consume` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

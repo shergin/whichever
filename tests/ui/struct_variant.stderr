@@ -3,3 +3,11 @@ error: a dispatch variant must be `Name(Payload)`
    |
 16 |     A { inner: A },
    |     ^^^^^^^^^^^^^^
+
+error: a dispatch enum needs at least one variant
+  --> tests/ui/struct_variant.rs:15:1
+   |
+15 | / enum Kind {
+16 | |     A { inner: A },
+17 | | }
+   | |_^

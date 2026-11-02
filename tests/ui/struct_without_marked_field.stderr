@@ -1,0 +1,5 @@
+error: `Labelled` has several fields; mark the one to forward to with `#[dispatch]`
+  --> tests/ui/struct_without_marked_field.rs:15:8
+   |
+15 | struct Labelled {
+   |        ^^^^^^^^

@@ -102,6 +102,9 @@ traits, several traits on one enum) dispatch too.
 | `-> impl Trait` | `impl Future<Output = T>` only | no | no | no | no | no | no | no |
 | `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
+| Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
+| A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
+| `self: Pin<&mut Self>`, `self: Box<Self>` | yes | - | - | - | - | - | - | - |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one
 crate and the enum in another, on stable Rust. A dash means the case was
@@ -183,11 +186,13 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
   with the enum as the error, so a mismatch hands the value back.
 
-Two options go on a variant. `#[dispatch(from = false)]` leaves the
+Three options go on a variant. `#[dispatch(from = false)]` leaves the
 variant out of the `From` and `TryFrom` impls, for a payload such as
-`String` that should not convert into the enum. `#[dispatch(deref)]` calls
-the trait on what the payload dereferences to, so `Box<T>`, `Rc<T>`,
-`Arc<T>`, `&T` and `&mut T` payloads dispatch like a plain `T`:
+`String` that should not convert into the enum, and
+`#[dispatch(try_from = true)]` adds the `TryFrom` impl for that payload
+alone. `#[dispatch(deref)]` calls the trait on what the payload
+dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and `&mut T`
+payloads dispatch like a plain `T`:
 
 ```rust
 #[whichever::dispatch(Shape)]
@@ -331,6 +336,37 @@ payload's method out on purpose. The block's own header, generics and
 bounds included, becomes the impl's header. Like inherent blocks, it has to
 be in the enum's crate.
 
+## Wrapping the enum in a struct
+
+A dispatch enum is often private, behind a public struct that forwards the
+same trait by hand, and the hand-written half forwards only the required
+methods, so a payload's override of a provided method never reaches the
+public type. `#[dispatch]` on the struct forwards to its one field, or to
+the field marked `#[dispatch]`, every method included:
+
+```rust
+#[whichever::dispatch(FlowCtrlHooks)]
+enum FlowCtrlInner {
+    Window(WindowFlowCtrl),
+    XonXoff(XonXoffFlowCtrl),
+}
+
+#[whichever::dispatch(FlowCtrlHooks)]
+pub struct StreamFlowCtrl {
+    #[dispatch]
+    inner: FlowCtrlInner,
+    hooks: Hooks,
+}
+```
+
+The field may be any implementor, not only a dispatch enum, and
+`#[dispatch(deref)]` on it reaches through a `Box` or another pointer. A
+method returning `Self` is rebuilt only around a struct with no other
+field; otherwise it is an error, and the method goes in a partial impl
+block, which works on a struct like on an enum. A struct gets no `From`
+impls. `Self` arguments need no `mismatch`: two values of the struct always
+hold the same field.
+
 ## What each trait item becomes
 
 | Trait item | Enum impl |
@@ -338,6 +374,8 @@ be in the enum's crate.
 | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
 | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]`. |
+| `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error, since boxing it again would allocate. |
+| `self: Pin<&Self>`, `self: Pin<&mut Self>` | The enum is unpinned, matched, and the payload pinned again, which needs every payload to be `Unpin`. |
 | default body | Ignored: forwarded like any other method. |
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. |
@@ -348,13 +386,20 @@ be in the enum's crate.
 
 ## Limits
 
-- Every variant holds exactly one unnamed field, `Name(Payload)`, and
-  every payload implements the trait.
+- Every variant a trait is dispatched to holds exactly one unnamed field,
+  `Name(Payload)`, and every payload implements the trait. A variant of
+  another shape is reported under its own `#[cfg]`, so a variant compiled
+  out, such as a test-only mock, is no error; an enum that only forwards
+  inherent methods may hold such variants, which take the method's body.
 - Return-position `impl Trait` cannot be dispatched by a `match`, except
   `impl Future<Output = T>`, which is awaited like an `async fn`.
 - A `deref` variant cannot take part in a method returning `Self`: there is
   no way to put the result back behind the pointer.
-- Generic associated types and `self: Type` receivers are not supported.
+- Generic associated types are not supported.
+- Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` on `deref`
+  variants holding a `Box`, and `self: Pin<&Self>` or `self: Pin<&mut Self>`
+  when every payload is `Unpin`. `Rc<Self>`, `Arc<Self>` and
+  `Pin<Box<Self>>` would need a refcount or an allocation, so they are not.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.

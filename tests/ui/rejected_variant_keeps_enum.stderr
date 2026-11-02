@@ -1,5 +1,11 @@
 error: a dispatch variant must be `Name(Payload)`
-  --> tests/ui/rejected_variant_keeps_enum.rs:21:5
+  --> tests/ui/rejected_variant_keeps_enum.rs:31:5
    |
-21 |     B { inner: A },
+31 |     B { inner: A },
    |     ^^^^^^^^^^^^^^
+
+error: `bodyless` is forwarded to every variant, but `B` holds no payload to forward to; name the variants that do and give the method a body for the rest
+  --> tests/ui/rejected_variant_keeps_enum.rs:42:8
+   |
+42 |     fn bodyless(&self) -> u32;
+   |        ^^^^^^^^

@@ -2004,3 +2004,390 @@ mod associated_const_agreement {
         assert!(AnyProof::Encoding(Encoding).check());
     }
 }
+
+mod newtype_delegation {
+    #[whichever::dispatchable]
+    trait FlowCtrl {
+        fn can_send<M: AsRef<str>>(&self, msg: &M) -> bool;
+        fn about_to_send(&mut self, bytes: u32);
+        fn sent(&self) -> u32;
+        fn label(&self) -> String {
+            format!("{} sent", self.sent())
+        }
+        #[dispatch(mismatch = 0)]
+        fn merged(&self, other: &Self) -> u32;
+    }
+
+    struct Window(u32);
+    struct XonXoff(u32);
+
+    impl FlowCtrl for Window {
+        fn can_send<M: AsRef<str>>(&self, msg: &M) -> bool {
+            msg.as_ref().len() as u32 <= self.0
+        }
+        fn about_to_send(&mut self, bytes: u32) {
+            self.0 = self.0.saturating_sub(bytes);
+        }
+        fn sent(&self) -> u32 {
+            100 - self.0
+        }
+        fn label(&self) -> String {
+            String::from("window")
+        }
+        fn merged(&self, other: &Self) -> u32 {
+            self.0 + other.0
+        }
+    }
+
+    impl FlowCtrl for XonXoff {
+        fn can_send<M: AsRef<str>>(&self, _msg: &M) -> bool {
+            self.0 > 0
+        }
+        fn about_to_send(&mut self, _bytes: u32) {
+            self.0 += 1;
+        }
+        fn sent(&self) -> u32 {
+            self.0
+        }
+        fn merged(&self, other: &Self) -> u32 {
+            self.0 * other.0
+        }
+    }
+
+    #[whichever::dispatch(FlowCtrl)]
+    enum Inner {
+        Window(Window),
+        XonXoff(XonXoff),
+    }
+
+    /// The public wrapper over the private enum, with a field of its own.
+    #[whichever::dispatch(FlowCtrl)]
+    struct StreamFlowCtrl {
+        #[dispatch]
+        inner: Inner,
+        hooks: u8,
+    }
+
+    /// A payload behind a `Box`.
+    #[whichever::dispatch(FlowCtrl)]
+    struct BoxedFlowCtrl {
+        #[dispatch(deref)]
+        inner: Box<Inner>,
+    }
+
+    /// A struct that overrides one method keeps the payload's overrides of
+    /// the others.
+    #[whichever::dispatch]
+    struct Newline(Window);
+
+    #[whichever::dispatch]
+    impl FlowCtrl for Newline {
+        fn sent(&self) -> u32 {
+            self.0.sent() + 1
+        }
+    }
+
+    #[test]
+    fn a_struct_forwards_to_its_field_and_keeps_the_payloads_overrides() {
+        let mut ctrl = StreamFlowCtrl {
+            inner: Window(100).into(),
+            hooks: 0,
+        };
+        assert!(ctrl.can_send(&"hello"));
+        ctrl.about_to_send(40);
+        assert_eq!((ctrl.sent(), ctrl.hooks), (40, 0));
+        assert_eq!(ctrl.label(), "window");
+        let other = StreamFlowCtrl {
+            inner: Window(10).into(),
+            hooks: 1,
+        };
+        assert_eq!(ctrl.merged(&other), 70);
+        let mismatched = StreamFlowCtrl {
+            inner: XonXoff(3).into(),
+            hooks: 1,
+        };
+        assert_eq!(ctrl.merged(&mismatched), 0);
+
+        let boxed = BoxedFlowCtrl {
+            inner: Box::new(XonXoff(2).into()),
+        };
+        assert_eq!((boxed.sent(), boxed.label()), (2, String::from("2 sent")));
+
+        let newline = Newline(Window(90));
+        assert_eq!(
+            (newline.sent(), newline.label()),
+            (11, String::from("window"))
+        );
+    }
+
+    #[whichever::dispatchable]
+    trait Grow {
+        fn grown(&self) -> Self
+        where
+            Self: Sized;
+        fn halved(&self) -> Option<Self>
+        where
+            Self: Sized;
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Size(u32);
+
+    impl Grow for Size {
+        fn grown(&self) -> Self {
+            Size(self.0 + 1)
+        }
+        fn halved(&self) -> Option<Self> {
+            self.0.is_multiple_of(2).then_some(Size(self.0 / 2))
+        }
+    }
+
+    /// A single-field struct needs no marker and is rebuilt around `Self`.
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Grow)]
+    struct Wrapped(Size);
+
+    #[whichever::dispatch]
+    impl Wrapped {
+        #[dispatch(*)]
+        fn grown_again(&self) -> Self;
+    }
+
+    impl Size {
+        fn grown_again(&self) -> Self {
+            Size(self.0 + 2)
+        }
+    }
+
+    #[test]
+    fn a_single_field_struct_is_rebuilt_around_self() {
+        assert_eq!(Wrapped(Size(4)).grown(), Wrapped(Size(5)));
+        assert_eq!(Wrapped(Size(4)).halved(), Some(Wrapped(Size(2))));
+        assert_eq!(Wrapped(Size(3)).halved(), None);
+        assert_eq!(Wrapped(Size(4)).grown_again(), Wrapped(Size(6)));
+    }
+}
+
+mod pinned_and_boxed_receivers {
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Waker};
+
+    #[whichever::dispatchable]
+    trait Source {
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<u32>;
+        fn peek(self: Pin<&Self>) -> u32;
+    }
+
+    struct Ready(u32);
+    struct Pending;
+
+    impl Source for Ready {
+        fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<u32> {
+            Poll::Ready(self.0)
+        }
+        fn peek(self: Pin<&Self>) -> u32 {
+            self.0
+        }
+    }
+
+    impl Source for Pending {
+        fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<u32> {
+            Poll::Pending
+        }
+        fn peek(self: Pin<&Self>) -> u32 {
+            0
+        }
+    }
+
+    impl Ready {
+        fn poll_once(self: Pin<&mut Self>) -> u32 {
+            self.0
+        }
+    }
+
+    #[whichever::dispatch(Source)]
+    enum AnySource {
+        Ready(Ready),
+        Pending(Pending),
+        #[dispatch(deref)]
+        Boxed(Box<Ready>),
+    }
+
+    #[whichever::dispatch]
+    impl AnySource {
+        #[dispatch(Ready, Boxed)]
+        fn poll_once(self: Pin<&mut Self>) -> u32 {
+            99
+        }
+    }
+
+    #[whichever::dispatchable]
+    trait Finish {
+        fn finish(self: Box<Self>) -> u32;
+    }
+
+    impl Finish for Ready {
+        fn finish(self: Box<Self>) -> u32 {
+            self.0 * 10
+        }
+    }
+
+    #[whichever::dispatch(Finish)]
+    enum Finishable {
+        #[dispatch(deref)]
+        Boxed(Box<Ready>),
+    }
+
+    #[test]
+    fn pinned_receivers_unpin_the_enum_and_pin_the_payload() {
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut ready: AnySource = Ready(5).into();
+        assert_eq!(Pin::new(&mut ready).poll_next(&mut cx), Poll::Ready(5));
+        assert_eq!(Pin::new(&ready).peek(), 5);
+        assert_eq!(Pin::new(&mut ready).poll_once(), 5);
+        let mut pending: AnySource = Pending.into();
+        assert_eq!(Pin::new(&mut pending).poll_next(&mut cx), Poll::Pending);
+        assert_eq!(Pin::new(&mut pending).poll_once(), 99);
+        let mut boxed = AnySource::Boxed(Box::new(Ready(7)));
+        assert_eq!(Pin::new(&mut boxed).poll_once(), 7);
+    }
+
+    #[test]
+    fn a_boxed_receiver_hands_over_the_payloads_own_box() {
+        let finishable = Box::new(Finishable::Boxed(Box::new(Ready(3))));
+        assert_eq!(finishable.finish(), 30);
+    }
+}
+
+mod variants_without_payloads {
+    #[whichever::dispatchable]
+    trait Area {
+        fn area(&self) -> u32;
+    }
+
+    struct Square(u32);
+
+    impl Area for Square {
+        fn area(&self) -> u32 {
+            self.0 * self.0
+        }
+    }
+
+    /// A test-only variant that is compiled out is no error.
+    #[whichever::dispatch(Area)]
+    enum Shape {
+        Square(Square),
+        #[cfg(any())]
+        Mock,
+    }
+
+    struct IntBounds(u32, u32);
+    struct TextBounds(&'static str);
+
+    impl IntBounds {
+        fn len(&self) -> usize {
+            (self.1 - self.0) as usize
+        }
+    }
+
+    impl TextBounds {
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    /// A data enum: the odd variants are left to the inherent fallbacks.
+    #[whichever::dispatch]
+    enum Bounds {
+        Int(IntBounds),
+        Text(TextBounds),
+        NoOrder,
+        Pair(u8, u8),
+    }
+
+    #[whichever::dispatch]
+    impl Bounds {
+        #[dispatch(Int, Text)]
+        fn len(&self) -> usize {
+            0
+        }
+    }
+
+    #[test]
+    fn odd_variants_take_the_fallback_and_cfg_out_variants_are_no_error() {
+        let shape: Shape = Square(3).into();
+        assert_eq!(shape.area(), 9);
+        let bounds: Bounds = IntBounds(2, 5).into();
+        assert_eq!(bounds.len(), 3);
+        assert_eq!(Bounds::Text(TextBounds("ab")).len(), 2);
+        assert_eq!((Bounds::NoOrder.len(), Bounds::Pair(1, 2).len()), (0, 0));
+    }
+}
+
+mod recursive_payloads_and_conversions {
+    #[whichever::dispatchable]
+    trait Eval {
+        type Out;
+        fn eval(&self) -> Self::Out;
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Leaf(u32);
+    #[derive(Debug, PartialEq)]
+    struct Wrap<T>(Box<T>);
+
+    impl Eval for Leaf {
+        type Out = u32;
+        fn eval(&self) -> u32 {
+            self.0
+        }
+    }
+
+    impl<T: Eval<Out = u32>> Eval for Wrap<T> {
+        type Out = u32;
+        fn eval(&self) -> u32 {
+            self.0.eval() + 1
+        }
+    }
+
+    /// Payloads naming the enum as `Self` convert in both directions.
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Eval, try_from = true)]
+    enum Node {
+        Leaf(Leaf),
+        Wrap(Wrap<Self>),
+    }
+
+    /// `try_from` on one variant only.
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Eval)]
+    enum Tree {
+        Leaf(Leaf),
+        #[dispatch(try_from = true)]
+        Wrap(Wrap<Self>),
+    }
+
+    // Would conflict with a generated impl, so it proves the opt-in is per
+    // variant.
+    impl TryFrom<Tree> for Leaf {
+        type Error = ();
+        fn try_from(_tree: Tree) -> Result<Self, ()> {
+            Err(())
+        }
+    }
+
+    #[test]
+    fn self_in_a_payload_names_the_enum_everywhere() {
+        let node: Node = Wrap(Box::new(Node::Leaf(Leaf(1)))).into();
+        assert_eq!(node.eval(), 2);
+        let back: Result<Wrap<Node>, Node> = node.try_into();
+        assert_eq!(back, Ok(Wrap(Box::new(Node::Leaf(Leaf(1))))));
+        let leaf: Result<Leaf, Node> = Node::Leaf(Leaf(3)).try_into();
+        assert_eq!(leaf, Ok(Leaf(3)));
+        let tree = Tree::Wrap(Wrap(Box::new(Tree::Leaf(Leaf(1)))));
+        assert_eq!(tree.eval(), 2);
+        let wrap: Result<Wrap<Tree>, Tree> = tree.try_into();
+        assert!(wrap.is_ok());
+        assert_eq!(Leaf::try_from(Tree::Leaf(Leaf(1))), Err(()));
+    }
+}

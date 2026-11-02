@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0 - Unreleased
+
+- `#[dispatch(Trait)]` on a struct forwards the trait to its one field, or
+  to the field marked `#[dispatch]`, provided methods included, so a
+  payload's override reaches a public wrapper over a private dispatch enum.
+  `#[dispatch(deref)]` on the field reaches through a pointer, a method
+  returning `Self` is rebuilt around a single-field struct, and partial and
+  inherent impl blocks work on a struct as on an enum.
+- `self: Pin<&Self>` and `self: Pin<&mut Self>` receivers dispatch when
+  every payload is `Unpin`, and `self: Box<Self>` dispatches to `deref`
+  variants holding a `Box`, handing the payload's own box over. `Rc<Self>`,
+  `Arc<Self>` and other receivers stay rejected, with a message naming the
+  supported ones.
+- A variant that is not `Name(Payload)` is reported under its own `#[cfg]`,
+  so a variant compiled out, such as a test-only mock, is no error. An enum
+  that only forwards inherent methods may hold such variants: a method
+  naming the variants it forwards to leaves them to its body, and `*` over
+  such a variant is an error on that variant.
+- A payload that names the enum as `Self`, such as `Wrap<Self>`, works with
+  `try_from = true` and with the associated type and const checks; the
+  generated items outside the enum's own impls named `Self` where it meant
+  nothing, and rustc rejected them.
+- `#[dispatch(try_from = true)]` on a variant adds the `TryFrom` impl for
+  that payload alone.
+- A payload that is a bare type parameter of the enum, next to other
+  variants' payloads, is reported as overlapping their `From` impls, with
+  `from = false` named as the fix; before, rustc reported conflicting
+  implementations on the attribute.
+
 ## 0.3.0 - 2026-11-02
 
 - `#[dispatch]` on a trait impl block of a dispatch enum makes it a partial

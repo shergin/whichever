@@ -1,0 +1,5 @@
+error: `consume` takes `self: Box<Self>`, and `Plain` holds a plain `A`; hold `Box<A>` in a `#[dispatch(deref)]` variant, or implement the method by hand
+  --> tests/ui/box_self_plain_variant.rs:18:11
+   |
+18 |     Plain(A),
+   |           ^
