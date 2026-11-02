@@ -1,5 +1,4 @@
 //! `#[dispatchable]`: the carrier macro a trait leaves next to itself.
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
@@ -7,7 +6,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::{ItemTrait, Result, TraitItem, Visibility};
 
 use crate::options::{is_dispatch_attribute, DispatchableOptions};
-use crate::protocol::{carrier_macro, CarriedTrait};
+use crate::protocol::{carrier_macro, CarriedTrait, Fnv};
 
 pub(crate) fn expand_dispatchable(
     item_trait: ItemTrait,
@@ -41,7 +40,7 @@ pub(crate) fn expand_dispatchable(
     let macro_name = match &options.name {
         Some(name) => format_ident!("__whichever_{}_{}", trait_ident, name),
         None => {
-            let mut hasher = DefaultHasher::new();
+            let mut hasher = Fnv::default();
             captured.to_token_stream().to_string().hash(&mut hasher);
             hash_token_positions(captured.to_token_stream(), &mut hasher);
             format_ident!(
@@ -90,7 +89,7 @@ pub(crate) fn expand_dispatchable(
 /// invocation supplied, usually the trait's name, keep the file and position
 /// they were written at, so hashing those keeps the two apart. A trait
 /// written out in full in the macro's body is the one case this leaves.
-pub(crate) fn hash_token_positions(tokens: TokenStream2, hasher: &mut DefaultHasher) {
+pub(crate) fn hash_token_positions(tokens: TokenStream2, hasher: &mut Fnv) {
     for tree in tokens {
         let span = tree.span().unwrap();
         (file_key(&span.file()), span.line(), span.column()).hash(hasher);

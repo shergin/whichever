@@ -1,6 +1,5 @@
 //! `#[dispatch]` on a subject or on an impl block: what is emitted at the
 //! attribute, before any carrier macro runs.
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -10,7 +9,7 @@ use syn::{Error, Ident, ItemImpl, Meta, PathArguments, Result, Type};
 
 use crate::conversions::conversion_impls;
 use crate::options::{is_dispatch_attribute, TraitSpec};
-use crate::protocol::{carrier_macro, BlockRequest, CarriedSubject, TraitRequest};
+use crate::protocol::{carrier_macro, BlockRequest, CarriedSubject, Fnv, TraitRequest};
 use crate::subject::{shape_errors, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
@@ -47,7 +46,7 @@ pub(crate) fn subject_macro(
     column: usize,
 ) -> TokenStream2 {
     let ident = captured.ident();
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Fnv::default();
     captured.to_token_stream().to_string().hash(&mut hasher);
     let macro_name = format_ident!(
         "__whichever_dispatch_{}_{:016x}_{}_{}",

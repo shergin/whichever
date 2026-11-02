@@ -12,7 +12,7 @@ pub trait Encoder<F: Format> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Encoder_dfde4147047702ee_13_1 as Encoder;
+pub use __whichever_Encoder_5d924be7c95fb5b7_13_1 as Encoder;
 pub struct Compact;
 pub struct Pretty;
 impl Encoder<Json> for Compact {
@@ -51,7 +51,7 @@ impl ::core::convert::From<Pretty> for AnyEncoder {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_AnyEncoder_40a764eed8e7ccb3_36_1 as AnyEncoder;
+pub(crate) use __whichever_dispatch_AnyEncoder_093a44e4abf4de6c_36_1 as AnyEncoder;
 #[automatically_derived]
 impl Encoder<Json> for AnyEncoder {
     type Error = u16;

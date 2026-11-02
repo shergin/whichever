@@ -19,6 +19,8 @@
 //! is a compatibility surface: a segment is only ever added, optional, at
 //! the end of the part it belongs to, and `v1` becomes `v2` when a segment
 //! changes meaning or order. A subject's carrier never leaves its crate.
+use std::hash::Hasher;
+
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
@@ -32,6 +34,30 @@ const VERSION: &str = "v1";
 
 fn version() -> Ident {
     Ident::new(VERSION, Span::call_site())
+}
+
+/// FNV-1a over 64 bits, written out so that a carrier macro's name comes
+/// out the same on every compiler release; `std`'s `DefaultHasher` is
+/// documented as unstable across releases.
+pub(crate) struct Fnv(u64);
+
+impl Default for Fnv {
+    fn default() -> Self {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl Hasher for Fnv {
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 /// Writes a carrier macro named `name`: one rule that takes `@v1` and the

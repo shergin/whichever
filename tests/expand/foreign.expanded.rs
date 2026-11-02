@@ -21,7 +21,7 @@ impl io::Write for Memory {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-use __whichever_Write_89e2cb1ee3e41f25_26_1 as Write;
+use __whichever_Write_1892d5bed05f318e_26_1 as Write;
 pub enum Stream {
     Tcp(Tcp),
     Memory(Memory),
@@ -42,7 +42,7 @@ impl ::core::convert::From<Memory> for Stream {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_Stream_356db53cedc63d50_33_1 as Stream;
+pub(crate) use __whichever_dispatch_Stream_2b72aa00a652485e_33_1 as Stream;
 #[automatically_derived]
 impl io::Write for Stream {
     #[inline]
@@ -82,7 +82,7 @@ impl ::core::convert::From<io::Error> for ClientError {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_ClientError_3fa015efe1c90948_41_1 as ClientError;
+pub(crate) use __whichever_dispatch_ClientError_97504760822228e9_41_1 as ClientError;
 #[automatically_derived]
 impl ::core::fmt::Display for ClientError {
     #[inline]

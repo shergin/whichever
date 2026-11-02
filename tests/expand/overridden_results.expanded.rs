@@ -5,7 +5,7 @@ pub trait Parse: Sized {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Parse_28cebc646bd907b7_1_1 as Parse;
+pub use __whichever_Parse_b56a397b810b96f7_1_1 as Parse;
 pub struct Text;
 pub struct Binary;
 pub struct TextError;
@@ -59,7 +59,7 @@ impl ::core::convert::From<Binary> for AnyParser {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_AnyParser_c3737dc8b631e730_47_1 as AnyParser;
+pub(crate) use __whichever_dispatch_AnyParser_b31c50e0aba4c547_47_1 as AnyParser;
 #[automatically_derived]
 impl Parse for AnyParser {
     type Error = ParseError;

@@ -10,7 +10,7 @@ pub trait Handler {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Handler_48f915d41742c61d_1_1 as Handler;
+pub use __whichever_Handler_68ffc2377e721cef_1_1 as Handler;
 pub struct Text;
 pub struct Map;
 impl Handler for Text {
@@ -51,7 +51,7 @@ impl ::core::convert::From<Map> for AnyHandler {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_AnyHandler_b35853d5996e491b_36_1 as AnyHandler;
+pub(crate) use __whichever_dispatch_AnyHandler_29b01690e38ca356_36_1 as AnyHandler;
 impl Handler for AnyHandler {
     #[inline]
     fn value(&self) -> Self::Value {

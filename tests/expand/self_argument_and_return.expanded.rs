@@ -4,7 +4,7 @@ pub trait Shape {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Shape_6c25e6bfcb1ca68a_1_1 as Shape;
+pub use __whichever_Shape_72c81e3c27d56acd_1_1 as Shape;
 pub struct Circle(u32);
 pub struct Square(u32);
 impl Shape for Circle {
@@ -43,7 +43,7 @@ impl ::core::convert::From<Square> for AnyShape {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_AnyShape_3091d3476d2b3a0e_29_1 as AnyShape;
+pub(crate) use __whichever_dispatch_AnyShape_ecc323c5dd12c245_29_1 as AnyShape;
 #[automatically_derived]
 impl Shape for AnyShape {
     #[inline]
