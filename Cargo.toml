@@ -6,10 +6,11 @@ rust-version = "1.88"
 description = "Implements a trait for an enum by forwarding to whichever variant it holds"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/shergin/whichever"
+documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/.github"]
+exclude = ["/smoke", "/.github", "/rust-toolchain.toml"]
 
 [dependencies]
 whichever-macros = { version = "0.1.0", path = "macros" }
