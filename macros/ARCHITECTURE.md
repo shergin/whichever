@@ -235,7 +235,9 @@ Each stage is one commit or a few, with the suite green at every commit:
 
 ### Stage 1: split `lib.rs` into the module map
 
-Status: in progress.
+Status: landed. Code moves only; every golden and `.stderr` file is
+unchanged. The four proc-macro entry points stay in `lib.rs`, where Rust
+requires them.
 
 Code moves; nothing changes. Done when the expansion goldens are unchanged
 byte for byte, the `.stderr` files are unchanged, and no function is longer
