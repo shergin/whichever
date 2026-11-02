@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 - Unreleased
+## 0.3.0 - 2026-11-02
 
 - `#[dispatch]` on a trait impl block of a dispatch enum makes it a partial
   impl: the block holds the items the enum implements itself, a method
