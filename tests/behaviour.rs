@@ -157,7 +157,7 @@ mod self_returns {
             Small(self.0 + 1)
         }
         fn halve(&self) -> Option<Self> {
-            (self.0 % 2 == 0).then(|| Small(self.0 / 2))
+            self.0.is_multiple_of(2).then_some(Small(self.0 / 2))
         }
         fn checked(&self) -> Result<Self, &'static str> {
             Ok(Small(self.0))
