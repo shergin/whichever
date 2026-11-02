@@ -36,14 +36,14 @@ pub(crate) use __whichever_dispatch_AnySource_3645bd574627a686_25_1 as AnySource
 #[automatically_derived]
 impl Source for AnySource {
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, __argument0: &mut Context<'_>) -> Poll<u32> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<u32> {
         match ::core::pin::Pin::get_mut(self) {
             AnySource::Boxed(__inner) => {
                 <<Box<
                     Ready,
                 > as ::core::ops::Deref>::Target as Source>::poll_next(
                     ::core::pin::Pin::new(&mut **__inner),
-                    __argument0,
+                    cx,
                 )
             }
         }

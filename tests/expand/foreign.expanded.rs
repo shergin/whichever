@@ -46,10 +46,10 @@ pub(crate) use __whichever_dispatch_Stream_2b72aa00a652485e_33_1 as Stream;
 #[automatically_derived]
 impl io::Write for Stream {
     #[inline]
-    fn write(&mut self, __argument0: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
-            Stream::Tcp(__inner) => <Tcp as io::Write>::write(__inner, __argument0),
-            Stream::Memory(__inner) => <Memory as io::Write>::write(__inner, __argument0),
+            Stream::Tcp(__inner) => <Tcp as io::Write>::write(__inner, buf),
+            Stream::Memory(__inner) => <Memory as io::Write>::write(__inner, buf),
         }
     }
     #[inline]
@@ -60,12 +60,10 @@ impl io::Write for Stream {
         }
     }
     #[inline]
-    fn write_all(&mut self, __argument0: &[u8]) -> io::Result<()> {
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
         match self {
-            Stream::Tcp(__inner) => <Tcp as io::Write>::write_all(__inner, __argument0),
-            Stream::Memory(__inner) => {
-                <Memory as io::Write>::write_all(__inner, __argument0)
-            }
+            Stream::Tcp(__inner) => <Tcp as io::Write>::write_all(__inner, buf),
+            Stream::Memory(__inner) => <Memory as io::Write>::write_all(__inner, buf),
         }
     }
 }
@@ -86,13 +84,13 @@ pub(crate) use __whichever_dispatch_ClientError_97504760822228e9_41_1 as ClientE
 #[automatically_derived]
 impl ::core::fmt::Display for ClientError {
     #[inline]
-    fn fmt(&self, __argument0: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         match self {
             ClientError::Io(__inner) => {
-                <io::Error as ::core::fmt::Display>::fmt(__inner, __argument0)
+                <io::Error as ::core::fmt::Display>::fmt(__inner, f)
             }
             ClientError::Message(__inner) => {
-                <String as ::core::fmt::Display>::fmt(__inner, __argument0)
+                <String as ::core::fmt::Display>::fmt(__inner, f)
             }
         }
     }

@@ -48,8 +48,8 @@ pub(crate) use __whichever_dispatch_AnyShape_ecc323c5dd12c245_29_1 as AnyShape;
 impl Shape for AnyShape {
     #[inline]
     #[allow(unreachable_patterns)]
-    fn congruent(&self, __argument0: &Self) -> bool {
-        match (self, __argument0) {
+    fn congruent(&self, other: &Self) -> bool {
+        match (self, other) {
             (AnyShape::Circle(__inner), AnyShape::Circle(__same0)) => {
                 <Circle as Shape>::congruent(__inner, __same0)
             }
@@ -60,13 +60,13 @@ impl Shape for AnyShape {
         }
     }
     #[inline]
-    fn scaled(&self, __argument0: u32) -> Self {
+    fn scaled(&self, factor: u32) -> Self {
         match self {
             AnyShape::Circle(__inner) => {
-                AnyShape::Circle(<Circle as Shape>::scaled(__inner, __argument0))
+                AnyShape::Circle(<Circle as Shape>::scaled(__inner, factor))
             }
             AnyShape::Square(__inner) => {
-                AnyShape::Square(<Square as Shape>::scaled(__inner, __argument0))
+                AnyShape::Square(<Square as Shape>::scaled(__inner, factor))
             }
         }
     }

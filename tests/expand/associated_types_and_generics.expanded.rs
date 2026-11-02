@@ -58,16 +58,16 @@ impl Encoder<Json> for AnyEncoder {
     #[inline]
     async fn encode(
         &self,
-        __argument0: &<Json as Format>::Value,
+        value: &<Json as Format>::Value,
     ) -> Result<String, Self::Error> {
         match self {
             AnyEncoder::Compact(__inner) => {
-                <Compact as Encoder<Json>>::encode(__inner, __argument0)
+                <Compact as Encoder<Json>>::encode(__inner, value)
                     .await
                     .map_err(::core::convert::Into::into)
             }
             AnyEncoder::Pretty(__inner) => {
-                <Pretty as Encoder<Json>>::encode(__inner, __argument0)
+                <Pretty as Encoder<Json>>::encode(__inner, value)
                     .await
                     .map_err(::core::convert::Into::into)
             }

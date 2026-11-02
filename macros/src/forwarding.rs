@@ -29,12 +29,25 @@ fn hygienic(name: &str) -> Ident {
 /// signature.
 #[derive(Clone, Copy)]
 pub(crate) enum ArgumentNames {
-    /// Fresh hygienic names, `__argument<n>`: a trait method's patterns may
-    /// be anything, and its names belong to a trait another crate may own.
-    Generated,
-    /// The user's own identifiers, kept as written; a pattern that is not a
-    /// plain identifier is an error.
+    /// The identifiers written, so that the generated signature reads like
+    /// the trait's; a pattern that is not a plain identifier, which a trait
+    /// method with a default body may have, gets a fresh hygienic
+    /// `__argument<n>` instead.
+    WrittenOrGenerated,
+    /// The identifiers written, and an error for any other pattern: an
+    /// inherent method's parameters are the user's to rename.
     Written,
+}
+
+/// Returns the pattern that binds `ident` and nothing else.
+fn plain(ident: Ident) -> Pat {
+    Pat::Ident(PatIdent {
+        attrs: vec![],
+        by_ref: None,
+        mutability: None,
+        ident,
+        subpat: None,
+    })
 }
 
 /// What an argument typed `Self`, `&Self` or `&mut Self` means.
@@ -92,27 +105,28 @@ impl MethodPlan {
             let FnArg::Typed(pat_type) = input else {
                 unreachable!("the receiver is the first input")
             };
-            let binding = match names {
-                ArgumentNames::Generated => {
-                    let ident = hygienic(&format!("__argument{index}"));
-                    *pat_type.pat = Pat::Ident(PatIdent {
-                        attrs: vec![],
-                        by_ref: None,
-                        mutability: None,
-                        ident: ident.clone(),
-                        subpat: None,
-                    });
+            let binding = match (&*pat_type.pat, names) {
+                (Pat::Ident(pattern), ArgumentNames::Written) => pattern.ident.clone(),
+                // The identifier alone: a `mut` or `ref` the trait wrote
+                // would be unused or wrong around a plain forward.
+                (Pat::Ident(pattern), ArgumentNames::WrittenOrGenerated)
+                    if pattern.by_ref.is_none() && pattern.subpat.is_none() =>
+                {
+                    let ident = pattern.ident.clone();
+                    *pat_type.pat = plain(ident.clone());
                     ident
                 }
-                ArgumentNames::Written => match &*pat_type.pat {
-                    Pat::Ident(pattern) => pattern.ident.clone(),
-                    other => {
-                        return Err(Error::new_spanned(
-                            other,
-                            "a forwarded parameter must be a plain identifier",
-                        ))
-                    }
-                },
+                (_, ArgumentNames::WrittenOrGenerated) => {
+                    let ident = hygienic(&format!("__argument{index}"));
+                    *pat_type.pat = plain(ident.clone());
+                    ident
+                }
+                (other, ArgumentNames::Written) => {
+                    return Err(Error::new_spanned(
+                        other,
+                        "a forwarded parameter must be a plain identifier",
+                    ))
+                }
             };
             if let SelfArguments::Dispatch = self_arguments {
                 if let ArgumentKind::SameVariant(access) = argument_kind(&pat_type.ty)? {

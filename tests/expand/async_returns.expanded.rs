@@ -74,18 +74,13 @@ impl Store for AnyStore {
         }
     }
     #[inline]
-    fn truncate(
-        &mut self,
-        __argument0: u64,
-    ) -> impl Future<Output = Result<(), ()>> + Send {
+    fn truncate(&mut self, max: u64) -> impl Future<Output = Result<(), ()>> + Send {
         async move {
             match self {
                 AnyStore::Memory(__inner) => {
-                    <Memory as Store>::truncate(__inner, __argument0).await
+                    <Memory as Store>::truncate(__inner, max).await
                 }
-                AnyStore::Disk(__inner) => {
-                    <Disk as Store>::truncate(__inner, __argument0).await
-                }
+                AnyStore::Disk(__inner) => <Disk as Store>::truncate(__inner, max).await,
             }
         }
     }

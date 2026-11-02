@@ -230,7 +230,7 @@ fn expand_method(
     }
     let plan = MethodPlan::new(
         &mut signature,
-        ArgumentNames::Generated,
+        ArgumentNames::WrittenOrGenerated,
         SelfArguments::Dispatch,
         Some(spec),
     )?;
