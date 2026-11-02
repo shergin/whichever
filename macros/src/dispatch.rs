@@ -111,28 +111,15 @@ pub(crate) fn expand_dispatch(
         .iter()
         .map(|tokens| syn::parse2::<TraitSpec>(tokens.clone()))
         .collect::<Result<Vec<_>>>()?;
-    for path in parsed_specs.iter().filter_map(|spec| spec.path.as_ref()) {
-        // A standard library trait is never `#[dispatchable]`; rustc would
-        // only say that the macro of that name is missing.
-        let first = &path.segments[0].ident;
-        if path.segments.len() > 1 && (first == "std" || first == "core" || first == "alloc") {
-            let spelled = path.to_token_stream().to_string().replace(' ', "");
-            let name = &path.segments.last().expect("checked above").ident;
-            return Err(Error::new_spanned(
-                path,
-                format!("`{spelled}` is not `#[dispatchable]`; dispatch `whichever::foreign::{name}` if it is one of the traits `whichever` declares, or restate the trait with `#[whichever::dispatchable(remote = {spelled})]`"),
-            ));
-        }
+    for spec in &parsed_specs {
+        spec.check_path()?;
     }
     let generate_from = !parsed_specs.iter().any(|spec| spec.from == Some(false));
     let generate_try_from = parsed_specs.iter().any(|spec| spec.try_from == Some(true));
     let conversions = if captured.has_conversions() {
         conversion_impls(&captured, &entries, generate_from, generate_try_from)?
     } else {
-        if parsed_specs
-            .iter()
-            .any(|spec| spec.from.is_some() || spec.try_from.is_some())
-        {
+        if parsed_specs.iter().any(TraitSpec::has_switches) {
             return Err(Error::new(
                 Span::call_site(),
                 "`from` and `try_from` are options of an enum; a struct gets no conversions",
@@ -149,16 +136,19 @@ pub(crate) fn expand_dispatch(
         TokenStream2::new()
     };
     let mut invocations = TokenStream2::new();
-    for (spec, tokens) in parsed_specs.iter().zip(&specs) {
+    for spec in &parsed_specs {
         let Some(path) = &spec.path else { continue };
         let mut macro_path = path.clone();
         if let Some(last) = macro_path.segments.last_mut() {
             last.arguments = PathArguments::None;
         }
+        // The switches stay behind: they were read above and the
+        // implementation macro has no use for them.
+        let options = spec.to_token_stream();
         let request = TraitRequest {
             facade: &facade,
             subject: &captured,
-            spec: tokens,
+            spec: &options,
             partial: None,
         };
         invocations.extend(quote! { #macro_path! { #request } });

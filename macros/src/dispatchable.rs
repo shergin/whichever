@@ -4,49 +4,10 @@ use std::hash::{Hash, Hasher};
 
 use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::{format_ident, quote, ToTokens};
-use syn::parse::{Parse, ParseStream};
-use syn::{Error, Ident, ItemTrait, Path, Result, Token, TraitItem, Visibility};
+use syn::{ItemTrait, Result, TraitItem, Visibility};
 
-use crate::options::is_dispatch_attribute;
+use crate::options::{is_dispatch_attribute, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait};
-
-/// The options of `#[dispatchable(..)]`.
-pub(crate) struct DispatchableOptions {
-    /// The real path of a trait restated on behalf of another crate.
-    pub(crate) remote: Option<Path>,
-    /// A name for the carrier macro, in place of the trait's text and
-    /// position.
-    pub(crate) name: Option<Ident>,
-}
-
-impl Parse for DispatchableOptions {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut options = Self {
-            remote: None,
-            name: None,
-        };
-        while !input.is_empty() {
-            let key: Ident = input.parse()?;
-            if !input.peek(Token![=]) || !(key == "remote" || key == "name") {
-                return Err(Error::new(
-                    key.span(),
-                    format!("unknown option `{key}`; the options are `remote = path` and `name = ident`"),
-                ));
-            }
-            input.parse::<Token![=]>()?;
-            if key == "remote" {
-                options.remote = Some(input.parse()?);
-            } else {
-                options.name = Some(input.parse()?);
-            }
-            if input.is_empty() {
-                break;
-            }
-            input.parse::<Token![,]>()?;
-        }
-        Ok(options)
-    }
-}
 
 pub(crate) fn expand_dispatchable(
     item_trait: ItemTrait,

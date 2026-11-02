@@ -13,9 +13,10 @@ use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
 
 use crate::dispatch::{expand_impl_invocation, expand_subject};
-use crate::dispatchable::{expand_dispatchable, DispatchableOptions};
+use crate::dispatchable::expand_dispatchable;
 use crate::implement::expand_implement;
 use crate::inherent::{expand_inherent, expand_partial};
+use crate::options::DispatchableOptions;
 use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
 

@@ -221,7 +221,7 @@ fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Value> {
 /// is a limit.
 fn conversion(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
     if let Some(name) = self_assoc(ty) {
-        let overridden = spec.is_some_and(|spec| spec.assoc_override(name).is_some());
+        let overridden = spec.is_some_and(|spec| spec.is_overridden(name));
         return Ok(if overridden {
             Conversion::Into
         } else {

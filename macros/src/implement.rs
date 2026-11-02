@@ -56,8 +56,8 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                     }
                     ImplItem::Type(assoc) => {
                         written.insert(assoc.ident.to_string());
-                        spec.assoc_overrides
-                            .push((assoc.ident.clone(), Override::Type(assoc.ty.clone())));
+                        spec.overrides
+                            .push(Override::of_type(assoc.ident.clone(), &assoc.ty));
                     }
                     ImplItem::Const(constant) => {
                         written.insert(constant.ident.to_string());
@@ -123,13 +123,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                     continue;
                 }
                 let ty = match spec.override_for(name) {
-                    Some(Override::Type(ty)) => quote!(#ty),
-                    Some(Override::Expr(expr)) => {
-                        return Err(Error::new_spanned(
-                            expr,
-                            format!("`{name}` is an associated type; give it a type"),
-                        ));
-                    }
+                    Some(fixed) => fixed.as_type()?.into_token_stream(),
                     None => {
                         agreed_types.push(name);
                         quote!(<#first_payload as #trait_path>::#name)
@@ -144,8 +138,8 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 }
                 let mut ty = constant.ty.clone();
                 substitution.visit_type_mut(&mut ty);
-                let value = match spec.const_override(name)? {
-                    Some(expr) => quote!(#expr),
+                let value = match spec.override_for(name) {
+                    Some(fixed) => fixed.as_value()?.into_token_stream(),
                     None => {
                         agreed_consts.push((name, ty.clone()));
                         quote!(<#first_payload as #trait_path>::#name)

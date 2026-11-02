@@ -5,11 +5,11 @@ use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Error, Field, Fields, Ident, Index, Item, ItemEnum, ItemStruct, LitBool, Member,
-    Meta, Result, Type, Variant,
+    Attribute, Error, Field, Fields, Ident, Index, Item, ItemEnum, ItemStruct, Member, Result,
+    Type, Variant,
 };
 
-use crate::options::is_dispatch_attribute;
+use crate::options::{is_dispatch_attribute, TargetOptions};
 use crate::shape::{is_self, last_segment};
 
 /// The item an impl is written for: an enum over implementors, or a struct
@@ -318,57 +318,12 @@ pub(crate) fn shape_errors(entries: &[Entry]) -> TokenStream2 {
         .collect()
 }
 
-/// The `#[dispatch(..)]` options of a variant or field.
-pub(crate) struct TargetOptions {
-    pub(crate) deref: bool,
-    pub(crate) from: bool,
-    pub(crate) try_from: Option<bool>,
-}
-
-/// Parses the options of a variant or field: `deref` on either, `from =
-/// false` and `try_from = true` on a variant.
-pub(crate) fn target_options(attributes: &[Attribute], on_variant: bool) -> Result<TargetOptions> {
-    let mut options = TargetOptions {
-        deref: false,
-        from: true,
-        try_from: None,
-    };
-    for attribute in attributes
-        .iter()
-        .filter(|attribute| is_dispatch_attribute(attribute))
-    {
-        if matches!(attribute.meta, Meta::Path(_)) {
-            // A bare `#[dispatch]` marks the field to forward to.
-            continue;
-        }
-        attribute.parse_nested_meta(|meta| {
-            if meta.path.is_ident("deref") {
-                options.deref = true;
-            } else if meta.path.is_ident("from") && on_variant {
-                options.from = meta.value()?.parse::<LitBool>()?.value;
-            } else if meta.path.is_ident("try_from") && on_variant {
-                options.try_from = Some(meta.value()?.parse::<LitBool>()?.value);
-            } else {
-                let option = meta.path.to_token_stream();
-                let known = if on_variant {
-                    "the options are `deref`, `from = false` and `try_from = true`"
-                } else {
-                    "the only one is `deref`"
-                };
-                return Err(meta.error(format!("unknown option `{option}`; {known}")));
-            }
-            Ok(())
-        })?;
-    }
-    Ok(options)
-}
-
 pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
     let TargetOptions {
         deref,
         from,
         try_from,
-    } = target_options(&variant.attrs, true)?;
+    } = TargetOptions::read(&variant.attrs, true)?;
     let payload = match &variant.fields {
         Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields.unnamed[0].ty.clone(),
         Fields::Unnamed(_) => {
@@ -441,7 +396,7 @@ pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
             ))
         }
     };
-    let TargetOptions { deref, .. } = target_options(&field.attrs, false)?;
+    let TargetOptions { deref, .. } = TargetOptions::read(&field.attrs, false)?;
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),

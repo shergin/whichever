@@ -288,7 +288,14 @@ name.
 
 ### Stage 5: one option grammar
 
-Status: not started.
+Status: landed. `options.rs` holds every grammar; `Override` keeps the
+tokens written and reads them as a type or a value once the trait says
+which, so a const override written as a tuple of paths works (behaviour
+test `tuple_const_override`); the subject's switches are read at the
+subject and no longer travel through the carrier; the `std` path check and
+the switch checks are methods of `TraitSpec`. A trait path on a partial
+block's attribute is now reported instead of being sent on as a stray
+option. Every golden and `.stderr` file is unchanged.
 
 `options.rs` as in 3.6; `Override` parses lazily. Done when the three
 parsers are one module, the `.stderr` files are unchanged or better, and a

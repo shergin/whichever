@@ -4,15 +4,15 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, PathArguments, Result, Signature,
-    Token, Visibility,
+    Attribute, Block, Error, ImplItem, ItemImpl, PathArguments, Result, Signature, Token,
+    Visibility,
 };
 
 use crate::dispatch::facade_ident;
 use crate::forwarding::{
     ArgumentNames, Arm, Arms, Callee, Forwarding, Hints, MethodPlan, SelfArguments,
 };
-use crate::options::{is_dispatch_attribute, TraitSpec};
+use crate::options::{is_dispatch_attribute, ForwardingOptions, TraitSpec};
 use crate::protocol::TraitRequest;
 use crate::subject::{targets, Entry, Subject, Target};
 
@@ -32,22 +32,25 @@ pub(crate) fn expand_partial(
     let Some((_, trait_path, _)) = &item_impl.trait_ else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
-    let spec: TraitSpec = syn::parse2(options.clone())?;
-    if spec.from.is_some() || spec.try_from.is_some() {
+    let mut spec: TraitSpec = syn::parse2(options.clone())?;
+    if spec.has_switches() {
         return Err(Error::new_spanned(
             &options,
             "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
         ));
     }
+    if let Some(path) = &spec.path {
+        return Err(Error::new_spanned(
+            path,
+            "`#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements",
+        ));
+    }
+    spec.path = Some(trait_path.clone());
     let mut macro_path = trait_path.clone();
     if let Some(last) = macro_path.segments.last_mut() {
         last.arguments = PathArguments::None;
     }
-    let spec = if options.is_empty() {
-        quote!(#trait_path)
-    } else {
-        quote!(#trait_path, #options)
-    };
+    let spec = spec.to_token_stream();
     let facade = facade_ident()?;
     let request = TraitRequest {
         facade: &facade,
@@ -56,62 +59,6 @@ pub(crate) fn expand_partial(
         partial: Some(&item_impl),
     };
     Ok(quote! { #macro_path! { #request } })
-}
-
-/// Which variants an inherent method forwards to, and how.
-pub(crate) struct ForwardingOptions {
-    pub(crate) all: bool,
-    pub(crate) variants: Vec<Ident>,
-    pub(crate) call: Option<Ident>,
-    pub(crate) with: Option<Path>,
-}
-
-impl Parse for ForwardingOptions {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut forwarding = ForwardingOptions {
-            all: false,
-            variants: vec![],
-            call: None,
-            with: None,
-        };
-        while !input.is_empty() {
-            if input.peek(Token![*]) {
-                input.parse::<Token![*]>()?;
-                forwarding.all = true;
-            } else {
-                let ident: Ident = input.parse()?;
-                if input.peek(Token![=]) {
-                    input.parse::<Token![=]>()?;
-                    match ident.to_string().as_str() {
-                        "call" => forwarding.call = Some(input.parse()?),
-                        "with" => forwarding.with = Some(input.parse()?),
-                        other => {
-                            return Err(Error::new(
-                                ident.span(),
-                                format!("unknown option `{other}`; the options are `call = method` and `with = path`"),
-                            ))
-                        }
-                    }
-                } else {
-                    forwarding.variants.push(ident);
-                }
-            }
-            if input.is_empty() {
-                break;
-            }
-            input.parse::<Token![,]>()?;
-        }
-        if forwarding.all && !forwarding.variants.is_empty() {
-            return Err(Error::new(
-                forwarding.variants[0].span(),
-                "`*` already names every variant",
-            ));
-        }
-        if !forwarding.all && forwarding.variants.is_empty() {
-            return Err(input.error("name the variants to forward to, or `*` for all of them"));
-        }
-        Ok(forwarding)
-    }
 }
 
 /// A method declared without a body, which `syn` leaves as verbatim tokens.

@@ -1,10 +1,16 @@
-//! The grammars of `#[dispatch(..)]` on a subject, a partial impl block and a
-//! trait method.
+//! The grammars of `#[dispatch(..)]` and `#[dispatchable(..)]`, one typed
+//! struct per position the attribute is written in: a subject or a partial
+//! impl block ([`TraitSpec`]), a variant or a field ([`TargetOptions`]), a
+//! method of an inherent block ([`ForwardingOptions`]), a trait method
+//! ([`method_mismatch`]) and a trait ([`DispatchableOptions`]).
+use proc_macro2::TokenStream as TokenStream2;
+use quote::{quote, ToTokens};
 use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{
-    parenthesized, Attribute, Error, Expr, Ident, LitBool, Path, Result, Token, TraitItemFn, Type,
+    parenthesized, Attribute, Error, Expr, Ident, LitBool, Meta, Path, Result, Token, TraitItemFn,
+    Type,
 };
 
 /// Returns whether `attribute` is this crate's `dispatch` attribute, written
@@ -17,70 +23,45 @@ pub(crate) fn is_dispatch_attribute(attribute: &Attribute) -> bool {
         .is_some_and(|segment| segment.ident == "dispatch")
 }
 
-/// One `#[dispatch(..)]` attribute on an enum: a trait path with its
-/// arguments, options, or both. The path is absent when the attribute only
-/// carries enum-level options.
+/// Parses options separated by commas, a trailing comma allowed, handing
+/// each key to `option` with the input positioned right after it.
+fn parse_options(
+    input: ParseStream,
+    mut option: impl FnMut(Ident, ParseStream) -> Result<()>,
+) -> Result<()> {
+    while !input.is_empty() {
+        let key: Ident = input.parse()?;
+        option(key, input)?;
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(())
+}
+
+/// What follows the trait path in `#[dispatch(Trait, ..)]` on a subject or
+/// in `#[dispatch(..)]` on a partial impl block, and the path itself when
+/// one is written. The conversion switches are the subject's: only
+/// `#[dispatch]` on the subject reads them, and they do not travel to the
+/// implementation macro.
 pub(crate) struct TraitSpec {
     pub(crate) path: Option<Path>,
-    /// `Name = ..` options: a type for an associated type, a value for an
-    /// associated const. Which one is meant is known once the trait is.
-    pub(crate) assoc_overrides: Vec<(Ident, Override)>,
+    pub(crate) overrides: Vec<Override>,
+    pub(crate) mismatch: Vec<(Ident, Expr)>,
     pub(crate) from: Option<bool>,
     pub(crate) try_from: Option<bool>,
-    pub(crate) mismatch: Vec<(Ident, Expr)>,
-}
-
-/// The right-hand side of a `Name = ..` option. A bare path parses as a
-/// type and is read as a value when `Name` turns out to be a const.
-pub(crate) enum Override {
-    Type(Type),
-    Expr(Expr),
-}
-
-impl Parse for Override {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let fork = input.fork();
-        if let Ok(ty) = fork.parse::<Type>() {
-            if fork.is_empty() || fork.peek(Token![,]) {
-                input.advance_to(&fork);
-                return Ok(Self::Type(ty));
-            }
-        }
-        Ok(Self::Expr(input.parse()?))
-    }
 }
 
 impl TraitSpec {
     pub(crate) fn override_for(&self, name: &Ident) -> Option<&Override> {
-        self.assoc_overrides
-            .iter()
-            .find(|(key, _)| key == name)
-            .map(|(_, value)| value)
+        self.overrides.iter().find(|fixed| &fixed.name == name)
     }
 
-    /// Returns the type given for the associated type `name`.
-    pub(crate) fn assoc_override(&self, name: &Ident) -> Option<&Type> {
-        match self.override_for(name) {
-            Some(Override::Type(ty)) => Some(ty),
-            _ => None,
-        }
-    }
-
-    /// Returns the value given for the associated const `name`.
-    pub(crate) fn const_override(&self, name: &Ident) -> Result<Option<Expr>> {
-        match self.override_for(name) {
-            None => Ok(None),
-            Some(Override::Expr(expr)) => Ok(Some(expr.clone())),
-            Some(Override::Type(Type::Path(path))) => Ok(Some(Expr::Path(syn::ExprPath {
-                attrs: vec![],
-                qself: path.qself.clone(),
-                path: path.path.clone(),
-            }))),
-            Some(Override::Type(other)) => Err(Error::new_spanned(
-                other,
-                format!("`{name}` is an associated const; give it a value"),
-            )),
-        }
+    /// Returns whether the associated type or const `name` is fixed on the
+    /// subject.
+    pub(crate) fn is_overridden(&self, name: &Ident) -> bool {
+        self.override_for(name).is_some()
     }
 
     pub(crate) fn mismatch_for(&self, method: &Ident) -> Option<&Expr> {
@@ -89,19 +70,29 @@ impl TraitSpec {
             .find(|(key, _)| key == method)
             .map(|(_, expr)| expr)
     }
-}
 
-pub(crate) struct KeyedExpr {
-    pub(crate) key: Ident,
-    pub(crate) value: Expr,
-}
+    /// Returns whether a conversion switch is written.
+    pub(crate) fn has_switches(&self) -> bool {
+        self.from.is_some() || self.try_from.is_some()
+    }
 
-impl Parse for KeyedExpr {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let key = input.parse()?;
-        input.parse::<Token![=]>()?;
-        let value = input.parse()?;
-        Ok(Self { key, value })
+    /// Rejects a trait of `std`, `core` or `alloc`, which is never
+    /// `#[dispatchable]`; rustc would only say that the macro of that name
+    /// is missing.
+    pub(crate) fn check_path(&self) -> Result<()> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let first = &path.segments[0].ident;
+        if path.segments.len() > 1 && (first == "std" || first == "core" || first == "alloc") {
+            let spelled = path.to_token_stream().to_string().replace(' ', "");
+            let name = &path.segments.last().expect("checked above").ident;
+            return Err(Error::new_spanned(
+                path,
+                format!("`{spelled}` is not `#[dispatchable]`; dispatch `whichever::foreign::{name}` if it is one of the traits `whichever` declares, or restate the trait with `#[whichever::dispatchable(remote = {spelled})]`"),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -116,28 +107,22 @@ impl Parse for TraitSpec {
         };
         let mut spec = TraitSpec {
             path,
-            assoc_overrides: vec![],
+            overrides: vec![],
+            mismatch: vec![],
             from: None,
             try_from: None,
-            mismatch: vec![],
         };
-        let mut expect_comma = spec.path.is_some();
-        while !input.is_empty() {
-            if expect_comma {
-                input.parse::<Token![,]>()?;
-                if input.is_empty() {
-                    break;
-                }
-            }
-            expect_comma = true;
-            let key: Ident = input.parse()?;
+        if spec.path.is_some() && !input.is_empty() {
+            input.parse::<Token![,]>()?;
+        }
+        parse_options(input, |key, input| {
             if key == "mismatch" {
                 let content;
                 parenthesized!(content in input);
                 let pairs = Punctuated::<KeyedExpr, Token![,]>::parse_terminated(&content)?;
                 spec.mismatch
                     .extend(pairs.into_iter().map(|pair| (pair.key, pair.value)));
-                continue;
+                return Ok(());
             }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
@@ -149,10 +134,110 @@ impl Parse for TraitSpec {
             match key.to_string().as_str() {
                 "from" => spec.from = Some(input.parse::<LitBool>()?.value),
                 "try_from" => spec.try_from = Some(input.parse::<LitBool>()?.value),
-                _ => spec.assoc_overrides.push((key, input.parse()?)),
+                _ => spec.overrides.push(Override::parse(key, input)?),
+            }
+            Ok(())
+        })?;
+        Ok(spec)
+    }
+}
+
+impl ToTokens for TraitSpec {
+    /// The path and the trait's options, without the subject's switches.
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let mut parts: Vec<TokenStream2> =
+            self.path.iter().map(ToTokens::to_token_stream).collect();
+        parts.extend(self.overrides.iter().map(ToTokens::to_token_stream));
+        if !self.mismatch.is_empty() {
+            let pairs = self
+                .mismatch
+                .iter()
+                .map(|(method, expr)| quote!(#method = #expr));
+            parts.push(quote!(mismatch(#(#pairs),*)));
+        }
+        tokens.extend(quote!(#(#parts),*));
+    }
+}
+
+/// A `Name = ..` option, kept as the tokens written until the trait says
+/// whether `Name` is an associated type or an associated const. The tokens
+/// reach as far as a type does when a type is what is written, since a
+/// value parser would stop at the comma in `Result<A, B>`, and as far as an
+/// expression does otherwise.
+pub(crate) struct Override {
+    pub(crate) name: Ident,
+    tokens: TokenStream2,
+}
+
+impl Override {
+    fn parse(name: Ident, input: ParseStream) -> Result<Self> {
+        let fork = input.fork();
+        if let Ok(ty) = fork.parse::<Type>() {
+            if fork.is_empty() || fork.peek(Token![,]) {
+                input.advance_to(&fork);
+                return Ok(Self {
+                    name,
+                    tokens: ty.into_token_stream(),
+                });
             }
         }
-        Ok(spec)
+        let expr: Expr = input.parse()?;
+        Ok(Self {
+            name,
+            tokens: expr.into_token_stream(),
+        })
+    }
+
+    /// An override written as an associated type in a partial impl block.
+    pub(crate) fn of_type(name: Ident, ty: &Type) -> Self {
+        Self {
+            name,
+            tokens: ty.to_token_stream(),
+        }
+    }
+
+    /// Reads the override as the type of the associated type `name`.
+    pub(crate) fn as_type(&self) -> Result<Type> {
+        syn::parse2(self.tokens.clone()).map_err(|_| {
+            Error::new_spanned(
+                &self.tokens,
+                format!("`{}` is an associated type; give it a type", self.name),
+            )
+        })
+    }
+
+    /// Reads the override as the value of the associated const `name`.
+    pub(crate) fn as_value(&self) -> Result<Expr> {
+        syn::parse2(self.tokens.clone()).map_err(|_| {
+            Error::new_spanned(
+                &self.tokens,
+                format!("`{}` is an associated const; give it a value", self.name),
+            )
+        })
+    }
+}
+
+impl ToTokens for Override {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let Override {
+            name,
+            tokens: value,
+        } = self;
+        tokens.extend(quote!(#name = #value));
+    }
+}
+
+pub(crate) struct KeyedExpr {
+    pub(crate) key: Ident,
+    pub(crate) value: Expr,
+}
+
+impl Parse for KeyedExpr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let key = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let value = input.parse()?;
+        Ok(Self { key, value })
     }
 }
 
@@ -172,4 +257,148 @@ pub(crate) fn method_mismatch(function: &TraitItemFn) -> Result<Option<Expr>> {
         return Ok(Some(pair.value));
     }
     Ok(None)
+}
+
+/// The `#[dispatch(..)]` options of a variant or a field.
+pub(crate) struct TargetOptions {
+    pub(crate) deref: bool,
+    pub(crate) from: bool,
+    pub(crate) try_from: Option<bool>,
+}
+
+impl TargetOptions {
+    /// Reads every `#[dispatch(..)]` attribute of a variant, or of a field
+    /// when `on_variant` is false: `deref` on either, `from = false` and
+    /// `try_from = true` on a variant. A bare `#[dispatch]` marks the field
+    /// to forward to and carries nothing.
+    pub(crate) fn read(attributes: &[Attribute], on_variant: bool) -> Result<Self> {
+        let mut options = Self {
+            deref: false,
+            from: true,
+            try_from: None,
+        };
+        for attribute in attributes
+            .iter()
+            .filter(|attribute| is_dispatch_attribute(attribute))
+        {
+            if matches!(attribute.meta, Meta::Path(_)) {
+                continue;
+            }
+            attribute.parse_args_with(|input: ParseStream| {
+                parse_options(input, |key, input| {
+                    if key == "deref" {
+                        options.deref = true;
+                    } else if key == "from" && on_variant {
+                        input.parse::<Token![=]>()?;
+                        options.from = input.parse::<LitBool>()?.value;
+                    } else if key == "try_from" && on_variant {
+                        input.parse::<Token![=]>()?;
+                        options.try_from = Some(input.parse::<LitBool>()?.value);
+                    } else {
+                        let known = if on_variant {
+                            "the options are `deref`, `from = false` and `try_from = true`"
+                        } else {
+                            "the only one is `deref`"
+                        };
+                        return Err(Error::new(
+                            key.span(),
+                            format!("unknown option `{key}`; {known}"),
+                        ));
+                    }
+                    Ok(())
+                })
+            })?;
+        }
+        Ok(options)
+    }
+}
+
+/// Which variants an inherent method forwards to, and how.
+pub(crate) struct ForwardingOptions {
+    pub(crate) all: bool,
+    pub(crate) variants: Vec<Ident>,
+    pub(crate) call: Option<Ident>,
+    pub(crate) with: Option<Path>,
+}
+
+impl Parse for ForwardingOptions {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut forwarding = ForwardingOptions {
+            all: false,
+            variants: vec![],
+            call: None,
+            with: None,
+        };
+        while !input.is_empty() {
+            if input.peek(Token![*]) {
+                input.parse::<Token![*]>()?;
+                forwarding.all = true;
+            } else {
+                let ident: Ident = input.parse()?;
+                if input.peek(Token![=]) {
+                    input.parse::<Token![=]>()?;
+                    match ident.to_string().as_str() {
+                        "call" => forwarding.call = Some(input.parse()?),
+                        "with" => forwarding.with = Some(input.parse()?),
+                        other => {
+                            return Err(Error::new(
+                                ident.span(),
+                                format!("unknown option `{other}`; the options are `call = method` and `with = path`"),
+                            ))
+                        }
+                    }
+                } else {
+                    forwarding.variants.push(ident);
+                }
+            }
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+        }
+        if forwarding.all && !forwarding.variants.is_empty() {
+            return Err(Error::new(
+                forwarding.variants[0].span(),
+                "`*` already names every variant",
+            ));
+        }
+        if !forwarding.all && forwarding.variants.is_empty() {
+            return Err(input.error("name the variants to forward to, or `*` for all of them"));
+        }
+        Ok(forwarding)
+    }
+}
+
+/// The options of `#[dispatchable(..)]`.
+pub(crate) struct DispatchableOptions {
+    /// The real path of a trait restated on behalf of another crate.
+    pub(crate) remote: Option<Path>,
+    /// A name for the carrier macro, in place of the trait's text and
+    /// position.
+    pub(crate) name: Option<Ident>,
+}
+
+impl Parse for DispatchableOptions {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut options = Self {
+            remote: None,
+            name: None,
+        };
+        parse_options(input, |key, input| {
+            if !input.peek(Token![=]) || !(key == "remote" || key == "name") {
+                return Err(Error::new(
+                    key.span(),
+                    format!("unknown option `{key}`; the options are `remote = path` and `name = ident`"),
+                ));
+            }
+            input.parse::<Token![=]>()?;
+            if key == "remote" {
+                options.remote = Some(input.parse()?);
+            } else {
+                options.name = Some(input.parse()?);
+            }
+            Ok(())
+        })?;
+        Ok(options)
+    }
 }
