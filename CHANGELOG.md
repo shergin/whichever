@@ -1,5 +1,20 @@
 # Changelog
 
+Notable changes, written so a person can read them. Before 1.0, breaking
+changes are expected and listed without apology.
+
+## Unreleased
+
+- The design is written down under `docs/`: the vision with its five rules,
+  what holds each of them, and what the crate will not be; a decision
+  record per choice made among real alternatives, with the condition that
+  would reopen it; and an index of what to read when. `ACKNOWLEDGEMENTS.md`
+  credits the crates, tools and surveyed
+  projects with one lesson each; `RELEASING.md` is the release checklist;
+  `CLAUDE.md` holds the rules of the project for a coding agent. The macro
+  that `#[dispatchable]` leaves next to a trait is the carrier macro
+  throughout; the README and the crate docs had called it the hidden macro.
+
 ## 0.4.0 - 2026-11-02
 
 - `#[dispatch(Trait)]` on a struct forwards the trait to its one field, or

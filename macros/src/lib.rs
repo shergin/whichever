@@ -1,13 +1,13 @@
 //! Procedural macros of `whichever`.
 //!
-//! `#[dispatchable]` on a trait re-emits the trait and exports a hidden
-//! `macro_rules!` that carries the trait's tokens; the macro is re-exported
-//! under the trait's own name, so importing the trait imports the macro.
-//! `#[dispatch(Trait)]` on an enum invokes that macro, which forwards the
-//! trait tokens, the enum tokens and the options into the hidden
-//! `implement!` macro that writes `impl Trait for Enum` with one `match` per
-//! method. No state is shared between expansions, so the trait and the enum
-//! may live in different crates.
+//! `#[dispatchable]` on a trait re-emits the trait and exports its carrier
+//! macro, a hidden `macro_rules!` that carries the trait's tokens; the macro
+//! is re-exported under the trait's own name, so importing the trait imports
+//! the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
+//! forwards the trait tokens, the enum tokens and the options into the
+//! implementation macro, `implement!`, which writes `impl Trait for Enum`
+//! with one `match` per method. No state is shared between expansions, so
+//! the trait and the enum may live in different crates.
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -66,9 +66,9 @@ fn is_dispatch_attribute(attribute: &Attribute) -> bool {
 /// Options:
 /// - `remote = path` declares a trait of another crate: the item is a
 ///   restatement of that trait's signatures, nothing is emitted for it but
-///   the hidden macro, and `#[dispatch]` of the declaration implements the
+///   the carrier macro, and `#[dispatch]` of the declaration implements the
 ///   trait at `path`. Only the methods restated are forwarded.
-/// - `name = ident` names the hidden macro after `ident` instead of the
+/// - `name = ident` names the carrier macro after `ident` instead of the
 ///   trait's text and position, for a trait that one `macro_rules!` emits
 ///   several times with identical tokens.
 ///
@@ -99,7 +99,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 struct DispatchableOptions {
     /// The real path of a trait restated on behalf of another crate.
     remote: Option<Path>,
-    /// A name for the hidden macro, in place of the trait's text and
+    /// A name for the carrier macro, in place of the trait's text and
     /// position.
     name: Option<Ident>,
 }
@@ -224,7 +224,7 @@ fn hash_token_positions(tokens: TokenStream2, hasher: &mut DefaultHasher) {
 
 /// Returns the last two components of a source file's path. They tell
 /// `tokio/mod.rs` from `smol/mod.rs` without depending on where the checkout
-/// lives, so the hidden names come out the same on every machine.
+/// lives, so the carrier macros' names come out the same on every machine.
 fn file_key(path: &str) -> String {
     let mut components = path.rsplit(['/', '\\']);
     let file = components.next().unwrap_or_default();
@@ -1218,7 +1218,7 @@ fn conversion_impls(
 }
 
 // ---------------------------------------------------------------------------
-// The hidden implementation macro
+// The implementation macro
 // ---------------------------------------------------------------------------
 
 struct ImplementInput {

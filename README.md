@@ -111,7 +111,7 @@ Whichever you pick, the first trait with a `&Self` argument or an
 associated const sends you back to writing the `match` by hand.
 
 `whichever` keeps nothing between expansions. `#[dispatchable]` exports a
-hidden macro carrying the trait's tokens, re-exported under the trait's own
+carrier macro holding the trait's tokens, re-exported under the trait's own
 name, and `#[dispatch]` calls it. The trait reaches the enum through
 ordinary name resolution, so it works across crates, in any order, and
 every span is the one you wrote.
@@ -240,6 +240,8 @@ not probed for that crate. The `whichever` column is what `tests/` checks.
 
 - This file: what the attributes generate, every option, and the limits.
   The API reference is on [docs.rs](https://docs.rs/whichever).
+- [docs/](docs/README.md): what to read when; the vision with its five
+  rules, and a decision record per choice made among real alternatives.
 - [When enum dispatch pays](docs/when-to-use-enum-dispatch.md): choosing
   between an enum, a trait object and a generic, with the measurements
   behind each piece of advice.
@@ -363,7 +365,7 @@ trait.
 
 ## Traits from `std` and other crates
 
-`#[dispatch]` reads a trait's signatures from the hidden macro that
+`#[dispatch]` reads a trait's signatures from the carrier macro that
 `#[dispatchable]` leaves next to the trait, so a trait from `std` or from a
 crate you do not own cannot be dispatched as it is. Restate it once, with
 `remote` naming the real trait, and dispatch the restatement:
@@ -517,7 +519,7 @@ hold the same field.
 - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
   when at least one token of the trait, its name or a method's, comes from
   the invocation. A trait written out in full in the macro's body gets the
-  same hidden macro name at every invocation, and rustc reports it as
+  same carrier macro name at every invocation, and rustc reports it as
   defined multiple times, unless each invocation passes its own
   `#[dispatchable(name = ..)]`.
 
@@ -533,7 +535,7 @@ imported where the enum is. A `std::`, `core::` or `alloc::` path in
 declaration or the `remote` restatement to use instead.
 
 One `macro_rules!` that emits the same `pub` trait, written out in full,
-at two places gets the same hidden macro name twice; `#[dispatchable(name =
+at two places gets the same carrier macro name twice; `#[dispatchable(name =
 tokio)]` names the macro explicitly and tells the two apart.
 
 ## Compatibility
@@ -543,8 +545,9 @@ supported Rust version is 1.88. Both the crate that owns the trait and the
 crate that owns the enum depend on `whichever`; renaming the dependency is
 fine.
 
-`#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro
-to the crate root, named after the trait and the position of its tokens,
+`#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
+the carrier macro, to the crate root, named after the trait and the position
+of its tokens,
 which is how another crate's enum reaches the trait's signatures. A trait
 of any other visibility keeps its macro in its own module and adds nothing
 to the crate root.

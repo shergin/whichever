@@ -334,7 +334,7 @@
 //!
 //! A trait that is not `#[dispatchable]`, because another crate owns it,
 //! is restated once with `remote` naming the real trait. Nothing is emitted
-//! for the restatement but the hidden macro, and dispatching it implements
+//! for the restatement but the carrier macro, and dispatching it implements
 //! the real trait, forwarding exactly the methods restated:
 //!
 //! ```
@@ -477,14 +477,16 @@
 //!
 //! # Across crates
 //!
-//! `#[dispatchable]` emits the trait unchanged plus a hidden macro carrying
-//! the trait's tokens, re-exported under the trait's own name (macros live
-//! in their own namespace, so `use shapes::Shape;` imports both). For a
-//! `pub` trait the macro is exported at the crate root, which is the only
-//! way another crate can reach it; a trait of any other visibility keeps it
-//! in its module. `#[dispatch(Shape)]` invokes that macro, which hands the
-//! trait and the enum to a hidden proc macro that writes the impl. Nothing
-//! is cached between expansions, so the two attributes work across crates,
+//! `#[dispatchable]` emits the trait unchanged plus its carrier macro, a
+//! `#[doc(hidden)]` `macro_rules!` holding the trait's tokens, re-exported
+//! under the trait's own name (macros live in their own namespace, so
+//! `use shapes::Shape;` imports both). For a `pub` trait the macro is
+//! exported at the crate root, which is the only way another crate can
+//! reach it; a trait of any other visibility keeps it in its module.
+//! `#[dispatch(Shape)]` invokes that macro, which hands the trait and the
+//! enum to the implementation macro, a proc macro that writes the impl.
+//! Nothing is cached between expansions, so the two attributes work across
+//! crates,
 //! in any order, and under rust-analyzer. Both crates depend on
 //! `whichever`; a renamed dependency is fine.
 //!
@@ -520,7 +522,7 @@
 //! - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
 //!   when at least one token of the trait, its name or a method's, comes
 //!   from the invocation. A trait written out in full in the macro's body
-//!   gets the same hidden macro name at every invocation, and rustc reports
+//!   gets the same carrier macro name at every invocation, and rustc reports
 //!   it as defined multiple times, unless each invocation passes its own
 //!   `#[dispatchable(name = ..)]`.
 //!
