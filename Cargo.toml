@@ -10,7 +10,7 @@ documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/benchmarks", "/.github", "/rust-toolchain.toml"]
+exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml"]
 
 [dependencies]
 whichever-macros = { version = "0.2.1", path = "macros" }

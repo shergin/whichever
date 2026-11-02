@@ -51,6 +51,16 @@ That is the code a careful hand would write: no trait object, no closure,
 no conversion, and a variant's override of a default method is never hidden
 by the default.
 
+## Documentation
+
+- This file: what the attributes generate, every option, and the limits.
+  The API reference is on [docs.rs](https://docs.rs/whichever).
+- [When enum dispatch pays](docs/when-to-use-enum-dispatch.md): choosing
+  between an enum, a trait object and a generic, with the measurements
+  behind each piece of advice.
+- [Benchmarks](benchmarks/README.md): what is compared with what, how, and
+  how to run it; [results](benchmarks/RESULTS.md) from the last run.
+
 ## Why another one
 
 An enum over the implementors of a trait is the cheapest way to hold "one
@@ -120,6 +130,10 @@ run, on an Apple M1 Pro ([full tables](benchmarks/RESULTS.md)):
 - A generated impl without `#[inline]` (`enum_delegate`, `delegation`) pays
   an extra out-of-line call across the crate boundary, from 15% to 4x
   depending on the method and the variant count.
+
+Whether an enum is the right choice for a given program, and how to get
+these numbers out of it, is the subject of
+[docs/when-to-use-enum-dispatch.md](docs/when-to-use-enum-dispatch.md).
 
 ## Options
 
