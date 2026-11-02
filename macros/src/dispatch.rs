@@ -10,7 +10,8 @@ use syn::{Error, Ident, ItemImpl, Meta, PathArguments, Result, Type};
 
 use crate::conversions::conversion_impls;
 use crate::options::{is_dispatch_attribute, TraitSpec};
-use crate::subject::{Entry, Subject};
+use crate::protocol::{carrier_macro, BlockRequest, CarriedSubject, TraitRequest};
+use crate::subject::{shape_errors, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
 /// resolved through `proc-macro-crate`.
@@ -55,14 +56,17 @@ pub(crate) fn subject_macro(
         line,
         column
     );
-    let rejected = rejected.then(|| quote!(rejected));
+    let carrier = carrier_macro(
+        &macro_name,
+        quote!(#[allow(unused_macros)]),
+        "implement_block",
+        CarriedSubject {
+            rejected,
+            subject: captured,
+        },
+    );
     quote! {
-        #[allow(unused_macros)]
-        macro_rules! #macro_name {
-            (@v1 $facade:ident $($rest:tt)*) => {
-                ::$facade::__private::implement_inherent! { @v1 #rejected enum { #captured } $($rest)* }
-            };
-        }
+        #carrier
 
         #[doc(hidden)]
         #[allow(unused_imports)]
@@ -122,7 +126,7 @@ pub(crate) fn expand_dispatch(
     }
     let generate_from = !parsed_specs.iter().any(|spec| spec.from == Some(false));
     let generate_try_from = parsed_specs.iter().any(|spec| spec.try_from == Some(true));
-    let conversions = if captured.is_enum() {
+    let conversions = if captured.has_conversions() {
         conversion_impls(&captured, &entries, generate_from, generate_try_from)?
     } else {
         if parsed_specs
@@ -140,13 +144,7 @@ pub(crate) fn expand_dispatch(
     // The error carries the variant's `cfg`, so a variant that is compiled
     // out is no error, and it is reported here once rather than per trait.
     let shape_errors = if parsed_specs.iter().any(|spec| spec.path.is_some()) {
-        entries
-            .iter()
-            .filter_map(|entry| match entry {
-                Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
-                Entry::Target(_) => None,
-            })
-            .collect()
+        shape_errors(&entries)
     } else {
         TokenStream2::new()
     };
@@ -157,9 +155,13 @@ pub(crate) fn expand_dispatch(
         if let Some(last) = macro_path.segments.last_mut() {
             last.arguments = PathArguments::None;
         }
-        invocations.extend(quote! {
-            #macro_path! { @v1 #facade enum { #captured } spec { #tokens } }
-        });
+        let request = TraitRequest {
+            facade: &facade,
+            subject: &captured,
+            spec: tokens,
+            partial: None,
+        };
+        invocations.extend(quote! { #macro_path! { #request } });
     }
     let subject_macro = subject_macro(&captured, false, line, column);
     Ok(quote! {
@@ -195,9 +197,14 @@ pub(crate) fn expand_impl_invocation(
             bang,
             "a negative impl has nothing to dispatch",
         )),
-        Some((None, _, _)) => Ok(quote! {
-            #macro_path! { @v1 #facade partial { #attr } impl { #item_impl } }
-        }),
+        Some((None, _, _)) => {
+            let request = BlockRequest {
+                facade: &facade,
+                partial: Some(&attr),
+                block: &item_impl,
+            };
+            Ok(quote! { #macro_path! { #request } })
+        }
         None => {
             if !attr.is_empty() {
                 return Err(Error::new_spanned(
@@ -205,9 +212,12 @@ pub(crate) fn expand_impl_invocation(
                     "`#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method",
                 ));
             }
-            Ok(quote! {
-                #macro_path! { @v1 #facade impl { #item_impl } }
-            })
+            let request = BlockRequest {
+                facade: &facade,
+                partial: None,
+                block: &item_impl,
+            };
+            Ok(quote! { #macro_path! { #request } })
         }
     }
 }

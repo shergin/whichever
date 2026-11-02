@@ -8,6 +8,7 @@ use syn::parse::{Parse, ParseStream};
 use syn::{Error, Ident, ItemTrait, Path, Result, Token, TraitItem, Visibility};
 
 use crate::options::is_dispatch_attribute;
+use crate::protocol::{carrier_macro, CarriedTrait};
 
 /// The options of `#[dispatchable(..)]`.
 pub(crate) struct DispatchableOptions {
@@ -98,19 +99,21 @@ pub(crate) fn expand_dispatchable(
     // the impl is written for the real path.
     let remote = options
         .remote
-        .map(|path| rewrite_crate_paths(path.to_token_stream()))
-        .map(|path| quote!(remote { #path }));
+        .map(|path| rewrite_crate_paths(path.to_token_stream()));
     let emitted = remote.is_none().then_some(emitted);
+    let carrier = carrier_macro(
+        &macro_name,
+        quote!(#[doc(hidden)] #export),
+        "implement",
+        CarriedTrait {
+            tokens: &captured,
+            remote: remote.as_ref(),
+        },
+    );
     Ok(quote! {
         #emitted
 
-        #[doc(hidden)]
-        #export
-        macro_rules! #macro_name {
-            (@v1 $facade:ident $($rest:tt)*) => {
-                ::$facade::__private::implement! { @v1 trait { #captured } #remote $($rest)* }
-            };
-        }
+        #carrier
 
         #[doc(hidden)]
         #[allow(unused_imports)]

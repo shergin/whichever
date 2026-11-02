@@ -1,4 +1,4 @@
-//! `implement_inherent!`: inherent blocks forwarded method by method, and
+//! `implement_block!`: inherent blocks forwarded method by method, and
 //! partial trait impl blocks handed on to the trait's carrier.
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
@@ -13,6 +13,7 @@ use crate::forwarding::{
     ArgumentNames, Arm, Arms, Callee, Forwarding, Hints, MethodPlan, SelfArguments,
 };
 use crate::options::{is_dispatch_attribute, TraitSpec};
+use crate::protocol::TraitRequest;
 use crate::subject::{targets, Entry, Subject, Target};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
@@ -48,9 +49,13 @@ pub(crate) fn expand_partial(
         quote!(#trait_path, #options)
     };
     let facade = facade_ident()?;
-    Ok(quote! {
-        #macro_path! { @v1 #facade enum { #subject } spec { #spec } impl { #item_impl } }
-    })
+    let request = TraitRequest {
+        facade: &facade,
+        subject: &subject,
+        spec: &spec,
+        partial: Some(&item_impl),
+    };
+    Ok(quote! { #macro_path! { #request } })
 }
 
 /// Which variants an inherent method forwards to, and how.
@@ -268,7 +273,7 @@ pub(crate) fn forward_method(
                 if let Some(target) = variants.iter().find(|target| &target.ident == name) {
                     return Ok(*target);
                 }
-                let noun = if subject.is_enum() { "variant" } else { "field" };
+                let noun = subject.target_noun();
                 let message = match entries.iter().find(|entry| {
                     matches!(entry, Entry::Unforwardable(unforwardable) if &unforwardable.ident == name)
                 }) {

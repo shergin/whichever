@@ -42,8 +42,25 @@ impl Subject {
         }
     }
 
-    pub(crate) fn is_enum(&self) -> bool {
+    /// Returns whether two values of the subject can hold different
+    /// targets, so that a method taking `Self` arguments needs an arm for
+    /// the mismatch. Two values of a struct always hold the same field.
+    pub(crate) fn can_mismatch(&self) -> bool {
         matches!(self, Subject::Enum(_))
+    }
+
+    /// Returns whether the subject gets `From` and `TryFrom` impls: an enum
+    /// converts from and into its payloads, a struct does not.
+    pub(crate) fn has_conversions(&self) -> bool {
+        matches!(self, Subject::Enum(_))
+    }
+
+    /// Returns what the subject's targets are called in messages.
+    pub(crate) fn target_noun(&self) -> &'static str {
+        match self {
+            Subject::Enum(_) => "variant",
+            Subject::Struct(_) => "field",
+        }
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on the item
@@ -116,29 +133,43 @@ pub(crate) struct Target {
     pub(crate) cfgs: Vec<Attribute>,
     /// Whether the trait is called on what the payload dereferences to.
     pub(crate) deref: bool,
-    /// Whether the variant takes part in the `From` and `TryFrom` impls.
-    pub(crate) from: bool,
-    /// The variant's own say on its `TryFrom` impl, over the enum's option.
-    pub(crate) try_from: Option<bool>,
 }
 
 /// How a target is matched and built.
 pub(crate) enum Place {
-    /// `Enum::Variant(payload)`.
-    Variant,
+    /// `Enum::Variant(payload)`, with the variant's say on the conversions.
+    Variant(Conversions),
     /// `Struct { member: payload, .. }` or `Struct(_, payload, ..)`;
     /// `rebuildable` when the struct has no other field, so that the value
     /// built around a payload is whole.
     Field { member: Member, rebuildable: bool },
 }
 
+/// A variant's part in the `From` and `TryFrom` impls.
+#[derive(Clone, Copy)]
+pub(crate) struct Conversions {
+    /// Whether the variant takes part at all; `#[dispatch(from = false)]`
+    /// leaves it out of both impls.
+    pub(crate) from: bool,
+    /// The variant's own say on its `TryFrom` impl, over the enum's option.
+    pub(crate) try_from: Option<bool>,
+}
+
 impl Target {
+    /// Returns the variant's part in the conversions; a field has none.
+    pub(crate) fn conversions(&self) -> Option<Conversions> {
+        match &self.place {
+            Place::Variant(conversions) => Some(*conversions),
+            Place::Field { .. } => None,
+        }
+    }
+
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
     /// which is the subject's name or `Self`.
     pub(crate) fn pattern(&self, prefix: &TokenStream2, binding: &Ident) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant => quote!(#prefix::#ident(#binding)),
+            Place::Variant(_) => quote!(#prefix::#ident(#binding)),
             Place::Field {
                 member: Member::Unnamed(index),
                 ..
@@ -159,7 +190,7 @@ impl Target {
     ) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant => Some(quote!(#prefix::#ident(#value))),
+            Place::Variant(_) => Some(quote!(#prefix::#ident(#value))),
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
@@ -178,7 +209,7 @@ impl Target {
     pub(crate) fn constructor(&self, prefix: &TokenStream2) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant => Some(quote!(#prefix::#ident)),
+            Place::Variant(_) => Some(quote!(#prefix::#ident)),
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
@@ -275,6 +306,18 @@ pub(crate) fn targets(entries: &[Entry]) -> Vec<&Target> {
         .collect()
 }
 
+/// Returns the errors of the entries no method can forward to, each under
+/// its own `cfg`, so that a variant compiled out is no error.
+pub(crate) fn shape_errors(entries: &[Entry]) -> TokenStream2 {
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
+            Entry::Target(_) => None,
+        })
+        .collect()
+}
+
 /// The `#[dispatch(..)]` options of a variant or field.
 pub(crate) struct TargetOptions {
     pub(crate) deref: bool,
@@ -348,12 +391,10 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
     };
     Ok(Entry::Target(Target {
         ident: variant.ident.clone(),
-        place: Place::Variant,
+        place: Place::Variant(Conversions { from, try_from }),
         payload,
         cfgs: cfg_attributes(&variant.attrs),
         deref,
-        from,
-        try_from,
     }))
 }
 
@@ -414,8 +455,6 @@ pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
         payload: field.ty.clone(),
         cfgs: vec![],
         deref,
-        from: false,
-        try_from: None,
     })
 }
 

@@ -1,11 +1,104 @@
-//! The messages the carrier macros hand to the implementation macros.
-use proc_macro2::TokenStream as TokenStream2;
+//! The messages between `#[dispatch]`, the carrier macros and the
+//! implementation macros: one struct each, with its encoder and its decoder
+//! side by side.
+//!
+//! ```text
+//! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]
+//! what the carrier puts in front  @v1 trait { <trait> } [remote { <path> }]
+//! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] enum { <subject> } spec { <options> } [impl { <block> }]
+//!
+//! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
+//! what the carrier puts in front  @v1 [rejected] enum { <subject> }
+//! what `implement_block!` reads   @v1 [rejected] enum { <subject> } [partial { <options> }] impl { <block> }
+//! ```
+//!
+//! A carrier macro takes `@v1 <facade>` off its request and calls the
+//! facade's implementation macro with its own prefix in front of the rest.
+//! A trait's carrier is compiled into the trait's crate and read by whatever
+//! version of this crate the subject's crate builds with, so the first group
+//! is a compatibility surface: a segment is only ever added, optional, at
+//! the end of the part it belongs to, and `v1` becomes `v2` when a segment
+//! changes meaning or order. A subject's carrier never leaves its crate.
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, Error, Ident, ItemImpl, ItemTrait, Path, Result, Token};
 
 use crate::options::TraitSpec;
 use crate::subject::Subject;
 
+/// The version every message starts with.
+const VERSION: &str = "v1";
+
+fn version() -> Ident {
+    Ident::new(VERSION, Span::call_site())
+}
+
+/// Writes a carrier macro named `name`: one rule that takes `@v1` and the
+/// facade's name off a request and calls the facade's `implementation`
+/// macro with `carried` in front of the rest.
+pub(crate) fn carrier_macro(
+    name: &Ident,
+    attributes: TokenStream2,
+    implementation: &str,
+    carried: impl ToTokens,
+) -> TokenStream2 {
+    let version = version();
+    let implementation = Ident::new(implementation, Span::call_site());
+    quote! {
+        #attributes
+        macro_rules! #name {
+            (@#version $facade:ident $($rest:tt)*) => {
+                ::$facade::__private::#implementation! { #carried $($rest)* }
+            };
+        }
+    }
+}
+
+/// What `#[dispatch]` sends to a trait's carrier macro: the subject, the
+/// options written after the trait's path, and the partial impl block when
+/// the request comes from one.
+pub(crate) struct TraitRequest<'a> {
+    pub(crate) facade: &'a Ident,
+    pub(crate) subject: &'a Subject,
+    pub(crate) spec: &'a TokenStream2,
+    pub(crate) partial: Option<&'a ItemImpl>,
+}
+
+impl ToTokens for TraitRequest<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let TraitRequest {
+            facade,
+            subject,
+            spec,
+            partial,
+        } = self;
+        let version = version();
+        let partial = partial.map(|block| quote!(impl { #block }));
+        tokens.extend(quote! { @#version #facade enum { #subject } spec { #spec } #partial });
+    }
+}
+
+/// What a trait's carrier macro puts in front of a request: the trait's
+/// tokens, and the real path of a restated trait.
+pub(crate) struct CarriedTrait<'a> {
+    pub(crate) tokens: &'a TokenStream2,
+    pub(crate) remote: Option<&'a TokenStream2>,
+}
+
+impl ToTokens for CarriedTrait<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let CarriedTrait {
+            tokens: trait_tokens,
+            remote,
+        } = self;
+        let version = version();
+        let remote = remote.map(|path| quote!(remote { #path }));
+        tokens.extend(quote! { @#version trait { #trait_tokens } #remote });
+    }
+}
+
+/// What `implement!` reads: a carried trait followed by the request.
 pub(crate) struct ImplementInput {
     pub(crate) item_trait: ItemTrait,
     /// The real path of a trait restated with `remote = ..`, which the impl
@@ -20,45 +113,21 @@ pub(crate) struct ImplementInput {
 
 impl Parse for ImplementInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        input.parse::<Token![@]>()?;
-        let version: Ident = input.parse()?;
-        if version != "v1" {
-            return Err(Error::new_spanned(
-                version,
-                "unsupported `whichever` protocol version",
-            ));
-        }
+        parse_version(input)?;
         input.parse::<Token![trait]>()?;
-        let trait_tokens;
-        braced!(trait_tokens in input);
-        let item_trait: ItemTrait = trait_tokens.parse()?;
-        let remote = if input.peek(Ident) {
-            let tag: Ident = input.parse()?;
-            if tag != "remote" {
-                return Err(Error::new_spanned(tag, "expected `remote`"));
-            }
-            let remote_tokens;
-            braced!(remote_tokens in input);
-            Some(remote_tokens.parse::<Path>()?)
+        let item_trait = parse_braced(input)?;
+        let remote = if take_tag(input, "remote") {
+            Some(parse_braced(input)?)
         } else {
             None
         };
         input.parse::<Token![enum]>()?;
-        let subject_tokens;
-        braced!(subject_tokens in input);
-        let subject: Subject = subject_tokens.parse()?;
-        let tag: Ident = input.parse()?;
-        if tag != "spec" {
-            return Err(Error::new_spanned(tag, "expected `spec`"));
-        }
-        let spec_tokens;
-        braced!(spec_tokens in input);
-        let spec: TraitSpec = spec_tokens.parse()?;
+        let subject = parse_braced(input)?;
+        expect_tag(input, "spec")?;
+        let spec = parse_braced(input)?;
         let partial = if input.peek(Token![impl]) {
             input.parse::<Token![impl]>()?;
-            let impl_tokens;
-            braced!(impl_tokens in input);
-            Some(impl_tokens.parse::<ItemImpl>()?)
+            Some(parse_braced(input)?)
         } else {
             None
         };
@@ -72,7 +141,46 @@ impl Parse for ImplementInput {
     }
 }
 
-pub(crate) struct InherentInput {
+/// What `#[dispatch]` on an impl block sends to the subject's carrier macro:
+/// the block, and the options of a partial trait impl.
+pub(crate) struct BlockRequest<'a> {
+    pub(crate) facade: &'a Ident,
+    pub(crate) partial: Option<&'a TokenStream2>,
+    pub(crate) block: &'a ItemImpl,
+}
+
+impl ToTokens for BlockRequest<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let BlockRequest {
+            facade,
+            partial,
+            block,
+        } = self;
+        let version = version();
+        let partial = partial.map(|options| quote!(partial { #options }));
+        tokens.extend(quote! { @#version #facade #partial impl { #block } });
+    }
+}
+
+/// What a subject's carrier macro puts in front of a request: the subject
+/// as captured, variant and field options included, and whether
+/// `#[dispatch]` rejected it, in which case its error is already reported.
+pub(crate) struct CarriedSubject<'a> {
+    pub(crate) rejected: bool,
+    pub(crate) subject: &'a Subject,
+}
+
+impl ToTokens for CarriedSubject<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let CarriedSubject { rejected, subject } = self;
+        let version = version();
+        let rejected = rejected.then(|| quote!(rejected));
+        tokens.extend(quote! { @#version #rejected enum { #subject } });
+    }
+}
+
+/// What `implement_block!` reads: a carried subject followed by the request.
+pub(crate) struct BlockInput {
     /// Whether `#[dispatch]` rejected the subject itself, whose error is
     /// then already reported.
     pub(crate) rejected: bool,
@@ -83,44 +191,19 @@ pub(crate) struct InherentInput {
     pub(crate) item_impl: ItemImpl,
 }
 
-impl Parse for InherentInput {
+impl Parse for BlockInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        input.parse::<Token![@]>()?;
-        let version: Ident = input.parse()?;
-        if version != "v1" {
-            return Err(Error::new_spanned(
-                version,
-                "unsupported `whichever` protocol version",
-            ));
-        }
-        let rejected = if input.peek(Ident) {
-            let flag: Ident = input.parse()?;
-            if flag != "rejected" {
-                return Err(Error::new_spanned(flag, "expected `rejected`"));
-            }
-            true
-        } else {
-            false
-        };
+        parse_version(input)?;
+        let rejected = take_tag(input, "rejected");
         input.parse::<Token![enum]>()?;
-        let subject_tokens;
-        braced!(subject_tokens in input);
-        let subject: Subject = subject_tokens.parse()?;
-        let partial = if input.peek(Ident) {
-            let tag: Ident = input.parse()?;
-            if tag != "partial" {
-                return Err(Error::new_spanned(tag, "expected `partial`"));
-            }
-            let option_tokens;
-            braced!(option_tokens in input);
-            Some(option_tokens.parse::<TokenStream2>()?)
+        let subject = parse_braced(input)?;
+        let partial = if take_tag(input, "partial") {
+            Some(parse_braced(input)?)
         } else {
             None
         };
         input.parse::<Token![impl]>()?;
-        let impl_tokens;
-        braced!(impl_tokens in input);
-        let item_impl: ItemImpl = impl_tokens.parse()?;
+        let item_impl = parse_braced(input)?;
         Ok(Self {
             rejected,
             subject,
@@ -128,4 +211,42 @@ impl Parse for InherentInput {
             item_impl,
         })
     }
+}
+
+fn parse_version(input: ParseStream) -> Result<()> {
+    input.parse::<Token![@]>()?;
+    let version: Ident = input.parse()?;
+    if version != VERSION {
+        return Err(Error::new_spanned(
+            version,
+            "unsupported `whichever` protocol version",
+        ));
+    }
+    Ok(())
+}
+
+/// Parses a braced segment as a `T`.
+fn parse_braced<T: Parse>(input: ParseStream) -> Result<T> {
+    let content;
+    braced!(content in input);
+    content.parse()
+}
+
+/// Takes the identifier `tag` off the input when it is next, and says so.
+fn take_tag(input: ParseStream, tag: &str) -> bool {
+    let next = input.fork().parse::<Ident>();
+    if next.is_ok_and(|ident| ident == tag) {
+        let _: Ident = input.parse().expect("the fork parsed it");
+        return true;
+    }
+    false
+}
+
+/// Requires the identifier `tag` next.
+fn expect_tag(input: ParseStream, tag: &str) -> Result<()> {
+    let ident: Ident = input.parse()?;
+    if ident != tag {
+        return Err(Error::new_spanned(ident, format!("expected `{tag}`")));
+    }
+    Ok(())
 }

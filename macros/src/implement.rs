@@ -10,7 +10,7 @@ use crate::forwarding::{
 };
 use crate::options::{method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
-use crate::subject::{cfg_attributes, targets, Entry, Subject};
+use crate::subject::{cfg_attributes, shape_errors, targets, Entry, Subject};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -95,14 +95,8 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     };
     // A partial block is the only dispatch of its trait, so a variant that
     // cannot be forwarded to is reported here, under its own `cfg`.
-    let shape_errors: TokenStream2 = match &partial {
-        Some(_) => entries
-            .iter()
-            .filter_map(|entry| match entry {
-                Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
-                Entry::Target(_) => None,
-            })
-            .collect(),
+    let shape_errors = match &partial {
+        Some(_) => shape_errors(&entries),
         None => TokenStream2::new(),
     };
     let first_target = first.target_type();
@@ -283,7 +277,7 @@ fn expand_method(
     }
     // Two values of a struct always hold the same field, so only an enum
     // needs the arm for two different variants.
-    let fallback = if plan.has_same_variant() && subject.is_enum() {
+    let fallback = if plan.has_same_variant() && subject.can_mismatch() {
         let Some(expr) = mismatch else {
             return Err(Error::new_spanned(
                 &function.sig,

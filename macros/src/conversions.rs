@@ -5,7 +5,7 @@ use syn::visit_mut::VisitMut;
 use syn::{Error, GenericParam, Ident, Result, Type};
 
 use crate::shape::bare_ident;
-use crate::subject::{targets, Entry, SelfReplacer, Subject, Target};
+use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
 
 /// Writes the `From<Payload>` and `TryFrom<Enum>` impls that were asked for.
 pub(crate) fn conversion_impls(
@@ -18,15 +18,16 @@ pub(crate) fn conversion_impls(
     let enum_ident = subject.ident();
     let prefix = enum_ident.to_token_stream();
     let self_type: Type = syn::parse_quote!(#enum_ident #ty_generics);
-    let converting: Vec<&Target> = targets(entries)
+    let converting: Vec<(&Target, Conversions)> = targets(entries)
         .into_iter()
-        .filter(|target| target.from)
+        .filter_map(|target| Some((target, target.conversions()?)))
+        .filter(|(_, conversions)| conversions.from)
         .collect();
     // A payload that is a type parameter of the enum can be any type, the
     // other payloads included, so its `From` overlaps theirs; rustc would
     // only report conflicting implementations on the attribute.
     if from && converting.len() > 1 {
-        for target in &converting {
+        for (target, _) in &converting {
             let Some(ident) = bare_ident(&target.payload) else {
                 continue;
             };
@@ -46,7 +47,7 @@ pub(crate) fn conversion_impls(
     // would conflict, and neither variant is the obvious target. A variant
     // marked `from = false` takes no part at all.
     let mut payload_counts = std::collections::HashMap::<String, usize>::new();
-    for target in &converting {
+    for (target, _) in &converting {
         *payload_counts
             .entry(target.payload.to_token_stream().to_string())
             .or_default() += 1;
@@ -54,7 +55,7 @@ pub(crate) fn conversion_impls(
     let value = Ident::new("__value", Span::mixed_site());
     let other = Ident::new("__other", Span::mixed_site());
     let mut output = TokenStream2::new();
-    for target in converting {
+    for (target, conversions) in converting {
         let Target { payload, cfgs, .. } = target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
@@ -73,7 +74,7 @@ pub(crate) fn conversion_impls(
                 }
             });
         }
-        if target.try_from.unwrap_or(try_from) {
+        if conversions.try_from.unwrap_or(try_from) {
             // The payload is the impl's own type here, so a `Self` it names
             // must be spelled out as the enum.
             let mut outside = payload.clone();

@@ -542,5 +542,5 @@ pub mod foreign;
 
 #[doc(hidden)]
 pub mod __private {
-    pub use whichever_macros::{implement, implement_inherent};
+    pub use whichever_macros::{implement, implement_block};
 }

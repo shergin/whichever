@@ -16,7 +16,7 @@ use crate::dispatch::{expand_impl_invocation, expand_subject};
 use crate::dispatchable::{expand_dispatchable, DispatchableOptions};
 use crate::implement::expand_implement;
 use crate::inherent::{expand_inherent, expand_partial};
-use crate::protocol::{ImplementInput, InherentInput};
+use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
 
 mod agreement;
@@ -206,8 +206,8 @@ pub fn implement(input: TokenStream) -> TokenStream {
 /// that `#[dispatch]` defines for the item.
 #[doc(hidden)]
 #[proc_macro]
-pub fn implement_inherent(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as InherentInput);
+pub fn implement_block(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as BlockInput);
     let expanded = match input.partial {
         Some(options) => expand_partial(input.rejected, input.subject, options, input.item_impl),
         None => expand_inherent(input.rejected, input.subject, input.item_impl),
