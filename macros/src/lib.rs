@@ -100,6 +100,7 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
         }
 
         #[doc(hidden)]
+        #[allow(unused_imports)]
         #vis use #macro_name as #trait_ident;
     })
 }
@@ -194,6 +195,12 @@ impl Parse for TraitSpec {
                 spec.mismatch
                     .extend(pairs.into_iter().map(|pair| (pair.key, pair.value)));
                 continue;
+            }
+            if !input.peek(Token![=]) {
+                return Err(Error::new(
+                    key.span(),
+                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `mismatch(method = expr)` and `from = false`"),
+                ));
             }
             input.parse::<Token![=]>()?;
             if key == "from" {
