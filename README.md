@@ -6,16 +6,27 @@
 
 Implements a trait for an enum by forwarding to whichever variant it holds.
 
-`enum_dispatch` showed that a macro can write this impl. `ambassador`,
-`enum_delegate`, `delegation`, `portrait`, `static-dispatch` and `delegate`
-followed, each closing some of its gaps and leaving others open.
-`whichever` is the modern one, built to close all of them at once: the
-trait and the enum in different crates, associated types and consts,
-`&Self` arguments, `-> Self`, generic and lifetime-generic traits, `std`
-traits, `Box` payloads, `Pin` receivers and hand-written exceptions. If
-you know `enum_dispatch`, you already know the two attributes. A mistake is
-one sentence on the offending line, and the generated code is the `match`
-you would write by hand, instruction for instruction.
+Put one attribute on a trait and one on an enum, and the enum implements
+the trait. Each method becomes a `match` that calls the value inside the
+variant. You get the speed of an enum, with no `Box`, no vtable and no
+allocation, and you write none of the boilerplate.
+
+- **Zero cost.** The generated code is the `match` you would write by hand,
+  down to the machine instructions.
+- **Works across crates.** The trait can live in one crate and the enum in
+  another.
+- **Handles real traits.** Associated types and consts, `Self` in arguments
+  and return types, generic traits, `async fn`, `Box` and `Pin` receivers.
+- **Works with traits you don't own.** `Display`, `Error`, `Iterator`,
+  `io::Read`, `io::Write` and more are ready to use.
+- **Lets you write the exceptions.** Implement a method by hand, and the
+  rest are still forwarded.
+- **Clear errors.** When something can't be dispatched, you get one
+  sentence pointing at the exact line.
+- **`no_std`**, with no dependencies beyond its own macros.
+
+Coming from `enum_dispatch`? The attributes will feel familiar, and
+the traits it can't handle work here. See [how it compares](#why-another-one).
 
 ```rust
 // In the crate that owns the trait.
