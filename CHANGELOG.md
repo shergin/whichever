@@ -19,3 +19,5 @@ Initial release.
   variants, `#[inline]` on every generated method.
 - `From<Payload>` for every payload type held by one variant, `from = false`
   to opt out.
+- `#[dispatch(deref)]` on a variant for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T`
+  and `&mut T` payloads.

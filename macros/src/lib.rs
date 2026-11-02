@@ -53,10 +53,10 @@ fn is_dispatch_attribute(attribute: &Attribute) -> bool {
 ///
 /// ```rust,ignore
 /// #[whichever::dispatchable]
-/// pub trait Swap {
-///     fn swap(&self, amount: u64) -> u64;
+/// pub trait Shape {
+///     fn area(&self) -> u32;
 ///     #[dispatch(mismatch = false)]
-///     fn pricing_eq(&self, other: &Self) -> bool;
+///     fn congruent(&self, other: &Self) -> bool;
 /// }
 /// ```
 ///
@@ -240,11 +240,12 @@ impl Parse for TraitSpec {
 /// type that appears in exactly one variant.
 ///
 /// ```rust,ignore
-/// #[whichever::dispatch(Swap)]
-/// #[whichever::dispatch(Settler<Solaris>, Error = SettlerError)]
-/// pub enum SwapKind {
-///     Uniswap(UniswapSwap),
-///     Binance(BinanceSwap),
+/// #[whichever::dispatch(Shape)]
+/// #[whichever::dispatch(Encoder<Json>, Error = EncodeError)]
+/// pub enum AnyShape {
+///     Circle(Circle),
+///     #[dispatch(deref)]
+///     Square(Box<Square>),
 /// }
 /// ```
 ///
@@ -256,6 +257,11 @@ impl Parse for TraitSpec {
 /// - `mismatch(method = expr, ..)`: the result of `method` when its `Self`
 ///   arguments hold a different variant than `self`.
 /// - `from = false`: no `From<Payload>` impls.
+///
+/// The one variant option, `#[dispatch(deref)]`, calls the trait on what the
+/// payload dereferences to, for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
+/// `&mut T` payloads; such a variant cannot take part in a method that
+/// returns `Self`.
 #[proc_macro_attribute]
 pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_enum = parse_macro_input!(item as ItemEnum);

@@ -9,39 +9,39 @@ Implements a trait for an enum by forwarding to whichever variant it holds.
 ```rust
 // In the crate that owns the trait.
 #[whichever::dispatchable]
-pub trait Swap {
-    fn swap(&self, amount: u64) -> u64;
-    fn freshness(&self) -> u64 {
-        0
+pub trait Shape {
+    fn area(&self) -> u32;
+    fn name(&self) -> &'static str {
+        "shape"
     }
 }
 
 // In any crate that owns an enum over implementors.
-#[whichever::dispatch(Swap)]
-pub enum SwapKind {
-    Uniswap(UniswapSwap),
-    Binance(BinanceSwap),
+#[whichever::dispatch(Shape)]
+pub enum AnyShape {
+    Circle(Circle),
+    Square(Square),
 }
 ```
 
-`SwapKind` now implements `Swap` with one `match` per method, each arm a
-fully qualified call into the variant's payload, and gets `From<UniswapSwap>`
-and `From<BinanceSwap>`:
+`AnyShape` now implements `Shape` with one `match` per method, each arm a
+fully qualified call into the variant's payload, and gets `From<Circle>` and
+`From<Square>`:
 
 ```rust
-impl Swap for SwapKind {
+impl Shape for AnyShape {
     #[inline]
-    fn swap(&self, amount: u64) -> u64 {
+    fn area(&self) -> u32 {
         match self {
-            SwapKind::Uniswap(inner) => <UniswapSwap as Swap>::swap(inner, amount),
-            SwapKind::Binance(inner) => <BinanceSwap as Swap>::swap(inner, amount),
+            AnyShape::Circle(inner) => <Circle as Shape>::area(inner),
+            AnyShape::Square(inner) => <Square as Shape>::area(inner),
         }
     }
     #[inline]
-    fn freshness(&self) -> u64 {
+    fn name(&self) -> &'static str {
         match self {
-            SwapKind::Uniswap(inner) => <UniswapSwap as Swap>::freshness(inner),
-            SwapKind::Binance(inner) => <BinanceSwap as Swap>::freshness(inner),
+            AnyShape::Circle(inner) => <Circle as Shape>::name(inner),
+            AnyShape::Square(inner) => <Square as Shape>::name(inner),
         }
     }
 }
@@ -86,7 +86,7 @@ traits, several traits on one enum) dispatch too.
 | Lifetime-generic trait and enum | yes | no | yes | no | no | yes | no | by hand |
 | Several traits on one enum | yes | yes | yes | yes | no | no | yes | yes |
 | Payload with a same-named inherent method | safe | safe | safe | safe | safe | safe | safe | calls it, unless `#[through]` |
-| `Box<T>` payloads | planned | no | no | no | no | no | no | yes |
+| `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
 | `-> impl Trait` | no | no | no | no | no | no | no | no |
 | `From<Payload>` impls | yes, opt-out | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
 
@@ -104,10 +104,10 @@ All options follow the trait path in `#[dispatch(..)]`.
   so variants with their own error types can share one enum:
 
   ```rust
-  #[whichever::dispatch(Connector, Error = NetworkError)]
-  pub enum ConnectorKind {
-      Mainnet(MainnetConnector),  // Error = NetworkError
-      Local(LocalConnector),      // Error = io::Error, which is Into<NetworkError>
+  #[whichever::dispatch(Storage, Error = StorageError)]
+  pub enum AnyStorage {
+      Memory(MemoryStorage), // Error = StorageError
+      Disk(DiskStorage),     // Error = io::Error, which is Into<StorageError>
   }
   ```
 
@@ -118,28 +118,43 @@ All options follow the trait path in `#[dispatch(..)]`.
 
   ```rust
   #[whichever::dispatchable]
-  pub trait Swap {
-      /// Two different venues never price alike.
+  pub trait Shape {
+      /// Two different kinds of shape are never congruent.
       #[dispatch(mismatch = false)]
-      fn pricing_eq(&self, other: &Self) -> bool;
+      fn congruent(&self, other: &Self) -> bool;
   }
   ```
 
 - `from = false` suppresses the `From<Payload>` impls.
 
+One option goes on a variant. `#[dispatch(deref)]` calls the trait on what
+the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
+`&mut T` payloads dispatch like a plain `T`:
+
+```rust
+#[whichever::dispatch(Shape)]
+pub enum AnyShape<'a> {
+    #[dispatch(deref)]
+    Boxed(Box<Circle>),
+    #[dispatch(deref)]
+    Borrowed(&'a Square),
+    Plain(Square),
+}
+```
+
 Several traits are dispatched by repeating the attribute; a supertrait is
 one more attribute:
 
 ```rust
-#[whichever::dispatch(SmartContract)]
-#[whichever::dispatch(SwapSmartContract)]
-pub enum ContractKind { /* .. */ }
+#[whichever::dispatch(Shape)]
+#[whichever::dispatch(Drawable)]
+pub enum AnyShape { /* .. */ }
 ```
 
 A generic trait is dispatched at a concrete instantiation:
-`#[whichever::dispatch(Settler<Solaris>)]`. Type, lifetime and const
-parameters are substituted in every signature, and `W::Plan` becomes
-`<Solaris as World>::Plan` when `W` has one bound.
+`#[whichever::dispatch(Encoder<Json>)]`. Type, lifetime and const parameters
+are substituted in every signature, and `F::Value` becomes
+`<Json as Format>::Value` when `F` has one bound.
 
 ## What each trait item becomes
 
@@ -160,8 +175,8 @@ parameters are substituted in every signature, and `W::Plan` becomes
 - Every variant holds exactly one unnamed field, `Name(Payload)`, and
   every payload implements the trait.
 - Return-position `impl Trait` cannot be dispatched by a `match`.
-- `Box<T>`, `Arc<T>` and `&T` payloads are not dereferenced for the call
-  yet.
+- A `deref` variant cannot take part in a method returning `Self`: there is
+  no way to put the result back behind the pointer.
 - Generic associated types and `self: Type` receivers are not supported.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
@@ -171,7 +186,7 @@ parameters are substituted in every signature, and `W::Plan` becomes
 Every unsupported shape is reported as one sentence on the offending trait
 item or variant; see `tests/ui` for all of them.
 
-"cannot find macro `Swap` in this scope" at the enum means the trait is not
+"cannot find macro `Shape` in this scope" at the enum means the trait is not
 marked `#[dispatchable]`, or the trait, which carries the macro, is not
 imported where the enum is.
 

@@ -97,13 +97,18 @@
 //!   the method. See [`Self` arguments](#self-arguments).
 //! - `from = false` suppresses the `From<Payload>` impls.
 //!
+//! One option goes on a variant: `#[dispatch(deref)]` calls the trait on
+//! what the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T`
+//! and `&mut T` payloads dispatch like a plain `T`. See
+//! [dereferenced payloads](#dereferenced-payloads).
+//!
 //! Several traits are dispatched by repeating the attribute, one trait per
 //! attribute; a supertrait is just one more attribute:
 //!
 //! ```rust,ignore
-//! #[whichever::dispatch(SmartContract)]
-//! #[whichever::dispatch(SwapSmartContract)]
-//! pub enum ContractKind { /* .. */ }
+//! #[whichever::dispatch(Shape)]
+//! #[whichever::dispatch(Drawable)]
+//! pub enum AnyShape { /* .. */ }
 //! ```
 //!
 //! # Semantics
@@ -126,73 +131,117 @@
 //! # Generics
 //!
 //! A generic trait is dispatched at a concrete instantiation, named on the
-//! enum: `#[dispatch(Settler<Solaris>)]`. Type, lifetime and const
-//! parameters are substituted in every signature, and a projection such as
-//! `W::Plan` becomes `<Solaris as World>::Plan` when `W` has exactly one
-//! bound. The enum itself may be generic; its parameters, bounds and `where`
-//! clause carry into the impl.
+//! enum: `#[dispatch(Encoder<Json>)]`. Type, lifetime and const parameters
+//! are substituted in every signature, and a projection such as `F::Value`
+//! becomes `<Json as Format>::Value` when `F` has exactly one bound. The
+//! enum itself may be generic; its parameters, bounds and `where` clause
+//! carry into the impl.
 //!
 //! # `Self` arguments
 //!
-//! A method such as `fn pricing_eq(&self, other: &Self) -> bool` compares
-//! two values of the enum. The generated method matches both on the same
-//! variant and calls the payload's method; for two different variants it
-//! returns the expression given by `#[dispatch(mismatch = false)]` on the
-//! trait method, or by `mismatch(pricing_eq = false)` on the enum. Without
-//! one the expansion fails with an error naming the method. Only `Self`,
-//! `&Self` and `&mut Self` are accepted; a `Self` nested in another type
+//! A method such as `fn congruent(&self, other: &Self) -> bool` compares two
+//! values of the enum. The generated method matches both on the same variant
+//! and calls the payload's method; for two different variants it returns the
+//! expression given by `#[dispatch(mismatch = false)]` on the trait method,
+//! or by `mismatch(congruent = false)` on the enum. Without one the expansion
+//! fails with an error naming the method. Only `Self`, `&Self` and
+//! `&mut Self` are accepted; a `Self` nested in another type
 //! (`Option<&Self>`) is an error.
 //!
 //! # Associated types
 //!
 //! Without an override the enum takes each associated type from its first
-//! variant and a hidden check asserts that every other variant uses the
+//! variant, and a hidden check asserts that every other variant uses the
 //! same type, with the error on the variant that differs. With
-//! `Error = NetworkError` the enum's type is `NetworkError`, and each
-//! variant's own error type only has to implement `Into<NetworkError>`:
+//! `Error = StorageError` the enum's type is `StorageError`, and each
+//! variant's own error type only has to implement `Into<StorageError>`:
 //!
 //! ```
 //! #[whichever::dispatchable]
-//! pub trait Connector {
+//! pub trait Storage {
 //!     type Error;
-//!     fn connect(&self) -> Result<u32, Self::Error>;
+//!     fn load(&self, key: &str) -> Result<u32, Self::Error>;
 //! }
 //!
 //! #[derive(Debug, PartialEq)]
-//! pub struct NetworkError(pub String);
+//! pub struct StorageError(pub String);
 //!
-//! pub struct Mainnet;
-//! pub struct Test;
+//! pub struct Memory;
+//! pub struct Disk;
 //!
-//! impl Connector for Mainnet {
-//!     type Error = NetworkError;
-//!     fn connect(&self) -> Result<u32, NetworkError> {
-//!         Ok(1)
+//! impl Storage for Memory {
+//!     type Error = StorageError;
+//!     fn load(&self, key: &str) -> Result<u32, StorageError> {
+//!         Ok(key.len() as u32)
 //!     }
 //! }
 //!
-//! impl Connector for Test {
+//! impl Storage for Disk {
 //!     type Error = &'static str;
-//!     fn connect(&self) -> Result<u32, &'static str> {
+//!     fn load(&self, key: &str) -> Result<u32, &'static str> {
 //!         Err("offline")
 //!     }
 //! }
 //!
-//! impl From<&'static str> for NetworkError {
+//! impl From<&'static str> for StorageError {
 //!     fn from(message: &'static str) -> Self {
-//!         NetworkError(message.to_owned())
+//!         StorageError(message.to_owned())
 //!     }
 //! }
 //!
-//! #[whichever::dispatch(Connector, Error = NetworkError)]
-//! pub enum AnyConnector {
-//!     Mainnet(Mainnet),
-//!     Test(Test),
+//! #[whichever::dispatch(Storage, Error = StorageError)]
+//! pub enum AnyStorage {
+//!     Memory(Memory),
+//!     Disk(Disk),
 //! }
 //!
 //! fn main() {
-//!     let test: AnyConnector = Test.into();
-//!     assert_eq!(test.connect(), Err(NetworkError("offline".to_owned())));
+//!     let disk: AnyStorage = Disk.into();
+//!     assert_eq!(disk.load("answer"), Err(StorageError("offline".to_owned())));
+//! }
+//! ```
+//!
+//! # Dereferenced payloads
+//!
+//! A variant marked `#[dispatch(deref)]` holds its value behind a pointer or
+//! a reference. The trait is called on `<Payload as Deref>::Target`, with
+//! the receiver and any `Self` argument dereferenced to match: `&**inner`
+//! for `&self`, `&mut **inner` for `&mut self` (the payload must implement
+//! `DerefMut`), `*inner` for `self` (a `Box` moves out, a reference cannot).
+//! A method returning `Self` cannot wrap its result back into such a
+//! payload, so it is rejected for a `deref` variant.
+//!
+//! ```
+//! use std::rc::Rc;
+//!
+//! #[whichever::dispatchable]
+//! pub trait Area {
+//!     fn area(&self) -> u32;
+//! }
+//!
+//! pub struct Square(pub u32);
+//!
+//! impl Area for Square {
+//!     fn area(&self) -> u32 {
+//!         self.0 * self.0
+//!     }
+//! }
+//!
+//! #[whichever::dispatch(Area)]
+//! pub enum Shape<'a> {
+//!     #[dispatch(deref)]
+//!     Boxed(Box<Square>),
+//!     #[dispatch(deref)]
+//!     Shared(Rc<Square>),
+//!     #[dispatch(deref)]
+//!     Borrowed(&'a Square),
+//!     Plain(Square),
+//! }
+//!
+//! fn main() {
+//!     let square = Square(3);
+//!     assert_eq!(Shape::Boxed(Box::new(Square(2))).area(), 4);
+//!     assert_eq!(Shape::Borrowed(&square).area(), 9);
 //! }
 //! ```
 //!
@@ -200,11 +249,11 @@
 //!
 //! `#[dispatchable]` emits the trait unchanged plus a hidden exported macro
 //! carrying the trait's tokens, re-exported under the trait's own name
-//! (macros live in their own namespace, so `use engine::Swap;` imports both).
-//! `#[dispatch(Swap)]` invokes that macro, which hands the trait and the
-//! enum to a hidden proc macro that writes the impl. Nothing is cached
-//! between expansions, so the two attributes work across crates, in any
-//! order, and under rust-analyzer. Both crates depend on `whichever`; a
+//! (macros live in their own namespace, so `use shapes::Shape;` imports
+//! both). `#[dispatch(Shape)]` invokes that macro, which hands the trait
+//! and the enum to a hidden proc macro that writes the impl. Nothing is
+//! cached between expansions, so the two attributes work across crates, in
+//! any order, and under rust-analyzer. Both crates depend on `whichever`; a
 //! renamed dependency is fine.
 //!
 //! The types named in the trait's signatures are written into the enum's
@@ -221,12 +270,10 @@
 //! - A method without a receiver needs a default body; the enum uses it.
 //! - Return-position `impl Trait` cannot be dispatched by a `match`: every
 //!   variant would return a different opaque type.
-//! - `Box<T>`, `Arc<T>` and `&T` payloads are not dereferenced for the call
-//!   (planned as a variant option).
 //! - Generic associated types and `self: Type` receivers are not supported.
 //! - Associated consts are taken from the first variant without a check.
 //!
-//! "cannot find macro `Swap` in this scope" at the enum means the trait is
+//! "cannot find macro `Shape` in this scope" at the enum means the trait is
 //! not marked `#[dispatchable]`, or the trait (which carries the macro) is
 //! not imported where the enum is.
 //!
