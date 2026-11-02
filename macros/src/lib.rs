@@ -46,8 +46,24 @@ fn is_dispatch_attribute(attribute: &Attribute) -> bool {
 
 /// Makes a trait available to `#[dispatch]`, from this crate or any other.
 ///
-/// The trait itself is emitted unchanged, except that `#[dispatch(..)]`
-/// attributes on its methods are consumed.
+/// The trait is emitted unchanged, except that `#[dispatch(..)]` attributes
+/// on its methods are consumed. The attribute takes no arguments. The only
+/// method option is `mismatch`, which gives the result of a method taking
+/// `Self` arguments when the arguments hold a different variant than `self`:
+///
+/// ```rust,ignore
+/// #[whichever::dispatchable]
+/// pub trait Swap {
+///     fn swap(&self, amount: u64) -> u64;
+///     #[dispatch(mismatch = false)]
+///     fn pricing_eq(&self, other: &Self) -> bool;
+/// }
+/// ```
+///
+/// The trait's signature types are later written into the dispatching
+/// enum's module, so they must be nameable there; `crate::` paths are
+/// rewritten to this crate, `super::` and `self::` paths are not and must
+/// not be used.
 #[proc_macro_attribute]
 pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
@@ -214,13 +230,32 @@ impl Parse for TraitSpec {
     }
 }
 
-/// Implements one or more traits for an enum by forwarding every method to
-/// whichever variant the value holds.
+/// Implements a `#[dispatchable]` trait for an enum by forwarding every
+/// method to whichever variant the value holds.
 ///
-/// Each `#[dispatch(..)]` attribute names one trait, with its generic
-/// arguments when it has any, followed by options; several attributes
-/// dispatch several traits. Every variant must hold exactly one unnamed
-/// field whose type implements the trait.
+/// Each attribute names one trait, with its generic arguments when it has
+/// any, followed by options; several attributes dispatch several traits.
+/// Every variant must hold exactly one unnamed field whose type implements
+/// the trait. The enum also gets a `From<Payload>` impl for every payload
+/// type that appears in exactly one variant.
+///
+/// ```rust,ignore
+/// #[whichever::dispatch(Swap)]
+/// #[whichever::dispatch(Settler<Solaris>, Error = SettlerError)]
+/// pub enum SwapKind {
+///     Uniswap(UniswapSwap),
+///     Binance(BinanceSwap),
+/// }
+/// ```
+///
+/// Options, after the trait path:
+/// - `Name = Type`: the associated type `Name` of the enum's impl, instead
+///   of the first variant's. Methods returning `Self::Name` are converted
+///   with `Into`, methods returning `Result<_, Self::Name>` with
+///   `map_err(Into::into)`.
+/// - `mismatch(method = expr, ..)`: the result of `method` when its `Self`
+///   arguments hold a different variant than `self`.
+/// - `from = false`: no `From<Payload>` impls.
 #[proc_macro_attribute]
 pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_enum = parse_macro_input!(item as ItemEnum);
@@ -903,13 +938,13 @@ fn expand_method(
             unreachable!("receiver handled above")
         };
         let ident = hygienic(&format!("__argument{index}"));
-        pat_type.pat = Box::new(Pat::Ident(PatIdent {
+        *pat_type.pat = Pat::Ident(PatIdent {
             attrs: vec![],
             by_ref: None,
             mutability: None,
             ident: ident.clone(),
             subpat: None,
-        }));
+        });
         if let ArgumentKind::SameVariant = argument_kind(&pat_type.ty)? {
             same_variant.push(index);
         }
