@@ -1108,3 +1108,144 @@ mod enums_inside_functions {
         );
     }
 }
+
+mod generic_enums_with_associated_types {
+    #[whichever::dispatchable]
+    trait Storage {
+        type Error;
+        fn load(&self) -> Result<u32, Self::Error>;
+    }
+
+    struct Memory<T>(T);
+    struct Disk<T>(T);
+
+    impl<T> Storage for Memory<T> {
+        type Error = u8;
+        fn load(&self) -> Result<u32, u8> {
+            Ok(1)
+        }
+    }
+
+    impl<T> Storage for Disk<T> {
+        type Error = u8;
+        fn load(&self) -> Result<u32, u8> {
+            Err(2)
+        }
+    }
+
+    #[whichever::dispatch(Storage)]
+    enum AnyStorage<T> {
+        Memory(Memory<T>),
+        Disk(Disk<T>),
+    }
+
+    #[whichever::dispatchable]
+    trait Lend {
+        type Item;
+        fn lend(&self) -> Self::Item;
+    }
+
+    struct Head<'a>(&'a str);
+    struct Tail<'a>(&'a str);
+
+    impl<'a> Lend for Head<'a> {
+        type Item = &'a str;
+        fn lend(&self) -> &'a str {
+            &self.0[..1]
+        }
+    }
+
+    impl<'a> Lend for Tail<'a> {
+        type Item = &'a str;
+        fn lend(&self) -> &'a str {
+            &self.0[1..]
+        }
+    }
+
+    #[whichever::dispatch(Lend)]
+    enum Part<'a> {
+        Head(Head<'a>),
+        Tail(Tail<'a>),
+    }
+
+    #[test]
+    fn the_agreement_check_names_the_enum_generics() {
+        let memory: AnyStorage<String> = Memory(String::new()).into();
+        let disk: AnyStorage<String> = Disk(String::new()).into();
+        assert_eq!((memory.load(), disk.load()), (Ok(1), Err(2)));
+        let text = String::from("abc");
+        let head: Part<'_> = Head(&text).into();
+        assert_eq!(head.lend(), "a");
+    }
+}
+
+// The explicit forms are the point of this module.
+#[allow(clippy::needless_arbitrary_self_type)]
+mod explicit_receivers {
+    #[whichever::dispatchable]
+    trait Counter {
+        fn value<'a>(self: &'a Self) -> &'a u32;
+        fn bump(self: &mut Self);
+        fn take(self: Self) -> u32;
+    }
+
+    struct Ones(u32);
+    struct Tens(u32);
+
+    impl Counter for Ones {
+        fn value<'a>(self: &'a Self) -> &'a u32 {
+            &self.0
+        }
+        fn bump(self: &mut Self) {
+            self.0 += 1;
+        }
+        fn take(self: Self) -> u32 {
+            self.0
+        }
+    }
+
+    impl Counter for Tens {
+        fn value<'a>(self: &'a Self) -> &'a u32 {
+            &self.0
+        }
+        fn bump(self: &mut Self) {
+            self.0 += 10;
+        }
+        fn take(self: Self) -> u32 {
+            self.0
+        }
+    }
+
+    impl Ones {
+        fn doubled(&self) -> u32 {
+            self.0 * 2
+        }
+    }
+
+    impl Tens {
+        fn doubled(&self) -> u32 {
+            self.0 * 2
+        }
+    }
+
+    #[whichever::dispatch(Counter)]
+    enum AnyCounter {
+        Ones(Ones),
+        Tens(Tens),
+    }
+
+    #[whichever::dispatch]
+    impl AnyCounter {
+        #[dispatch(*)]
+        fn doubled(self: &Self) -> u32;
+    }
+
+    #[test]
+    fn explicit_forms_dispatch_like_the_shorthand() {
+        let mut counter: AnyCounter = Tens(5).into();
+        counter.bump();
+        assert_eq!(*counter.value(), 15);
+        assert_eq!(counter.doubled(), 30);
+        assert_eq!(counter.take(), 15);
+    }
+}

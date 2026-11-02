@@ -1,8 +1,8 @@
-error: explicit `self: Type` receivers are not supported
-  --> tests/ui/explicit_self_receiver.rs:3:16
+error: this receiver type is not supported; a receiver is `self`, `&self` or `&mut self`, also written `self: Self`, `self: &Self` or `self: &mut Self`
+  --> tests/ui/explicit_self_receiver.rs:3:22
    |
  3 |     fn consume(self: Box<Self>) -> u32;
-   |                ^^^^^^^^^^^^^^^
+   |                      ^^^^^^^^^
 ...
 14 | #[whichever::dispatch(Consume)]
    | ------------------------------- in this attribute macro expansion

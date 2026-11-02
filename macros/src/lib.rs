@@ -22,8 +22,9 @@ use syn::visit_mut::{self, VisitMut};
 use syn::{
     braced, parenthesized, parse_macro_input, Attribute, Block, Error, Expr, Fields, FnArg,
     GenericArgument, GenericParam, Ident, ImplItem, Item, ItemEnum, ItemImpl, ItemTrait, Lifetime,
-    LitBool, Meta, Pat, PatIdent, Path, PathArguments, PathSegment, QSelf, Result, ReturnType,
-    Signature, Token, TraitItem, TraitItemFn, Type, TypeParamBound, TypePath, Variant, Visibility,
+    LitBool, Meta, Pat, PatIdent, Path, PathArguments, PathSegment, QSelf, Receiver, Result,
+    ReturnType, Signature, Token, TraitItem, TraitItemFn, Type, TypeParamBound, TypePath, Variant,
+    Visibility,
 };
 
 /// The name the facade crate is published under; a renamed dependency is
@@ -906,6 +907,9 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
 /// Checks at compile time that every variant's associated types equal the
 /// first variant's, so a disagreement is reported on the variant instead of
 /// inside a generated method body.
+///
+/// The helper carries the enum's own generics, since a nested function
+/// could not name them; the outer function passes them on to each call.
 fn associated_type_check(
     names: &[&Ident],
     variants: &[VariantInfo],
@@ -931,17 +935,32 @@ fn associated_type_check(
             *arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#(#bindings),*>))
         }
     }
+    let mut helper_generics = generics.clone();
+    helper_generics
+        .params
+        .push(syn::parse_quote!(__Variant: ?Sized + #bound));
+    let (helper_impl_generics, _, helper_where_clause) = helper_generics.split_for_impl();
     let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let enum_arguments: Vec<TokenStream2> = generics
+        .params
+        .iter()
+        .map(|param| match param {
+            GenericParam::Lifetime(param) => param.lifetime.to_token_stream(),
+            GenericParam::Type(param) => param.ident.to_token_stream(),
+            GenericParam::Const(param) => param.ident.to_token_stream(),
+        })
+        .collect();
     let checks = variants.iter().skip(1).map(|variant| {
         let payload = target_type(variant);
         let cfgs = &variant.cfgs;
-        quote! { #(#cfgs)* __same_as_first_variant::<#payload>(); }
+        quote! { #(#cfgs)* __same_as_first_variant::<#(#enum_arguments,)* #payload>(); }
     });
     quote! {
         const _: () = {
             #[allow(dead_code, non_snake_case)]
+            fn __same_as_first_variant #helper_impl_generics () #helper_where_clause {}
+            #[allow(dead_code, non_snake_case)]
             fn __whichever_associated_types_agree #impl_generics () #where_clause {
-                fn __same_as_first_variant<__Variant: ?Sized + #bound>() {}
                 #(#checks)*
             }
         };
@@ -1059,6 +1078,23 @@ enum ArgumentKind {
     SameVariant(Access),
 }
 
+/// Returns how a receiver reaches the value, from its type: `self` and
+/// `self: Self` own it, `&self` and `self: &Self` share it, `&mut self` and
+/// `self: &mut Self` have it exclusively. Any other receiver type is an
+/// error.
+fn receiver_access(receiver: &Receiver) -> Result<Access> {
+    match &*receiver.ty {
+        ty if is_self(ty) => Ok(Access::Owned),
+        Type::Reference(reference) if is_self(&reference.elem) => {
+            Ok(if reference.mutability.is_some() { Access::Exclusive } else { Access::Shared })
+        }
+        other => Err(Error::new_spanned(
+            other,
+            "this receiver type is not supported; a receiver is `self`, `&self` or `&mut self`, also written `self: Self`, `self: &Self` or `self: &mut Self`",
+        )),
+    }
+}
+
 fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
     let (inner, access) = match ty {
         Type::Reference(reference) if reference.mutability.is_some() => {
@@ -1133,17 +1169,7 @@ fn expand_method(
             format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body or implement it by hand"),
         ));
     };
-    if receiver.colon_token.is_some() {
-        return Err(Error::new_spanned(
-            receiver,
-            "explicit `self: Type` receivers are not supported",
-        ));
-    }
-    let receiver_access = match (&receiver.reference, &receiver.mutability) {
-        (None, _) => Access::Owned,
-        (Some(_), None) => Access::Shared,
-        (Some(_), Some(_)) => Access::Exclusive,
-    };
+    let receiver_access = receiver_access(receiver)?;
     // `self` is resolved like a local variable, so the generated `match`
     // must use the receiver's own token to share its hygiene.
     let self_token = receiver.self_token;
@@ -1482,12 +1508,7 @@ fn forward_method(
             format!("`{method}` has no receiver, so there is no variant to forward to"),
         ));
     };
-    if receiver.colon_token.is_some() {
-        return Err(Error::new_spanned(
-            receiver,
-            "explicit `self: Type` receivers are not supported",
-        ));
-    }
+    receiver_access(receiver)?;
     let self_token = receiver.self_token;
     let mut arguments = Vec::new();
     for input in sig.inputs.iter().skip(1) {
