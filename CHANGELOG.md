@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - 2026-11-02
+
+- A generic enum whose payloads name its type parameters can dispatch a
+  trait with an associated type that is not overridden. The agreement check
+  used a nested function, which cannot name the enum's generics.
+- Receivers written as `self: Self`, `self: &Self`, `self: &'a Self` and
+  `self: &mut Self` dispatch like the shorthand forms; any other receiver
+  type is reported as unsupported.
+
 ## 0.2.0 - 2026-11-02
 
 - `#[dispatch]` on an inherent `impl` block forwards each method marked
