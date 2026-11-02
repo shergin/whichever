@@ -15,7 +15,7 @@ use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature
 use crate::options::TraitSpec;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, payload_expression, receiver_expression,
-    scrutinee, Access, ArgumentKind, ReceiverKind, ReturnShape,
+    scrutinee, Access, ArgumentKind, Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -59,7 +59,7 @@ pub(crate) struct MethodPlan {
     arguments: Vec<Ident>,
     /// The arguments matched on the same variant as the receiver, by index.
     same_variant: Vec<(usize, Access)>,
-    return_shape: ReturnShape,
+    return_model: ReturnModel,
     /// Whether the method returns `impl Future`, so that the `match` sits in
     /// one `async move` block and every arm is awaited inside it.
     pub(crate) future: bool,
@@ -121,13 +121,13 @@ impl MethodPlan {
             }
             arguments.push(binding);
         }
-        let (return_shape, future) = classify_return(&signature.output, spec)?;
+        let (return_model, future) = classify_return(&signature.output, spec)?;
         Ok(Self {
             receiver,
             self_token,
             arguments,
             same_variant,
-            return_shape,
+            return_model,
             future,
             awaited: signature.asyncness.is_some() || future,
             unsafety: signature.unsafety.is_some(),
@@ -209,11 +209,16 @@ impl MethodPlan {
         } = target;
         // Under a lift the payload returns the plain value and the lift
         // wraps the rebuilt variant into the declared `Option` or `Result`.
-        let shape = match (self.return_shape, lift) {
-            (ReturnShape::MapSelf, Some(_)) => ReturnShape::RewrapSelf,
-            (shape, _) => shape,
+        let ReturnModel {
+            wrapper,
+            value: needs,
+        } = self.return_model;
+        let wrapper = if lift.is_some() {
+            Wrapper::None
+        } else {
+            wrapper
         };
-        if *deref && matches!(shape, ReturnShape::RewrapSelf | ReturnShape::MapSelf) {
+        if *deref && matches!(needs, Value::Rewrap) {
             return Err(Error::new_spanned(
                 payload,
                 format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", hints.deref),
@@ -245,18 +250,24 @@ impl MethodPlan {
                 format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", hints.rebuild),
             )
         };
-        value = match shape {
-            ReturnShape::Plain => value,
-            ReturnShape::RewrapSelf => target.rebuild(prefix, value).ok_or_else(rebuild_error)?,
-            ReturnShape::MapSelf => {
+        value = match (wrapper, needs) {
+            (_, Value::Plain) => value,
+            (Wrapper::None, Value::Rewrap) => {
+                target.rebuild(prefix, value).ok_or_else(rebuild_error)?
+            }
+            (Wrapper::None, Value::Into) => quote! { ::core::convert::Into::into(#value) },
+            (_, Value::Rewrap) => {
                 let constructor = target.constructor(prefix).ok_or_else(rebuild_error)?;
                 quote! { #value.map(#constructor) }
             }
-            ReturnShape::IntoOverridden => quote! { ::core::convert::Into::into(#value) },
-            ReturnShape::MapErrOverridden => {
-                quote! { #value.map_err(::core::convert::Into::into) }
-            }
+            (_, Value::Into) => quote! { #value.map(::core::convert::Into::into) },
         };
+        if let Wrapper::Result {
+            error: Conversion::Into,
+        } = wrapper
+        {
+            value = quote! { #value.map_err(::core::convert::Into::into) };
+        }
         if let Some(lift) = lift {
             value = quote! { #lift(#value) };
         }

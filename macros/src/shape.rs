@@ -20,13 +20,44 @@ pub(crate) fn bare_ident(ty: &Type) -> Option<&Ident> {
     }
 }
 
+/// What the arms of a method do with the payload's result, in two parts
+/// that vary on their own: what wraps the value, and what the value itself
+/// needs. `Result<Self, Self::Error>` with `Error` overridden is a `Result`
+/// whose error converts, around a value that is rewrapped.
 #[derive(Clone, Copy)]
-pub(crate) enum ReturnShape {
+pub(crate) struct ReturnModel {
+    pub(crate) wrapper: Wrapper,
+    pub(crate) value: Value,
+}
+
+/// The container a method returns its value in, recognised by the name the
+/// path ends in, so that `io::Result<T>` and `core::option::Option<T>`
+/// count.
+#[derive(Clone, Copy)]
+pub(crate) enum Wrapper {
+    None,
+    Option,
+    Result { error: Conversion },
+}
+
+/// What the returned value needs on its way out of an arm.
+#[derive(Clone, Copy)]
+pub(crate) enum Value {
     Plain,
-    RewrapSelf,
-    MapSelf,
-    IntoOverridden,
-    MapErrOverridden,
+    /// `Self`: the payload's result goes back into the variant that produced
+    /// it.
+    Rewrap,
+    /// `Self::X` with `X` overridden: the payload's own type converts with
+    /// `Into`.
+    Into,
+}
+
+/// What a position that cannot hold `Self` itself, such as a `Result`'s
+/// error, needs.
+#[derive(Clone, Copy)]
+pub(crate) enum Conversion {
+    Keep,
+    Into,
 }
 
 pub(crate) fn single_segment(ty: &Type) -> Option<&PathSegment> {
@@ -112,13 +143,13 @@ pub(crate) fn future_output(ty: &Type) -> Option<Option<&Type>> {
 pub(crate) fn classify_return(
     output: &ReturnType,
     spec: Option<&TraitSpec>,
-) -> Result<(ReturnShape, bool)> {
+) -> Result<(ReturnModel, bool)> {
     let ReturnType::Type(_, ty) = output else {
-        return Ok((ReturnShape::Plain, false));
+        return Ok((ReturnModel::PLAIN, false));
     };
     let (ty, returns_future) = match future_output(ty) {
         Some(Some(output)) => (output, true),
-        Some(None) => return Ok((ReturnShape::Plain, true)),
+        Some(None) => return Ok((ReturnModel::PLAIN, true)),
         None => (&**ty, false),
     };
     if let Type::ImplTrait(_) = ty {
@@ -127,42 +158,83 @@ pub(crate) fn classify_return(
             "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
-    Ok((return_shape(ty, spec)?, returns_future))
+    Ok((return_model(ty, spec)?, returns_future))
 }
 
-pub(crate) fn return_shape(ty: &Type, spec: Option<&TraitSpec>) -> Result<ReturnShape> {
-    let overridden = |name: &Ident| spec.is_some_and(|spec| spec.assoc_override(name).is_some());
-    if is_self(ty) {
-        return Ok(ReturnShape::RewrapSelf);
-    }
-    if let Some(name) = self_assoc(ty) {
-        return Ok(if overridden(name) {
-            ReturnShape::IntoOverridden
-        } else {
-            ReturnShape::Plain
-        });
-    }
+impl ReturnModel {
+    const PLAIN: Self = Self {
+        wrapper: Wrapper::None,
+        value: Value::Plain,
+    };
+}
+
+/// Classifies a return type: an `Option` or a `Result` around a value, or
+/// the value itself. Errors are reported on the whole type, since the
+/// message speaks of the return type.
+pub(crate) fn return_model(ty: &Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
     if let Some(segment) = last_segment(ty) {
-        let args = generic_type_args(segment);
-        let wraps_self = args.first().is_some_and(|first| is_self(first));
-        if (segment.ident == "Option" || segment.ident == "Result") && wraps_self {
-            return Ok(ReturnShape::MapSelf);
+        let arguments = generic_type_args(segment);
+        let wrapped = match (segment.ident.to_string().as_str(), arguments.as_slice()) {
+            ("Option", [inner]) => Some((Wrapper::Option, *inner)),
+            // `io::Result<T>`: the alias fixes the error type.
+            ("Result", [inner]) => Some((
+                Wrapper::Result {
+                    error: Conversion::Keep,
+                },
+                *inner,
+            )),
+            ("Result", [inner, error]) => Some((
+                Wrapper::Result {
+                    error: conversion(error, ty, spec)?,
+                },
+                *inner,
+            )),
+            _ => None,
+        };
+        if let Some((wrapper, inner)) = wrapped {
+            return Ok(ReturnModel {
+                wrapper,
+                value: value(inner, ty, spec)?,
+            });
         }
-        if segment.ident == "Result" && args.len() == 2 {
-            if let Some(name) = self_assoc(args[1]) {
-                if overridden(name) {
-                    return Ok(ReturnShape::MapErrOverridden);
-                }
-            }
-        }
+    }
+    Ok(ReturnModel {
+        wrapper: Wrapper::None,
+        value: value(ty, ty, spec)?,
+    })
+}
+
+/// Classifies a value position of the return type `whole`: `Self`, or what
+/// a position that cannot be `Self` needs.
+fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Value> {
+    if is_self(ty) {
+        return Ok(Value::Rewrap);
+    }
+    Ok(match conversion(ty, whole, spec)? {
+        Conversion::Keep => Value::Plain,
+        Conversion::Into => Value::Into,
+    })
+}
+
+/// Classifies a position of the return type `whole` that cannot hold `Self`
+/// itself: an overridden `Self::X` converts, and any other mention of `Self`
+/// is a limit.
+fn conversion(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
+    if let Some(name) = self_assoc(ty) {
+        let overridden = spec.is_some_and(|spec| spec.assoc_override(name).is_some());
+        return Ok(if overridden {
+            Conversion::Into
+        } else {
+            Conversion::Keep
+        });
     }
     if mentions_self(ty) {
         return Err(Error::new_spanned(
-            ty,
+            whole,
             "this return type mentions `Self` where `whichever` cannot wrap the payload's result back into the enum; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand",
         ));
     }
-    Ok(ReturnShape::Plain)
+    Ok(Conversion::Keep)
 }
 
 /// Returns whether `ty` names the implementing type itself anywhere; the

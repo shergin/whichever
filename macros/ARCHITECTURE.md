@@ -155,11 +155,11 @@ that could keep their names, goes in stage 6.
 ### 3.3 The return model
 
 ```rust
-struct ReturnModel { wrapper: Wrapper, inner: Inner, future: bool }
+struct ReturnModel { wrapper: Wrapper, value: Value }  // `future` travels beside it in the plan
 
-enum Wrapper { None, Option, Result { error: ErrorConversion } }
-enum ErrorConversion { Keep, Into }   // `Into` when the error is an overridden `Self::X`
-enum Inner { Plain, SelfType, Overridden } // `Overridden`: `Self::X` with `X` overridden
+enum Wrapper { None, Option, Result { error: Conversion } }
+enum Value { Plain, Rewrap, Into }    // `Rewrap`: `Self`; `Into`: `Self::X` with `X` overridden
+enum Conversion { Keep, Into }        // `Into` when the error is an overridden `Self::X`
 ```
 
 Rendering composes: the inner conversion is the rewrap constructor or
@@ -259,7 +259,12 @@ wrapped in `unsafe { }`.
 
 ### Stage 3: the return model
 
-Status: not started.
+Status: landed. `Result<Self, Self::Error>` with `Error` overridden now
+rewraps and converts (golden `overridden_results`, behaviour test
+`overridden_results`), and so do `Option<Self::X>` and `Result<Self::X, E>`
+with `X` overridden, which were rustc type errors before. A `Self` in a
+`Result`'s error position is reported as a limit instead of reaching rustc.
+Every other golden and `.stderr` file is unchanged.
 
 `ReturnShape` is replaced by `ReturnModel`. Done when `Result<Self,
 Self::Error>` with an override compiles and has a behaviour test and a
