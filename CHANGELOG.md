@@ -24,6 +24,11 @@
   `TryFrom` impls.
 - `#[dispatchable]` with an argument that is not an option is reported as
   such; before, every argument was rejected.
+- An associated const of an integer, `bool`, `char` or `&str` type is
+  checked at compile time to agree between the variants of a non-generic
+  enum, with the error on the variant that differs; before, the first
+  variant's value was taken silently. `Name = value` on the enum fixes a
+  const that differs per payload by design.
 
 ## 0.2.2 - 2026-11-02
 

@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: `KIND` of variant `Ordering` differs from the first variant's; set it on the enum with `KIND = value`
+  --> tests/ui/associated_const_disagreement.rs:30:14
+   |
+30 |     Ordering(Ordering),
+   |              ^^^^^^^^ evaluation of `_` failed here

@@ -91,6 +91,9 @@
 //!   converted with [`Into`], and one returning `Result<_, Self::Name>` with
 //!   `map_err(Into::into)`, so variants whose own type converts into the
 //!   named one can share the enum. See [associated types](#associated-types).
+//! - `Name = value` fixes the associated const `Name` instead of taking it
+//!   from the first variant, for a const that differs per payload by
+//!   design, such as a kind discriminator.
 //! - `mismatch(method = expr, ..)` gives the result of `method` when its
 //!   `Self` arguments hold a different variant than `self`. The trait author
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
@@ -121,7 +124,7 @@
 //! | Trait item | Enum impl |
 //! | --- | --- |
 //! | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
-//! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;` |
+//! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 //! | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`. |
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
@@ -453,7 +456,9 @@
 //!   variant would return a different opaque type. `impl Future<Output = T>`
 //!   is the exception; it is awaited like an `async fn`.
 //! - Generic associated types and `self: Type` receivers are not supported.
-//! - Associated consts are taken from the first variant without a check.
+//! - An associated const of a type other than an integer, `bool`, `char` or
+//!   `&str`, or on a generic enum, is taken from the first variant without
+//!   a check.
 //! - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
 //!   when at least one token of the trait, its name or a method's, comes
 //!   from the invocation. A trait written out in full in the macro's body

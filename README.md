@@ -88,7 +88,7 @@ traits, several traits on one enum) dispatch too.
 | `-> Option<Self>`, `-> Result<Self, E>` | yes | no | - | - | - | - | - | - |
 | Associated types | yes | no | yes | no | yes | no | no | by hand |
 | Differing associated types unified | yes, through `Into` | no | no | no | yes, wrapper enum | no | no | by hand |
-| Associated consts | yes | no | no | no | no | no | no | by hand |
+| Associated consts | yes, checked to agree or fixed on the enum | no | no | no | no | no | no | by hand |
 | Methods without a receiver | with a default body, or written by hand next to the forwarded ones | no | no | no | no | no | no | - |
 | Some methods written by hand, the rest forwarded | yes | no | no | no | no | no | no | yes, by listing the rest |
 | `async fn` | yes | yes | yes | no | no | no | yes | yes |
@@ -151,6 +151,17 @@ All options follow the trait path in `#[dispatch(..)]`.
   pub enum AnyStorage {
       Memory(MemoryStorage), // Error = StorageError
       Disk(DiskStorage),     // Error = io::Error, which is Into<StorageError>
+  }
+  ```
+
+- `Name = value` fixes the associated const `Name`, for a const that
+  differs per payload by design, such as a kind discriminator:
+
+  ```rust
+  #[whichever::dispatch(Proof, KIND = "any")]
+  pub enum AnyProof {
+      Encoding(EncodingProof), // KIND = "encoding"
+      Ordering(OrderingProof), // KIND = "ordering"
   }
   ```
 
@@ -325,7 +336,7 @@ be in the enum's crate.
 | Trait item | Enum impl |
 | --- | --- |
 | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
-| `const N: T;` | `const N: T = <FirstVariant as Trait>::N;` |
+| `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]`. |
 | default body | Ignored: forwarded like any other method. |
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
@@ -349,7 +360,9 @@ be in the enum's crate.
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
   They must also be nameable from there: a private alias or type in a
   signature limits the trait to its own crate.
-- Associated consts are taken from the first variant without a check.
+- An associated const of a type other than an integer, `bool`, `char` or
+  `&str`, or on a generic enum, is taken from the first variant without a
+  check.
 - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
   when at least one token of the trait, its name or a method's, comes from
   the invocation. A trait written out in full in the macro's body gets the

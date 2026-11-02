@@ -14,9 +14,11 @@ use std::hash::{Hash, Hasher};
 use proc_macro::TokenStream;
 use proc_macro2::{Delimiter, Group, Punct, Spacing, Span, TokenStream as TokenStream2, TokenTree};
 use proc_macro_crate::FoundCrate;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
+use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
@@ -268,18 +270,65 @@ fn rewrite_crate_paths(tokens: TokenStream2) -> TokenStream2 {
 /// carries enum-level options.
 struct TraitSpec {
     path: Option<Path>,
-    assoc_overrides: Vec<(Ident, Type)>,
+    /// `Name = ..` options: a type for an associated type, a value for an
+    /// associated const. Which one is meant is known once the trait is.
+    assoc_overrides: Vec<(Ident, Override)>,
     from: Option<bool>,
     try_from: Option<bool>,
     mismatch: Vec<(Ident, Expr)>,
 }
 
+/// The right-hand side of a `Name = ..` option. A bare path parses as a
+/// type and is read as a value when `Name` turns out to be a const.
+enum Override {
+    Type(Type),
+    Expr(Expr),
+}
+
+impl Parse for Override {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let fork = input.fork();
+        if let Ok(ty) = fork.parse::<Type>() {
+            if fork.is_empty() || fork.peek(Token![,]) {
+                input.advance_to(&fork);
+                return Ok(Self::Type(ty));
+            }
+        }
+        Ok(Self::Expr(input.parse()?))
+    }
+}
+
 impl TraitSpec {
-    fn assoc_override(&self, name: &Ident) -> Option<&Type> {
+    fn override_for(&self, name: &Ident) -> Option<&Override> {
         self.assoc_overrides
             .iter()
             .find(|(key, _)| key == name)
-            .map(|(_, ty)| ty)
+            .map(|(_, value)| value)
+    }
+
+    /// Returns the type given for the associated type `name`.
+    fn assoc_override(&self, name: &Ident) -> Option<&Type> {
+        match self.override_for(name) {
+            Some(Override::Type(ty)) => Some(ty),
+            _ => None,
+        }
+    }
+
+    /// Returns the value given for the associated const `name`.
+    fn const_override(&self, name: &Ident) -> Result<Option<Expr>> {
+        match self.override_for(name) {
+            None => Ok(None),
+            Some(Override::Expr(expr)) => Ok(Some(expr.clone())),
+            Some(Override::Type(Type::Path(path))) => Ok(Some(Expr::Path(syn::ExprPath {
+                attrs: vec![],
+                qself: path.qself.clone(),
+                path: path.path.clone(),
+            }))),
+            Some(Override::Type(other)) => Err(Error::new_spanned(
+                other,
+                format!("`{name}` is an associated const; give it a value"),
+            )),
+        }
     }
 
     fn mismatch_for(&self, method: &Ident) -> Option<&Expr> {
@@ -341,7 +390,7 @@ impl Parse for TraitSpec {
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
-                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `mismatch(method = expr)`, `from = false` and `try_from = true`"),
+                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `from = false` and `try_from = true`"),
                 ));
             }
             input.parse::<Token![=]>()?;
@@ -1079,7 +1128,7 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                     ImplItem::Type(assoc) => {
                         written.insert(assoc.ident.to_string());
                         spec.assoc_overrides
-                            .push((assoc.ident.clone(), assoc.ty.clone()));
+                            .push((assoc.ident.clone(), Override::Type(assoc.ty.clone())));
                     }
                     ImplItem::Const(constant) => {
                         written.insert(constant.ident.to_string());
@@ -1123,6 +1172,7 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let mut substitution = Substitution::new(&item_trait, trait_path)?;
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
+    let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
     for item in &item_trait.items {
         match item {
             TraitItem::Type(assoc) => {
@@ -1136,8 +1186,14 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 if written.contains(&name.to_string()) {
                     continue;
                 }
-                let ty = match spec.assoc_override(name) {
-                    Some(ty) => quote!(#ty),
+                let ty = match spec.override_for(name) {
+                    Some(Override::Type(ty)) => quote!(#ty),
+                    Some(Override::Expr(expr)) => {
+                        return Err(Error::new_spanned(
+                            expr,
+                            format!("`{name}` is an associated type; give it a type"),
+                        ));
+                    }
                     None => {
                         agreed_types.push(name);
                         quote!(<#first_payload as #trait_path>::#name)
@@ -1152,9 +1208,14 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 }
                 let mut ty = constant.ty.clone();
                 substitution.visit_type_mut(&mut ty);
-                items.extend(quote! {
-                    const #name: #ty = <#first_payload as #trait_path>::#name;
-                });
+                let value = match spec.const_override(name)? {
+                    Some(expr) => quote!(#expr),
+                    None => {
+                        agreed_consts.push((name, ty.clone()));
+                        quote!(<#first_payload as #trait_path>::#name)
+                    }
+                };
+                items.extend(quote! { const #name: #ty = #value; });
             }
             TraitItem::Fn(function) => {
                 if written.contains(&function.sig.ident.to_string()) {
@@ -1185,6 +1246,13 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         first_payload,
         generics,
     );
+    let const_check = associated_const_check(
+        &agreed_consts,
+        &variants,
+        trait_path,
+        first_payload,
+        generics,
+    );
     Ok(quote! {
         #(#impl_attrs)*
         #derived
@@ -1193,7 +1261,108 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             #(#user_items)*
         }
         #agreement_check
+        #const_check
     })
+}
+
+/// How two values of an associated const's type are compared at compile
+/// time: with `==` for the primitives that allow it in a `const`, or byte
+/// by byte for `&str`.
+enum ConstComparison {
+    Primitive,
+    Str,
+}
+
+fn const_comparison(ty: &Type) -> Option<ConstComparison> {
+    const PRIMITIVES: [&str; 15] = [
+        "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
+        "bool", "char", "()",
+    ];
+    match ty {
+        Type::Tuple(tuple) if tuple.elems.is_empty() => Some(ConstComparison::Primitive),
+        Type::Reference(reference) if reference.mutability.is_none() => {
+            match bare_ident(&reference.elem) {
+                Some(ident) if ident == "str" => Some(ConstComparison::Str),
+                _ => None,
+            }
+        }
+        _ => bare_ident(ty)
+            .filter(|ident| PRIMITIVES.contains(&ident.to_string().as_str()))
+            .map(|_| ConstComparison::Primitive),
+    }
+}
+
+/// Checks at compile time that every variant's associated consts of a
+/// comparable type equal the first variant's, with the failure reported on
+/// the variant. Const evaluation happens after monomorphisation, so a
+/// generic enum gets no check.
+fn associated_const_check(
+    consts: &[(&Ident, Type)],
+    variants: &[VariantInfo],
+    trait_path: &Path,
+    first_payload: &TokenStream2,
+    generics: &syn::Generics,
+) -> TokenStream2 {
+    if variants.len() < 2 || !generics.params.is_empty() {
+        return TokenStream2::new();
+    }
+    let mut checks = TokenStream2::new();
+    let mut needs_str_eq = false;
+    for (name, ty) in consts {
+        let Some(comparison) = const_comparison(ty) else {
+            continue;
+        };
+        for variant in variants.iter().skip(1) {
+            let payload = target_type(variant);
+            let cfgs = &variant.cfgs;
+            let message = format!(
+                "`{name}` of variant `{}` differs from the first variant's; set it on the enum with `{name} = value`",
+                variant.ident
+            );
+            let equal = match comparison {
+                ConstComparison::Primitive => quote! {
+                    <#first_payload as #trait_path>::#name == <#payload as #trait_path>::#name
+                },
+                ConstComparison::Str => {
+                    needs_str_eq = true;
+                    quote! {
+                        __whichever_str_eq(<#first_payload as #trait_path>::#name, <#payload as #trait_path>::#name)
+                    }
+                }
+            };
+            let span = variant.payload.span();
+            checks.extend(quote_spanned! { span =>
+                #(#cfgs)* assert!(#equal, #message);
+            });
+        }
+    }
+    if checks.is_empty() {
+        return TokenStream2::new();
+    }
+    let str_eq = needs_str_eq.then(|| {
+        quote! {
+            const fn __whichever_str_eq(a: &str, b: &str) -> bool {
+                let (a, b) = (a.as_bytes(), b.as_bytes());
+                if a.len() != b.len() {
+                    return false;
+                }
+                let mut i = 0;
+                while i < a.len() {
+                    if a[i] != b[i] {
+                        return false;
+                    }
+                    i += 1;
+                }
+                true
+            }
+        }
+    });
+    quote! {
+        const _: () = {
+            #str_eq
+            #checks
+        };
+    }
 }
 
 /// Checks at compile time that every variant's associated types equal the
