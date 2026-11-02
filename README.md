@@ -255,6 +255,11 @@ registers it for this without dispatching a trait.
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
 - Associated consts are taken from the first variant without a check.
+- One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
+  when at least one token of the trait, its name or a method's, comes from
+  the invocation. A trait written out in full in the macro's body gets the
+  same hidden macro name at every invocation, and rustc reports it as
+  defined multiple times.
 
 Every unsupported shape is reported as one sentence on the offending trait
 item or variant; see `tests/ui` for all of them.

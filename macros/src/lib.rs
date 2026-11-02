@@ -92,9 +92,11 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
     let trait_ident = emitted.ident.clone();
     let vis = emitted.vis.clone();
     // The exported macro lives at the crate root, so its name carries the
-    // trait's tokens and position to keep same-named traits apart.
+    // trait's text, the position of every token and the call site to keep
+    // same-named traits apart.
     let mut hasher = DefaultHasher::new();
     captured.to_token_stream().to_string().hash(&mut hasher);
+    hash_token_positions(captured.to_token_stream(), &mut hasher);
     let macro_name = format_ident!(
         "__whichever_{}_{:016x}_{}_{}",
         trait_ident,
@@ -120,6 +122,24 @@ fn expand_dispatchable(item_trait: ItemTrait, line: usize, column: usize) -> Res
         #[allow(unused_imports)]
         #vis use #macro_name as #trait_ident;
     })
+}
+
+/// Hashes the position of every token in `tokens`, groups included.
+///
+/// The text alone does not tell apart the same trait emitted twice by one
+/// `macro_rules!` in two modules, and the call site of `#[dispatchable]`
+/// then lies inside the macro's body for both expansions. The tokens the
+/// invocation supplied, usually the trait's name, keep the position they
+/// were written at, so hashing positions keeps the two apart. A trait
+/// written out in full in the macro's body is the one case this leaves.
+fn hash_token_positions(tokens: TokenStream2, hasher: &mut DefaultHasher) {
+    for tree in tokens {
+        let span = tree.span().unwrap();
+        (span.line(), span.column()).hash(hasher);
+        if let TokenTree::Group(group) = tree {
+            hash_token_positions(group.stream(), hasher);
+        }
+    }
 }
 
 /// Replaces every `crate::` path prefix in `tokens` with `$crate::`.

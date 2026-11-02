@@ -12,7 +12,7 @@ pub trait Encoder<F: Format> {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Encoder_170ac94d938444e2_13_1 as Encoder;
+pub use __whichever_Encoder_96113cc278fd439b_13_1 as Encoder;
 pub struct Compact;
 pub struct Pretty;
 impl Encoder<Json> for Compact {

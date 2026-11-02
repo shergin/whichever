@@ -341,6 +341,11 @@
 //!   variant would return a different opaque type.
 //! - Generic associated types and `self: Type` receivers are not supported.
 //! - Associated consts are taken from the first variant without a check.
+//! - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
+//!   when at least one token of the trait, its name or a method's, comes
+//!   from the invocation. A trait written out in full in the macro's body
+//!   gets the same hidden macro name at every invocation, and rustc reports
+//!   it as defined multiple times.
 //!
 //! "cannot find macro `Shape` in this scope" at the enum means the trait is
 //! not marked `#[dispatchable]`, or the trait (which carries the macro) is

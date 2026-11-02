@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 - Unreleased
+
+- The hidden macro that `#[dispatchable]` exports is named after the
+  position of every token of the trait as well as its text, so one
+  `macro_rules!` may emit the same trait in several modules when the
+  invocation supplies the trait's name or any other token. Before, both
+  expansions got the same name and rustc reported it as defined multiple
+  times. A trait written out in full in the macro's body still collides;
+  the limit is documented.
+
 ## 0.2.1 - 2026-11-02
 
 - A generic enum whose payloads name its type parameters can dispatch a
