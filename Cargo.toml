@@ -1,6 +1,6 @@
 [package]
 name = "whichever"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Implements a trait for an enum by forwarding to whichever variant it holds"
@@ -15,7 +15,7 @@ exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml"]
 [dependencies]
 # Pinned exactly: the facade's `__private` module and the macros' generated
 # code are one interface, and the two crates are released together.
-whichever-macros = { version = "=0.4.1", path = "macros" }
+whichever-macros = { version = "=0.5.0", path = "macros" }
 
 [dev-dependencies]
 macrotest = "1"

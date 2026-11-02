@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-11-02
+
+Both crates move to 0.5.0 together; `whichever` pins `whichever-macros` to
+the exact version from here on.
 
 - A method returning `Result<Self, Self::Error>` with `Error` fixed on the
   enum rewraps the value and converts the error; before, the error was left
