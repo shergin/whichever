@@ -346,6 +346,26 @@ impl Parse for TraitSpec {
 /// Method options: `with = path` wraps each forwarded result in a call to
 /// `path`, and `call = name` forwards to a payload method of another name.
 /// Methods without the attribute are left as they are.
+///
+/// On a trait impl block of a dispatch enum, in the same crate, the block
+/// holds the items the enum implements itself and the rest of the trait is
+/// forwarded around them. The enum then does not name that trait in its own
+/// attribute; the trait's options go on the block's attribute:
+///
+/// ```rust,ignore
+/// #[whichever::dispatch]
+/// pub enum Handler {
+///     Text(TextHandler),
+///     Map(MapHandler),
+/// }
+///
+/// #[whichever::dispatch]
+/// impl HandlerTrait for Handler {
+///     fn from_handler(handler: Handler) -> Option<Self> {
+///         Some(handler)
+///     }
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let site = proc_macro::Span::call_site();
@@ -356,19 +376,20 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             // A rejected enum is still emitted, with its macro, so that its
             // derives, its uses and its impl blocks resolve and the one real
             // error is not buried under theirs.
-            let emitted = without_dispatch_attributes(item_enum.clone());
-            let enum_macro = enum_macro(&emitted, true, line, column);
+            let captured = without_enum_attributes(item_enum.clone());
+            let emitted = without_variant_attributes(captured.clone());
+            let enum_macro = enum_macro(&captured, true, line, column);
             expand_dispatch(attr.into(), item_enum, line, column).unwrap_or_else(|error| {
                 let error = error.to_compile_error();
                 quote! { #emitted #enum_macro #error }
             })
         }
-        Item::Impl(item_impl) => expand_inherent_invocation(attr.into(), item_impl)
+        Item::Impl(item_impl) => expand_impl_invocation(attr.into(), item_impl)
             .unwrap_or_else(|error| error.to_compile_error()),
         other => {
             let error = Error::new_spanned(
                 &other,
-                "`#[dispatch]` goes on an enum, or on an inherent impl block of a dispatch enum",
+                "`#[dispatch]` goes on an enum, or on an impl block of a dispatch enum",
             )
             .to_compile_error();
             quote! { #other #error }
@@ -377,12 +398,17 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     expanded.into()
 }
 
-/// Returns `item_enum` without the `#[dispatch]` attributes on the enum and
-/// on its variants.
-fn without_dispatch_attributes(mut item_enum: ItemEnum) -> ItemEnum {
+/// Returns `item_enum` without the `#[dispatch]` attributes on the enum
+/// itself; the variants keep theirs.
+fn without_enum_attributes(mut item_enum: ItemEnum) -> ItemEnum {
     item_enum
         .attrs
         .retain(|attribute| !is_dispatch_attribute(attribute));
+    item_enum
+}
+
+/// Returns `item_enum` without the `#[dispatch]` attributes on its variants.
+fn without_variant_attributes(mut item_enum: ItemEnum) -> ItemEnum {
     for variant in &mut item_enum.variants {
         variant
             .attrs
@@ -391,15 +417,15 @@ fn without_dispatch_attributes(mut item_enum: ItemEnum) -> ItemEnum {
     item_enum
 }
 
-/// Writes the enum's own macro, which carries its definition to `#[dispatch]`
-/// on an impl block. Impl blocks live in the enum's crate, so the macro stays
-/// crate-local and is reached through the alias. `rejected` tells the impl
-/// side that the enum itself was rejected, so it must not report the same
-/// error again.
-fn enum_macro(emitted: &ItemEnum, rejected: bool, line: usize, column: usize) -> TokenStream2 {
-    let enum_ident = &emitted.ident;
+/// Writes the enum's own macro, which carries its definition, variant
+/// options included, to `#[dispatch]` on an impl block. Impl blocks live in
+/// the enum's crate, so the macro stays crate-local and is reached through
+/// the alias. `rejected` tells the impl side that the enum itself was
+/// rejected, so it must not report the same error again.
+fn enum_macro(captured: &ItemEnum, rejected: bool, line: usize, column: usize) -> TokenStream2 {
+    let enum_ident = &captured.ident;
     let mut hasher = DefaultHasher::new();
-    emitted.to_token_stream().to_string().hash(&mut hasher);
+    captured.to_token_stream().to_string().hash(&mut hasher);
     let macro_name = format_ident!(
         "__whichever_enum_{}_{:016x}_{}_{}",
         enum_ident,
@@ -412,7 +438,7 @@ fn enum_macro(emitted: &ItemEnum, rejected: bool, line: usize, column: usize) ->
         #[allow(unused_macros)]
         macro_rules! #macro_name {
             (@v1 $facade:ident $($rest:tt)*) => {
-                ::$facade::__private::implement_inherent! { @v1 #rejected enum { #emitted } $($rest)* }
+                ::$facade::__private::implement_inherent! { @v1 #rejected enum { #captured } $($rest)* }
             };
         }
 
@@ -456,8 +482,8 @@ fn expand_dispatch(
         .iter()
         .map(variant_info)
         .collect::<Result<Vec<_>>>()?;
-    let captured = item_enum.clone();
-    let emitted = without_dispatch_attributes(item_enum);
+    let captured = item_enum;
+    let emitted = without_variant_attributes(captured.clone());
     let facade = facade_ident()?;
     let parsed_specs = specs
         .iter()
@@ -477,7 +503,7 @@ fn expand_dispatch(
             #macro_path! { @v1 #facade enum { #captured } spec { #tokens } }
         });
     }
-    let enum_macro = enum_macro(&emitted, false, line, column);
+    let enum_macro = enum_macro(&captured, false, line, column);
     Ok(quote! {
         #emitted
         #conversions
@@ -486,21 +512,11 @@ fn expand_dispatch(
     })
 }
 
-/// Turns `#[dispatch]` on an inherent impl block into a call of the enum's
-/// macro, which supplies the enum's definition.
-fn expand_inherent_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<TokenStream2> {
-    if !attr.is_empty() {
-        return Err(Error::new_spanned(
-            attr,
-            "`#[dispatch]` on an impl block takes no arguments; the variants are named on each method",
-        ));
-    }
-    if let Some((_, trait_path, _)) = &item_impl.trait_ {
-        return Err(Error::new_spanned(
-            trait_path,
-            "`#[dispatch]` forwards inherent methods; a trait is dispatched with `#[dispatch(Trait)]` on the enum",
-        ));
-    }
+/// Turns `#[dispatch]` on an impl block into a call of the enum's macro,
+/// which supplies the enum's definition. An inherent block is forwarded
+/// method by method; a trait impl block is a partial impl, whose options
+/// travel along for the trait's carrier macro.
+fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<TokenStream2> {
     let Type::Path(self_type) = &*item_impl.self_ty else {
         return Err(Error::new_spanned(
             &item_impl.self_ty,
@@ -512,9 +528,26 @@ fn expand_inherent_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result
         last.arguments = PathArguments::None;
     }
     let facade = facade_ident()?;
-    Ok(quote! {
-        #macro_path! { @v1 #facade impl { #item_impl } }
-    })
+    match &item_impl.trait_ {
+        Some((Some(bang), _, _)) => Err(Error::new_spanned(
+            bang,
+            "a negative impl has nothing to dispatch",
+        )),
+        Some((None, _, _)) => Ok(quote! {
+            #macro_path! { @v1 #facade partial { #attr } impl { #item_impl } }
+        }),
+        None => {
+            if !attr.is_empty() {
+                return Err(Error::new_spanned(
+                    attr,
+                    "`#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method",
+                ));
+            }
+            Ok(quote! {
+                #macro_path! { @v1 #facade impl { #item_impl } }
+            })
+        }
+    }
 }
 
 fn facade_ident() -> Result<Ident> {
@@ -662,6 +695,9 @@ struct ImplementInput {
     item_trait: ItemTrait,
     item_enum: ItemEnum,
     spec: TraitSpec,
+    /// The impl block the user wrote, holding the items the enum implements
+    /// itself; the rest is generated around them.
+    partial: Option<ItemImpl>,
 }
 
 impl Parse for ImplementInput {
@@ -689,10 +725,19 @@ impl Parse for ImplementInput {
         let spec_tokens;
         braced!(spec_tokens in input);
         let spec: TraitSpec = spec_tokens.parse()?;
+        let partial = if input.peek(Token![impl]) {
+            input.parse::<Token![impl]>()?;
+            let impl_tokens;
+            braced!(impl_tokens in input);
+            Some(impl_tokens.parse::<ItemImpl>()?)
+        } else {
+            None
+        };
         Ok(Self {
             item_trait,
             item_enum,
             spec,
+            partial,
         })
     }
 }
@@ -887,16 +932,59 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
         item_trait,
         item_enum,
-        spec,
+        mut spec,
+        partial,
     } = input;
     let enum_ident = &item_enum.ident;
-    let (impl_generics, ty_generics, where_clause) = item_enum.generics.split_for_impl();
     let Some(trait_path) = &spec.path else {
         return Err(Error::new(
             Span::call_site(),
             "the trait to implement is missing",
         ));
     };
+    // A partial impl block supplies the impl's header and the items the enum
+    // implements itself; an associated type written there is an override
+    // like the `Name = Type` option.
+    let mut written = std::collections::HashSet::new();
+    let mut user_items = vec![];
+    let (generics, self_ty, impl_attrs, unsafety) = match &partial {
+        Some(block) => {
+            for item in &block.items {
+                match item {
+                    ImplItem::Fn(function) => {
+                        written.insert(function.sig.ident.to_string());
+                    }
+                    ImplItem::Type(assoc) => {
+                        written.insert(assoc.ident.to_string());
+                        spec.assoc_overrides
+                            .push((assoc.ident.clone(), assoc.ty.clone()));
+                    }
+                    ImplItem::Const(constant) => {
+                        written.insert(constant.ident.to_string());
+                    }
+                    _ => {}
+                }
+                user_items.push(item);
+            }
+            (
+                &block.generics,
+                block.self_ty.to_token_stream(),
+                block.attrs.as_slice(),
+                block.unsafety,
+            )
+        }
+        None => {
+            let (_, ty_generics, _) = item_enum.generics.split_for_impl();
+            (
+                &item_enum.generics,
+                quote!(#enum_ident #ty_generics),
+                &[][..],
+                None,
+            )
+        }
+    };
+    let derived = partial.is_none().then(|| quote!(#[automatically_derived]));
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
     let variants = item_enum
         .variants
         .iter()
@@ -923,6 +1011,9 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                     ));
                 }
                 let name = &assoc.ident;
+                if written.contains(&name.to_string()) {
+                    continue;
+                }
                 let ty = match spec.assoc_override(name) {
                     Some(ty) => quote!(#ty),
                     None => {
@@ -934,6 +1025,9 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             }
             TraitItem::Const(constant) => {
                 let name = &constant.ident;
+                if written.contains(&name.to_string()) {
+                    continue;
+                }
                 let mut ty = constant.ty.clone();
                 substitution.visit_type_mut(&mut ty);
                 items.extend(quote! {
@@ -941,6 +1035,9 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 });
             }
             TraitItem::Fn(function) => {
+                if written.contains(&function.sig.ident.to_string()) {
+                    continue;
+                }
                 items.extend(expand_method(
                     function,
                     &variants,
@@ -964,12 +1061,14 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         &variants,
         trait_path,
         first_payload,
-        &item_enum.generics,
+        generics,
     );
     Ok(quote! {
-        #[automatically_derived]
-        impl #impl_generics #trait_path for #enum_ident #ty_generics #where_clause {
+        #(#impl_attrs)*
+        #derived
+        #unsafety impl #impl_generics #trait_path for #self_ty #where_clause {
             #items
+            #(#user_items)*
         }
         #agreement_check
     })
@@ -1303,9 +1402,14 @@ fn expand_method(
         if function.default.is_some() {
             return Ok(TokenStream2::new());
         }
+        let trait_ident = &trait_path
+            .segments
+            .last()
+            .expect("a path has at least one segment")
+            .ident;
         return Err(Error::new_spanned(
             &function.sig,
-            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body or implement it by hand"),
+            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl {trait_ident} for {enum_ident}` block"),
         ));
     };
     let receiver_access = receiver_access(receiver)?;
@@ -1468,6 +1572,9 @@ struct InherentInput {
     /// already reported.
     rejected: bool,
     item_enum: ItemEnum,
+    /// The options of a `#[dispatch(..)]` on a trait impl block, which make
+    /// the block a partial impl of that trait.
+    partial: Option<TokenStream2>,
     item_impl: ItemImpl,
 }
 
@@ -1494,6 +1601,17 @@ impl Parse for InherentInput {
         let enum_tokens;
         braced!(enum_tokens in input);
         let item_enum: ItemEnum = enum_tokens.parse()?;
+        let partial = if input.peek(Ident) {
+            let tag: Ident = input.parse()?;
+            if tag != "partial" {
+                return Err(Error::new_spanned(tag, "expected `partial`"));
+            }
+            let option_tokens;
+            braced!(option_tokens in input);
+            Some(option_tokens.parse::<TokenStream2>()?)
+        } else {
+            None
+        };
         input.parse::<Token![impl]>()?;
         let impl_tokens;
         braced!(impl_tokens in input);
@@ -1501,20 +1619,63 @@ impl Parse for InherentInput {
         Ok(Self {
             rejected,
             item_enum,
+            partial,
             item_impl,
         })
     }
 }
 
-/// Rewrites an inherent impl block; called by the macro that `#[dispatch]`
-/// defines for the enum.
+/// Rewrites an impl block of a dispatch enum; called by the macro that
+/// `#[dispatch]` defines for the enum.
 #[doc(hidden)]
 #[proc_macro]
 pub fn implement_inherent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as InherentInput);
-    expand_inherent(input)
+    let expanded = match input.partial {
+        Some(options) => expand_partial(input.rejected, input.item_enum, options, input.item_impl),
+        None => expand_inherent(input.rejected, input.item_enum, input.item_impl),
+    };
+    expanded
         .unwrap_or_else(|error| error.to_compile_error())
         .into()
+}
+
+/// Hands a partial trait impl block to the trait's carrier macro, together
+/// with the enum, so that `implement!` can write the rest of the impl around
+/// the items the block holds. When the enum was rejected the block is
+/// emitted as written; its one error is the missing items.
+fn expand_partial(
+    rejected: bool,
+    item_enum: ItemEnum,
+    options: TokenStream2,
+    item_impl: ItemImpl,
+) -> Result<TokenStream2> {
+    if rejected {
+        return Ok(item_impl.to_token_stream());
+    }
+    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+        return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
+    };
+    let spec: TraitSpec = syn::parse2(options.clone())?;
+    if spec.from.is_some() || spec.try_from.is_some() {
+        return Err(Error::new_spanned(
+            &options,
+            "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
+        ));
+    }
+    let mut macro_path = trait_path.clone();
+    if let Some(last) = macro_path.segments.last_mut() {
+        last.arguments = PathArguments::None;
+    }
+    let spec = if options.is_empty() {
+        quote!(#trait_path)
+    } else {
+        quote!(#trait_path, #options)
+    };
+    let facade = facade_ident()?;
+    Ok(quote! {
+        #macro_path! { @v1 #facade enum { #item_enum } spec { #spec } impl { #item_impl } }
+    })
 }
 
 /// Which variants an inherent method forwards to, and how.
@@ -1595,12 +1756,11 @@ impl Parse for BodylessMethod {
 /// dropped when it has no body, so that the rest of the block still
 /// compiles and the real error stands alone. When the enum itself was
 /// rejected nothing is reported here.
-fn expand_inherent(input: InherentInput) -> Result<TokenStream2> {
-    let InherentInput {
-        rejected,
-        item_enum,
-        mut item_impl,
-    } = input;
+fn expand_inherent(
+    rejected: bool,
+    item_enum: ItemEnum,
+    mut item_impl: ItemImpl,
+) -> Result<TokenStream2> {
     let variants = if rejected {
         None
     } else {

@@ -128,7 +128,7 @@
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 //! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; `Result<_, Self::X>` with `map_err(Into::into)`. |
-//! | method without a receiver | Left to the trait's default body; an error when there is none. |
+//! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
 //! | `#[inline]` | Added to every generated method unless the trait method carries its own. |
 //!
@@ -321,6 +321,68 @@
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait.
 //!
+//! # Methods the enum implements itself
+//!
+//! A trait method without a receiver has no variant to dispatch on, and
+//! sometimes the enum's answer differs from every payload's. `#[dispatch]`
+//! on a trait impl block holding just those items forwards the rest of the
+//! trait around them:
+//!
+//! ```
+//! #[whichever::dispatchable]
+//! pub trait Handler: Sized {
+//!     fn from_any(handler: AnyHandler) -> Option<Self>;
+//!     fn is_attached(&self) -> bool;
+//!     fn describe(&self) -> String {
+//!         format!("attached: {}", self.is_attached())
+//!     }
+//! }
+//!
+//! pub struct Text;
+//! pub struct Map;
+//! # impl Handler for Text {
+//! #     fn from_any(handler: AnyHandler) -> Option<Self> {
+//! #         match handler { AnyHandler::Text(text) => Some(text), _ => None }
+//! #     }
+//! #     fn is_attached(&self) -> bool { true }
+//! # }
+//! # impl Handler for Map {
+//! #     fn from_any(handler: AnyHandler) -> Option<Self> {
+//! #         match handler { AnyHandler::Map(map) => Some(map), _ => None }
+//! #     }
+//! #     fn is_attached(&self) -> bool { false }
+//! #     fn describe(&self) -> String { String::from("a map") }
+//! # }
+//!
+//! #[whichever::dispatch]
+//! pub enum AnyHandler {
+//!     Text(Text),
+//!     Map(Map),
+//! }
+//!
+//! #[whichever::dispatch]
+//! impl Handler for AnyHandler {
+//!     fn from_any(handler: AnyHandler) -> Option<Self> {
+//!         Some(handler)
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let map = AnyHandler::Map(Map);
+//!     assert_eq!(map.describe(), "a map");
+//!     assert!(AnyHandler::from_any(map).is_some());
+//! }
+//! ```
+//!
+//! The enum does not name that trait in its own attribute, since the block
+//! is the impl. The trait's options, `Name = Type` and `mismatch`, go on
+//! the block's attribute, and an associated type written in the block
+//! counts as an override. A method written in the block replaces the
+//! forwarding for every variant, provided methods included, which is also
+//! the way to leave a payload's method out on purpose. The block's own
+//! header, bounds included, becomes the impl's. Like inherent blocks, it
+//! has to be in the enum's crate.
+//!
 //! # Across crates
 //!
 //! `#[dispatchable]` emits the trait unchanged plus a hidden macro carrying
@@ -346,7 +408,8 @@
 //! - Every variant holds exactly one unnamed field, `Name(Payload)`, and
 //!   every payload implements the trait. A payload type used by two variants
 //!   gets no `From` impl.
-//! - A method without a receiver needs a default body; the enum uses it.
+//! - A method without a receiver needs a default body, which the enum uses,
+//!   or an implementation in a `#[dispatch]` impl block.
 //! - Return-position `impl Trait` cannot be dispatched by a `match`: every
 //!   variant would return a different opaque type. `impl Future<Output = T>`
 //!   is the exception; it is awaited like an `async fn`.

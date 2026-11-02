@@ -1,4 +1,4 @@
-error: `presets` has no receiver, so there is no variant to dispatch on; give it a default body or implement it by hand
+error: `presets` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl Factory for Kind` block
   --> tests/ui/static_without_default.rs:3:5
    |
  3 |     fn presets() -> Vec<u32>;

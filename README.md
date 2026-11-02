@@ -88,7 +88,8 @@ traits, several traits on one enum) dispatch too.
 | Associated types | yes | no | yes | no | yes | no | no | by hand |
 | Differing associated types unified | yes, through `Into` | no | no | no | yes, wrapper enum | no | no | by hand |
 | Associated consts | yes | no | no | no | no | no | no | by hand |
-| Methods without a receiver | with a default body | no | no | no | no | no | no | - |
+| Methods without a receiver | with a default body, or written by hand next to the forwarded ones | no | no | no | no | no | no | - |
+| Some methods written by hand, the rest forwarded | yes | no | no | no | no | no | no | yes, by listing the rest |
 | `async fn` | yes | yes | yes | no | no | no | yes | yes |
 | Generic trait at a concrete instantiation | yes | no | yes | no | no | yes | no | by hand |
 | Const generics on the trait | yes | - | - | - | - | - | - | - |
@@ -235,6 +236,37 @@ block has to be in the enum's crate, which inherent impls are anyway; a
 bare `#[dispatch]` on an enum registers it for this without dispatching a
 trait.
 
+## Methods the enum implements itself
+
+A trait method without a receiver, such as a constructor, has no variant to
+dispatch on, and sometimes the enum's answer to a method differs from every
+payload's. Put `#[dispatch]` on a trait impl block holding just those
+items, and the rest of the trait is forwarded around them:
+
+```rust
+#[whichever::dispatch]
+pub enum Handler {
+    Text(TextHandler),
+    Map(MapHandler),
+}
+
+#[whichever::dispatch]
+impl HandlerTrait for Handler {
+    fn from_handler(handler: Handler) -> Option<Self> {
+        Some(handler)
+    }
+}
+```
+
+The enum then does not name that trait in its own attribute, since the
+block is the impl. Options for the trait, `Name = Type` and `mismatch`, go
+on the block's attribute; an associated type written in the block counts as
+an override too. A method written in the block replaces the forwarding for
+every variant, provided methods included, which is the way to leave a
+payload's method out on purpose. The block's own header, generics and
+bounds included, becomes the impl's header. Like inherent blocks, it has to
+be in the enum's crate.
+
 ## What each trait item becomes
 
 | Trait item | Enum impl |
@@ -247,7 +279,7 @@ trait.
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
-| method without a receiver | Left to the trait's default body; an error when there is none. |
+| method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
 
 ## Limits

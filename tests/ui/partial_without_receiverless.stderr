@@ -1,0 +1,12 @@
+error: `make` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl Make for Kind` block
+  --> tests/ui/partial_without_receiverless.rs:3:5
+   |
+ 3 | /     fn make(seed: u32) -> Self
+ 4 | |     where
+ 5 | |         Self: Sized;
+   | |___________________^
+...
+25 |   #[whichever::dispatch]
+   |   ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Make` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

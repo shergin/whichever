@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 - Unreleased
+
+- `#[dispatch]` on a trait impl block of a dispatch enum makes it a partial
+  impl: the block holds the items the enum implements itself, a method
+  without a receiver among them, and every other item of the trait is
+  forwarded around them. The block's header carries into the impl, its
+  options go on the block's attribute, and an associated type written in
+  the block is an override. The enum then leaves that trait out of its own
+  attribute.
+
 ## 0.2.2 - 2026-11-02
 
 - A trait method returning `impl Future<Output = T>`, with `Send` or any
