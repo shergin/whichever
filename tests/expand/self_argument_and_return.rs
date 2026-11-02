@@ -1,35 +1,35 @@
 #[whichever::dispatchable]
-pub trait Swap {
+pub trait Shape {
     #[dispatch(mismatch = false)]
-    fn pricing_eq(&self, other: &Self) -> bool;
-    fn with_rate(&self, rate: u64) -> Self;
+    fn congruent(&self, other: &Self) -> bool;
+    fn scaled(&self, factor: u32) -> Self;
 }
 
-pub struct Pool(u64);
-pub struct Book(u64);
+pub struct Circle(u32);
+pub struct Square(u32);
 
-impl Swap for Pool {
-    fn pricing_eq(&self, other: &Self) -> bool {
+impl Shape for Circle {
+    fn congruent(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-    fn with_rate(&self, rate: u64) -> Self {
-        Pool(rate)
+    fn scaled(&self, factor: u32) -> Self {
+        Circle(self.0 * factor)
     }
 }
 
-impl Swap for Book {
-    fn pricing_eq(&self, other: &Self) -> bool {
+impl Shape for Square {
+    fn congruent(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-    fn with_rate(&self, rate: u64) -> Self {
-        Book(rate)
+    fn scaled(&self, factor: u32) -> Self {
+        Square(self.0 * factor)
     }
 }
 
-#[whichever::dispatch(Swap)]
-pub enum SwapKind {
-    Pool(Pool),
-    Book(Book),
+#[whichever::dispatch(Shape)]
+pub enum AnyShape {
+    Circle(Circle),
+    Square(Square),
 }
 
 fn main() {}

@@ -1,12 +1,12 @@
 [package]
-name = "smoke-ocean"
+name = "smoke-enums"
 version = "0.0.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 whichever = { path = "../.." }
-smoke-engine = { path = "../engine" }
+smoke-traits = { path = "../traits" }
 
 [dev-dependencies]
 pollster = "0.4"

@@ -1,40 +1,42 @@
-pub trait World {
-    type Plan;
+#![allow(async_fn_in_trait)]
+
+pub trait Format {
+    type Value;
 }
 
-pub struct Solaris;
+pub struct Json;
 
-impl World for Solaris {
-    type Plan = u32;
+impl Format for Json {
+    type Value = u32;
 }
 
 #[whichever::dispatchable]
-pub trait Settler<W: World> {
+pub trait Encoder<F: Format> {
     type Error;
-    async fn settle(&self, plan: &W::Plan) -> Result<u64, Self::Error>;
+    async fn encode(&self, value: &F::Value) -> Result<String, Self::Error>;
 }
 
-pub struct Router;
-pub struct Aggregator;
+pub struct Compact;
+pub struct Pretty;
 
-impl Settler<Solaris> for Router {
+impl Encoder<Json> for Compact {
     type Error = u8;
-    async fn settle(&self, plan: &u32) -> Result<u64, u8> {
-        Ok(u64::from(*plan))
+    async fn encode(&self, value: &u32) -> Result<String, u8> {
+        Ok(value.to_string())
     }
 }
 
-impl Settler<Solaris> for Aggregator {
+impl Encoder<Json> for Pretty {
     type Error = u16;
-    async fn settle(&self, plan: &u32) -> Result<u64, u16> {
-        Ok(u64::from(*plan) * 2)
+    async fn encode(&self, value: &u32) -> Result<String, u16> {
+        Ok(format!("{value} "))
     }
 }
 
-#[whichever::dispatch(Settler<Solaris>, Error = u16)]
-pub enum SettlerKind {
-    Router(Router),
-    Aggregator(Aggregator),
+#[whichever::dispatch(Encoder<Json>, Error = u16)]
+pub enum AnyEncoder {
+    Compact(Compact),
+    Pretty(Pretty),
 }
 
 fn main() {}

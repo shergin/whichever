@@ -401,45 +401,45 @@ mod generic_traits {
         Dec(Dec),
     }
 
-    trait World {
-        type Plan;
+    trait Format {
+        type Value;
     }
 
-    struct Route<W: World>(W::Plan);
+    struct Document<F: Format>(F::Value);
 
     #[whichever::dispatchable]
-    trait Settle<W: World> {
-        fn describe(&self, plan: &W::Plan) -> String;
-        fn route(&self, route: &Route<W>) -> String {
-            self.describe(&route.0)
+    trait Encode<F: Format> {
+        fn encode(&self, value: &F::Value) -> String;
+        fn encode_document(&self, document: &Document<F>) -> String {
+            self.encode(&document.0)
         }
     }
 
-    struct Solaris;
+    struct Json;
 
-    impl World for Solaris {
-        type Plan = u32;
+    impl Format for Json {
+        type Value = u32;
     }
 
-    struct Router;
-    struct Settler;
+    struct Compact;
+    struct Pretty;
 
-    impl Settle<Solaris> for Router {
-        fn describe(&self, plan: &u32) -> String {
-            format!("router {plan}")
+    impl Encode<Json> for Compact {
+        fn encode(&self, value: &u32) -> String {
+            format!("{value}")
         }
     }
 
-    impl Settle<Solaris> for Settler {
-        fn describe(&self, plan: &u32) -> String {
-            format!("settler {plan}")
+    impl Encode<Json> for Pretty {
+        fn encode(&self, value: &u32) -> String {
+            format!("{value} ")
         }
     }
 
-    #[whichever::dispatch(Settle<Solaris>)]
-    enum SettlerKind {
-        Router(Router),
-        Settler(Settler),
+    #[whichever::dispatch(Encode<Json>)]
+    enum AnyEncoder {
+        Compact(Compact),
+        Pretty(Pretty),
     }
 
     #[whichever::dispatchable]
@@ -472,8 +472,8 @@ mod generic_traits {
     fn parameters_are_substituted_with_the_arguments_the_enum_names() {
         assert_eq!(Step::from(Inc).convert(1), 2);
         assert_eq!(Step::from(Dec).convert(1), 0);
-        assert_eq!(SettlerKind::from(Settler).describe(&7), "settler 7");
-        assert_eq!(SettlerKind::from(Router).route(&Route(3)), "router 3");
+        assert_eq!(AnyEncoder::from(Pretty).encode(&7), "7 ");
+        assert_eq!(AnyEncoder::from(Compact).encode_document(&Document(3)), "3");
         assert_eq!(Filler::from(Twos).fill(), [2, 2, 2, 2]);
     }
 }
@@ -620,38 +620,39 @@ mod inherent_methods_do_not_shadow {
         fn name(&self) -> &'static str;
     }
 
-    struct Pool;
+    struct Printer;
 
-    impl Pool {
+    impl Printer {
         fn name(&self) -> &'static str {
             "inherent"
         }
     }
 
-    impl Named for Pool {
+    impl Named for Printer {
         fn name(&self) -> &'static str {
             "trait"
         }
     }
 
-    struct Pair;
+    struct Scanner;
 
-    impl Named for Pair {
+    impl Named for Scanner {
         fn name(&self) -> &'static str {
-            "pair"
+            "scanner"
         }
     }
 
     #[whichever::dispatch(Named)]
-    enum Contract {
-        Pool(Pool),
-        Pair(Pair),
+    enum Device {
+        Printer(Printer),
+        Scanner(Scanner),
     }
 
     #[test]
     fn calls_are_fully_qualified() {
-        assert_eq!(Named::name(&Contract::from(Pool)), "trait");
-        assert_eq!(Contract::from(Pool).name(), "trait");
+        assert_eq!(Named::name(&Device::from(Printer)), "trait");
+        assert_eq!(Device::from(Printer).name(), "trait");
+        assert_eq!(Device::from(Scanner).name(), "scanner");
     }
 }
 

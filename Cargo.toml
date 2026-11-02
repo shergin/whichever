@@ -20,4 +20,4 @@ pollster = "0.4"
 trybuild = "1"
 
 [workspace]
-members = ["macros", "smoke/engine", "smoke/ocean", "smoke/renamed", "smoke/no_std"]
+members = ["macros", "smoke/traits", "smoke/enums", "smoke/renamed", "smoke/no_std"]

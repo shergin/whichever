@@ -1,8 +1,8 @@
-error: `deployments` has no receiver, so there is no variant to dispatch on; give it a default body or implement it by hand
+error: `presets` has no receiver, so there is no variant to dispatch on; give it a default body or implement it by hand
   --> tests/ui/static_without_default.rs:3:5
    |
- 3 |     fn deployments() -> Vec<u32>;
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 3 |     fn presets() -> Vec<u32>;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 28 | #[whichever::dispatch(Factory)]
    | ------------------------------- in this attribute macro expansion

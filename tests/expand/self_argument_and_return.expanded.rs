@@ -1,69 +1,69 @@
-pub trait Swap {
-    fn pricing_eq(&self, other: &Self) -> bool;
-    fn with_rate(&self, rate: u64) -> Self;
+pub trait Shape {
+    fn congruent(&self, other: &Self) -> bool;
+    fn scaled(&self, factor: u32) -> Self;
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Swap_a23a2b6355df660f_1_1 as Swap;
-pub struct Pool(u64);
-pub struct Book(u64);
-impl Swap for Pool {
-    fn pricing_eq(&self, other: &Self) -> bool {
+pub use __whichever_Shape_1d37b16f2690c8b0_1_1 as Shape;
+pub struct Circle(u32);
+pub struct Square(u32);
+impl Shape for Circle {
+    fn congruent(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-    fn with_rate(&self, rate: u64) -> Self {
-        Pool(rate)
+    fn scaled(&self, factor: u32) -> Self {
+        Circle(self.0 * factor)
     }
 }
-impl Swap for Book {
-    fn pricing_eq(&self, other: &Self) -> bool {
+impl Shape for Square {
+    fn congruent(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-    fn with_rate(&self, rate: u64) -> Self {
-        Book(rate)
+    fn scaled(&self, factor: u32) -> Self {
+        Square(self.0 * factor)
     }
 }
-pub enum SwapKind {
-    Pool(Pool),
-    Book(Book),
+pub enum AnyShape {
+    Circle(Circle),
+    Square(Square),
 }
 #[automatically_derived]
-impl ::core::convert::From<Pool> for SwapKind {
+impl ::core::convert::From<Circle> for AnyShape {
     #[inline]
-    fn from(value: Pool) -> Self {
-        Self::Pool(value)
+    fn from(value: Circle) -> Self {
+        Self::Circle(value)
     }
 }
 #[automatically_derived]
-impl ::core::convert::From<Book> for SwapKind {
+impl ::core::convert::From<Square> for AnyShape {
     #[inline]
-    fn from(value: Book) -> Self {
-        Self::Book(value)
+    fn from(value: Square) -> Self {
+        Self::Square(value)
     }
 }
 #[automatically_derived]
-impl Swap for SwapKind {
+impl Shape for AnyShape {
     #[inline]
     #[allow(unreachable_patterns)]
-    fn pricing_eq(&self, __argument0: &Self) -> bool {
+    fn congruent(&self, __argument0: &Self) -> bool {
         match (self, __argument0) {
-            (SwapKind::Pool(__inner), SwapKind::Pool(__same0)) => {
-                <Pool as Swap>::pricing_eq(__inner, __same0)
+            (AnyShape::Circle(__inner), AnyShape::Circle(__same0)) => {
+                <Circle as Shape>::congruent(__inner, __same0)
             }
-            (SwapKind::Book(__inner), SwapKind::Book(__same0)) => {
-                <Book as Swap>::pricing_eq(__inner, __same0)
+            (AnyShape::Square(__inner), AnyShape::Square(__same0)) => {
+                <Square as Shape>::congruent(__inner, __same0)
             }
             _ => false,
         }
     }
     #[inline]
-    fn with_rate(&self, __argument0: u64) -> Self {
+    fn scaled(&self, __argument0: u32) -> Self {
         match self {
-            SwapKind::Pool(__inner) => {
-                SwapKind::Pool(<Pool as Swap>::with_rate(__inner, __argument0))
+            AnyShape::Circle(__inner) => {
+                AnyShape::Circle(<Circle as Shape>::scaled(__inner, __argument0))
             }
-            SwapKind::Book(__inner) => {
-                SwapKind::Book(<Book as Swap>::with_rate(__inner, __argument0))
+            AnyShape::Square(__inner) => {
+                AnyShape::Square(<Square as Shape>::scaled(__inner, __argument0))
             }
         }
     }
