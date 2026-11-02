@@ -1,9 +1,9 @@
 # Architecture of `whichever-macros`
 
-Status: a plan, written 2026-11-02 against 0.4.0. Each stage in section 4
-carries its own status line, updated in the change that lands it. When every
-stage has landed, section 4 becomes the record of how the crate got its
-shape and sections 1 and 3 describe the crate as it is.
+Status: landed. Written 2026-11-02 as a plan against 0.4.0 and carried out
+the same day, stage by stage. Sections 1 and 3 describe the crate as it is,
+section 2 records what the shape was before, and each stage in section 4
+carries the status line written when it landed.
 
 The words are those of [`docs/terminology.md`](../docs/terminology.md):
 carrier macro, implementation macro, forwarding impl, arm, rewrap, mismatch,
@@ -34,8 +34,8 @@ as tokens through `macro_rules!` carriers. Four proc macros take part.
 | The trait's carrier | expands in the subject's crate | Prepends `trait { tokens } [remote { path }]` and calls `::facade::__private::implement!`. |
 | `implement!` | | Parses the trait, the subject, the options and an optional partial impl block; writes the forwarding impl, the agreement checks and the shape errors. |
 | `#[dispatch]` on an impl block | the subject's crate | Emits `Subject! { @v1 facade [partial { options }] impl { block } }`. |
-| The subject's carrier | | Prepends `[rejected] enum { subject tokens }` and calls `implement_inherent!`. |
-| `implement_inherent!` | | An inherent block: rewrites every marked method into a forwarding method with the body as the fallback. A trait impl block: re-emits `Trait! { .. impl { block } }`, so the trait's carrier and `implement!` finish the job. |
+| The subject's carrier | | Prepends `[rejected] enum { subject tokens }` and calls `implement_block!`. |
+| `implement_block!` | | An inherent block: rewrites every marked method into a forwarding method with the body as the fallback. A trait impl block: re-emits `Trait! { .. impl { block } }`, so the trait's carrier and `implement!` finish the job. |
 
 Inside `implement!`, the subject yields entries: a target per forwardable
 variant or the one field of a struct, and an unforwardable entry per variant
@@ -46,7 +46,10 @@ generics are substituted with the arguments the subject named, and one
 consts are taken from the first target and checked against the rest in a
 `const _` block.
 
-## 2. What is wrong with the current shape
+## 2. What was wrong with the shape of 0.4.0
+
+Written before the work, in the present tense of 0.4.0; section 4 says
+what became of each point.
 
 - **One file.** `src/lib.rs` is 2,789 lines; the five largest functions are
   205, 194, 140, 137 and 107 lines long. The section comments already mark
@@ -109,8 +112,9 @@ src/
 ```
 
 Stage 1 creates the files by moving code; later stages change what is in
-them. `shape.rs`, `substitution.rs` and `options.rs` get unit tests through
-`parse_quote!`, which the monolith made impractical.
+them. `shape.rs` gets unit tests through `parse_quote!`, which the monolith
+made impractical; `substitution.rs` and `options.rs` can follow the same
+pattern.
 
 ### 3.2 The forwarding engine
 
@@ -321,10 +325,12 @@ cross-crate smoke crates still build.
 
 ### Stage 7: record
 
-Status: not started.
-
-The changelog entry, the terminology file's entry for the implementation
-macros, this file's status lines, and a run on 1.88 as well as stable.
+Status: landed. The changelog's unreleased entry, the crate docs and the
+README on what an override converts, this file's status lines, unit tests
+for the return model, and a run on 1.88 as well as stable. The terminology
+file's entry for the implementation macros still names
+`implement_inherent!`; it is being edited outside this branch and gets the
+new name when the two meet.
 
 ## 5. Invariants every stage keeps
 

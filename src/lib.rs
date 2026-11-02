@@ -88,9 +88,11 @@
 //!
 //! - `Name = Type` fixes the associated type `Name` instead of taking it
 //!   from the first variant. A method returning `Self::Name` is then
-//!   converted with [`Into`], and one returning `Result<_, Self::Name>` with
-//!   `map_err(Into::into)`, so variants whose own type converts into the
-//!   named one can share the enum. See [associated types](#associated-types).
+//!   converted with [`Into`], one returning `Result<_, Self::Name>` with
+//!   `map_err(Into::into)`, and `Option<Self::Name>`, `Result<Self::Name, E>`
+//!   and `Result<Self, Self::Name>` are mapped the same way, so variants
+//!   whose own type converts into the named one can share the enum. See
+//!   [associated types](#associated-types).
 //! - `Name = value` fixes the associated const `Name` instead of taking it
 //!   from the first variant, for a const that differs per payload by
 //!   design, such as a kind discriminator.
@@ -136,7 +138,7 @@
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 //! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
-//! | return `Self::X` with `X` overridden | Converted with `Into`; `Result<_, Self::X>` with `map_err(Into::into)`. |
+//! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
 //! | `#[inline]` | Added to every generated method unless the trait method carries its own. |

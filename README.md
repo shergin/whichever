@@ -253,7 +253,9 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `Name = Type` fixes the associated type `Name` instead of taking it from
   the first variant. A method returning `Self::Name` is converted with
   `Into`, one returning `Result<_, Self::Name>` with `map_err(Into::into)`,
-  so variants with their own error types can share one enum:
+  and `Option<Self::Name>`, `Result<Self::Name, E>` and `Result<Self,
+  Self::Name>` are mapped the same way, so variants with their own error
+  types can share one enum:
 
   ```rust
   #[whichever::dispatch(Storage, Error = StorageError)]

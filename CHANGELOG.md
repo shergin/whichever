@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- A method returning `Result<Self, Self::Error>` with `Error` fixed on the
+  enum rewraps the value and converts the error; before, the error was left
+  as the payload's and rustc reported a type mismatch at the trait's
+  attribute. `Option<Self::X>` and `Result<Self::X, E>` with `X` fixed
+  convert too, and a `Self` in a `Result`'s error position is reported as a
+  limit.
+- The forwarding impl keeps the trait's parameter names, so `fn write(&mut
+  self, buf: &[u8])` reads as written instead of `__argument0`; a parameter
+  whose pattern is not a plain identifier still gets a generated name.
+- Every trait item that cannot be forwarded is reported, not only the
+  first.
+- A const fixed on the enum may be written as a tuple of paths, `RANGE =
+  (LOW, HIGH)`; it was read as a type and rejected.
+- A trait path in the `#[dispatch(..)]` of a partial impl block is
+  reported; the trait is the one the block implements.
+- The macro crate is split into modules, described in
+  `macros/ARCHITECTURE.md`. The carrier macros' names come from a fixed
+  hash now, so the hidden name a `pub` trait exports changes once with this
+  release and then stays the same across compiler releases.
+
 ## 0.4.0 - 2026-11-02
 
 - `#[dispatch(Trait)]` on a struct forwards the trait to its one field, or

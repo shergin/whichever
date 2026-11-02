@@ -24,7 +24,7 @@ pub(crate) fn bare_ident(ty: &Type) -> Option<&Ident> {
 /// that vary on their own: what wraps the value, and what the value itself
 /// needs. `Result<Self, Self::Error>` with `Error` overridden is a `Result`
 /// whose error converts, around a value that is rewrapped.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ReturnModel {
     pub(crate) wrapper: Wrapper,
     pub(crate) value: Value,
@@ -33,7 +33,7 @@ pub(crate) struct ReturnModel {
 /// The container a method returns its value in, recognised by the name the
 /// path ends in, so that `io::Result<T>` and `core::option::Option<T>`
 /// count.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Wrapper {
     None,
     Option,
@@ -41,7 +41,7 @@ pub(crate) enum Wrapper {
 }
 
 /// What the returned value needs on its way out of an arm.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Value {
     Plain,
     /// `Self`: the payload's result goes back into the variant that produced
@@ -54,7 +54,7 @@ pub(crate) enum Value {
 
 /// What a position that cannot hold `Self` itself, such as a `Result`'s
 /// error, needs.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Conversion {
     Keep,
     Into,
@@ -402,5 +402,89 @@ pub(crate) fn payload_expression(deref: bool, access: Access, binding: &Ident) -
         Access::Shared => quote!(&**#binding),
         Access::Exclusive => quote!(&mut **#binding),
         Access::Owned => quote!(*#binding),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn model(ty: Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
+        return_model(&ty, spec)
+    }
+
+    /// A spec fixing the associated type `name` on the enum.
+    fn overriding(name: &str) -> TraitSpec {
+        syn::parse_str(&format!("Trait, {name} = Fixed")).expect("a valid spec")
+    }
+
+    #[test]
+    fn wrappers_are_recognised_by_their_last_segment() {
+        let plain = ReturnModel {
+            wrapper: Wrapper::None,
+            value: Value::Plain,
+        };
+        assert_eq!(model(parse_quote!(u32), None).unwrap(), plain);
+        assert_eq!(
+            model(parse_quote!(Self), None).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::None,
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(io::Result<Self>), None).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Result {
+                    error: Conversion::Keep,
+                },
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(::core::option::Option<Self>), None)
+                .unwrap()
+                .wrapper,
+            Wrapper::Option
+        );
+    }
+
+    #[test]
+    fn an_overridden_associated_type_converts_in_every_position() {
+        let spec = overriding("Error");
+        let spec = Some(&spec);
+        assert_eq!(
+            model(parse_quote!(Self::Error), spec).unwrap().value,
+            Value::Into
+        );
+        assert_eq!(
+            model(parse_quote!(Option<Self::Error>), spec).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Option,
+                value: Value::Into,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(Result<Self, Self::Error>), spec).unwrap(),
+            ReturnModel {
+                wrapper: Wrapper::Result {
+                    error: Conversion::Into,
+                },
+                value: Value::Rewrap,
+            }
+        );
+        assert_eq!(
+            model(parse_quote!(Self::Other), spec).unwrap().value,
+            Value::Plain
+        );
+    }
+
+    #[test]
+    fn self_anywhere_else_is_a_limit() {
+        assert!(model(parse_quote!(Vec<Self>), None).is_err());
+        assert!(model(parse_quote!(Result<u32, Self>), None).is_err());
+        assert!(model(parse_quote!(Option<Option<Self>>), None).is_err());
     }
 }
