@@ -594,6 +594,7 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let first_payload = &first.payload;
     let mut substitution = Substitution::new(&item_trait, trait_path)?;
     let mut items = TokenStream2::new();
+    let mut agreed_types: Vec<&Ident> = vec![];
     for item in &item_trait.items {
         match item {
             TraitItem::Type(assoc) => {
@@ -606,7 +607,10 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 let name = &assoc.ident;
                 let ty = match spec.assoc_override(name) {
                     Some(ty) => quote!(#ty),
-                    None => quote!(<#first_payload as #trait_path>::#name),
+                    None => {
+                        agreed_types.push(name);
+                        quote!(<#first_payload as #trait_path>::#name)
+                    }
                 };
                 items.extend(quote! { type #name = #ty; });
             }
@@ -637,12 +641,65 @@ fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             _ => {}
         }
     }
+    let agreement_check = associated_type_check(
+        &agreed_types,
+        &variants,
+        trait_path,
+        first_payload,
+        &item_enum.generics,
+    );
     Ok(quote! {
         #[automatically_derived]
         impl #impl_generics #trait_path for #enum_ident #ty_generics #where_clause {
             #items
         }
+        #agreement_check
     })
+}
+
+/// Checks at compile time that every variant's associated types equal the
+/// first variant's, so a disagreement is reported on the variant instead of
+/// inside a generated method body.
+fn associated_type_check(
+    names: &[&Ident],
+    variants: &[VariantInfo],
+    trait_path: &Path,
+    first_payload: &Type,
+    generics: &syn::Generics,
+) -> TokenStream2 {
+    if names.is_empty() || variants.len() < 2 {
+        return TokenStream2::new();
+    }
+    let bindings: Vec<GenericArgument> = names
+        .iter()
+        .map(|name| syn::parse_quote!(#name = <#first_payload as #trait_path>::#name))
+        .collect();
+    let mut bound = trait_path.clone();
+    let last = bound
+        .segments
+        .last_mut()
+        .expect("a path has at least one segment");
+    match &mut last.arguments {
+        PathArguments::AngleBracketed(arguments) => arguments.args.extend(bindings),
+        arguments => {
+            *arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#(#bindings),*>))
+        }
+    }
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let checks = variants.iter().skip(1).map(|variant| {
+        let payload = &variant.payload;
+        let cfgs = &variant.cfgs;
+        quote! { #(#cfgs)* __same_as_first_variant::<#payload>(); }
+    });
+    quote! {
+        const _: () = {
+            #[allow(dead_code, non_snake_case)]
+            fn __whichever_associated_types_agree #impl_generics () #where_clause {
+                fn __same_as_first_variant<__Variant: ?Sized + #bound>() {}
+                #(#checks)*
+            }
+        };
+    }
 }
 
 enum ReturnShape {
