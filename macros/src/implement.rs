@@ -2,7 +2,10 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::visit_mut::VisitMut;
-use syn::{Error, Ident, ImplItem, Path, Result, TraitItem, TraitItemFn, Type};
+use syn::{
+    Error, Ident, ImplItem, Path, Result, TraitItem, TraitItemConst, TraitItemFn, TraitItemType,
+    Type,
+};
 
 use crate::agreement::{associated_const_check, associated_type_check};
 use crate::forwarding::{
@@ -109,65 +112,52 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
     let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
+    // Every item that cannot be forwarded is reported, not only the first.
+    let mut errors: Vec<Error> = vec![];
     for item in &item_trait.items {
-        match item {
-            TraitItem::Type(assoc) => {
-                if !assoc.generics.params.is_empty() {
-                    return Err(Error::new_spanned(
-                        assoc,
-                        "generic associated types are not supported",
-                    ));
-                }
-                let name = &assoc.ident;
-                if written.contains(&name.to_string()) {
-                    continue;
-                }
-                let ty = match spec.override_for(name) {
-                    Some(fixed) => fixed.as_type()?.into_token_stream(),
-                    None => {
-                        agreed_types.push(name);
-                        quote!(<#first_payload as #trait_path>::#name)
-                    }
-                };
-                items.extend(quote! { type #name = #ty; });
-            }
-            TraitItem::Const(constant) => {
-                let name = &constant.ident;
-                if written.contains(&name.to_string()) {
-                    continue;
-                }
-                let mut ty = constant.ty.clone();
-                substitution.visit_type_mut(&mut ty);
-                let value = match spec.override_for(name) {
-                    Some(fixed) => fixed.as_value()?.into_token_stream(),
-                    None => {
-                        agreed_consts.push((name, ty.clone()));
-                        quote!(<#first_payload as #trait_path>::#name)
-                    }
-                };
-                items.extend(quote! { const #name: #ty = #value; });
-            }
-            TraitItem::Fn(function) => {
-                if written.contains(&function.sig.ident.to_string()) {
-                    continue;
-                }
-                items.extend(expand_method(
-                    function,
-                    &entries,
-                    &subject,
-                    trait_path,
-                    &spec,
-                    &mut substitution,
-                )?);
-            }
-            TraitItem::Macro(item) => {
-                return Err(Error::new_spanned(
-                    item,
-                    "macro invocations inside the trait are not supported",
-                ));
-            }
-            _ => {}
+        let name = match item {
+            TraitItem::Type(assoc) => Some(&assoc.ident),
+            TraitItem::Const(constant) => Some(&constant.ident),
+            TraitItem::Fn(function) => Some(&function.sig.ident),
+            _ => None,
+        };
+        // An item the partial block writes is the block's.
+        if name.is_some_and(|name| written.contains(&name.to_string())) {
+            continue;
         }
+        let generated = match item {
+            TraitItem::Type(assoc) => {
+                associated_type(assoc, &spec, first_payload, trait_path, &mut agreed_types)
+            }
+            TraitItem::Const(constant) => associated_const(
+                constant,
+                &spec,
+                first_payload,
+                trait_path,
+                &mut substitution,
+                &mut agreed_consts,
+            ),
+            TraitItem::Fn(function) => expand_method(
+                function,
+                &entries,
+                &subject,
+                trait_path,
+                &spec,
+                &mut substitution,
+            ),
+            TraitItem::Macro(item) => Err(Error::new_spanned(
+                item,
+                "macro invocations inside the trait are not supported",
+            )),
+            _ => Ok(TokenStream2::new()),
+        };
+        match generated {
+            Ok(tokens) => items.extend(tokens),
+            Err(error) => errors.push(error),
+        }
+    }
+    if let Some(error) = combined(errors) {
+        return Err(error);
     }
     let agreement_check = associated_type_check(
         &agreed_types,
@@ -196,6 +186,65 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #const_check
         #shape_errors
     })
+}
+
+/// Writes `type Name = ..;`: the override, or the first target's type with
+/// `Name` recorded for the agreement check.
+fn associated_type<'a>(
+    assoc: &'a TraitItemType,
+    spec: &TraitSpec,
+    first_payload: &TokenStream2,
+    trait_path: &Path,
+    agreed: &mut Vec<&'a Ident>,
+) -> Result<TokenStream2> {
+    if !assoc.generics.params.is_empty() {
+        return Err(Error::new_spanned(
+            assoc,
+            "generic associated types are not supported",
+        ));
+    }
+    let name = &assoc.ident;
+    let ty = match spec.override_for(name) {
+        Some(fixed) => fixed.as_type()?.into_token_stream(),
+        None => {
+            agreed.push(name);
+            quote!(<#first_payload as #trait_path>::#name)
+        }
+    };
+    Ok(quote! { type #name = #ty; })
+}
+
+/// Writes `const NAME: T = ..;`: the override, or the first target's value
+/// with `NAME` recorded for the agreement check.
+fn associated_const<'a>(
+    constant: &'a TraitItemConst,
+    spec: &TraitSpec,
+    first_payload: &TokenStream2,
+    trait_path: &Path,
+    substitution: &mut Substitution,
+    agreed: &mut Vec<(&'a Ident, Type)>,
+) -> Result<TokenStream2> {
+    let name = &constant.ident;
+    let mut ty = constant.ty.clone();
+    substitution.visit_type_mut(&mut ty);
+    let value = match spec.override_for(name) {
+        Some(fixed) => fixed.as_value()?.into_token_stream(),
+        None => {
+            agreed.push((name, ty.clone()));
+            quote!(<#first_payload as #trait_path>::#name)
+        }
+    };
+    Ok(quote! { const #name: #ty = #value; })
+}
+
+/// Folds `errors` into the first, so that all of them are reported at once.
+fn combined(errors: Vec<Error>) -> Option<Error> {
+    let mut errors = errors.into_iter();
+    let mut first = errors.next()?;
+    for error in errors {
+        first.combine(error);
+    }
+    Some(first)
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every

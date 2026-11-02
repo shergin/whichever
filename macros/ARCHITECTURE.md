@@ -223,8 +223,12 @@ with them the 1.88 minimum, which the crate docs then state as the reason.
 Every generator collects errors with `syn::Error::combine` and reports all
 of them; a rejected subject is still emitted, as today. A trait method's
 parameter keeps its own name when its pattern is a plain identifier and gets
-`__argument<n>` otherwise, so expansions read like the trait and a
-`mismatch` expression may name the arguments.
+`__argument<n>` otherwise, so expansions read like the trait, and a
+`mismatch` expression written on the trait method may name the arguments.
+One written on the enum cannot: the trait's tokens reach the enum through
+a `macro_rules!` body and carry its hygiene, while the enum's attribute
+carries the enum's, which is also why the generated `match` reuses the
+receiver's own `self` token.
 
 ## 4. Plan
 
@@ -303,7 +307,12 @@ tuple-valued const override is accepted.
 
 ### Stage 6: naming, parameter names, error collection
 
-Status: not started.
+Status: landed, in three commits. FNV-1a replaces `DefaultHasher`, so every
+carrier name changed once (goldens: the alias lines only). Trait methods
+keep their written parameter names (goldens: `__argument0` became `buf`,
+`f`, `cx`, `other`, `factor`, `value`, `max`). `implement!` reports every
+failing item (compile-fail case `two_unsupported_methods`); no other
+`.stderr` file changed.
 
 FNV-1a replaces `DefaultHasher`; parameters keep their names; both
 generators collect errors. Done when the goldens show the trait's parameter
