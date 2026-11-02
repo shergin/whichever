@@ -1,0 +1,5 @@
+error: unknown option `wrap`; the options are `call = method` and `with = path`
+  --> tests/ui/inherent_unknown_option.rs:16:19
+   |
+16 |     #[dispatch(*, wrap = Some)]
+   |                   ^^^^

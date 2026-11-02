@@ -1,0 +1,5 @@
+error: `AnyShape` has no variant `Triangle`
+  --> tests/ui/inherent_unknown_variant.rs:27:16
+   |
+27 |     #[dispatch(Triangle, with = Some)]
+   |                ^^^^^^^^

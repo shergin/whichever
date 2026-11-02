@@ -1,0 +1,5 @@
+error: `#[dispatch]` forwards inherent methods; a trait is dispatched with `#[dispatch(Trait)]` on the enum
+  --> tests/ui/inherent_on_trait_impl.rs:13:6
+   |
+13 | impl Shape for AnyShape {
+   |      ^^^^^

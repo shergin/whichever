@@ -38,17 +38,20 @@ pub enum AnyEncoder {
 #[automatically_derived]
 impl ::core::convert::From<Compact> for AnyEncoder {
     #[inline]
-    fn from(value: Compact) -> Self {
-        Self::Compact(value)
+    fn from(__value: Compact) -> Self {
+        Self::Compact(__value)
     }
 }
 #[automatically_derived]
 impl ::core::convert::From<Pretty> for AnyEncoder {
     #[inline]
-    fn from(value: Pretty) -> Self {
-        Self::Pretty(value)
+    fn from(__value: Pretty) -> Self {
+        Self::Pretty(__value)
     }
 }
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_enum_AnyEncoder_40a764eed8e7ccb3_36_1 as AnyEncoder;
 #[automatically_derived]
 impl Encoder<Json> for AnyEncoder {
     type Error = u16;

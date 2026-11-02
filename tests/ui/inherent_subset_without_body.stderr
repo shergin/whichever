@@ -1,0 +1,5 @@
+error: `radius` is forwarded to some variants only; give it a body, which is what the other variants return
+  --> tests/ui/inherent_subset_without_body.rs:36:5
+   |
+36 |     fn radius(&self) -> u32;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^

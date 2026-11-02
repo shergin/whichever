@@ -30,17 +30,20 @@ pub enum AnyShape {
 #[automatically_derived]
 impl ::core::convert::From<Circle> for AnyShape {
     #[inline]
-    fn from(value: Circle) -> Self {
-        Self::Circle(value)
+    fn from(__value: Circle) -> Self {
+        Self::Circle(__value)
     }
 }
 #[automatically_derived]
 impl ::core::convert::From<Square> for AnyShape {
     #[inline]
-    fn from(value: Square) -> Self {
-        Self::Square(value)
+    fn from(__value: Square) -> Self {
+        Self::Square(__value)
     }
 }
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_enum_AnyShape_3091d3476d2b3a0e_29_1 as AnyShape;
 #[automatically_derived]
 impl Shape for AnyShape {
     #[inline]

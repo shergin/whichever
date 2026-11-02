@@ -26,17 +26,20 @@ pub enum Animal {
 #[automatically_derived]
 impl ::core::convert::From<Cat> for Animal {
     #[inline]
-    fn from(value: Cat) -> Self {
-        Self::Cat(value)
+    fn from(__value: Cat) -> Self {
+        Self::Cat(__value)
     }
 }
 #[automatically_derived]
 impl ::core::convert::From<Dog> for Animal {
     #[inline]
-    fn from(value: Dog) -> Self {
-        Self::Dog(value)
+    fn from(__value: Dog) -> Self {
+        Self::Dog(__value)
     }
 }
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_enum_Animal_52774b0d1fd69278_24_1 as Animal;
 #[automatically_derived]
 impl Describe for Animal {
     #[inline]

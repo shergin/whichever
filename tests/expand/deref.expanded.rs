@@ -18,24 +18,27 @@ pub enum Shape<'a> {
 #[automatically_derived]
 impl<'a> ::core::convert::From<Box<Square>> for Shape<'a> {
     #[inline]
-    fn from(value: Box<Square>) -> Self {
-        Self::Boxed(value)
+    fn from(__value: Box<Square>) -> Self {
+        Self::Boxed(__value)
     }
 }
 #[automatically_derived]
 impl<'a> ::core::convert::From<&'a Square> for Shape<'a> {
     #[inline]
-    fn from(value: &'a Square) -> Self {
-        Self::Borrowed(value)
+    fn from(__value: &'a Square) -> Self {
+        Self::Borrowed(__value)
     }
 }
 #[automatically_derived]
 impl<'a> ::core::convert::From<Square> for Shape<'a> {
     #[inline]
-    fn from(value: Square) -> Self {
-        Self::Plain(value)
+    fn from(__value: Square) -> Self {
+        Self::Plain(__value)
     }
 }
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_enum_Shape_c84a025915a720c3_14_1 as Shape;
 #[automatically_derived]
 impl<'a> Area for Shape<'a> {
     #[inline]

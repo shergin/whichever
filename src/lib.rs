@@ -96,6 +96,9 @@
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
 //!   the method. See [`Self` arguments](#self-arguments).
 //! - `from = false` suppresses the `From<Payload>` impls.
+//! - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload
+//!   type, with the enum itself as the error, so a mismatch hands the value
+//!   back.
 //!
 //! One option goes on a variant: `#[dispatch(deref)]` calls the trait on
 //! what the payload dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T`
@@ -245,6 +248,72 @@
 //! }
 //! ```
 //!
+//! # Inherent methods
+//!
+//! An enum often needs methods of its own that only some variants can
+//! answer. `#[dispatch]` on an inherent `impl` block of a dispatch enum
+//! forwards each method marked `#[dispatch(..)]` to the named variants'
+//! method of the same name, and the body is what every other variant
+//! returns. `*` names every variant, and the method then has no body:
+//!
+//! ```
+//! #[whichever::dispatchable]
+//! pub trait Shape {
+//!     fn area(&self) -> u32;
+//! }
+//!
+//! pub struct Circle(pub u32);
+//! pub struct Square(pub u32);
+//! # impl Shape for Circle { fn area(&self) -> u32 { 3 * self.0 * self.0 } }
+//! # impl Shape for Square { fn area(&self) -> u32 { self.0 * self.0 } }
+//!
+//! impl Circle {
+//!     pub fn radius(&self) -> u32 {
+//!         self.0
+//!     }
+//!     pub fn describe(&self) -> String {
+//!         format!("circle {}", self.0)
+//!     }
+//! }
+//!
+//! impl Square {
+//!     pub fn describe(&self) -> String {
+//!         format!("square {}", self.0)
+//!     }
+//! }
+//!
+//! #[whichever::dispatch(Shape)]
+//! pub enum AnyShape {
+//!     Circle(Circle),
+//!     Square(Square),
+//! }
+//!
+//! #[whichever::dispatch]
+//! impl AnyShape {
+//!     /// Only circles have a radius.
+//!     #[dispatch(Circle, with = Some)]
+//!     pub fn radius(&self) -> Option<u32> {
+//!         None
+//!     }
+//!
+//!     #[dispatch(*)]
+//!     pub fn describe(&self) -> String;
+//! }
+//!
+//! fn main() {
+//!     let square: AnyShape = Square(2).into();
+//!     assert_eq!(square.radius(), None);
+//!     assert_eq!(square.describe(), "square 2");
+//! }
+//! ```
+//!
+//! `with = path` wraps each forwarded result in a call to `path` (`Some`
+//! above), `call = name` forwards to a payload method of another name, and
+//! methods without the attribute are left alone. The enum keeps its
+//! definition in a crate-local macro for this, so the `impl` block has to be
+//! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
+//! on an enum registers it without dispatching a trait.
+//!
 //! # Across crates
 //!
 //! `#[dispatchable]` emits the trait unchanged plus a hidden exported macro
@@ -287,5 +356,5 @@ pub use whichever_macros::{dispatch, dispatchable};
 
 #[doc(hidden)]
 pub mod __private {
-    pub use whichever_macros::implement;
+    pub use whichever_macros::{implement, implement_inherent};
 }

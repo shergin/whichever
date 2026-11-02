@@ -1,0 +1,5 @@
+error: a forwarded parameter must be a plain identifier
+  --> tests/ui/inherent_pattern_parameter.rs:17:22
+   |
+17 |     fn offset(&self, (x, y): (u32, u32)) -> u32;
+   |                      ^^^^^^
