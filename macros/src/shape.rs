@@ -1,8 +1,12 @@
 //! Classifying the shapes of receivers, arguments and return types.
+use std::collections::HashSet;
+
+use proc_macro2::TokenStream as TokenStream2;
+use quote::quote;
 use syn::visit::Visit;
 use syn::{
-    Error, FnArg, GenericArgument, Ident, PathArguments, PathSegment, Receiver, Result, ReturnType,
-    Signature, Type, TypeParamBound, TypePath,
+    Error, FnArg, GenericArgument, GenericParam, Ident, PathArguments, PathSegment, Receiver,
+    Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
 };
 
 use crate::options::TraitSpec;
@@ -323,6 +327,47 @@ pub(crate) fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
         ty,
         "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
     ))
+}
+
+/// Returns the generic arguments a call of the method has to spell out:
+/// every type and const parameter, when at least one of them is named by
+/// no argument's type, so that inference could not find it. A hand writes
+/// the turbofish only then, and so does the generated call.
+pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
+    let mut named = IdentCollector::default();
+    for input in &signature.inputs {
+        if let FnArg::Typed(pat_type) = input {
+            named.visit_type(&pat_type.ty);
+        }
+    }
+    let parameters: Vec<&Ident> = signature
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            GenericParam::Type(param) => Some(&param.ident),
+            GenericParam::Const(param) => Some(&param.ident),
+            GenericParam::Lifetime(_) => None,
+        })
+        .collect();
+    let inferred = parameters
+        .iter()
+        .all(|parameter| named.0.contains(&parameter.to_string()));
+    if parameters.is_empty() || inferred {
+        return None;
+    }
+    Some(quote!(::<#(#parameters),*>))
+}
+
+/// Every identifier a type names: in its paths, their generic arguments,
+/// and the expressions of its array lengths.
+#[derive(Default)]
+struct IdentCollector(HashSet<String>);
+
+impl<'ast> Visit<'ast> for IdentCollector {
+    fn visit_ident(&mut self, ident: &'ast Ident) {
+        self.0.insert(ident.to_string());
+    }
 }
 
 /// Returns whether a method takes a `Self`, `&Self` or `&mut Self` argument,

@@ -253,6 +253,7 @@ pub(crate) fn forward_method(
         subject: subject_ident,
         prefix,
         lift: forwarding.with.as_ref(),
+        site: method.span(),
     };
     let mut arms = selected
         .iter()
@@ -260,9 +261,9 @@ pub(crate) fn forward_method(
         .collect::<Result<Vec<_>>>()?;
     arms.extend(unforwardable_arms);
     let body = Forwarding {
-        scrutinee: plan.scrutinee(),
+        scrutinee: plan.scrutinee(context.site),
         arms,
-        fallback: body.map(ToTokens::to_token_stream),
+        fallback: body.map(|body| Arm::rest(body.to_token_stream())),
         future: plan.future,
     }
     .body(method.span());

@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, ToTokens};
+use quote::{quote, quote_spanned, ToTokens};
 use syn::visit_mut::VisitMut;
 use syn::{
     parse_quote, Attribute, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Result,
@@ -17,7 +17,7 @@ use crate::forwarding::{
 use crate::options::{method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
 use crate::shape::takes_self_argument;
-use crate::subject::{cfg_attributes, shape_errors, targets, Entry, Subject};
+use crate::subject::{cfg_attributes, shape_errors, targets, Entry, Subject, Target};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -36,6 +36,11 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     };
     let implemented = implemented_path(remote, spec_path);
     let trait_path = &implemented;
+    let trait_ident = &trait_path
+        .segments
+        .last()
+        .expect("a path has at least one segment")
+        .ident;
     let header = ImplHeader::new(partial.as_ref(), &subject, &item_trait, &mut spec);
     let ImplHeader {
         generics,
@@ -49,23 +54,29 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let (impl_generics, _, where_clause) = generics.split_for_impl();
     let entries = subject.entries()?;
     let variants = targets(&entries);
-    let Some(first) = variants.first() else {
+    if variants.is_empty() {
         return Err(Error::new_spanned(
             &subject,
             "a dispatch enum needs at least one variant",
         ));
-    };
+    }
     // A partial block is the only dispatch of its trait, so a variant that
     // cannot be forwarded to is reported here, under its own `cfg`.
     let shape_errors = match &partial {
         Some(_) => shape_errors(&entries),
         None => TokenStream2::new(),
     };
-    let first_target = first.target_type();
-    let first_payload = &first_target;
-    // The checks live outside the impl, where a `Self` in a payload type
-    // has to be spelled out as the implementing type.
-    let first_outside = first.target_type_outside(self_ty);
+    // The associated items come from the first variant that is always
+    // compiled in; one under `#[cfg]` may not be there to supply them.
+    let first = variants
+        .iter()
+        .find(|target| target.cfgs.is_empty())
+        .copied();
+    let supplier = Supplier {
+        first,
+        subject: subject.ident(),
+        trait_path,
+    };
     let mut substitution = Substitution::new(&item_trait, trait_path)?;
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
@@ -84,14 +95,11 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             continue;
         }
         let generated = match item {
-            TraitItem::Type(assoc) => {
-                associated_type(assoc, &spec, first_payload, trait_path, &mut agreed_types)
-            }
+            TraitItem::Type(assoc) => associated_type(assoc, &spec, &supplier, &mut agreed_types),
             TraitItem::Const(constant) => associated_const(
                 constant,
                 &spec,
-                first_payload,
-                trait_path,
+                &supplier,
                 &mut substitution,
                 &mut agreed_consts,
             ),
@@ -116,11 +124,6 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     }
     // An option naming an item the trait does not have is a typo, which
     // would otherwise turn into a type error somewhere else.
-    let trait_ident = &trait_path
-        .segments
-        .last()
-        .expect("a path has at least one segment")
-        .ident;
     let associated: HashSet<String> = item_trait
         .items
         .iter()
@@ -162,31 +165,41 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     if let Some(error) = combined(errors) {
         return Err(error);
     }
-    let agreement_check = associated_type_check(
-        &agreed_types,
-        &variants,
-        trait_path,
-        &first_outside,
-        generics,
-        self_ty,
-    );
-    let const_check = associated_const_check(
-        &agreed_consts,
-        &variants,
-        trait_path,
-        &first_outside,
-        generics,
-        self_ty,
-    );
-    Ok(quote! {
+    // The checks live outside the impl, where a `Self` in a payload type
+    // has to be spelled out as the implementing type.
+    let checks = first.map(|first| {
+        let first_outside = first.target_type_outside(self_ty);
+        let types = associated_type_check(
+            &agreed_types,
+            &variants,
+            first,
+            trait_path,
+            &first_outside,
+            generics,
+            self_ty,
+        );
+        let consts = associated_const_check(
+            &agreed_consts,
+            &variants,
+            first,
+            trait_path,
+            &first_outside,
+            generics,
+            self_ty,
+        );
+        quote! { #types #consts }
+    });
+    // The header's own tokens carry the subject's span: the call site here
+    // is the trait's attribute, which may be in another crate.
+    let site = subject.ident().span();
+    Ok(quote_spanned! { site =>
         #(#impl_attrs)*
         #derived
         #unsafety impl #impl_generics #trait_path for #self_ty #where_clause {
             #items
             #(#user_items)*
         }
-        #agreement_check
-        #const_check
+        #checks
         #shape_errors
     })
 }
@@ -269,13 +282,36 @@ impl<'a> ImplHeader<'a> {
     }
 }
 
-/// Writes `type Name = ..;`: the override, or the first target's type with
+/// Where an associated item that is not overridden comes from: the first
+/// variant that is always compiled in, when there is one.
+struct Supplier<'a> {
+    first: Option<&'a Target>,
+    subject: &'a Ident,
+    trait_path: &'a Path,
+}
+
+impl Supplier<'_> {
+    /// Returns `<First as Trait>::name`, or the error for an enum whose
+    /// every variant is under `#[cfg]`.
+    fn item(&self, name: &Ident) -> Result<TokenStream2> {
+        let Some(first) = self.first else {
+            return Err(Error::new_spanned(
+                self.subject,
+                format!("every variant of `{}` is under `#[cfg]`, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`", self.subject),
+            ));
+        };
+        let payload = first.target_type();
+        let trait_path = self.trait_path;
+        Ok(quote!(<#payload as #trait_path>::#name))
+    }
+}
+
+/// Writes `type Name = ..;`: the override, or the supplier's type with
 /// `Name` recorded for the agreement check.
 fn associated_type<'a>(
     assoc: &'a TraitItemType,
     spec: &TraitSpec,
-    first_payload: &TokenStream2,
-    trait_path: &Path,
+    supplier: &Supplier,
     agreed: &mut Vec<&'a Ident>,
 ) -> Result<TokenStream2> {
     if !assoc.generics.params.is_empty() {
@@ -285,37 +321,44 @@ fn associated_type<'a>(
         ));
     }
     let name = &assoc.ident;
+    let cfgs = cfg_attributes(&assoc.attrs);
     let ty = match spec.override_for(name) {
         Some(fixed) => fixed.as_type()?.into_token_stream(),
         None => {
-            agreed.push(name);
-            quote!(<#first_payload as #trait_path>::#name)
+            // The agreement check cannot name an item that may be
+            // compiled out.
+            if cfgs.is_empty() {
+                agreed.push(name);
+            }
+            supplier.item(name)?
         }
     };
-    Ok(quote! { type #name = #ty; })
+    Ok(quote! { #(#cfgs)* type #name = #ty; })
 }
 
-/// Writes `const NAME: T = ..;`: the override, or the first target's value
-/// with `NAME` recorded for the agreement check.
+/// Writes `const NAME: T = ..;`: the override, or the supplier's value with
+/// `NAME` recorded for the agreement check.
 fn associated_const<'a>(
     constant: &'a TraitItemConst,
     spec: &TraitSpec,
-    first_payload: &TokenStream2,
-    trait_path: &Path,
+    supplier: &Supplier,
     substitution: &mut Substitution,
     agreed: &mut Vec<(&'a Ident, Type)>,
 ) -> Result<TokenStream2> {
     let name = &constant.ident;
+    let cfgs = cfg_attributes(&constant.attrs);
     let mut ty = constant.ty.clone();
     substitution.visit_type_mut(&mut ty);
     let value = match spec.override_for(name) {
         Some(fixed) => fixed.as_value()?.into_token_stream(),
         None => {
-            agreed.push((name, ty.clone()));
-            quote!(<#first_payload as #trait_path>::#name)
+            if cfgs.is_empty() {
+                agreed.push((name, ty.clone()));
+            }
+            supplier.item(name)?
         }
     };
-    Ok(quote! { const #name: #ty = #value; })
+    Ok(quote! { #(#cfgs)* const #name: #ty = #value; })
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every
@@ -367,6 +410,7 @@ fn expand_method(
         subject: subject_ident,
         prefix: Path::from(subject_ident.clone()),
         lift: None,
+        site: subject_ident.span(),
     };
     let mut arms = Vec::with_capacity(entries.len());
     for entry in entries {
@@ -394,21 +438,23 @@ fn expand_method(
                 format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
             ));
         };
-        Some(expr.to_token_stream())
+        Some(plan.fallback(expr.to_token_stream()))
     } else {
         None
     };
     let allow_unreachable = fallback
         .is_some()
         .then(|| quote! { #[allow(unreachable_patterns)] });
-    let inline = (!function
+    // The trait method's own `#[inline]`, or ours.
+    let inline = function
         .attrs
         .iter()
-        .any(|attribute| attribute.path().is_ident("inline")))
-    .then(|| quote! { #[inline] });
+        .find(|attribute| attribute.path().is_ident("inline"))
+        .map(ToTokens::to_token_stream)
+        .unwrap_or_else(|| quote! { #[inline] });
     let cfgs = cfg_attributes(&function.attrs);
     let body = Forwarding {
-        scrutinee: plan.scrutinee(),
+        scrutinee: plan.scrutinee(context.site),
         arms,
         fallback,
         future: plan.future,

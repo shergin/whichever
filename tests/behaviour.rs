@@ -2504,3 +2504,167 @@ mod tuple_const_override {
         assert_eq!(<AnyRanged as Ranged>::RANGE, (1, 9));
     }
 }
+
+// What a trait item carries onto the impl: an `unsafe trait` gives an
+// `unsafe impl`, an associated item under `#[cfg]` stays under it, and the
+// associated items come from the first variant that is always compiled in.
+mod carried_items {
+    /// A marker.
+    ///
+    /// # Safety
+    ///
+    /// Nothing to uphold; the trait is `unsafe` to show that the impl is.
+    #[whichever::dispatchable]
+    pub unsafe trait Marker {
+        type Tag;
+        #[cfg(any())]
+        type Hidden;
+        #[cfg(any())]
+        const HIDDEN: u8;
+        const TAG: u8;
+        fn tag(&self) -> u8;
+    }
+
+    pub struct Absent;
+    pub struct Present;
+
+    unsafe impl Marker for Absent {
+        type Tag = u16;
+        const TAG: u8 = 1;
+        fn tag(&self) -> u8 {
+            1
+        }
+    }
+
+    unsafe impl Marker for Present {
+        type Tag = u8;
+        const TAG: u8 = 2;
+        fn tag(&self) -> u8 {
+            2
+        }
+    }
+
+    #[whichever::dispatch(Marker)]
+    pub enum Any {
+        #[cfg(any())]
+        Absent(Absent),
+        Present(Present),
+    }
+
+    #[test]
+    fn the_first_compiled_in_variant_supplies_the_items() {
+        let tag: <Any as Marker>::Tag = 7u8;
+        assert_eq!(tag, 7);
+        assert_eq!(<Any as Marker>::TAG, 2);
+        assert_eq!(Any::Present(Present).tag(), 2);
+    }
+}
+
+// A generic method whose parameter no argument fixes is called with the
+// parameters spelled out.
+mod uninferred_generics {
+    use std::str::FromStr;
+
+    #[whichever::dispatchable]
+    pub trait Source {
+        fn parse<T: FromStr>(&self) -> Option<T>;
+        fn zeros<const N: usize>(&self) -> [u8; N];
+        fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32;
+    }
+
+    pub struct Text(pub &'static str);
+
+    impl Source for Text {
+        fn parse<T: FromStr>(&self) -> Option<T> {
+            self.0.parse().ok()
+        }
+        fn zeros<const N: usize>(&self) -> [u8; N] {
+            [0; N]
+        }
+        fn apply<F: Fn(u32) -> u32>(&self, f: F) -> u32 {
+            f(self.0.len() as u32)
+        }
+    }
+
+    #[whichever::dispatch(Source)]
+    pub enum Any {
+        Text(Text),
+    }
+
+    #[test]
+    fn the_parameters_are_spelled_out_when_needed() {
+        let any = Any::Text(Text("42"));
+        assert_eq!(any.parse::<u32>(), Some(42));
+        assert_eq!(any.zeros::<3>(), [0, 0, 0]);
+        assert_eq!(any.apply(|n| n + 1), 3);
+    }
+}
+
+// A `mismatch` written on the trait method may use a `Self` argument the
+// scrutinee moved: the fallback arm binds it again under its own name.
+mod mismatch_with_moved_arguments {
+    #[whichever::dispatchable]
+    pub trait Merge: Sized {
+        #[dispatch(mismatch = other)]
+        fn merge(self, other: Self) -> Self;
+        #[dispatch(mismatch = {
+            other.reset();
+            false
+        })]
+        fn absorb(&mut self, other: &mut Self) -> bool;
+        fn reset(&mut self);
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct A(pub u8);
+    #[derive(Debug, PartialEq)]
+    pub struct B(pub u8);
+
+    impl Merge for A {
+        fn merge(self, other: Self) -> Self {
+            A(self.0 + other.0)
+        }
+        fn absorb(&mut self, other: &mut Self) -> bool {
+            self.0 += other.0;
+            other.0 = 0;
+            true
+        }
+        fn reset(&mut self) {
+            self.0 = 0;
+        }
+    }
+
+    impl Merge for B {
+        fn merge(self, other: Self) -> Self {
+            B(self.0 + other.0)
+        }
+        fn absorb(&mut self, other: &mut Self) -> bool {
+            self.0 += other.0;
+            other.0 = 0;
+            true
+        }
+        fn reset(&mut self) {
+            self.0 = 0;
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Merge)]
+    pub enum Any {
+        A(A),
+        B(B),
+    }
+
+    #[test]
+    fn different_variants_take_the_fallback_with_the_arguments() {
+        assert_eq!(Any::A(A(1)).merge(Any::A(A(2))), Any::A(A(3)));
+        assert_eq!(Any::A(A(1)).merge(Any::B(B(5))), Any::B(B(5)));
+        let mut a = Any::A(A(1));
+        let mut b = Any::B(B(5));
+        assert!(!a.absorb(&mut b));
+        assert_eq!(b, Any::B(B(0)));
+        let mut other = Any::A(A(4));
+        assert!(a.absorb(&mut other));
+        assert_eq!((a, other), (Any::A(A(5)), Any::A(A(0))));
+    }
+}

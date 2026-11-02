@@ -8,14 +8,18 @@
 //! body. The agreeing parts live here as data, a [`MethodPlan`] read off the
 //! signature, an [`Arm`] per target and the [`Forwarding`] that renders
 //! them; `implement.rs` and `block.rs` fill the data in.
+//!
+//! Tokens the engine writes carry the context's `site`, the subject's or the
+//! method's own span: a proc macro's call site, inside the carrier's
+//! expansion, is the trait's attribute, which may be in another crate.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
-use quote::{quote, ToTokens};
+use quote::{quote, quote_spanned, ToTokens};
 use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature, Token};
 
 use crate::options::TraitSpec;
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, last_segment, Access, ArgumentKind,
-    Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
+    argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
+    ArgumentKind, Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -72,6 +76,8 @@ pub(crate) struct MethodPlan {
     arguments: Vec<Ident>,
     /// The arguments matched on the same variant as the receiver, by index.
     same_variant: Vec<(usize, Access)>,
+    /// The generic arguments a call spells out, when inference could not.
+    turbofish: Option<TokenStream2>,
     return_model: ReturnModel,
     /// Whether the method returns `impl Future`, so that the `match` sits in
     /// one `async move` block and every arm is awaited inside it.
@@ -141,6 +147,7 @@ impl MethodPlan {
             self_token,
             arguments,
             same_variant,
+            turbofish: turbofish(signature),
             return_model,
             future,
             awaited: signature.asyncness.is_some() || future,
@@ -156,8 +163,8 @@ impl MethodPlan {
 
     /// Returns the expression the `match` looks at: the receiver, with the
     /// same-variant arguments beside it in a tuple.
-    pub(crate) fn scrutinee(&self) -> TokenStream2 {
-        let receiver = receiver_scrutinee(self.receiver, &self.self_token);
+    pub(crate) fn scrutinee(&self, site: Span) -> TokenStream2 {
+        let receiver = receiver_scrutinee(self.receiver, &self.self_token, site);
         if self.same_variant.is_empty() {
             return receiver;
         }
@@ -165,7 +172,7 @@ impl MethodPlan {
             .same_variant
             .iter()
             .map(|(index, _)| &self.arguments[*index]);
-        quote! { (#receiver, #(#arguments),*) }
+        quote_spanned! { site => (#receiver, #(#arguments),*) }
     }
 
     fn same_binding(index: usize) -> Ident {
@@ -188,14 +195,14 @@ impl MethodPlan {
 
     /// Returns the arguments handed to `target`'s method: each binding as it
     /// is, or the payload of a same-variant argument.
-    fn call_arguments(&self, target: &Target) -> Vec<TokenStream2> {
+    fn call_arguments(&self, target: &Target, site: Span) -> Vec<TokenStream2> {
         self.arguments
             .iter()
             .enumerate()
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
                     Some((_, access)) => {
-                        payload_expression(target.deref, *access, &Self::same_binding(index))
+                        payload_expression(target.deref, *access, &Self::same_binding(index), site)
                     }
                     None => quote!(#ident),
                 },
@@ -212,7 +219,9 @@ impl MethodPlan {
             subject,
             prefix,
             lift,
+            site,
         } = context;
+        let site = *site;
         let Target {
             ident: target_ident,
             payload,
@@ -241,21 +250,26 @@ impl MethodPlan {
         let receiver = match (callee, self.receiver) {
             // Method-call syntax reaches through a `deref` payload by itself.
             (Callee::Method { .. }, ReceiverKind::Value(_)) => quote!(#inner),
-            _ => receiver_expression(self.receiver, target, &inner, method)?,
+            _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
-        let arguments = self.call_arguments(target);
+        let arguments = self.call_arguments(target, site);
+        let turbofish = &self.turbofish;
         let mut value = match callee {
             Callee::Qualified { trait_path, method } => {
                 let target_type = target.target_type();
-                quote! { <#target_type as #trait_path>::#method(#receiver #(, #arguments)*) }
+                quote_spanned! { site =>
+                    <#target_type as #trait_path>::#method #turbofish (#receiver #(, #arguments)*)
+                }
             }
-            Callee::Method { name } => quote! { #receiver.#name(#(#arguments),*) },
+            Callee::Method { name } => {
+                quote_spanned! { site => #receiver.#name #turbofish (#(#arguments),*) }
+            }
         };
         if self.unsafety {
-            value = quote! { unsafe { #value } };
+            value = quote_spanned! { site => unsafe { #value } };
         }
         if self.awaited {
-            value = quote! { #value.await };
+            value = quote_spanned! { site => #value.await };
         }
         let rebuild_error = || {
             Error::new_spanned(
@@ -268,27 +282,67 @@ impl MethodPlan {
             (Wrapper::None, Value::Rewrap) => {
                 target.rebuild(prefix, value).ok_or_else(rebuild_error)?
             }
-            (Wrapper::None, Value::Into) => quote! { ::core::convert::Into::into(#value) },
+            (Wrapper::None, Value::Into) => {
+                quote_spanned! { site => ::core::convert::Into::into(#value) }
+            }
             (_, Value::Rewrap) => {
                 let constructor = target.constructor(prefix).ok_or_else(rebuild_error)?;
-                quote! { #value.map(#constructor) }
+                quote_spanned! { site => #value.map(#constructor) }
             }
-            (_, Value::Into) => quote! { #value.map(::core::convert::Into::into) },
+            (_, Value::Into) => {
+                quote_spanned! { site => #value.map(::core::convert::Into::into) }
+            }
         };
         if let Wrapper::Result {
             error: Conversion::Into,
         } = wrapper
         {
-            value = quote! { #value.map_err(::core::convert::Into::into) };
+            value = quote_spanned! { site => #value.map_err(::core::convert::Into::into) };
         }
         if let Some(lift) = lift {
-            value = quote! { #lift(#value) };
+            value = quote_spanned! { site => #lift(#value) };
         }
         Ok(Arm {
             cfgs: cfgs.clone(),
             pattern: self.pattern(target, prefix, &inner),
             value,
         })
+    }
+
+    /// Returns the arm for every pair of different variants, with `value`
+    /// as its result. A same-variant argument the scrutinee moved, an owned
+    /// or `&mut Self`, is bound again under its own name, so that a
+    /// `mismatch` expression written on the trait method may use it.
+    pub(crate) fn fallback(&self, value: TokenStream2) -> Arm {
+        let moved = |access: &Access| !matches!(access, Access::Shared);
+        if !self.same_variant.iter().any(|(_, access)| moved(access)) {
+            return Arm {
+                cfgs: vec![],
+                pattern: quote!(_),
+                value,
+            };
+        }
+        let positions = self.same_variant.iter().map(|(index, access)| {
+            if moved(access) {
+                Self::same_binding(*index).into_token_stream()
+            } else {
+                quote!(_)
+            }
+        });
+        let rebound = self
+            .same_variant
+            .iter()
+            .filter(|(_, access)| moved(access))
+            .map(|(index, _)| {
+                let name = &self.arguments[*index];
+                let binding = Self::same_binding(*index);
+                quote!(let #name = #binding;)
+            });
+        Arm {
+            cfgs: vec![],
+            pattern: quote!((_, #(#positions),*)),
+            value: quote!({ #(#rebound)* #value }),
+        }
     }
 }
 
@@ -304,6 +358,8 @@ pub(crate) struct ArmContext<'a> {
     /// A function every arm's result is wrapped in, the inherent
     /// `with = path`.
     pub(crate) lift: Option<&'a Path>,
+    /// The span the generated tokens carry.
+    pub(crate) site: Span,
 }
 
 /// How an arm calls the payload's method, which is also which of the two
@@ -363,6 +419,15 @@ impl Arm {
             value,
         }
     }
+
+    /// The arm for everything else, with `value` as its result.
+    pub(crate) fn rest(value: TokenStream2) -> Self {
+        Arm {
+            cfgs: vec![],
+            pattern: quote!(_),
+            value,
+        }
+    }
 }
 
 impl ToTokens for Arm {
@@ -380,9 +445,9 @@ impl ToTokens for Arm {
 pub(crate) struct Forwarding {
     pub(crate) scrutinee: TokenStream2,
     pub(crate) arms: Vec<Arm>,
-    /// The expression of the `_ =>` arm: the mismatch result of a trait
+    /// The arm for everything the others leave: the mismatch of a trait
     /// method, or the fallback body of an inherent one.
-    pub(crate) fallback: Option<TokenStream2>,
+    pub(crate) fallback: Option<Arm>,
     pub(crate) future: bool,
 }
 
@@ -399,10 +464,9 @@ impl Forwarding {
             fallback,
             future,
         } = self;
-        let fallback = fallback.as_ref().map(|expr| quote! { _ => #expr, });
-        let mut body = quote! { match #scrutinee { #(#arms)* #fallback } };
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
         if *future {
-            body = quote! { async move { #body } };
+            body = quote_spanned! { span => async move { #body } };
         }
         let mut group = Group::new(Delimiter::Brace, body);
         group.set_span(span);
@@ -413,12 +477,14 @@ impl Forwarding {
 /// Returns the expression the generated `match` looks at for a receiver:
 /// the value itself, the enum moved out of its box, or the pinned reference
 /// unpinned.
-fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self]) -> TokenStream2 {
+fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Span) -> TokenStream2 {
     match kind {
         ReceiverKind::Value(_) => quote!(#self_token),
-        ReceiverKind::Boxed => quote!(*#self_token),
-        ReceiverKind::Pinned(Access::Exclusive) => quote!(::core::pin::Pin::get_mut(#self_token)),
-        ReceiverKind::Pinned(_) => quote!(::core::pin::Pin::get_ref(#self_token)),
+        ReceiverKind::Boxed => quote_spanned!(site => *#self_token),
+        ReceiverKind::Pinned(Access::Exclusive) => {
+            quote_spanned!(site => ::core::pin::Pin::get_mut(#self_token))
+        }
+        ReceiverKind::Pinned(_) => quote_spanned!(site => ::core::pin::Pin::get_ref(#self_token)),
     }
 }
 
@@ -430,9 +496,10 @@ fn receiver_expression(
     target: &Target,
     binding: &Ident,
     method: &Ident,
+    site: Span,
 ) -> Result<TokenStream2> {
     match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding)),
+        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding, site)),
         ReceiverKind::Boxed => {
             if !target.holds_box() {
                 let ident = &target.ident;
@@ -453,8 +520,8 @@ fn receiver_expression(
             Ok(quote!(#binding))
         }
         ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(target.deref, access, binding);
-            Ok(quote!(::core::pin::Pin::new(#payload)))
+            let payload = payload_expression(target.deref, access, binding, site);
+            Ok(quote_spanned!(site => ::core::pin::Pin::new(#payload)))
         }
     }
 }
@@ -462,13 +529,13 @@ fn receiver_expression(
 /// Returns the expression that hands `binding`, bound to a variant's
 /// payload, to the trait method: the payload itself, or what it
 /// dereferences to for a `#[dispatch(deref)]` variant.
-fn payload_expression(deref: bool, access: Access, binding: &Ident) -> TokenStream2 {
+fn payload_expression(deref: bool, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
     if !deref {
         return quote!(#binding);
     }
     match access {
-        Access::Shared => quote!(&**#binding),
-        Access::Exclusive => quote!(&mut **#binding),
-        Access::Owned => quote!(*#binding),
+        Access::Shared => quote_spanned!(site => &**#binding),
+        Access::Exclusive => quote_spanned!(site => &mut **#binding),
+        Access::Owned => quote_spanned!(site => *#binding),
     }
 }

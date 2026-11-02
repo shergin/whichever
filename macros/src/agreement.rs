@@ -8,6 +8,16 @@ use syn::{GenericArgument, GenericParam, Ident, Path, PathArguments, Type};
 use crate::shape::bare_ident;
 use crate::subject::Target;
 
+/// Returns every variant but `first`, the one the items were taken from.
+fn others<'a>(
+    variants: &'a [&'a Target],
+    first: &'a Target,
+) -> impl Iterator<Item = &'a &'a Target> {
+    variants
+        .iter()
+        .filter(move |variant| !std::ptr::eq(**variant, first))
+}
+
 /// How two values of an associated const's type are compared at compile
 /// time: with `==` for the primitives that allow it in a `const`, or byte
 /// by byte for `&str`.
@@ -42,6 +52,7 @@ pub(crate) fn const_comparison(ty: &Type) -> Option<ConstComparison> {
 pub(crate) fn associated_const_check(
     consts: &[(&Ident, Type)],
     variants: &[&Target],
+    first: &Target,
     trait_path: &Path,
     first_payload: &TokenStream2,
     generics: &syn::Generics,
@@ -56,7 +67,7 @@ pub(crate) fn associated_const_check(
         let Some(comparison) = const_comparison(ty) else {
             continue;
         };
-        for variant in variants.iter().skip(1) {
+        for variant in others(variants, first) {
             let payload = variant.target_type_outside(self_type);
             let cfgs = &variant.cfgs;
             let message = format!(
@@ -118,6 +129,7 @@ pub(crate) fn associated_const_check(
 pub(crate) fn associated_type_check(
     names: &[&Ident],
     variants: &[&Target],
+    first: &Target,
     trait_path: &Path,
     first_payload: &TokenStream2,
     generics: &syn::Generics,
@@ -156,7 +168,7 @@ pub(crate) fn associated_type_check(
             GenericParam::Const(param) => param.ident.to_token_stream(),
         })
         .collect();
-    let checks = variants.iter().skip(1).map(|variant| {
+    let checks = others(variants, first).map(|variant| {
         let payload = variant.target_type_outside(self_type);
         let cfgs = &variant.cfgs;
         quote! { #(#cfgs)* __same_as_first_variant::<#(#enum_arguments,)* #payload>(); }
