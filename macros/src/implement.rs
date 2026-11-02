@@ -2,13 +2,15 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::visit_mut::VisitMut;
-use syn::{Error, Ident, ImplItem, Result, TraitItem, Type};
+use syn::{Error, Ident, ImplItem, Path, Result, TraitItem, TraitItemFn, Type};
 
 use crate::agreement::{associated_const_check, associated_type_check};
-use crate::forwarding::expand_method;
-use crate::options::Override;
+use crate::forwarding::{
+    ArgumentNames, Arm, Arms, Callee, Forwarding, Hints, MethodPlan, SelfArguments,
+};
+use crate::options::{method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
-use crate::subject::{targets, Entry};
+use crate::subject::{cfg_attributes, targets, Entry, Subject};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -205,5 +207,113 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #agreement_check
         #const_check
         #shape_errors
+    })
+}
+
+/// Writes the forwarding method for one trait method: a `match` over every
+/// variant with a fully qualified call per arm, and the mismatch expression
+/// for two different variants when the method takes `Self` arguments. A
+/// method without a receiver is left to its default body.
+fn expand_method(
+    function: &TraitItemFn,
+    entries: &[Entry],
+    subject: &Subject,
+    trait_path: &Path,
+    spec: &TraitSpec,
+    substitution: &mut Substitution,
+) -> Result<TokenStream2> {
+    let subject_ident = subject.ident();
+    let mut signature = function.sig.clone();
+    substitution.visit_signature_mut(&mut signature);
+    let method = signature.ident.clone();
+    if signature.receiver().is_none() {
+        if function.default.is_some() {
+            return Ok(TokenStream2::new());
+        }
+        let trait_ident = &trait_path
+            .segments
+            .last()
+            .expect("a path has at least one segment")
+            .ident;
+        return Err(Error::new_spanned(
+            &function.sig,
+            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl {trait_ident} for {subject_ident}` block"),
+        ));
+    }
+    let plan = MethodPlan::new(
+        &mut signature,
+        ArgumentNames::Generated,
+        SelfArguments::Dispatch,
+        Some(spec),
+    )?;
+    let mismatch = match spec.mismatch_for(&method) {
+        Some(expr) => Some(expr.clone()),
+        None => method_mismatch(function)?,
+    };
+    let shared = Arms {
+        callee: Callee::Qualified {
+            trait_path,
+            method: &method,
+        },
+        method: &method,
+        subject: subject_ident,
+        prefix: subject_ident.to_token_stream(),
+        lift: None,
+        hints: Hints {
+            deref: "implement the method by hand",
+            rebuild: "write the method in a `#[whichever::dispatch] impl` block",
+        },
+    };
+    let mut arms = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match entry {
+            Entry::Target(target) => arms.push(plan.arm(target, &shared)?),
+            // The variant is reported elsewhere, under its `cfg`; this arm
+            // only keeps the `match` exhaustive while that error stands,
+            // which the fallback arm does when there is one.
+            Entry::Unforwardable(unforwardable) if !plan.has_same_variant() => {
+                arms.push(Arm::unforwardable(
+                    &shared.prefix,
+                    unforwardable,
+                    quote!(::core::unreachable!()),
+                ));
+            }
+            Entry::Unforwardable(_) => {}
+        }
+    }
+    // Two values of a struct always hold the same field, so only an enum
+    // needs the arm for two different variants.
+    let fallback = if plan.has_same_variant() && subject.is_enum() {
+        let Some(expr) = mismatch else {
+            return Err(Error::new_spanned(
+                &function.sig,
+                format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
+            ));
+        };
+        Some(expr.to_token_stream())
+    } else {
+        None
+    };
+    let allow_unreachable = fallback
+        .is_some()
+        .then(|| quote! { #[allow(unreachable_patterns)] });
+    let inline = (!function
+        .attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("inline")))
+    .then(|| quote! { #[inline] });
+    let cfgs = cfg_attributes(&function.attrs);
+    let body = Forwarding {
+        scrutinee: plan.scrutinee(),
+        arms,
+        fallback,
+        future: plan.future,
+    }
+    .body(method.span());
+    Ok(quote! {
+        #(#cfgs)*
+        #inline
+        #allow_unreachable
+        #signature #body
     })
 }

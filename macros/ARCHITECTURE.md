@@ -245,7 +245,10 @@ than it was.
 
 ### Stage 2: one forwarding engine
 
-Status: not started.
+Status: landed. `forwarding.rs` holds `MethodPlan`, `Arms`, `Callee`,
+`Arm` and `Forwarding`; `expand_method` lives next to the trait impl in
+`implement.rs` and `forward_method` in `inherent.rs`, both as plans fed to
+the engine. Every golden and `.stderr` file is unchanged.
 
 `forwarding.rs` with `Forwarding`, `Arm`, `Call` and the renderer;
 `expand_method` and `forward_method` become plans fed to it. Done when both

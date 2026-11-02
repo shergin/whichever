@@ -20,6 +20,7 @@ pub(crate) fn bare_ident(ty: &Type) -> Option<&Ident> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum ReturnShape {
     Plain,
     RewrapSelf,

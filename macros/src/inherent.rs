@@ -1,20 +1,19 @@
 //! `implement_inherent!`: inherent blocks forwarded method by method, and
 //! partial trait impl blocks handed on to the trait's carrier.
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    Attribute, Block, Error, FnArg, Ident, ImplItem, ItemImpl, Pat, Path, PathArguments, Result,
-    Signature, Token, Visibility,
+    Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, PathArguments, Result, Signature,
+    Token, Visibility,
 };
 
 use crate::dispatch::facade_ident;
-use crate::forwarding::method_body;
-use crate::options::{is_dispatch_attribute, TraitSpec};
-use crate::shape::{
-    classify_receiver, classify_return, receiver_expression, scrutinee, ReceiverKind, ReturnShape,
+use crate::forwarding::{
+    ArgumentNames, Arm, Arms, Callee, Forwarding, Hints, MethodPlan, SelfArguments,
 };
-use crate::subject::{targets, Entry, Subject, Target, Unforwardable};
+use crate::options::{is_dispatch_attribute, TraitSpec};
+use crate::subject::{targets, Entry, Subject, Target};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
@@ -55,16 +54,16 @@ pub(crate) fn expand_partial(
 }
 
 /// Which variants an inherent method forwards to, and how.
-pub(crate) struct Forwarding {
+pub(crate) struct ForwardingOptions {
     pub(crate) all: bool,
     pub(crate) variants: Vec<Ident>,
     pub(crate) call: Option<Ident>,
     pub(crate) with: Option<Path>,
 }
 
-impl Parse for Forwarding {
+impl Parse for ForwardingOptions {
     fn parse(input: ParseStream) -> Result<Self> {
-        let mut forwarding = Forwarding {
+        let mut forwarding = ForwardingOptions {
             all: false,
             variants: vec![],
             call: None,
@@ -223,46 +222,41 @@ pub(crate) fn forward_method(
     vis: &Visibility,
     sig: &Signature,
     body: Option<&Block>,
-    forwarding: Forwarding,
+    forwarding: ForwardingOptions,
     entries: &[Entry],
     subject: &Subject,
 ) -> Result<TokenStream2> {
     let subject_ident = subject.ident();
     let prefix = quote!(Self);
     let method = &sig.ident;
-    let Some(FnArg::Receiver(receiver)) = sig.inputs.first() else {
+    if sig.receiver().is_none() {
         return Err(Error::new_spanned(
             sig,
             format!("`{method}` has no receiver, so there is no variant to forward to"),
         ));
-    };
-    let receiver_kind = classify_receiver(receiver)?;
-    let self_token = receiver.self_token;
-    let mut arguments = Vec::new();
-    for input in sig.inputs.iter().skip(1) {
-        let FnArg::Typed(pat_type) = input else {
-            unreachable!("receiver handled above")
-        };
-        let Pat::Ident(pattern) = &*pat_type.pat else {
-            return Err(Error::new_spanned(
-                &pat_type.pat,
-                "a forwarded parameter must be a plain identifier",
-            ));
-        };
-        arguments.push(pattern.ident.clone());
     }
+    let mut signature = sig.clone();
+    let plan = MethodPlan::new(
+        &mut signature,
+        ArgumentNames::Written,
+        SelfArguments::PassThrough,
+        None,
+    )?;
     let variants = targets(entries);
     // Under `*`, a variant that holds no payload cannot be forwarded to and
     // the method has no body to fall back on, so the arm for it is an
     // error, which fires only when the variant is compiled in.
-    let mut unforwardable_arms = TokenStream2::new();
+    let mut unforwardable_arms = vec![];
     let selected: Vec<&Target> = if forwarding.all {
         for entry in entries {
-            if let Entry::Unforwardable(Unforwardable { ident, cfgs, .. }) = entry {
+            if let Entry::Unforwardable(unforwardable) = entry {
+                let ident = &unforwardable.ident;
                 let message = format!("`{method}` is forwarded to every variant, but `{ident}` holds no payload to forward to; name the variants that do and give the method a body for the rest");
-                unforwardable_arms.extend(quote_spanned! { method.span() =>
-                    #(#cfgs)* #prefix::#ident { .. } => ::core::compile_error!(#message),
-                });
+                unforwardable_arms.push(Arm::unforwardable(
+                    &prefix,
+                    unforwardable,
+                    quote_spanned! { method.span() => ::core::compile_error!(#message) },
+                ));
             }
         }
         variants.clone()
@@ -305,57 +299,30 @@ pub(crate) fn forward_method(
         }
         _ => {}
     }
-    let inner = Ident::new("__inner", Span::mixed_site());
-    let call_name = forwarding.call.as_ref().unwrap_or(method);
-    let (return_shape, returns_future) = classify_return(&sig.output, None)?;
-    let awaited = sig.asyncness.is_some() || returns_future;
-    let mut arms = TokenStream2::new();
-    for target in selected {
-        let Target { cfgs, payload, .. } = target;
-        // Method-call syntax reaches through a `deref` payload by itself;
-        // a pinned receiver is pinned again around the payload.
-        let callee = match receiver_kind {
-            ReceiverKind::Pinned(_) | ReceiverKind::Boxed => {
-                receiver_expression(receiver_kind, target, &inner, method)?
-            }
-            ReceiverKind::Value(_) => quote!(#inner),
-        };
-        let mut call = quote! { #callee.#call_name(#(#arguments),*) };
-        if awaited {
-            call = quote! { #call.await };
-        }
-        // A payload's `Self` comes back as the variant. Without `with`, the
-        // payload's own `Option` or `Result` is mapped; with it, the payload
-        // returns the plain value and `with` lifts the variant into the
-        // declared `Option` or `Result`.
-        let rebuild_error = || {
-            Error::new_spanned(
-                payload,
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject_ident}`; give it a body instead"),
-            )
-        };
-        call = match (&return_shape, &forwarding.with) {
-            (ReturnShape::MapSelf, None) => {
-                let constructor = target.constructor(&prefix).ok_or_else(rebuild_error)?;
-                quote! { #call.map(#constructor) }
-            }
-            (ReturnShape::RewrapSelf | ReturnShape::MapSelf, _) => {
-                target.rebuild(&prefix, call).ok_or_else(rebuild_error)?
-            }
-            _ => call,
-        };
-        if let Some(with) = &forwarding.with {
-            call = quote! { #with(#call) };
-        }
-        let pattern = target.pattern(&prefix, &inner);
-        arms.extend(quote! { #(#cfgs)* #pattern => #call, });
+    let shared = Arms {
+        callee: Callee::Method {
+            name: forwarding.call.as_ref().unwrap_or(method),
+        },
+        method,
+        subject: subject_ident,
+        prefix,
+        lift: forwarding.with.as_ref(),
+        hints: Hints {
+            deref: "give it a body",
+            rebuild: "give it a body instead",
+        },
+    };
+    let mut arms = selected
+        .iter()
+        .map(|target| plan.arm(target, &shared))
+        .collect::<Result<Vec<_>>>()?;
+    arms.extend(unforwardable_arms);
+    let body = Forwarding {
+        scrutinee: plan.scrutinee(),
+        arms,
+        fallback: body.map(ToTokens::to_token_stream),
+        future: plan.future,
     }
-    let fallback = body.map(|body| quote! { _ => #body, });
-    let scrutinee = scrutinee(receiver_kind, &self_token);
-    let body = method_body(
-        quote! { match #scrutinee { #arms #unforwardable_arms #fallback } },
-        returns_future,
-        method.span(),
-    );
-    Ok(quote! { #(#attrs)* #vis #sig #body })
+    .body(method.span());
+    Ok(quote! { #(#attrs)* #vis #signature #body })
 }
