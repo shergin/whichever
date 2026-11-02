@@ -399,6 +399,7 @@ pub fn implement(input: TokenStream) -> TokenStream {
 struct Substitution {
     types: Vec<(Ident, Type, Option<Path>)>,
     lifetimes: Vec<(Lifetime, Lifetime)>,
+    consts: Vec<(Ident, Expr)>,
 }
 
 impl Substitution {
@@ -423,32 +424,52 @@ impl Substitution {
                 .collect(),
             _ => vec![],
         };
-        let required = params
-            .iter()
-            .filter(|param| !matches!(param, GenericParam::Const(_)))
-            .count();
-        if args.len() != required {
+        if args.len() != params.len() {
             return Err(Error::new_spanned(
                 trait_path,
                 format!(
-                    "`{}` takes {required} generic argument(s); name them, e.g. `Trait<Arg>`",
-                    item_trait.ident
+                    "`{}` takes {} generic argument(s); name them, e.g. `Trait<Arg>`",
+                    item_trait.ident,
+                    params.len()
                 ),
             ));
         }
-        let mut types = vec![];
-        let mut lifetimes = vec![];
-        for (param, argument) in params.iter().zip(args) {
+        let mut substitution = Self {
+            types: vec![],
+            lifetimes: vec![],
+            consts: vec![],
+        };
+        for (param, argument) in params.into_iter().zip(args) {
             match (param, argument) {
                 (GenericParam::Type(param), GenericArgument::Type(ty)) => {
                     let single_bound = match param.bounds.iter().collect::<Vec<_>>().as_slice() {
                         [TypeParamBound::Trait(bound)] => Some(bound.path.clone()),
                         _ => None,
                     };
-                    types.push((param.ident.clone(), ty.clone(), single_bound));
+                    substitution
+                        .types
+                        .push((param.ident.clone(), ty.clone(), single_bound));
                 }
                 (GenericParam::Lifetime(param), GenericArgument::Lifetime(lifetime)) => {
-                    lifetimes.push((param.lifetime.clone(), lifetime.clone()));
+                    substitution
+                        .lifetimes
+                        .push((param.lifetime.clone(), lifetime.clone()));
+                }
+                (GenericParam::Const(param), GenericArgument::Const(expr)) => {
+                    substitution
+                        .consts
+                        .push((param.ident.clone(), expr.clone()));
+                }
+                // A bare identifier given for a const parameter parses as a type.
+                (GenericParam::Const(param), GenericArgument::Type(Type::Path(path)))
+                    if path.qself.is_none() =>
+                {
+                    let expr = Expr::Path(syn::ExprPath {
+                        attrs: vec![],
+                        qself: None,
+                        path: path.path.clone(),
+                    });
+                    substitution.consts.push((param.ident.clone(), expr));
                 }
                 _ => {
                     return Err(Error::new_spanned(
@@ -458,7 +479,24 @@ impl Substitution {
                 }
             }
         }
-        Ok(Self { types, lifetimes })
+        Ok(substitution)
+    }
+
+    fn const_for(&self, ident: &Ident) -> Option<&Expr> {
+        self.consts
+            .iter()
+            .find(|(name, _)| name == ident)
+            .map(|(_, expr)| expr)
+    }
+}
+
+/// Returns the identifier of a bare single-segment path type.
+fn bare_ident(ty: &Type) -> Option<&Ident> {
+    match ty {
+        Type::Path(TypePath { qself: None, path }) if path.segments.len() == 1 => {
+            Some(&path.segments[0].ident)
+        }
+        _ => None,
     }
 }
 
@@ -506,6 +544,30 @@ impl VisitMut for Substitution {
         if let Some((_, replacement)) = self.lifetimes.iter().find(|(from, _)| from == lifetime) {
             *lifetime = replacement.clone();
         }
+    }
+
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        if let Expr::Path(path) = expr {
+            if path.qself.is_none() && path.path.segments.len() == 1 {
+                if let Some(replacement) = self.const_for(&path.path.segments[0].ident) {
+                    *expr = replacement.clone();
+                    return;
+                }
+            }
+        }
+        visit_mut::visit_expr_mut(self, expr);
+    }
+
+    /// A const parameter in argument position parses as a type when it is a
+    /// bare identifier; it becomes the const argument the enum named.
+    fn visit_generic_argument_mut(&mut self, argument: &mut GenericArgument) {
+        if let GenericArgument::Type(ty) = argument {
+            if let Some(replacement) = bare_ident(ty).and_then(|ident| self.const_for(ident)) {
+                *argument = GenericArgument::Const(replacement.clone());
+                return;
+            }
+        }
+        visit_mut::visit_generic_argument_mut(self, argument);
     }
 }
 
