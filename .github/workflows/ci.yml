@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta, "1.88"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      # The compile-fail snapshots are pinned to stable's wording.
+      - run: cargo test --workspace
+        if: matrix.toolchain == 'stable'
+      - run: cargo test --workspace -- --skip compile_fail
+        if: matrix.toolchain != 'stable'
+
+  expand:
+    name: expansion snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-expand
+      - run: cargo test --test expand -- --ignored
+
+  no_std:
+    name: no_std target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi
+      - run: cargo check -p smoke-no-std --target thumbv7em-none-eabi
+
+  lint:
+    name: fmt, clippy, docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo doc --no-deps -p whichever -p whichever-macros
+        env:
+          RUSTDOCFLAGS: -D warnings
