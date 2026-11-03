@@ -6,7 +6,7 @@ reviews of the result. Sections 1 and 3 describe the crate as it is,
 section 2 records what the shape was before, and each stage in section 4
 carries the status line written when it landed.
 
-The words are those of [`docs/terminology.md`](../docs/terminology.md):
+The words are the README's and those of [`docs/vision.md`](../docs/vision.md):
 carrier macro, implementation macro, forwarding impl, arm, rewrap, mismatch,
 agreement, override, conversions, restatement, partial impl block, inherent
 dispatch, fallback body, receiver, shape, limit. The one internal word this
@@ -365,10 +365,10 @@ cross-crate smoke crates still build.
 
 Status: landed. The changelog's unreleased entry, the crate docs and the
 README on what an override converts, this file's status lines, unit tests
-for the return model, and a run on 1.88 as well as stable. The terminology
-file's entry for the implementation macros still names
-`implement_inherent!`; it is being edited outside this branch and gets the
-new name when the two meet.
+for the return model, and a run on 1.88 as well as stable. A terminology
+file drafted beside this work, whose entry for the implementation macros
+still named `implement_inherent!`, was folded into the README and
+`docs/vision.md` before it landed.
 
 ### Round two
 

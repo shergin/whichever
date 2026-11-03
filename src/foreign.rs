@@ -3,7 +3,7 @@
 //! A trait from `core` or `std` is not `#[dispatchable]`, so this module
 //! restates the ones an enum over implementors most often forwards by hand.
 //! Each is a `#[dispatchable(remote = ..)]` declaration: it emits no trait,
-//! only the hidden macro that `#[dispatch]` reads, and the impl it generates
+//! only the carrier macro that `#[dispatch]` reads, and the impl it generates
 //! is of the real trait. `#[dispatch(whichever::foreign::Display)]` on an
 //! enum implements `core::fmt::Display` for it, with one `match` whose arms
 //! are `<Payload as core::fmt::Display>::fmt(inner, f)`.

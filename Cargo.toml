@@ -10,7 +10,7 @@ documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml"]
+exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
 
 [dependencies]
 # Pinned exactly: the facade's `__private` module and the macros' generated
