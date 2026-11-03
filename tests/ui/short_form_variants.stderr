@@ -1,0 +1,11 @@
+error: `LoadedFile` holds no payload, so no trait method can be forwarded to it; write it as `LoadedFile(Payload)`, or forward inherent methods instead, whose body answers for it
+  --> tests/ui/short_form_variants.rs:26:5
+   |
+26 |     LoadedFile,
+   |     ^^^^^^^^^^
+
+error: `ControlledFile` holds no payload, so no trait method can be forwarded to it; write it as `ControlledFile(Payload)`, or forward inherent methods instead, whose body answers for it
+  --> tests/ui/short_form_variants.rs:27:5
+   |
+27 |     ControlledFile,
+   |     ^^^^^^^^^^^^^^

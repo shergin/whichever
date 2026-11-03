@@ -5,9 +5,9 @@ error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut
    |                     ^^^^^^^^
 ...
 25 | #[whichever::dispatch(Shape)]
-   | ----------------------------- in this attribute macro expansion
+   |                       ----- in this macro invocation
    |
-   = note: this error originates in the macro `Shape` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
   --> tests/ui/two_unsupported_methods.rs:8:25
@@ -16,6 +16,6 @@ error: a return-position `impl Trait` cannot be dispatched by a `match` because 
    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 25 | #[whichever::dispatch(Shape)]
-   | ----------------------------- in this attribute macro expansion
+   |                       ----- in this macro invocation
    |
-   = note: this error originates in the macro `Shape` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

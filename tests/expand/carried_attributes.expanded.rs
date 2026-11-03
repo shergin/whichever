@@ -1,17 +1,19 @@
 //! What a trait item carries onto the impl: `unsafe`, a method's own
-//! `#[inline]`, and the associated type taken from the first variant that
-//! is always compiled in.
+//! `#[inline]` and `#[allow]`, and the associated type taken from the first
+//! variant that is always compiled in.
 pub unsafe trait Marker {
+    #[allow(clippy::disallowed_types)]
     type Tag;
     #[inline(always)]
     fn tag(&self) -> u8;
     #[inline(never)]
     fn slow(&self) -> u8;
+    #[allow(clippy::too_many_arguments)]
     fn plain(&self) -> u8;
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Marker_5babe8868ff4fabf_4_1 as Marker;
+pub use __whichever_Marker_bb4be0f98db5f7d3_4_1 as Marker;
 pub struct Absent;
 pub struct Present;
 unsafe impl Marker for Absent {
@@ -50,9 +52,10 @@ impl ::core::convert::From<Present> for Any {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_Any_cbaf65ef97868f71_43_1 as Any;
+pub(crate) use __whichever_dispatch_Any_cbaf65ef97868f71_45_1 as Any;
 #[automatically_derived]
 unsafe impl Marker for Any {
+    #[allow(clippy::disallowed_types)]
     type Tag = <Present as Marker>::Tag;
     #[inline(always)]
     fn tag(&self) -> u8 {
@@ -66,6 +69,7 @@ unsafe impl Marker for Any {
             Any::Present(__inner) => <Present as Marker>::slow(__inner),
         }
     }
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     fn plain(&self) -> u8 {
         match self {

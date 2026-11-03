@@ -1,0 +1,5 @@
+error: `Item<..>` is a generic associated type, which only the enum can declare; write `type Item<..> = ..;` in a `#[whichever::dispatch] impl Lend for ..` block
+  --> tests/ui/gat_override_option.rs:20:29
+   |
+20 | #[whichever::dispatch(Lend, Item<'a> = &'a A)]
+   |                             ^^^^

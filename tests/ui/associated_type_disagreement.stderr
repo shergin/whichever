@@ -9,9 +9,9 @@ error[E0308]: `match` arms have incompatible types
    |        `match` arms have incompatible types
 ...
 24 | #[whichever::dispatch(Store)]
-   | ----------------------------- in this attribute macro expansion
+   |                       ----- in this macro invocation
    |
-   = note: this error originates in the macro `Store` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Store` (in Nightly builds, run with -Z macro-backtrace for more info)
 help: you can convert a `u64` to a `u32` and panic if the converted value doesn't fit
    |
  4 |     fn first.try_into().unwrap()(&self) -> Self::Item;
@@ -38,5 +38,5 @@ note: required by a bound in `__same_as_first_variant`
    |          ^^^^ required by this bound in `__same_as_first_variant`
 ...
 24 | #[whichever::dispatch(Store)]
-   | ----------------------------- in this attribute macro expansion
-   = note: this error originates in the macro `Store` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   |                       ----- in this macro invocation
+   = note: this error originates in the macro `Store` (in Nightly builds, run with -Z macro-backtrace for more info)

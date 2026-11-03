@@ -1,0 +1,5 @@
+error: one `#[dispatch(..)]` per method; name every variant it forwards to in that one
+  --> tests/ui/two_inherent_attributes.rs:27:5
+   |
+27 |     #[dispatch(Beam)]
+   |     ^^^^^^^^^^^^^^^^^

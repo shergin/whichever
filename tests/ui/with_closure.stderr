@@ -1,0 +1,5 @@
+error: `with` takes the path of a function, called on each arm's result; write a helper function instead of a closure, generic over the result when the payloads' results differ
+  --> tests/ui/with_closure.rs:17:24
+   |
+17 |     #[dispatch(Circle, with = |r| Some(r + 1))]
+   |                        ^^^^

@@ -134,30 +134,80 @@ pub(crate) fn future_output(ty: &Type) -> Option<Option<&Type>> {
     })
 }
 
+/// What the classification of a return type depends on besides the type.
+pub(crate) struct ReturnSite<'a> {
+    /// The subject's name, for the message about a `Self` that cannot be
+    /// wrapped back into it.
+    pub(crate) subject: &'a Ident,
+    /// Whether the subject holds one target, as a struct does, so that the
+    /// `match` over it has one arm and an opaque return type is the one
+    /// type that arm returns.
+    pub(crate) one_target: bool,
+    /// The way out a message offers: an impl by hand on the trait path, a
+    /// body on the inherent path.
+    pub(crate) by_hand: &'a str,
+}
+
 /// Classifies what the arms of a method must do with the payload's result,
 /// and whether the method returns `impl Future`, in which case the arms are
 /// awaited inside one `async` block and the classification applies to the
 /// future's `Output`. `spec` carries the associated type overrides of a
 /// trait; inherent methods have none.
+///
+/// A `match` with several arms cannot return `impl Trait`, since every arm
+/// would return a different opaque type; a future is the exception, because
+/// one `async` block around the `match` is one future. A `match` with one
+/// arm returns that arm's type, so a struct forwards any opaque type as it
+/// is, a future included, unless its `Output` has to be converted, in which
+/// case the `async` block is where the conversion happens.
 pub(crate) fn classify_return(
     output: &ReturnType,
     spec: Option<&TraitSpec>,
+    site: &ReturnSite,
 ) -> Result<(ReturnModel, bool)> {
     let ReturnType::Type(_, ty) = output else {
         return Ok((ReturnModel::PLAIN, false));
     };
     let (ty, returns_future) = match future_output(ty) {
         Some(Some(output)) => (output, true),
-        Some(None) => return Ok((ReturnModel::PLAIN, true)),
+        Some(None) => return Ok((ReturnModel::PLAIN, !site.one_target)),
         None => (&**ty, false),
     };
-    if let Type::ImplTrait(_) = ty {
+    if site.one_target {
+        if let Type::ImplTrait(_) = ty {
+            return Ok((ReturnModel::PLAIN, false));
+        }
+        let model = return_model(ty, spec, site)?;
+        return Ok((model, returns_future && model != ReturnModel::PLAIN));
+    }
+    if let Some(opaque) = first_impl_trait(ty) {
         return Err(Error::new_spanned(
-            ty,
+            opaque,
             "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
-    Ok((return_model(ty, spec)?, returns_future))
+    Ok((return_model(ty, spec, site)?, returns_future))
+}
+
+/// Returns the first `impl Trait` in `ty`, at any depth: the type itself,
+/// or one inside `Result<impl Stream, E>`.
+fn first_impl_trait(ty: &Type) -> Option<&Type> {
+    struct Finder<'ast>(Option<&'ast Type>);
+    impl<'ast> Visit<'ast> for Finder<'ast> {
+        fn visit_type(&mut self, ty: &'ast Type) {
+            if self.0.is_some() {
+                return;
+            }
+            if let Type::ImplTrait(_) = ty {
+                self.0 = Some(ty);
+                return;
+            }
+            syn::visit::visit_type(self, ty);
+        }
+    }
+    let mut finder = Finder(None);
+    finder.visit_type(ty);
+    finder.0
 }
 
 impl ReturnModel {
@@ -170,7 +220,11 @@ impl ReturnModel {
 /// Classifies a return type: an `Option` or a `Result` around a value, or
 /// the value itself. Errors are reported on the whole type, since the
 /// message speaks of the return type.
-pub(crate) fn return_model(ty: &Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
+pub(crate) fn return_model(
+    ty: &Type,
+    spec: Option<&TraitSpec>,
+    site: &ReturnSite,
+) -> Result<ReturnModel> {
     if let Some(segment) = last_segment(ty) {
         let arguments = generic_type_args(segment);
         let wrapped = match (segment.ident.to_string().as_str(), arguments.as_slice()) {
@@ -184,7 +238,7 @@ pub(crate) fn return_model(ty: &Type, spec: Option<&TraitSpec>) -> Result<Return
             )),
             ("Result", [inner, error]) => Some((
                 Wrapper::Result {
-                    error: conversion(error, ty, spec)?,
+                    error: conversion(error, ty, spec, site)?,
                 },
                 *inner,
             )),
@@ -193,23 +247,23 @@ pub(crate) fn return_model(ty: &Type, spec: Option<&TraitSpec>) -> Result<Return
         if let Some((wrapper, inner)) = wrapped {
             return Ok(ReturnModel {
                 wrapper,
-                value: value(inner, ty, spec)?,
+                value: value(inner, ty, spec, site)?,
             });
         }
     }
     Ok(ReturnModel {
         wrapper: Wrapper::None,
-        value: value(ty, ty, spec)?,
+        value: value(ty, ty, spec, site)?,
     })
 }
 
 /// Classifies a value position of the return type `whole`: `Self`, or what
 /// a position that cannot be `Self` needs.
-fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Value> {
+fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>, site: &ReturnSite) -> Result<Value> {
     if is_self(ty) {
         return Ok(Value::Rewrap);
     }
-    Ok(match conversion(ty, whole, spec)? {
+    Ok(match conversion(ty, whole, spec, site)? {
         Conversion::Keep => Value::Plain,
         Conversion::Into => Value::Into,
     })
@@ -218,7 +272,12 @@ fn value(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Value> {
 /// Classifies a position of the return type `whole` that cannot hold `Self`
 /// itself: an overridden `Self::X` converts, and any other mention of `Self`
 /// is a limit.
-fn conversion(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
+fn conversion(
+    ty: &Type,
+    whole: &Type,
+    spec: Option<&TraitSpec>,
+    site: &ReturnSite,
+) -> Result<Conversion> {
     if let Some(name) = self_assoc(ty) {
         let overridden = spec.is_some_and(|spec| spec.is_overridden(name));
         return Ok(if overridden {
@@ -228,9 +287,12 @@ fn conversion(ty: &Type, whole: &Type, spec: Option<&TraitSpec>) -> Result<Conve
         });
     }
     if mentions_self(ty) {
+        let ReturnSite {
+            subject, by_hand, ..
+        } = site;
         return Err(Error::new_spanned(
             whole,
-            "this return type mentions `Self` where `whichever` cannot wrap the payload's result back into the enum; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand",
+            format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or {by_hand}"),
         ));
     }
     Ok(Conversion::Keep)
@@ -410,8 +472,21 @@ mod tests {
 
     use super::*;
 
+    /// The site of a trait method on `Kind`, an enum, or on a struct.
+    fn site(subject: &Ident, one_target: bool) -> ReturnSite<'_> {
+        ReturnSite {
+            subject,
+            one_target,
+            by_hand: "implement the method by hand",
+        }
+    }
+
+    fn kind() -> Ident {
+        Ident::new("Kind", proc_macro2::Span::call_site())
+    }
+
     fn model(ty: Type, spec: Option<&TraitSpec>) -> Result<ReturnModel> {
-        return_model(&ty, spec)
+        return_model(&ty, spec, &site(&kind(), false))
     }
 
     /// A spec fixing the associated type `name` on the enum.
@@ -540,7 +615,8 @@ mod tests {
 
     #[test]
     fn futures_are_awaited_and_other_opaque_returns_are_limits() {
-        let returns = |output: ReturnType| classify_return(&output, None);
+        let kind = kind();
+        let returns = |output: ReturnType| classify_return(&output, None, &site(&kind, false));
         let (model, future) = returns(parse_quote!(-> impl Future<Output = Self> + Send)).unwrap();
         assert!(future);
         assert_eq!(model.value, Value::Rewrap);
@@ -548,8 +624,46 @@ mod tests {
         assert!(future);
         assert_eq!(model, ReturnModel::PLAIN);
         assert!(returns(parse_quote!(-> impl Iterator<Item = u32>)).is_err());
+        assert!(
+            returns(parse_quote!(-> Result<impl Iterator<Item = u32>, E>)).is_err(),
+            "an opaque type is found at any depth"
+        );
         let (_, future) = returns(parse_quote!()).unwrap();
         assert!(!future);
+    }
+
+    #[test]
+    fn one_target_forwards_an_opaque_return_as_it_is() {
+        let kind = kind();
+        let returns =
+            |output: ReturnType| classify_return(&output, None, &site(&kind, true)).unwrap();
+        assert_eq!(
+            returns(parse_quote!(-> impl Iterator<Item = u32>)),
+            (ReturnModel::PLAIN, false)
+        );
+        assert_eq!(
+            returns(parse_quote!(-> impl Future<Output = u32> + Send)),
+            (ReturnModel::PLAIN, false),
+            "a future whose output needs nothing is forwarded without an `async` block"
+        );
+        let (model, future) = returns(parse_quote!(-> impl Future<Output = Self>));
+        assert!(
+            future,
+            "a future whose output is rewrapped is awaited in an `async` block"
+        );
+        assert_eq!(model.value, Value::Rewrap);
+    }
+
+    #[test]
+    fn the_self_limit_names_the_subject_and_the_way_out() {
+        let error = model(parse_quote!(Vec<Self>), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("back into `Kind`"), "{error}");
+        assert!(
+            error.ends_with("or implement the method by hand"),
+            "{error}"
+        );
     }
 
     #[test]

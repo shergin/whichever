@@ -55,6 +55,12 @@ impl Subject {
         matches!(self, Subject::Enum(_))
     }
 
+    /// Returns whether every value of the subject holds the one target a
+    /// struct's field is, so that the `match` over it has one arm.
+    pub(crate) fn has_one_target(&self) -> bool {
+        matches!(self, Subject::Struct(_))
+    }
+
     /// Returns what the subject's targets are called in messages.
     pub(crate) fn target_noun(&self) -> &'static str {
         match self {
@@ -265,6 +271,9 @@ impl VisitMut for SelfReplacer {
 pub(crate) struct Unforwardable {
     pub(crate) ident: Ident,
     pub(crate) cfgs: Vec<Attribute>,
+    /// What the variant holds instead of one payload, as a predicate of its
+    /// name: "holds no payload", "holds 2 fields, not one payload".
+    pub(crate) reason: String,
     pub(crate) error: Error,
 }
 
@@ -312,26 +321,32 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
         from,
         try_from,
     } = TargetOptions::read(&variant.attrs, true)?;
-    let payload = match &variant.fields {
-        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields.unnamed[0].ty.clone(),
-        Fields::Unnamed(_) => {
-            return Ok(Entry::Unforwardable(Unforwardable {
-                ident: variant.ident.clone(),
-                cfgs: cfg_attributes(&variant.attrs),
-                error: Error::new_spanned(
-                    variant,
-                    "a dispatch variant must hold exactly one payload",
-                ),
-            }))
-        }
-        _ => {
-            return Ok(Entry::Unforwardable(Unforwardable {
-                ident: variant.ident.clone(),
-                cfgs: cfg_attributes(&variant.attrs),
-                error: Error::new_spanned(variant, "a dispatch variant must be `Name(Payload)`"),
-            }))
-        }
+    let reason = match &variant.fields {
+        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => None,
+        Fields::Unnamed(fields) if fields.unnamed.is_empty() => Some("holds no payload".to_owned()),
+        Fields::Unnamed(fields) => Some(format!(
+            "holds {} fields, not one payload",
+            fields.unnamed.len()
+        )),
+        Fields::Named(_) => Some("has named fields, not one payload".to_owned()),
+        Fields::Unit => Some("holds no payload".to_owned()),
     };
+    let ident = &variant.ident;
+    if let Some(reason) = reason {
+        return Ok(Entry::Unforwardable(Unforwardable {
+            ident: ident.clone(),
+            cfgs: cfg_attributes(&variant.attrs),
+            error: Error::new_spanned(
+                variant,
+                format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`, or forward inherent methods instead, whose body answers for it"),
+            ),
+            reason,
+        }));
+    }
+    let Fields::Unnamed(fields) = &variant.fields else {
+        unreachable!("every other shape has a reason")
+    };
+    let payload = fields.unnamed[0].ty.clone();
     Ok(Entry::Target(Target {
         ident: variant.ident.clone(),
         place: Place::Variant(Conversions { from, try_from }),
@@ -407,4 +422,34 @@ pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
         .filter(|attribute| attribute.path().is_ident("cfg"))
         .cloned()
         .collect()
+}
+
+/// Returns the attributes of a trait item that the generated item carries:
+/// `#[cfg]`, since the item exists under the same condition, and the
+/// `#[allow]` the trait's author wrote, since the signature the lint is
+/// allowed on is the one the generated item repeats. A level that only
+/// silences travels; one that raises the level, `warn`, `deny` or `expect`,
+/// is the trait crate's policy and stays there. An `#[allow]` another macro
+/// added, as `#[async_trait]` adds to every method, stays too: rustc exempts
+/// it from the lints about lint names where it was written, and would not
+/// on the way through the carrier.
+pub(crate) fn carried_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
+    attributes
+        .iter()
+        .filter(|attribute| {
+            let path = attribute.path();
+            path.is_ident("cfg") || (path.is_ident("allow") && written_by_hand(attribute))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Returns whether `attribute` was written in the source rather than added
+/// by a macro: a token's span is then exactly the token's own text.
+fn written_by_hand(attribute: &Attribute) -> bool {
+    attribute
+        .path()
+        .get_ident()
+        .and_then(|ident| ident.span().source_text())
+        .is_some_and(|text| text == "allow")
 }

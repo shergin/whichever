@@ -5,6 +5,6 @@ error: `same` takes `Self` arguments; give the result for two different variants
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 21 | #[whichever::dispatch(Same)]
-   | ---------------------------- in this attribute macro expansion
+   |                       ---- in this macro invocation
    |
-   = note: this error originates in the macro `Same` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)

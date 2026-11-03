@@ -18,6 +18,9 @@ pub(crate) fn expand_dispatchable(
     let captured = item_trait.clone();
     let mut emitted = item_trait;
     let mut errors = vec![];
+    if let Err(error) = check_attribute_order(&emitted) {
+        errors.push(error);
+    }
     for item in &mut emitted.items {
         if let TraitItem::Fn(function) = item {
             if let Err(error) = check_method_attributes(function) {
@@ -79,6 +82,42 @@ pub(crate) fn expand_dispatchable(
         #[allow(unused_imports)]
         #vis use #name as #trait_ident;
     })
+}
+
+/// Checks the order of `#[dispatchable]` among the attribute macros whose
+/// order it depends on. `#[async_trait]` below it would rewrite the
+/// signatures after the carrier captured them, so the forwarding impl would
+/// not match the trait; it goes above. `#[typetag::serde]` above it has
+/// added typetag's per-impl methods to the trait before the carrier
+/// captured it, and a forwarder of those would answer with the payload's
+/// tag, silently; it goes below, and the block's own `#[typetag::serde(name
+/// = ..)]` writes those methods.
+fn check_attribute_order(item_trait: &ItemTrait) -> Result<()> {
+    if let Some(attribute) = item_trait.attrs.iter().find(|attribute| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "async_trait")
+    }) {
+        return Err(Error::new_spanned(
+            attribute,
+            "`#[async_trait]` rewrites the signatures after `whichever` has read them; put `#[whichever::dispatchable]` below it",
+        ));
+    }
+    let hidden_method = |name: &str| {
+        item_trait.items.iter().any(|item| {
+            matches!(item, TraitItem::Fn(function) if function.sig.ident == name
+                && function.attrs.iter().any(|attribute| attribute.path().is_ident("doc")))
+        })
+    };
+    if hidden_method("typetag_name") && hidden_method("typetag_deserialize") {
+        return Err(Error::new_spanned(
+            &item_trait.ident,
+            "`#[typetag::serde]` has added its per-impl methods to the trait, which a forwarder would answer with the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = \"..\")]` on the enum's partial impl block",
+        ));
+    }
+    Ok(())
 }
 
 /// Checks a trait method's `#[dispatch(..)]`: one at most, `mismatch = expr`

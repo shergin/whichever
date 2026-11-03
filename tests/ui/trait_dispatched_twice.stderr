@@ -1,0 +1,5 @@
+error: `Kind` already dispatches `Value` from its own attribute; this block is the impl, so drop `Value` there
+  --> tests/ui/trait_dispatched_twice.rs:26:6
+   |
+26 | impl Value for Kind {
+   |      ^^^^^

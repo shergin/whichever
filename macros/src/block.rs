@@ -13,15 +13,20 @@ use crate::forwarding::{
 };
 use crate::options::{is_dispatch_attribute, ForwardingOptions, TraitSpec};
 use crate::protocol::{carrier_path, TraitRequest};
-use crate::subject::{targets, Entry, Subject, Target};
+use crate::shape::ReturnSite;
+use crate::subject::{targets, Entry, Subject, Target, Unforwardable};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
 /// around the items the block holds. When the subject was rejected the
-/// block is emitted as written; its one error is the missing items.
+/// block is emitted as written; its one error is the missing items. A block
+/// of a trait the subject's own attribute dispatches would be a second impl,
+/// which rustc reports as conflicting on the trait's attribute; it is
+/// reported here instead, and the attribute's impl stands.
 pub(crate) fn expand_partial(
     rejected: bool,
     facade: &Ident,
+    dispatched: &[Path],
     subject: Subject,
     mut spec: TraitSpec,
     item_impl: ItemImpl,
@@ -32,6 +37,18 @@ pub(crate) fn expand_partial(
     let Some((_, trait_path, _)) = &item_impl.trait_ else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
+    let spelled = |path: &Path| path.to_token_stream().to_string();
+    if dispatched
+        .iter()
+        .any(|path| spelled(path) == spelled(trait_path))
+    {
+        let subject = subject.ident();
+        let trait_name = spelled(trait_path).replace(' ', "");
+        return Err(Error::new_spanned(
+            trait_path,
+            format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),
+        ));
+    }
     spec.path = Some(trait_path.clone());
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
@@ -72,6 +89,21 @@ fn forwarding_options(attribute: &Attribute) -> Result<ForwardingOptions> {
     attribute.parse_args()
 }
 
+/// Parses the one `#[dispatch(..)]` of a method, `attribute`, taken off
+/// `rest`; a second one left in `rest` is reported on itself and taken off
+/// too, so that rustc does not report it as an unknown attribute on top.
+fn one_attribute(rest: &mut Vec<Attribute>, attribute: &Attribute) -> Result<ForwardingOptions> {
+    let Some(position) = rest.iter().position(is_dispatch_attribute) else {
+        return forwarding_options(attribute);
+    };
+    let second = rest.remove(position);
+    rest.retain(|attribute| !is_dispatch_attribute(attribute));
+    Err(Error::new_spanned(
+        second,
+        "one `#[dispatch(..)]` per method; name every variant it forwards to in that one",
+    ))
+}
+
 /// Rewrites every marked method of the block. A method that cannot be
 /// forwarded is reported and kept as written, without the attribute, or
 /// dropped when it has no body, so that the rest of the block still
@@ -101,17 +133,18 @@ pub(crate) fn expand_inherent(
                     items.push(ImplItem::Fn(function));
                     continue;
                 };
-                let forwarded = forwarding_options(&attribute).and_then(|forwarding| {
-                    forward_method(
-                        &function.attrs,
-                        &function.vis,
-                        &function.sig,
-                        Some(&function.block),
-                        forwarding,
-                        variants,
-                        &subject,
-                    )
-                });
+                let forwarded =
+                    one_attribute(&mut function.attrs, &attribute).and_then(|forwarding| {
+                        forward_method(
+                            &function.attrs,
+                            &function.vis,
+                            &function.sig,
+                            Some(&function.block),
+                            forwarding,
+                            variants,
+                            &subject,
+                        )
+                    });
                 match forwarded {
                     Ok(generated) => items.push(ImplItem::Verbatim(generated)),
                     Err(error) => {
@@ -144,7 +177,7 @@ pub(crate) fn expand_inherent(
                 let Some(variants) = &variants else {
                     continue;
                 };
-                let forwarded = forwarding_options(&attribute).and_then(|forwarding| {
+                let forwarded = one_attribute(&mut attrs, &attribute).and_then(|forwarding| {
                     forward_method(&attrs, &vis, &sig, None, forwarding, variants, &subject)
                 });
                 match forwarded {
@@ -182,12 +215,38 @@ pub(crate) fn forward_method(
             format!("`{method}` has no receiver, so there is no {noun} to forward to"),
         ));
     }
+    let context = ArmContext {
+        callee: Callee::Method {
+            name: forwarding.call.as_ref().unwrap_or(method),
+        },
+        method,
+        subject: subject_ident,
+        prefix,
+        lift: forwarding.with.as_ref(),
+        site: method.span(),
+    };
+    // In an inherent method `Self` is the subject. For an enum the argument
+    // is handed over as it is: a payload method taking the enum is a
+    // legitimate target, and matching it on the same variant would need a
+    // mismatch the method cannot declare. Two values of a struct always
+    // hold the same field, so there the argument is unwrapped to the field,
+    // as trait dispatch unwraps it.
+    let self_arguments = if subject.has_one_target() {
+        SelfArguments::Dispatch
+    } else {
+        SelfArguments::PassThrough
+    };
     let mut signature = sig.clone();
     let plan = MethodPlan::new(
         &mut signature,
         ArgumentNames::Written,
-        SelfArguments::PassThrough,
+        self_arguments,
         None,
+        &ReturnSite {
+            subject: subject_ident,
+            one_target: subject.has_one_target(),
+            by_hand: context.callee.by_hand(),
+        },
     )?;
     let variants = targets(entries);
     // Under `*`, a variant that holds no payload cannot be forwarded to and
@@ -197,10 +256,10 @@ pub(crate) fn forward_method(
     let selected: Vec<&Target> = if forwarding.all {
         for entry in entries {
             if let Entry::Unforwardable(unforwardable) = entry {
-                let ident = &unforwardable.ident;
-                let message = format!("`{method}` is forwarded to every variant, but `{ident}` holds no payload to forward to; name the variants that do and give the method a body for the rest");
+                let Unforwardable { ident, reason, .. } = unforwardable;
+                let message = format!("`{method}` is forwarded to every variant, but `{ident}` {reason}; name the variants with a payload and give the method a body for the rest");
                 unforwardable_arms.push(Arm::unforwardable(
-                    &prefix,
+                    &context.prefix,
                     unforwardable,
                     quote_spanned! { method.span() => ::core::compile_error!(#message) },
                 ));
@@ -215,10 +274,17 @@ pub(crate) fn forward_method(
                 if let Some(target) = variants.iter().find(|target| &target.ident == name) {
                     return Ok(*target);
                 }
-                let message = match entries.iter().find(|entry| {
-                    matches!(entry, Entry::Unforwardable(unforwardable) if &unforwardable.ident == name)
-                }) {
-                    Some(_) => format!("`{name}` holds no payload to forward to"),
+                let unforwardable = entries.iter().find_map(|entry| match entry {
+                    Entry::Unforwardable(unforwardable) if &unforwardable.ident == name => {
+                        Some(unforwardable)
+                    }
+                    _ => None,
+                });
+                let message = match unforwardable {
+                    Some(unforwardable) => format!(
+                        "`{name}` {}, so nothing can be forwarded to it",
+                        unforwardable.reason
+                    ),
                     None => format!("`{subject_ident}` has no {noun} `{name}`"),
                 };
                 Err(Error::new(name.span(), message))
@@ -245,16 +311,6 @@ pub(crate) fn forward_method(
         }
         _ => {}
     }
-    let context = ArmContext {
-        callee: Callee::Method {
-            name: forwarding.call.as_ref().unwrap_or(method),
-        },
-        method,
-        subject: subject_ident,
-        prefix,
-        lift: forwarding.with.as_ref(),
-        site: method.span(),
-    };
     let mut arms = selected
         .iter()
         .map(|target| plan.arm(target, &context))

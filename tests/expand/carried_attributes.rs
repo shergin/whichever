@@ -1,13 +1,15 @@
 //! What a trait item carries onto the impl: `unsafe`, a method's own
-//! `#[inline]`, and the associated type taken from the first variant that
-//! is always compiled in.
+//! `#[inline]` and `#[allow]`, and the associated type taken from the first
+//! variant that is always compiled in.
 #[whichever::dispatchable]
 pub unsafe trait Marker {
+    #[allow(clippy::disallowed_types)]
     type Tag;
     #[inline(always)]
     fn tag(&self) -> u8;
     #[inline(never)]
     fn slow(&self) -> u8;
+    #[allow(clippy::too_many_arguments)]
     fn plain(&self) -> u8;
 }
 

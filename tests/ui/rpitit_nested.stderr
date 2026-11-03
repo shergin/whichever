@@ -1,0 +1,10 @@
+error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+  --> tests/ui/rpitit_nested.rs:5:31
+   |
+ 5 |     fn items(&self) -> Result<impl Iterator<Item = u32> + '_, ()>;
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+23 | #[whichever::dispatch(Source)]
+   |                       ------ in this macro invocation
+   |
+   = note: this error originates in the macro `Source` (in Nightly builds, run with -Z macro-backtrace for more info)

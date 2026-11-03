@@ -100,10 +100,11 @@
 //!   `Self` arguments hold a different variant than `self`. The trait author
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
 //!   the method. See [`Self` arguments](#self-arguments).
-//! - `from = false` suppresses the `From<Payload>` impls.
+//! - `from = false` suppresses the `From<Payload>` impls. A payload type
+//!   held by two variants gets none either way.
 //! - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload
 //!   type, with the enum itself as the error, so a mismatch hands the value
-//!   back.
+//!   back; `.unwrap()` on the result therefore needs the enum to be `Debug`.
 //!
 //! Three options go on a variant. `#[dispatch(from = false)]` leaves the
 //! variant out of the `From` and `TryFrom` impls, for a payload such as
@@ -135,7 +136,8 @@
 //! | `self: Pin<&Self>`, `self: Pin<&mut Self>` | The enum is unpinned, matched, and the payload pinned again; every payload must be `Unpin`. |
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
-//! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. |
+//! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
+//! | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | `unsafe trait` | An `unsafe impl`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
@@ -144,15 +146,18 @@
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
 //! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
+//! | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 //!
 //! # Generics
 //!
-//! A generic trait is dispatched at a concrete instantiation, named on the
-//! enum: `#[dispatch(Encoder<Json>)]`. Type, lifetime and const parameters
-//! are substituted in every signature, and a projection such as `F::Value`
-//! becomes `<Json as Format>::Value` when `F` has exactly one bound. The
-//! enum itself may be generic; its parameters, bounds and `where` clause
-//! carry into the impl.
+//! A generic trait is dispatched at an instantiation named on the enum: a
+//! concrete one, `#[dispatch(Encoder<Json>)]`, or the enum's own
+//! parameters, `#[dispatch(GridTrait<T>)]` on `enum Grid<T>`. Type,
+//! lifetime and const parameters are substituted in every signature, and a
+//! projection such as `F::Value` becomes `<Json as Format>::Value` when `F`
+//! has exactly one bound; with several bounds the trait has to spell
+//! `<F as Format>::Value` itself. The enum itself may be generic; its
+//! parameters, bounds and `where` clause carry into the impl.
 //!
 //! # `Self` arguments
 //!
@@ -324,19 +329,28 @@
 //! }
 //! ```
 //!
-//! `with = path` wraps each forwarded result in a call to `path` (`Some`
-//! above), `call = name` forwards to a payload method of another name, and
-//! methods without the attribute are left alone. `async` methods and
-//! methods returning `impl Future` are awaited. A method returning `Self`,
-//! `Option<Self>` or `Result<Self, E>` wraps the payload's result back into
-//! the variant, as trait dispatch does; with `with`, the payload returns
-//! the plain value and `with` lifts the wrapped variant, so
-//! `#[dispatch(Circle, with = Some)]` on `fn grown(&self) -> Option<Self>`
-//! calls a `Circle::grown` that returns a `Circle`. The enum keeps its
+//! Each arm calls the payload's method by method-call syntax,
+//! `inner.describe()`, so autoref, autoderef and inherent-before-trait
+//! resolution apply as in hand-written code. `with = path` wraps each
+//! forwarded result in a call to `path` (`Some` above), which may be a
+//! generic function, called separately in each arm, so payloads whose
+//! results differ can meet in one declared return type; `call = name`
+//! forwards to a payload method of another name; and methods without the
+//! attribute are left alone. `async` methods and methods returning
+//! `impl Future` are awaited. A method returning `Self`, `Option<Self>` or
+//! `Result<Self, E>` wraps the payload's result back into the variant, as
+//! trait dispatch does; with `with`, the payload returns the plain value and
+//! `with` lifts the wrapped variant, so `#[dispatch(Circle, with = Some)]`
+//! on `fn grown(&self) -> Option<Self>` calls a `Circle::grown` that returns
+//! a `Circle`. A `Self` argument is the enum itself and is handed to the
+//! payload's method as it is. A variant under `#[cfg]` may be named; where
+//! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait. A block on a
-//! dispatch struct forwards the same way, under `*` or the field's name.
+//! dispatch struct forwards the same way, under `*` or the field's name;
+//! there a `Self` argument is the other value's field, as in trait dispatch,
+//! and a return-position `impl Trait` is forwarded as it is.
 //!
 //! # Traits from `std` and other crates
 //!
@@ -368,6 +382,13 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! Write the signature types in full, as [`foreign`] does, or import them
+//! where the enum is: nothing but the macro reads the restatement, so its
+//! own imports count as unused. Bounds on a restated associated type may be
+//! left out. A restatement of an `#[async_trait]` trait carries
+//! `#[async_trait]` above `#[dispatchable(remote = ..)]`, as the trait
+//! itself does.
 //!
 //! The restatements an enum most often needs ship in [`foreign`]:
 //! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
@@ -429,20 +450,30 @@
 //! ```
 //!
 //! The enum does not name that trait in its own attribute, since the block
-//! is the impl. The trait's options, `Name = Type` and `mismatch`, go on
-//! the block's attribute, and an associated type written in the block
-//! counts as an override. A method written in the block replaces the
-//! forwarding for every variant, provided methods included, which is also
-//! the way to leave a payload's method out on purpose. The block's own
-//! header, bounds included, becomes the impl's. Like inherent blocks, it
-//! has to be in the enum's crate.
+//! is the impl; naming it in both is reported on the block. The trait's
+//! options, `Name = Type` and `mismatch`, go on the block's attribute, and
+//! an associated type written in the block counts as an override. A generic
+//! associated type is declared here, since no first variant can supply one,
+//! `type Item<'a> = AnyItem<'a> where Self: 'a;`, and each payload's own
+//! converts into it through `Into`, as for any override. A method written
+//! in the block replaces the forwarding for every variant, provided methods
+//! included, which is also the way to leave a payload's method out on
+//! purpose. The block's own header, bounds included, becomes the impl's,
+//! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
+//! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
+//! so a block in another module needs them in scope there. Outer attributes
+//! on the block are carried onto the impl: `#[typetag::serde(name = "..")]`
+//! goes there, with `#[whichever::dispatchable]` above `#[typetag::serde]`
+//! on the trait, so that typetag's own methods are the block's and never
+//! forwarded. Like inherent blocks, it has to be in the enum's crate.
 //!
-//! # Wrapping the enum in a struct
+//! # Forwarding from a struct field
 //!
 //! A dispatch enum is often private behind a public struct that forwards
 //! the same trait. `#[dispatch]` on the struct forwards to its one field,
 //! or to the field marked `#[dispatch]`, provided methods included, so a
-//! payload's override reaches the public type:
+//! payload's override reaches the public type; the field may be any
+//! implementor, so the same attribute replaces a field-delegation derive:
 //!
 //! ```
 //! #[whichever::dispatchable]
@@ -480,8 +511,11 @@
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on
-//! a struct as on an enum. A struct gets no `From` impls, and its `Self`
-//! arguments need no `mismatch`.
+//! a struct as on an enum. A struct's `match` has one arm, so it forwards a
+//! return-position `impl Trait` as it is, which an enum cannot. A struct
+//! gets no `From` impls, and its `Self` arguments need no `mismatch`: two
+//! values of it always hold the same field, and the argument is unwrapped
+//! to it.
 //!
 //! # Across crates
 //!
@@ -515,10 +549,24 @@
 //!   A payload type used by two variants gets no `From` impl.
 //! - A method without a receiver needs a default body, which the enum uses,
 //!   or an implementation in a `#[dispatch]` impl block.
-//! - Return-position `impl Trait` cannot be dispatched by a `match`: every
-//!   variant would return a different opaque type. `impl Future<Output = T>`
-//!   is the exception; it is awaited like an `async fn`.
-//! - Generic associated types are not supported.
+//! - An enum cannot dispatch a return-position `impl Trait`, at any depth
+//!   of the return type: every variant would return a different opaque
+//!   type. `impl Future<Output = T>` is the exception; it is awaited like an
+//!   `async fn`. A struct forwards any.
+//! - A generic associated type is declared by the enum, in a partial impl
+//!   block; it cannot come from the first variant.
+//! - A projection through a trait parameter with several bounds,
+//!   `F::Value` with `F: Format + Clone`, cannot be qualified at the enum;
+//!   the trait writes `<F as Format>::Value`.
+//! - A lint attribute on the enum does not reach the impls written next to
+//!   it, as it would not reach a hand-written one; `#[allow]` goes on the
+//!   trait method, on a partial impl block, or on the module.
+//! - A private glob import that brings the trait's own name back into the
+//!   trait's module, `use crate::prelude::*;` at a crate root whose prelude
+//!   re-exports a trait declared there, makes the carrier's re-export
+//!   ambiguous to rustc (`ambiguous_import_visibilities`, an error under
+//!   `#![deny(future_incompatible)]`). Declare the trait in a module of its
+//!   own and re-export it, or import the prelude's items by name there.
 //! - Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` on
 //!   `deref` variants holding a `Box`, and `self: Pin<&Self>` or
 //!   `self: Pin<&mut Self>` when every payload is `Unpin`. `Rc<Self>`,
@@ -538,7 +586,14 @@
 //! not marked `#[dispatchable]`, or the trait (which carries the macro) is
 //! not imported where the enum is. A `std::`, `core::` or `alloc::` path in
 //! `#[dispatch]` is reported directly, naming the [`foreign`] declaration
-//! or the `remote` restatement to use instead.
+//! or the `remote` restatement to use instead. "could not find `Trait` in
+//! `other`" on `#[dispatch(other::Trait)]` means the same for a trait of
+//! another crate: restate it with `remote`. The same words on a partial
+//! block over another crate's enum mean the enum has no
+//! `#[whichever::dispatch]`, which only its own crate can add. With
+//! `#[async_trait]`, `#[dispatchable]` goes below it; with
+//! `#[typetag::serde]`, above it; either order the other way round is
+//! reported.
 //!
 //! The crate is `no_std`: the generated code names only `core` items. The
 //! minimum supported Rust version is 1.88.

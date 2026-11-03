@@ -2789,6 +2789,48 @@ mod inherent_block_on_a_struct {
         }
     }
 
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct U(pub u64);
+
+    impl U {
+        pub fn wrapping_add(self, rhs: Self) -> Self {
+            U(self.0.wrapping_add(rhs.0))
+        }
+        pub fn max_with(&self, other: &Self) -> Self {
+            U(self.0.max(other.0))
+        }
+        pub fn take_from(&mut self, other: &mut Self) {
+            self.0 += std::mem::take(&mut other.0);
+        }
+    }
+
+    // Two values of a struct always hold the same field, so a `Self`
+    // argument is unwrapped to the field, as trait dispatch unwraps it.
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[whichever::dispatch]
+    pub struct A(U);
+
+    #[whichever::dispatch]
+    impl A {
+        #[dispatch(*)]
+        pub fn wrapping_add(self, rhs: Self) -> Self;
+
+        #[dispatch(*)]
+        pub fn max_with(&self, other: &Self) -> Self;
+
+        #[dispatch(*)]
+        pub fn take_from(&mut self, other: &mut Self);
+    }
+
+    #[test]
+    fn a_self_argument_is_the_other_value_of_the_field() {
+        assert_eq!(A(U(1)).wrapping_add(A(U(2))), A(U(3)));
+        assert_eq!(A(U(1)).max_with(&A(U(5))), A(U(5)));
+        let (mut a, mut b) = (A(U(1)), A(U(2)));
+        a.take_from(&mut b);
+        assert_eq!((a, b), (A(U(3)), A(U(0))));
+    }
+
     #[whichever::dispatch]
     pub struct Labelled {
         #[dispatch]
@@ -2864,5 +2906,392 @@ mod partial_block_over_a_foreign_trait {
         let failure: Failure = Parse.into();
         assert_eq!(failure.to_string(), "parse");
         assert!(Error::source(&failure).is_none());
+    }
+}
+
+// A struct forwards a return-position `impl Trait` as it is: its `match`
+// has one arm, so there is one opaque type.
+mod opaque_returns_through_a_struct {
+    use std::future::Future;
+
+    #[whichever::dispatchable]
+    pub trait Source {
+        fn items(&self) -> impl Iterator<Item = u32> + '_;
+        fn load(&self) -> impl Future<Output = u32> + Send;
+        fn reloaded(&self) -> impl Future<Output = Self> + Send
+        where
+            Self: Sized;
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct Few(pub Vec<u32>);
+
+    // The trait spells its futures as `impl Future`, as a public trait that
+    // has to promise `Send` does; the impl follows it.
+    #[allow(clippy::manual_async_fn)]
+    impl Source for Few {
+        fn items(&self) -> impl Iterator<Item = u32> + '_ {
+            self.0.iter().copied()
+        }
+        fn load(&self) -> impl Future<Output = u32> + Send {
+            async move { self.0.len() as u32 }
+        }
+        fn reloaded(&self) -> impl Future<Output = Self> + Send {
+            async move { Few(self.0.iter().rev().copied().collect()) }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch(Source)]
+    pub struct Wrapped(Few);
+
+    // An inherent method of a struct forwards an opaque type the same way.
+    #[derive(Debug, PartialEq)]
+    #[whichever::dispatch]
+    pub struct Labelled {
+        #[dispatch]
+        few: Few,
+        label: &'static str,
+    }
+
+    #[whichever::dispatch]
+    impl Labelled {
+        #[dispatch(*, call = items)]
+        pub fn items_again(&self) -> impl Iterator<Item = u32> + '_;
+    }
+
+    #[test]
+    fn the_one_arm_returns_the_opaque_type() {
+        let wrapped = Wrapped(Few(vec![1, 2, 3]));
+        assert_eq!(wrapped.items().sum::<u32>(), 6);
+        assert_eq!(pollster::block_on(wrapped.load()), 3);
+        assert_eq!(
+            pollster::block_on(wrapped.reloaded()),
+            Wrapped(Few(vec![3, 2, 1]))
+        );
+        let labelled = Labelled {
+            few: Few(vec![4]),
+            label: "a",
+        };
+        assert_eq!(labelled.items_again().sum::<u32>(), 4);
+        assert_eq!(labelled.label, "a");
+    }
+}
+
+// A partial block's header may name the enum's parameters as it likes; the
+// arms follow the header, not the declaration.
+mod partial_block_renaming_the_parameters {
+    #[whichever::dispatchable]
+    pub trait Get<V> {
+        fn get(&self) -> V;
+    }
+
+    pub struct Node(u32);
+
+    impl Get<u32> for Node {
+        fn get(&self) -> u32 {
+            self.0
+        }
+    }
+
+    pub struct Imm(u32);
+
+    impl Get<u32> for Imm {
+        fn get(&self) -> u32 {
+            self.0 * 10
+        }
+    }
+
+    #[whichever::dispatch(from = false)]
+    pub enum ImmOrNode<T> {
+        Imm(T),
+        Node(Node),
+    }
+
+    // The block calls the enum's `T` `Ty` and uses `T` for the trait's
+    // parameter, as cameleon's header does.
+    #[whichever::dispatch]
+    impl<T, Ty> Get<T> for ImmOrNode<Ty>
+    where
+        Ty: Get<T>,
+        Node: Get<T>,
+    {
+    }
+
+    #[whichever::dispatchable]
+    pub trait Count {
+        fn count(&self) -> usize;
+    }
+
+    pub struct Many<'a>(&'a [u8]);
+
+    impl Count for Many<'_> {
+        fn count(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    #[whichever::dispatch(from = false)]
+    pub enum Holder<'a, T> {
+        Many(Many<'a>),
+        One(T),
+    }
+
+    // A lifetime renamed, and a type parameter fixed to a concrete type.
+    #[whichever::dispatch]
+    impl<'b> Count for Holder<'b, Many<'b>> {}
+
+    #[test]
+    fn the_arms_follow_the_blocks_names() {
+        let imm: ImmOrNode<Imm> = ImmOrNode::Imm(Imm(4));
+        let node: ImmOrNode<Imm> = ImmOrNode::Node(Node(3));
+        assert_eq!((imm.get(), node.get()), (40, 3));
+        let bytes = [1u8, 2, 3];
+        let holder: Holder<'_, Many<'_>> = Holder::One(Many(&bytes[..2]));
+        assert_eq!(holder.count(), 2);
+        assert_eq!(Holder::<Many<'_>>::Many(Many(&bytes)).count(), 3);
+    }
+}
+
+// A generic associated type has no first variant to come from: the enum
+// declares it in a partial impl block, and every payload's converts into it.
+mod generic_associated_types_declared_by_the_enum {
+    use std::fmt::Debug;
+
+    #[whichever::dispatchable]
+    pub trait Sink<T> {
+        fn put(&mut self, value: T);
+        fn len(&self) -> usize;
+    }
+
+    #[whichever::dispatchable]
+    pub trait Make {
+        type Out<T>: Sink<T>
+        where
+            T: Send;
+        type View<'s>: Debug
+        where
+            Self: 's;
+        fn make<T: Send>(&self) -> Self::Out<T>;
+        fn view(&self) -> Self::View<'_>;
+        fn name(&self) -> &'static str;
+    }
+
+    pub struct VecSink<T>(Vec<T>);
+
+    impl<T> Sink<T> for VecSink<T> {
+        fn put(&mut self, value: T) {
+            self.0.push(value);
+        }
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    pub struct CountSink(usize);
+
+    impl<T> Sink<T> for CountSink {
+        fn put(&mut self, _: T) {
+            self.0 += 1;
+        }
+        fn len(&self) -> usize {
+            self.0
+        }
+    }
+
+    pub struct A(u8);
+    pub struct B<'x>(&'x str);
+
+    impl Make for A {
+        type Out<T>
+            = VecSink<T>
+        where
+            T: Send;
+        type View<'s>
+            = u8
+        where
+            Self: 's;
+        fn make<T: Send>(&self) -> VecSink<T> {
+            VecSink(vec![])
+        }
+        fn view(&self) -> u8 {
+            self.0
+        }
+        fn name(&self) -> &'static str {
+            "a"
+        }
+    }
+
+    impl<'x> Make for B<'x> {
+        type Out<T>
+            = CountSink
+        where
+            T: Send;
+        type View<'s>
+            = &'x str
+        where
+            Self: 's;
+        fn make<T: Send>(&self) -> CountSink {
+            CountSink(0)
+        }
+        fn view(&self) -> &'x str {
+            self.0
+        }
+        fn name(&self) -> &'static str {
+            "b"
+        }
+    }
+
+    // The enum's own sink: a dispatch enum over `Sink<T>` at its own `T`.
+    #[whichever::dispatch(Sink<T>)]
+    pub enum AnySink<T> {
+        Vec(VecSink<T>),
+        Count(CountSink),
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum AnyView<'s> {
+        Num(u8),
+        Str(&'s str),
+    }
+
+    impl From<u8> for AnyView<'_> {
+        fn from(value: u8) -> Self {
+            AnyView::Num(value)
+        }
+    }
+
+    impl<'s> From<&'s str> for AnyView<'s> {
+        fn from(value: &'s str) -> Self {
+            AnyView::Str(value)
+        }
+    }
+
+    #[whichever::dispatch(from = false)]
+    pub enum Kind<'x> {
+        A(A),
+        B(B<'x>),
+    }
+
+    #[whichever::dispatch]
+    impl<'x> Make for Kind<'x> {
+        type Out<T>
+            = AnySink<T>
+        where
+            T: Send;
+        type View<'s>
+            = AnyView<'s>
+        where
+            Self: 's;
+    }
+
+    #[test]
+    fn each_payloads_type_converts_into_the_declared_one() {
+        let a = Kind::A(A(7));
+        let text = String::from("text");
+        let b = Kind::B(B(&text));
+        let mut sink = a.make::<u32>();
+        sink.put(1);
+        sink.put(2);
+        assert!(matches!(sink, AnySink::Vec(_)));
+        assert_eq!(sink.len(), 2);
+        let mut counted = b.make::<&str>();
+        counted.put("x");
+        assert!(matches!(counted, AnySink::Count(_)));
+        assert_eq!(counted.len(), 1);
+        assert_eq!(a.view(), AnyView::Num(7));
+        assert_eq!(b.view(), AnyView::Str("text"));
+        assert_eq!((a.name(), b.name()), ("a", "b"));
+    }
+}
+
+// An inherent method may name a variant under `#[cfg]`; where the variant
+// is compiled out, the method takes its body.
+mod inherent_list_naming_a_conditional_variant {
+    pub struct Plain;
+
+    impl Plain {
+        pub fn root(&self) -> u32 {
+            1
+        }
+    }
+
+    #[cfg(any())]
+    pub struct Proving;
+
+    #[whichever::dispatch]
+    pub enum Header {
+        Plain(Plain),
+        #[cfg(any())]
+        Proving(Proving),
+    }
+
+    #[whichever::dispatch]
+    impl Header {
+        #[dispatch(Proving, with = Some)]
+        pub fn registry_root(&self) -> Option<u32> {
+            None
+        }
+
+        // Naming every variant, the conditional one included, is exhaustive
+        // in every build, so the method takes no body.
+        #[dispatch(Plain, Proving)]
+        pub fn root(&self) -> u32;
+    }
+
+    #[test]
+    fn a_variant_compiled_out_takes_the_body() {
+        let header = Header::Plain(Plain);
+        assert_eq!(header.registry_root(), None);
+        assert_eq!(header.root(), 1);
+    }
+}
+
+// `#[async_trait]` goes above `#[dispatchable]`: the carrier then holds the
+// signatures as `async_trait` rewrote them, which is what every impl has.
+mod async_trait_above_dispatchable {
+    use async_trait::async_trait;
+
+    #[async_trait]
+    #[whichever::dispatchable]
+    pub trait Fetch {
+        async fn fetch(&self) -> u32;
+        fn sync(&self) -> u32 {
+            0
+        }
+    }
+
+    pub struct Fast;
+    pub struct Slow;
+
+    #[async_trait]
+    impl Fetch for Fast {
+        async fn fetch(&self) -> u32 {
+            1
+        }
+    }
+
+    #[async_trait]
+    impl Fetch for Slow {
+        async fn fetch(&self) -> u32 {
+            2
+        }
+        fn sync(&self) -> u32 {
+            2
+        }
+    }
+
+    #[whichever::dispatch(Fetch)]
+    pub enum Any {
+        Fast(Fast),
+        Slow(Slow),
+    }
+
+    #[test]
+    fn the_boxed_future_is_forwarded_as_it_is() {
+        let slow: Any = Slow.into();
+        assert_eq!(pollster::block_on(slow.fetch()), 2);
+        assert_eq!(slow.sync(), 2);
+        assert_eq!(pollster::block_on(Any::from(Fast).fetch()), 1);
     }
 }

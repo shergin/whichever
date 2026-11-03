@@ -1,4 +1,4 @@
-error: generic associated types are not supported
+error: `Item` is a generic associated type, which only the enum can declare; write `type Item<'a> = ..;` in a `#[whichever::dispatch] impl Lend for Kind` block
   --> tests/ui/generic_associated_type.rs:3:5
    |
  3 | /     type Item<'a>
@@ -7,6 +7,6 @@ error: generic associated types are not supported
    | |_________________^
 ...
 18 |   #[whichever::dispatch(Lend)]
-   |   ---------------------------- in this attribute macro expansion
+   |                         ---- in this macro invocation
    |
-   = note: this error originates in the macro `Lend` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Lend` (in Nightly builds, run with -Z macro-backtrace for more info)

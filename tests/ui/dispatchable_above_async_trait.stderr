@@ -1,0 +1,5 @@
+error: `#[async_trait]` rewrites the signatures after `whichever` has read them; put `#[whichever::dispatchable]` below it
+ --> tests/ui/dispatchable_above_async_trait.rs:6:1
+  |
+6 | #[async_trait]
+  | ^^^^^^^^^^^^^^

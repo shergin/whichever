@@ -133,7 +133,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// On a struct, the trait is forwarded to its one field, or to the field
 /// marked `#[dispatch]`, with `#[dispatch(deref)]` for a field behind a
-/// pointer. A struct gets no conversions.
+/// pointer. A struct gets no conversions, needs no `mismatch`, and forwards
+/// a return-position `impl Trait` as it is, since its `match` has one arm.
 ///
 /// On an inherent `impl` block of a dispatch enum, in the same crate, every
 /// method carrying `#[dispatch(..)]` is forwarded to the named variants'
@@ -160,9 +161,10 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Methods without the attribute are left as they are.
 ///
 /// On a trait impl block of a dispatch enum, in the same crate, the block
-/// holds the items the enum implements itself and the rest of the trait is
-/// forwarded around them. The enum then does not name that trait in its own
-/// attribute; the trait's options go on the block's attribute:
+/// holds the items the enum implements itself, a generic associated type
+/// among them, and the rest of the trait is forwarded around them. The enum
+/// then does not name that trait in its own attribute; the trait's options
+/// go on the block's attribute:
 ///
 /// ```rust,ignore
 /// #[whichever::dispatch]
@@ -223,6 +225,7 @@ pub fn implement_block(input: TokenStream) -> TokenStream {
         Some(spec) => expand_partial(
             input.rejected,
             &input.facade,
+            &input.dispatched,
             input.subject,
             spec,
             input.item_impl,

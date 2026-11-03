@@ -1,0 +1,5 @@
+error: `T` is a type parameter of `ImmOrNode`, so `From<T>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+  --> tests/ui/rejected_conversions_keep_the_partial_block.rs:26:9
+   |
+26 |     Imm(T),
+   |         ^

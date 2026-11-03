@@ -1,0 +1,5 @@
+error: `#[typetag::serde]` has added its per-impl methods to the trait, which a forwarder would answer with the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = "..")]` on the enum's partial impl block
+ --> tests/ui/typetag_above_dispatchable.rs:6:7
+  |
+6 | trait Piece {
+  |       ^^^^^

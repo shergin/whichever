@@ -5,6 +5,6 @@ error: `presets` has no receiver, so there is no variant to dispatch on; give it
    |     ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 28 | #[whichever::dispatch(Factory)]
-   | ------------------------------- in this attribute macro expansion
+   |                       ------- in this macro invocation
    |
-   = note: this error originates in the macro `Factory` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Factory` (in Nightly builds, run with -Z macro-backtrace for more info)

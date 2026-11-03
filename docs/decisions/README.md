@@ -17,7 +17,8 @@ the planning notes, the note holds the long form and the record names it.
 - [The trait travels in a macro, not a cache](the-trait-travels-in-a-macro.md)
 - [The carrier macro's name and home](the-carrier-macros-name-and-home.md)
 - [Receivers that would allocate are rejected](receivers-that-allocate-are-rejected.md)
-- [`impl Trait` returns are rejected, except futures](impl-trait-returns-are-rejected-except-futures.md)
+- [`impl Trait` returns: an enum forwards futures, a struct forwards them all](impl-trait-returns-are-forwarded-through-a-struct.md),
+  superseding [`impl Trait` returns are rejected, except futures](impl-trait-returns-are-rejected-except-futures.md)
 - [Associated consts are checked for four types](associated-consts-are-checked-for-four-types.md)
 - [A rejected enum is still emitted](a-rejected-enum-is-still-emitted.md)
 - [Foreign traits are restated, and the common ones ship](foreign-traits-are-restated.md)
