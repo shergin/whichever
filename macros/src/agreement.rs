@@ -1,9 +1,9 @@
 //! The checks that every variant agrees with the first on the associated
 //! types and consts the impl takes from it.
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
-use syn::{GenericArgument, GenericParam, Ident, Path, PathArguments, Type};
+use syn::{GenericArgument, Ident, Path, PathArguments, Type};
 
 use crate::shape::bare_ident;
 use crate::subject::Target;
@@ -124,8 +124,14 @@ pub(crate) fn associated_const_check(
 /// first variant's, so a disagreement is reported on the variant instead of
 /// inside a generated method body.
 ///
-/// The helper carries the enum's own generics, since a nested function
-/// could not name them; the outer function passes them on to each call.
+/// The helpers are associated functions of a local struct wrapping the
+/// subject, inside the anonymous `const`. The struct's field gives its impl
+/// the bounds the subject's fields imply, `T: 'a` for a payload holding
+/// `&'a T`, which free functions copying the subject's generics would lack;
+/// and the subject's parameters belong to the impl, so none is passed to
+/// the helper, where a lifetime the first payload does not mention would be
+/// late-bound and could not be. The struct is local to the `const`, so two
+/// traits dispatched on one subject never meet.
 pub(crate) fn associated_type_check(
     names: &[&Ident],
     variants: &[&Target],
@@ -153,33 +159,22 @@ pub(crate) fn associated_type_check(
             *arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#(#bindings),*>))
         }
     }
-    let mut helper_generics = generics.clone();
-    helper_generics
-        .params
-        .push(syn::parse_quote!(__Variant: ?Sized + #bound));
-    let (helper_impl_generics, _, helper_where_clause) = helper_generics.split_for_impl();
-    let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let enum_arguments: Vec<TokenStream2> = generics
-        .params
-        .iter()
-        .map(|param| match param {
-            GenericParam::Lifetime(param) => param.lifetime.to_token_stream(),
-            GenericParam::Type(param) => param.ident.to_token_stream(),
-            GenericParam::Const(param) => param.ident.to_token_stream(),
-        })
-        .collect();
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let checks = others(variants, first).map(|variant| {
         let payload = variant.target_type_outside(self_type);
         let cfgs = &variant.cfgs;
-        quote! { #(#cfgs)* __same_as_first_variant::<#(#enum_arguments,)* #payload>(); }
+        quote! { #(#cfgs)* Self::__same_as_first_variant::<#payload>(); }
     });
     quote! {
         const _: () = {
+            #[allow(dead_code)]
+            struct __WhicheverAgreement #impl_generics (#self_type) #where_clause;
             #[allow(dead_code, non_snake_case)]
-            fn __same_as_first_variant #helper_impl_generics () #helper_where_clause {}
-            #[allow(dead_code, non_snake_case)]
-            fn __whichever_associated_types_agree #impl_generics () #where_clause {
-                #(#checks)*
+            impl #impl_generics __WhicheverAgreement #ty_generics #where_clause {
+                fn __same_as_first_variant<__Variant: ?Sized + #bound>() {}
+                fn __whichever_associated_types_agree() {
+                    #(#checks)*
+                }
             }
         };
     }

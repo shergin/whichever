@@ -45,7 +45,9 @@ is classified by receiver, by arguments and by return shape, the trait's
 generics are substituted with the arguments the subject named, and one
 `match` is written with a fully qualified call per arm. Associated types and
 consts are taken from the first target and checked against the rest in a
-`const _` block.
+`const _` block; the type check's helpers are associated functions of a
+wrapper struct of the subject declared in that block, so that the subject's
+parameters belong to their impl and the bounds its fields imply hold there.
 
 ## 2. What was wrong with the shape of 0.4.0
 
@@ -464,6 +466,19 @@ of which lost their "needs at least one variant" follow-up;
 `generic_associated_type`, `generic_trait_without_arguments`,
 `unknown_option_names` and `self_in_aliased_return` reworded; fourteen new
 cases.
+
+### Stage 14: the enum_dispatch page-1 surveys' bugs
+
+Status: landed, after 0.5.1. The associated-type agreement check's helpers
+are associated functions of a local wrapper struct of the subject, so a
+lifetime the first payload does not mention is never passed (E0794) and the
+bounds the payloads imply hold (E0309); a partial block's method under
+`#[cfg]` is forwarded under the complement of its predicates, and an
+associated type or const under one is a sentence. Goldens: the check block
+changed shape in `carried_attributes` and `recursive`;
+`conditional_partial_method` is new. Compile-fail snapshots:
+`associated_type_disagreement` moved with the helper's new home; one new
+case.
 
 ## 5. Invariants every stage keeps
 

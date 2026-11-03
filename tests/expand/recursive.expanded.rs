@@ -76,11 +76,14 @@ impl Eval for Node {
     }
 }
 const _: () = {
+    #[allow(dead_code)]
+    struct __WhicheverAgreement(Node);
     #[allow(dead_code, non_snake_case)]
-    fn __same_as_first_variant<__Variant: ?Sized + Eval<Out = <Leaf as Eval>::Out>>() {}
-    #[allow(dead_code, non_snake_case)]
-    fn __whichever_associated_types_agree() {
-        __same_as_first_variant::<Wrap<Node>>();
+    impl __WhicheverAgreement {
+        fn __same_as_first_variant<__Variant: ?Sized + Eval<Out = <Leaf as Eval>::Out>>() {}
+        fn __whichever_associated_types_agree() {
+            Self::__same_as_first_variant::<Wrap<Node>>();
+        }
     }
 };
 fn main() {}

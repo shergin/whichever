@@ -458,7 +458,9 @@
 //! converts into it through `Into`, as for any override. A method written
 //! in the block replaces the forwarding for every variant, provided methods
 //! included, which is also the way to leave a payload's method out on
-//! purpose. The block's own header, bounds included, becomes the impl's,
+//! purpose; one written under `#[cfg]` replaces it where the `cfg` holds
+//! and is forwarded where it does not, as a hand writes the two arms. The
+//! block's own header, bounds included, becomes the impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
 //! so a block in another module needs them in scope there. Outer attributes
@@ -558,6 +560,10 @@
 //! - A projection through a trait parameter with several bounds,
 //!   `F::Value` with `F: Format + Clone`, cannot be qualified at the enum;
 //!   the trait writes `<F as Format>::Value`.
+//! - An associated type or const a partial impl block declares under
+//!   `#[cfg]` is an error: the forwarded methods convert into the type in
+//!   every build. Put the whole block under the `cfg`, with a second block
+//!   for the other builds.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

@@ -5,6 +5,21 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The associated-type agreement check compiles for every lifetime-generic
+  enum. Its helpers were free functions carrying the enum's generics,
+  which rustc rejected with E0794 when the first payload did not mention
+  the enum's lifetime (polars' `Inputs<'a>`) and with E0309 when a payload's
+  `&'a T` implied a `T: 'a` the functions could not see (mrml's
+  `OneOrManyIter`). They are associated functions of a local wrapper of the
+  enum now, so nothing is passed to them and the implied bounds hold; a
+  disagreement is still reported on the variant.
+- A method a partial impl block writes under `#[cfg]` is the block's where
+  the `cfg` holds and forwarded where it does not. Before, it counted as
+  written in every build, so with the `cfg` off the trait's default ran and
+  hid the payload's override, silently (lsm-tree). An associated type or
+  const declared under `#[cfg]` is reported in one sentence, with the two
+  blocks to write instead.
+
 ## 0.5.1 - 2026-11-02
 
 A patch for the nine bugs the ambassador and enum_delegate surveys filed

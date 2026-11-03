@@ -78,11 +78,14 @@ unsafe impl Marker for Any {
     }
 }
 const _: () = {
+    #[allow(dead_code)]
+    struct __WhicheverAgreement(Any);
     #[allow(dead_code, non_snake_case)]
-    fn __same_as_first_variant<
-        __Variant: ?Sized + Marker<Tag = <Present as Marker>::Tag>,
-    >() {}
-    #[allow(dead_code, non_snake_case)]
-    fn __whichever_associated_types_agree() {}
+    impl __WhicheverAgreement {
+        fn __same_as_first_variant<
+            __Variant: ?Sized + Marker<Tag = <Present as Marker>::Tag>,
+        >() {}
+        fn __whichever_associated_types_agree() {}
+    }
 };
 fn main() {}

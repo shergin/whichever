@@ -1,8 +1,10 @@
 //! `implement!`: the forwarding impl of one trait for one subject.
-use std::collections::HashSet;
+use std::collections::hash_map::Entry as MapEntry;
+use std::collections::HashMap;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
+use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
     parse_quote, Attribute, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Result,
@@ -17,7 +19,9 @@ use crate::forwarding::{
 use crate::options::{closest, listed, method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
 use crate::shape::{takes_self_argument, ReturnSite};
-use crate::subject::{carried_attributes, shape_errors, targets, Entry, Subject, Target};
+use crate::subject::{
+    carried_attributes, cfg_attributes, shape_errors, targets, Entry, Subject, Target,
+};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -114,22 +118,38 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             TraitItem::Fn(function) => Some(&function.sig.ident),
             _ => None,
         };
-        // An item the partial block writes is the block's.
-        if name.is_some_and(|name| written.contains(&name.to_string())) {
-            continue;
-        }
-        let generated = match item {
-            TraitItem::Type(assoc) => {
+        // An item the partial block writes is the block's: in every build
+        // when it is written unconditionally, and where its `cfg` holds
+        // when it is written under one, in which case the forwarded item
+        // takes the builds where it does not, as a hand writes the two arms.
+        let written = name.and_then(|name| written.get(&name.to_string()));
+        let (complement, written_at) = match written {
+            Some(Written::Always) => continue,
+            Some(Written::Under { conditions, span }) => {
+                (Some(not_all_of(conditions)), Some(*span))
+            }
+            None => (None, None),
+        };
+        let generated = match (item, written_at) {
+            (TraitItem::Type(assoc), Some(span)) => Err(Error::new(
+                span,
+                format!("`{}` is declared under `#[cfg]`, and an associated type is declared in every build, since the forwarded methods convert into it; put the whole block under the `cfg`, with a second block for the other builds", assoc.ident),
+            )),
+            (TraitItem::Const(constant), Some(span)) => Err(Error::new(
+                span,
+                format!("`{}` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds", constant.ident),
+            )),
+            (TraitItem::Type(assoc), None) => {
                 associated_type(assoc, &spec, &supplier, &block_header, &mut agreed_types)
             }
-            TraitItem::Const(constant) => associated_const(
+            (TraitItem::Const(constant), None) => associated_const(
                 constant,
                 &spec,
                 &supplier,
                 &mut substitution,
                 &mut agreed_consts,
             ),
-            TraitItem::Fn(function) => expand_method(
+            (TraitItem::Fn(function), _) => expand_method(
                 function,
                 &entries,
                 &subject,
@@ -137,8 +157,9 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 &spec,
                 &block_header,
                 &mut substitution,
-            ),
-            TraitItem::Macro(item) => Err(Error::new_spanned(
+            )
+            .map(|forwarded| quote! { #complement #forwarded }),
+            (TraitItem::Macro(item), _) => Err(Error::new_spanned(
                 item,
                 "macro invocations inside the trait are not supported",
             )),
@@ -319,10 +340,60 @@ struct ImplHeader<'a> {
     self_ty: Type,
     attrs: &'a [Attribute],
     unsafety: Option<Token![unsafe]>,
-    /// The names of the items the block writes; the trait's items of those
-    /// names are the block's.
-    written: HashSet<String>,
+    /// The items the block writes, by name, and in which builds.
+    written: HashMap<String, Written>,
     user_items: Vec<&'a ImplItem>,
+}
+
+/// In which builds a partial block writes an item of a given name.
+enum Written {
+    /// In every build: at least one of the block's items of the name has
+    /// no `#[cfg]`.
+    Always,
+    /// Under the `#[cfg]` attributes of each of the block's items of the
+    /// name, any of which may hold; `span` is the first such item's, for a
+    /// message about them.
+    Under {
+        conditions: Vec<Vec<Attribute>>,
+        span: Span,
+    },
+}
+
+impl Written {
+    /// The first item of a name, written under `cfgs` at `span`.
+    fn new(cfgs: Vec<Attribute>, span: Span) -> Self {
+        if cfgs.is_empty() {
+            Written::Always
+        } else {
+            Written::Under {
+                conditions: vec![cfgs],
+                span,
+            }
+        }
+    }
+
+    /// Records one more item of the name, written under `cfgs`.
+    fn add(&mut self, cfgs: Vec<Attribute>) {
+        match self {
+            Written::Always => {}
+            Written::Under { .. } if cfgs.is_empty() => *self = Written::Always,
+            Written::Under { conditions, .. } => conditions.push(cfgs),
+        }
+    }
+}
+
+/// Returns the `#[cfg]` under which none of `conditions` holds: each is
+/// the `all` of one item's predicates, and the item exists under `any` of
+/// them.
+fn not_all_of(conditions: &[Vec<Attribute>]) -> TokenStream2 {
+    let predicates = conditions.iter().map(|cfgs| {
+        let predicates = cfgs.iter().map(|attribute| match &attribute.meta {
+            syn::Meta::List(list) => list.tokens.clone(),
+            _ => TokenStream2::new(),
+        });
+        quote!(all(#(#predicates),*))
+    });
+    quote!(#[cfg(not(any(#(#predicates),*)))])
 }
 
 impl<'a> ImplHeader<'a> {
@@ -341,27 +412,30 @@ impl<'a> ImplHeader<'a> {
                 attrs: &[],
                 // An `unsafe trait` is implemented by an `unsafe impl`.
                 unsafety: item_trait.unsafety,
-                written: HashSet::new(),
+                written: HashMap::new(),
                 user_items: vec![],
             };
         };
-        let mut written = HashSet::new();
+        let mut written: HashMap<String, Written> = HashMap::new();
         for item in &block.items {
-            match item {
-                ImplItem::Fn(function) => {
-                    written.insert(function.sig.ident.to_string());
-                }
+            let (name, attrs) = match item {
+                ImplItem::Fn(function) => (&function.sig.ident, &function.attrs),
                 // An associated type written in the block is an override
                 // like the `Name = Type` option.
                 ImplItem::Type(assoc) => {
-                    written.insert(assoc.ident.to_string());
                     spec.overrides
                         .push(Override::of_type(assoc.ident.clone(), &assoc.ty));
+                    (&assoc.ident, &assoc.attrs)
                 }
-                ImplItem::Const(constant) => {
-                    written.insert(constant.ident.to_string());
+                ImplItem::Const(constant) => (&constant.ident, &constant.attrs),
+                _ => continue,
+            };
+            let cfgs = cfg_attributes(attrs);
+            match written.entry(name.to_string()) {
+                MapEntry::Occupied(entry) => entry.into_mut().add(cfgs),
+                MapEntry::Vacant(entry) => {
+                    entry.insert(Written::new(cfgs, item.span()));
                 }
-                _ => {}
             }
         }
         Self {
@@ -572,4 +646,34 @@ fn expand_method(
         #allow_unreachable
         #signature #body
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    #[test]
+    fn the_forwarded_item_takes_the_builds_the_blocks_items_leave() {
+        let named: Vec<Attribute> = vec![
+            parse_quote!(#[cfg(feature = "named")]),
+            parse_quote!(#[cfg(not(test))]),
+        ];
+        let unix: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
+        assert_eq!(
+            not_all_of(&[named.clone(), unix.clone()]).to_string(),
+            quote!(#[cfg(not(any(all(feature = "named", not(test)), all(unix))))]).to_string()
+        );
+        let mut written = Written::new(named, Span::call_site());
+        assert!(matches!(&written, Written::Under { conditions, .. } if conditions.len() == 1));
+        written.add(unix);
+        assert!(matches!(&written, Written::Under { conditions, .. } if conditions.len() == 2));
+        written.add(vec![]);
+        assert!(matches!(written, Written::Always));
+        assert!(matches!(
+            Written::new(vec![], Span::call_site()),
+            Written::Always
+        ));
+    }
 }

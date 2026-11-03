@@ -1,0 +1,11 @@
+error: `Value` is declared under `#[cfg]`, and an associated type is declared in every build, since the forwarded methods convert into it; put the whole block under the `cfg`, with a second block for the other builds
+  --> tests/ui/cfg_on_partial_associated_type.rs:29:5
+   |
+29 |     #[cfg(feature = "wide")]
+   |     ^
+
+error: `LIMIT` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds
+  --> tests/ui/cfg_on_partial_associated_type.rs:32:5
+   |
+32 |     #[cfg(feature = "wide")]
+   |     ^
