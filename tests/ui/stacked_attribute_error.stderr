@@ -1,0 +1,5 @@
+error: expected boolean literal
+  --> tests/ui/stacked_attribute_error.rs:40:36
+   |
+40 | #[whichever::dispatch(Name, from = 1)]
+   |                                    ^

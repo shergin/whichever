@@ -213,7 +213,7 @@ are written by, and the grammar in one place:
 @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]       sent by #[dispatch] to a trait's carrier
 @v1 trait { <trait> } [remote { <path> }] <the rest of the message above>   what the carrier hands implement!
 @v1 <facade> [partial { <options> }] impl { <block> }                        sent by #[dispatch] to a subject's carrier
-@v1 [rejected] facade { <facade> } enum { <subject> } <the rest above>       what the carrier hands implement_block!
+@v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } <the rest above>   what the carrier hands implement_block!
 ```
 
 The options travel typed: a `TraitRequest` carries a `TraitSpec`, a
@@ -226,7 +226,9 @@ and the readers skip a tag they do not know, so an older reader accepts a
 newer carrier, which a unit test and a behaviour test with a carrier of the
 0.4.0 shape pin. `v1` becomes `v2` when a segment changes meaning or order.
 The subject's carrier never leaves its crate and forwards the facade's
-name, so a partial impl needs no second lookup. The facade pins the macros
+name, so a partial impl needs no second lookup, and the traits the subject's
+own attributes dispatch, so a partial block of one of them is reported as
+the second impl it would be. The facade pins the macros
 crate exactly: `__private` and the generated code are one interface.
 `implement_inherent!` is renamed `implement_block!`; the name `implement!`
 cannot change.
@@ -260,8 +262,15 @@ of them. The two paths then differ on purpose: the trait path withholds
 the impl, since an impl missing items would draw a second error from rustc
 and the user is about to fix the trait or the enum anyway; the inherent
 path keeps the block and the methods it could forward, since they stand on
-their own. A rejected subject is still emitted, and so is a rejected
-inherent block. A trait method's parameter keeps its own name when its
+their own. At the subject the unit of rejection is the attribute: the
+subject and its carrier are always emitted, each attribute that parses is
+expanded, the conversions that can be written are written, and the errors
+follow; "rejected", the flag the carrier hands the subject's impl blocks, is
+reserved for a subject whose variants or field cannot be read, since then
+the blocks could only repeat that error. Each trait's carrier invocation
+carries the span of its own attribute, so an error rustc finds in one
+trait's impl is labelled on that attribute and not on the first of the
+stack. A trait method's parameter keeps its own name when its
 pattern is a plain identifier and gets `__argument<n>` otherwise, so
 expansions read like the trait, and a `mismatch` expression written on the
 trait method may name the arguments, a moved `Self` argument included,
@@ -418,6 +427,44 @@ Status: landed. The README's `foreign::Error` example, which did not
 compile, the semantics tables, the `mismatch` hygiene note, the changelog
 and this file.
 
+### Round three
+
+Nine bugs filed from the ambassador and enum_delegate surveys, reproduced
+on 0.5.0, and the gap items with a settled design, landed on 2026-11-02 in
+one round through the same gate.
+
+### Stage 13: the surveys' bugs
+
+Status: landed. The unit of rejection at a subject is the attribute (3.8);
+the subject's carrier names the traits the subject dispatches, so a partial
+block of one is reported as the second impl; a struct forwards opaque
+returns as they are, and an opaque type nested in an enum's return type is
+found; `classify_return` takes a `ReturnSite`, the subject's name and
+whether it has one target, so the `Self` limit names the subject and the
+way out of the method's own path; an inherent method of a struct unwraps
+its `Self` arguments as trait dispatch does; a hand-written `#[allow]` on a
+trait item is carried onto the generated item; a partial block's header may
+rename the subject's parameters, and `Substitution` serves the subject's
+generics as well as the trait's, reporting a projection it cannot qualify;
+a generic associated type the block declares is accepted and one it does
+not is pointed at the block; an override naming nothing in the trait says
+what was probably meant; a variant's shape error names what the variant
+holds and the inherent way around it, and an enum whose every variant is
+rejected gets no impl on top; `#[dispatchable]` reports `#[async_trait]`
+below it and `#[typetag::serde]` above it; a second `#[dispatch]` on an
+inherent method, a closure after `with`, and `Name<..> = ..` for a generic
+associated type are one sentence each. Goldens: `carried_attributes` (the
+`#[allow]` lines), `opaque_through_a_struct` and `gat_in_a_partial_block`
+(new). Compile-fail snapshots: the attribute-stack label moved from "in this
+attribute macro expansion" to "in this macro invocation" on the trait path
+in eleven cases; the variant shape sentences in `struct_variant`,
+`two_field_variant`, `unit_variant`, `cfg_enabled_bad_variant`,
+`rejected_variant_keeps_enum` and `inherent_all_with_unforwardable`, the two
+of which lost their "needs at least one variant" follow-up;
+`generic_associated_type`, `generic_trait_without_arguments`,
+`unknown_option_names` and `self_in_aliased_return` reworded; fourteen new
+cases.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
@@ -446,9 +493,6 @@ and this file.
 - `proc-macro-crate` exists only so the facade can be renamed and brings
   eight build-time crates. A `renamed-dependency` feature, on by default, is
   the smallest way to let a user opt out.
-- A trait parameter with two or more bounds leaves `Arg::Assoc` unqualified
-  and rustc reports E0223. A whichever error naming the parameter is a
-  small addition to `substitution.rs` once it has unit tests.
 - An enum with two partial impl blocks, or a dispatched trait and a partial
   block, reports an unforwardable variant once per block. Nothing stateless
   can tell the blocks apart; the duplicate is left.

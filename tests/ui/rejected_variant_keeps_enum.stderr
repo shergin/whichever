@@ -1,10 +1,10 @@
-error: a dispatch variant must be `Name(Payload)`
+error: `B` has named fields, not one payload, so no trait method can be forwarded to it; write it as `B(Payload)`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/rejected_variant_keeps_enum.rs:31:5
    |
 31 |     B { inner: A },
    |     ^^^^^^^^^^^^^^
 
-error: `bodyless` is forwarded to every variant, but `B` holds no payload to forward to; name the variants that do and give the method a body for the rest
+error: `bodyless` is forwarded to every variant, but `B` has named fields, not one payload; name the variants with a payload and give the method a body for the rest
   --> tests/ui/rejected_variant_keeps_enum.rs:42:8
    |
 42 |     fn bodyless(&self) -> u32;

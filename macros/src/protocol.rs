@@ -8,8 +8,8 @@
 //! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] enum { <subject> } spec { <options> } [impl { <block> }]
 //!
 //! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
-//! what the carrier puts in front  @v1 [rejected] facade { <facade> } enum { <subject> }
-//! what `implement_block!` reads   @v1 [rejected] facade { <facade> } enum { <subject> } [partial { <options> }] impl { <block> }
+//! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> }
+//! what `implement_block!` reads   @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } [partial { <options> }] impl { <block> }
 //! ```
 //!
 //! A carrier macro takes `@v1 <facade>` off its request and calls the
@@ -23,7 +23,8 @@
 //! subject's carrier never leaves its crate.
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
-use syn::parse::{Parse, ParseStream};
+use syn::parse::{Parse, ParseStream, Parser};
+use syn::punctuated::Punctuated;
 use syn::{braced, token, Error, Ident, ItemImpl, ItemTrait, Path, PathArguments, Result, Token};
 
 use crate::options::TraitSpec;
@@ -213,21 +214,30 @@ impl ToTokens for BlockRequest<'_> {
 
 /// What a subject's carrier macro puts in front of a request: whether
 /// `#[dispatch]` rejected the subject, in which case its error is already
-/// reported, the facade the request named, and the subject as captured,
-/// variant and field options included.
+/// reported, the facade the request named, the traits the subject's own
+/// attributes dispatch, and the subject as captured, variant and field
+/// options included.
 pub(crate) struct CarriedSubject<'a> {
     pub(crate) rejected: bool,
+    pub(crate) dispatched: &'a [&'a Path],
     pub(crate) subject: &'a Subject,
 }
 
 impl ToTokens for CarriedSubject<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        let CarriedSubject { rejected, subject } = self;
+        let CarriedSubject {
+            rejected,
+            dispatched,
+            subject,
+        } = self;
         let version = version();
         let rejected = rejected.then(|| quote!(rejected));
+        let dispatched = (!dispatched.is_empty()).then(|| quote!(traits { #(#dispatched),* }));
         // `$facade` is the carrier rule's own variable, bound to the facade
         // the request named.
-        tokens.extend(quote! { @#version #rejected facade { $facade } enum { #subject } });
+        tokens.extend(
+            quote! { @#version #rejected facade { $facade } #dispatched enum { #subject } },
+        );
     }
 }
 
@@ -238,6 +248,8 @@ pub(crate) struct BlockInput {
     pub(crate) rejected: bool,
     /// The name the facade crate has in the subject's crate.
     pub(crate) facade: Ident,
+    /// The traits the subject's own attributes dispatch, as written there.
+    pub(crate) dispatched: Vec<Path>,
     pub(crate) subject: Subject,
     /// The trait's options when the block is a partial impl of that trait.
     pub(crate) partial: Option<TraitSpec>,
@@ -249,6 +261,7 @@ impl Parse for BlockInput {
         parse_version(input)?;
         let mut rejected = false;
         let mut facade = None;
+        let mut dispatched = vec![];
         segments(
             input,
             |input| input.peek(Token![enum]),
@@ -256,6 +269,10 @@ impl Parse for BlockInput {
                 match (tag.to_string().as_str(), content) {
                     ("rejected", None) => rejected = true,
                     ("facade", Some(tokens)) => facade = Some(syn::parse2(tokens)?),
+                    ("traits", Some(tokens)) => {
+                        let paths = Punctuated::<Path, Token![,]>::parse_terminated;
+                        dispatched = paths.parse2(tokens)?.into_iter().collect();
+                    }
                     _ => {}
                 }
                 Ok(())
@@ -280,6 +297,7 @@ impl Parse for BlockInput {
         Ok(Self {
             rejected,
             facade,
+            dispatched,
             subject,
             partial,
             item_impl,
@@ -411,10 +429,11 @@ mod tests {
         let rest = rest_of(request);
         let subject = subject();
         // What `CarriedSubject` writes, with the carrier's `$facade` filled in.
-        let message = quote!(@v1 rejected facade { wh } enum { #subject } #rest);
+        let message = quote!(@v1 rejected facade { wh } traits { Shape, a::Encoder<X> } enum { #subject } #rest);
         let input: BlockInput = syn::parse2(message).unwrap();
         assert!(input.rejected);
         assert_eq!(input.facade, "wh");
+        assert_eq!(input.dispatched.len(), 2);
         assert!(input
             .partial
             .is_some_and(|spec| spec.is_overridden(&parse_quote!(Error))));

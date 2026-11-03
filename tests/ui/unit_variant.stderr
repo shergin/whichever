@@ -1,4 +1,4 @@
-error: a dispatch variant must be `Name(Payload)`
+error: `Nothing` holds no payload, so no trait method can be forwarded to it; write it as `Nothing(Payload)`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/unit_variant.rs:17:5
    |
 17 |     Nothing,

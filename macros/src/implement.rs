@@ -14,10 +14,10 @@ use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{method_mismatch, Override, TraitSpec};
+use crate::options::{closest, listed, method_mismatch, Override, TraitSpec};
 use crate::protocol::ImplementInput;
-use crate::shape::takes_self_argument;
-use crate::subject::{cfg_attributes, shape_errors, targets, Entry, Subject, Target};
+use crate::shape::{takes_self_argument, ReturnSite};
+use crate::subject::{carried_attributes, shape_errors, targets, Entry, Subject, Target};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -28,13 +28,13 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         mut spec,
         partial,
     } = input;
-    let Some(spec_path) = &spec.path else {
+    let Some(spec_path) = spec.path.clone() else {
         return Err(Error::new(
             Span::call_site(),
             "the trait to implement is missing",
         ));
     };
-    let implemented = implemented_path(remote, spec_path);
+    let implemented = implemented_path(remote, &spec_path);
     let trait_path = &implemented;
     let trait_ident = &trait_path
         .segments
@@ -52,20 +52,44 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     } = &header;
     let derived = partial.is_none().then(|| quote!(#[automatically_derived]));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let entries = subject.entries()?;
-    let variants = targets(&entries);
-    if variants.is_empty() {
-        return Err(Error::new_spanned(
-            &subject,
-            "a dispatch enum needs at least one variant",
-        ));
+    // The partial impl block a message points at, spelled with the trait as
+    // the subject names it and the subject's own generics.
+    let block_header = {
+        let (impl_generics, ty_generics, _) = subject.generics().split_for_impl();
+        let ident = subject.ident();
+        spelled(&quote!(impl #impl_generics #spec_path for #ident #ty_generics))
+    };
+    let mut entries = subject.entries()?;
+    // A partial block's header may name the subject's parameters as it
+    // likes, `impl<U> Trait for Kind<U>` over `enum Kind<T>`; the payloads
+    // are spelled with the names the subject declared, and follow.
+    if let Some(block) = &partial {
+        if let Some(mut renaming) = Substitution::of_subject(subject.generics(), &block.self_ty) {
+            for entry in &mut entries {
+                if let Entry::Target(target) = entry {
+                    renaming.visit_type_mut(&mut target.payload);
+                }
+            }
+        }
     }
+    let variants = targets(&entries);
     // A partial block is the only dispatch of its trait, so a variant that
     // cannot be forwarded to is reported here, under its own `cfg`.
     let shape_errors = match &partial {
         Some(_) => shape_errors(&entries),
         None => TokenStream2::new(),
     };
+    if variants.is_empty() {
+        if entries.is_empty() {
+            return Err(Error::new_spanned(
+                &subject,
+                "a dispatch enum needs at least one variant",
+            ));
+        }
+        // Every variant was rejected, each with its own sentence; an impl
+        // with nothing to forward to would only add rustc's errors to them.
+        return Ok(shape_errors);
+    }
     // The associated items come from the first variant that is always
     // compiled in; one under `#[cfg]` may not be there to supply them.
     let first = variants
@@ -77,7 +101,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         subject: subject.ident(),
         trait_path,
     };
-    let mut substitution = Substitution::new(&item_trait, trait_path)?;
+    let mut substitution = Substitution::of_trait(&item_trait, trait_path, generics)?;
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
     let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
@@ -95,7 +119,9 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             continue;
         }
         let generated = match item {
-            TraitItem::Type(assoc) => associated_type(assoc, &spec, &supplier, &mut agreed_types),
+            TraitItem::Type(assoc) => {
+                associated_type(assoc, &spec, &supplier, &block_header, &mut agreed_types)
+            }
             TraitItem::Const(constant) => associated_const(
                 constant,
                 &spec,
@@ -109,6 +135,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 &subject,
                 trait_path,
                 &spec,
+                &block_header,
                 &mut substitution,
             ),
             TraitItem::Macro(item) => Err(Error::new_spanned(
@@ -123,8 +150,9 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         }
     }
     // An option naming an item the trait does not have is a typo, which
-    // would otherwise turn into a type error somewhere else.
-    let associated: HashSet<String> = item_trait
+    // would otherwise turn into a type error somewhere else; the message
+    // says what was probably meant, or what there is to mean.
+    let associated: Vec<String> = item_trait
         .items
         .iter()
         .filter_map(|item| match item {
@@ -133,18 +161,19 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             _ => None,
         })
         .collect();
+    let on_subject = partial.is_none();
     for fixed in &spec.overrides {
-        if !associated.contains(&fixed.name.to_string()) {
-            errors.push(Error::new(
-                fixed.name.span(),
-                format!(
-                    "`{trait_ident}` has no associated type or const `{}`",
-                    fixed.name
-                ),
-            ));
+        let name = fixed.name.to_string();
+        if associated.contains(&name) {
+            continue;
         }
+        let hint = unknown_override_hint(&name, &associated, &subject, on_subject);
+        errors.push(Error::new(
+            fixed.name.span(),
+            format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
+        ));
     }
-    let deciding: HashSet<String> = item_trait
+    let deciding: Vec<String> = item_trait
         .items
         .iter()
         .filter_map(|item| match item {
@@ -155,12 +184,19 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         })
         .collect();
     for (method, _) in &spec.mismatch {
-        if !deciding.contains(&method.to_string()) {
-            errors.push(Error::new(
-                method.span(),
-                format!("`{trait_ident}` has no method `{method}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide"),
-            ));
+        let name = method.to_string();
+        if deciding.contains(&name) {
+            continue;
         }
+        let hint = match closest(&name, deciding.iter().map(String::as_str)) {
+            Some(near) => format!("did you mean `{near}`?"),
+            None if deciding.is_empty() => "none of its methods takes one".to_owned(),
+            None => format!("its methods taking one are {}", listed(&deciding)),
+        };
+        errors.push(Error::new(
+            method.span(),
+            format!("`{trait_ident}` has no method `{name}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; {hint}"),
+        ));
     }
     if let Some(error) = combined(errors) {
         return Err(error);
@@ -202,6 +238,63 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #checks
         #shape_errors
     })
+}
+
+/// Returns the second half of the message for an override naming nothing in
+/// the trait: the item or option probably meant, where the forwarded field
+/// or variants are chosen when the name is a field-choosing option of
+/// another crate, or else everything there is to name.
+fn unknown_override_hint(
+    name: &str,
+    associated: &[String],
+    subject: &Subject,
+    on_subject: bool,
+) -> String {
+    if let Some(near) = closest(name, associated.iter().map(String::as_str)) {
+        return format!("did you mean `{near}`?");
+    }
+    let switches = if on_subject {
+        &["from", "try_from"][..]
+    } else {
+        &[]
+    };
+    if let Some(near) = closest(name, switches.iter().copied()) {
+        return format!("did you mean the enum's option `{near} = ..`?");
+    }
+    if matches!(name, "target" | "to" | "field" | "delegate" | "via") {
+        return if subject.has_one_target() {
+            "a struct forwards to its one field, or to the field marked `#[dispatch]`".to_owned()
+        } else {
+            "an enum forwards to every variant, and an inherent method names the variants it forwards to".to_owned()
+        };
+    }
+    let options = if on_subject {
+        "`mismatch(method = expr)`, `from = false` and `try_from = true`"
+    } else {
+        "`mismatch(method = expr)`"
+    };
+    if associated.is_empty() {
+        return format!("it has none, and the other options are {options}");
+    }
+    format!(
+        "its associated items are {}, and the other options are {options}",
+        listed(associated)
+    )
+}
+
+/// Spells `tokens` as a hand writes them, without the spaces `quote` puts
+/// around punctuation.
+fn spelled(tokens: &impl ToTokens) -> String {
+    tokens
+        .to_token_stream()
+        .to_string()
+        .replace(" :: ", "::")
+        .replace(" < ", "<")
+        .replace("< ", "<")
+        .replace(" >", ">")
+        .replace(" ,", ",")
+        .replace("& ", "&")
+        .replace(" : ", ": ")
 }
 
 /// Returns the path the impl is written for: a restated trait's real path,
@@ -307,33 +400,40 @@ impl Supplier<'_> {
 }
 
 /// Writes `type Name = ..;`: the override, or the supplier's type with
-/// `Name` recorded for the agreement check.
+/// `Name` recorded for the agreement check. A generic associated type has
+/// no supplier: the enum declares it in a partial impl block, which is
+/// where one the block writes was taken out of this path.
 fn associated_type<'a>(
     assoc: &'a TraitItemType,
     spec: &TraitSpec,
     supplier: &Supplier,
+    block_header: &str,
     agreed: &mut Vec<&'a Ident>,
 ) -> Result<TokenStream2> {
+    let name = &assoc.ident;
     if !assoc.generics.params.is_empty() {
+        let parameters = spelled(&assoc.generics);
         return Err(Error::new_spanned(
             assoc,
-            "generic associated types are not supported",
+            format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
-    let name = &assoc.ident;
-    let cfgs = cfg_attributes(&assoc.attrs);
+    let carried = carried_attributes(&assoc.attrs);
+    let cfgs = carried
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("cfg"));
     let ty = match spec.override_for(name) {
         Some(fixed) => fixed.as_type()?.into_token_stream(),
         None => {
             // The agreement check cannot name an item that may be
             // compiled out.
-            if cfgs.is_empty() {
+            if cfgs.count() == 0 {
                 agreed.push(name);
             }
             supplier.item(name)?
         }
     };
-    Ok(quote! { #(#cfgs)* type #name = #ty; })
+    Ok(quote! { #(#carried)* type #name = #ty; })
 }
 
 /// Writes `const NAME: T = ..;`: the override, or the supplier's value with
@@ -346,19 +446,23 @@ fn associated_const<'a>(
     agreed: &mut Vec<(&'a Ident, Type)>,
 ) -> Result<TokenStream2> {
     let name = &constant.ident;
-    let cfgs = cfg_attributes(&constant.attrs);
+    let carried = carried_attributes(&constant.attrs);
+    let cfgs = carried
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("cfg"));
     let mut ty = constant.ty.clone();
     substitution.visit_type_mut(&mut ty);
+    substitution.check()?;
     let value = match spec.override_for(name) {
         Some(fixed) => fixed.as_value()?.into_token_stream(),
         None => {
-            if cfgs.is_empty() {
+            if cfgs.count() == 0 {
                 agreed.push((name, ty.clone()));
             }
             supplier.item(name)?
         }
     };
-    Ok(quote! { #(#cfgs)* const #name: #ty = #value; })
+    Ok(quote! { #(#carried)* const #name: #ty = #value; })
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every
@@ -371,36 +475,23 @@ fn expand_method(
     subject: &Subject,
     trait_path: &Path,
     spec: &TraitSpec,
+    block_header: &str,
     substitution: &mut Substitution,
 ) -> Result<TokenStream2> {
     let subject_ident = subject.ident();
     let mut signature = function.sig.clone();
     substitution.visit_signature_mut(&mut signature);
+    substitution.check()?;
     let method = signature.ident.clone();
     if signature.receiver().is_none() {
         if function.default.is_some() {
             return Ok(TokenStream2::new());
         }
-        let trait_ident = &trait_path
-            .segments
-            .last()
-            .expect("a path has at least one segment")
-            .ident;
         return Err(Error::new_spanned(
             &function.sig,
-            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl {trait_ident} for {subject_ident}` block"),
+            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
-    let plan = MethodPlan::new(
-        &mut signature,
-        ArgumentNames::WrittenOrGenerated,
-        SelfArguments::Dispatch,
-        Some(spec),
-    )?;
-    let mismatch = match spec.mismatch_for(&method) {
-        Some(expr) => Some(expr.clone()),
-        None => method_mismatch(function)?,
-    };
     let context = ArmContext {
         callee: Callee::Qualified {
             trait_path,
@@ -411,6 +502,21 @@ fn expand_method(
         prefix: Path::from(subject_ident.clone()),
         lift: None,
         site: subject_ident.span(),
+    };
+    let plan = MethodPlan::new(
+        &mut signature,
+        ArgumentNames::WrittenOrGenerated,
+        SelfArguments::Dispatch,
+        Some(spec),
+        &ReturnSite {
+            subject: subject_ident,
+            one_target: subject.has_one_target(),
+            by_hand: context.callee.by_hand(),
+        },
+    )?;
+    let mismatch = match spec.mismatch_for(&method) {
+        Some(expr) => Some(expr.clone()),
+        None => method_mismatch(function)?,
     };
     let mut arms = Vec::with_capacity(entries.len());
     for entry in entries {
@@ -452,7 +558,7 @@ fn expand_method(
         .find(|attribute| attribute.path().is_ident("inline"))
         .map(ToTokens::to_token_stream)
         .unwrap_or_else(|| quote! { #[inline] });
-    let cfgs = cfg_attributes(&function.attrs);
+    let carried = carried_attributes(&function.attrs);
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,
@@ -461,7 +567,7 @@ fn expand_method(
     }
     .body(method.span());
     Ok(quote! {
-        #(#cfgs)*
+        #(#carried)*
         #inline
         #allow_unreachable
         #signature #body

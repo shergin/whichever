@@ -19,7 +19,7 @@ use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature
 use crate::options::TraitSpec;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, ReceiverKind, ReturnModel, Value, Wrapper,
+    ArgumentKind, Conversion, ReceiverKind, ReturnModel, ReturnSite, Value, Wrapper,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -57,12 +57,15 @@ fn plain(ident: Ident) -> Pat {
 /// What an argument typed `Self`, `&Self` or `&mut Self` means.
 #[derive(Clone, Copy)]
 pub(crate) enum SelfArguments {
-    /// `Self` is the implementor: the argument is matched on the same
-    /// variant as the receiver, and two different variants take the
-    /// fallback arm.
+    /// The argument holds the same kind of target as the receiver: it is
+    /// matched beside the receiver, on the same variant, and two different
+    /// variants take the fallback arm. This is every trait method, where
+    /// `Self` is the implementor, and an inherent method of a struct, whose
+    /// two values always hold the same field.
     Dispatch,
-    /// `Self` is the subject itself: the argument is handed over as it is,
-    /// and a payload method taking the subject is a legitimate target.
+    /// `Self` is the enum itself, in an inherent method of one: the
+    /// argument is handed over as it is, and a payload method taking the
+    /// enum is a legitimate target.
     PassThrough,
 }
 
@@ -89,12 +92,14 @@ pub(crate) struct MethodPlan {
 impl MethodPlan {
     /// Reads `signature`, which must have a receiver, and binds its
     /// arguments as `names` says. `spec` carries a trait's associated type
-    /// overrides; an inherent method has none.
+    /// overrides; an inherent method has none. `site` is what the return
+    /// type's classification depends on besides the type.
     pub(crate) fn new(
         signature: &mut Signature,
         names: ArgumentNames,
         self_arguments: SelfArguments,
         spec: Option<&TraitSpec>,
+        site: &ReturnSite,
     ) -> Result<Self> {
         let (receiver, self_token) = match signature.receiver() {
             Some(receiver) => (classify_receiver(receiver)?, receiver.self_token),
@@ -141,7 +146,7 @@ impl MethodPlan {
             }
             arguments.push(binding);
         }
-        let (return_model, future) = classify_return(&signature.output, spec)?;
+        let (return_model, future) = classify_return(&signature.output, spec, site)?;
         Ok(Self {
             receiver,
             self_token,
@@ -380,7 +385,7 @@ impl Callee<'_> {
     /// The way out a message offers when a method cannot be forwarded as
     /// written: the trait path points at an impl by hand, the inherent path
     /// at the method's body.
-    fn by_hand(&self) -> &'static str {
+    pub(crate) fn by_hand(&self) -> &'static str {
         match self {
             Callee::Qualified { .. } => "implement the method by hand",
             Callee::Method { .. } => "give it a body",

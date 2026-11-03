@@ -1,0 +1,10 @@
+error: `F::Value` cannot be written with `Json` for `F`, which has no single bound to say which trait `Value` belongs to; write `<F as Trait>::Value` in the trait
+  --> tests/ui/projection_with_two_bounds.rs:17:29
+   |
+17 |     fn encode(&self, value: F::Value) -> usize;
+   |                             ^^^^^^^^
+...
+28 | #[whichever::dispatch(Encoder<Json>)]
+   |                       ------- in this macro invocation
+   |
+   = note: this error originates in the macro `Encoder` (in Nightly builds, run with -Z macro-backtrace for more info)

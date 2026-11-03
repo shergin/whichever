@@ -104,3 +104,19 @@ pub trait Device: Debug + Sized {
         &["device"]
     }
 }
+
+/// A container that lends out a view of itself; the view's type is a
+/// generic associated type, which the dispatching enum declares.
+#[dispatchable]
+pub trait Lend {
+    /// What a borrow yields.
+    type Item<'a>: Debug
+    where
+        Self: 'a;
+
+    /// Borrows the item.
+    fn lend(&self) -> Self::Item<'_>;
+
+    /// Returns how many items there are.
+    fn count(&self) -> usize;
+}

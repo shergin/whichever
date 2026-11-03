@@ -5,6 +5,77 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A struct forwards a return-position `impl Trait` as it is: its `match`
+  has one arm, so there is one opaque type. A future whose output needs
+  nothing is forwarded without an `async` block; one whose output is
+  rewrapped or converted is awaited in one, as on an enum. An enum still
+  rejects every opaque return but a future, now at any depth of the return
+  type; `Result<impl Stream, E>` reached rustc before. The decision record
+  is superseded accordingly.
+- A rejected attribute no longer takes the others with it. The unit of
+  rejection at an enum or struct is the attribute: the ones that parse are
+  expanded, a conversion that cannot be written leaves the other
+  conversions standing, and a partial impl block of such an enum is
+  forwarded in full. Before, one bad option in a stack of three gave one
+  real error and a follow-on at every use, and a partial block over an enum
+  with a `From` overlap gave E0046 on top.
+- A partial impl block of a trait the enum's own attribute dispatches is
+  reported on the block as the second impl it would be; rustc reported
+  conflicting implementations on the trait's attribute.
+- An error rustc finds in one trait's generated impl is labelled on that
+  trait's attribute, not on the first of the stack.
+- An inherent method of a struct unwraps its `Self`, `&Self` and `&mut Self`
+  arguments to the field, as trait dispatch on a struct does; the argument
+  was handed to the field's method as the struct, and rustc reported a type
+  mismatch. An enum's inherent method hands a `Self` argument over as it
+  is, as before, since there `Self` is the enum.
+- An `#[allow]` written on a trait method or associated item is carried
+  onto the generated item, which repeats the signature the lint was allowed
+  on; `#[cfg]` alone travelled before. One another macro added stays where
+  it was, since rustc exempts it from the lints about lint names only
+  there.
+- A partial impl block's header may name the enum's parameters as it
+  likes, `impl<T, Ty> Get<T> for ImmOrNode<Ty>` over `enum ImmOrNode<T>`;
+  the arms followed the enum's names and rustc reported an unsatisfied
+  bound at the variant.
+- A generic associated type declared in a partial impl block is accepted
+  and every payload's own converts into it, as for a plain override. The
+  behaviour had landed with the 0.5.0 refactor unannounced; it now has its
+  tests, its smoke case across crates, and its sentence: an undeclared one
+  is pointed at the block to write, and `Name<..> = ..` on the attribute at
+  the same, where it read as an unknown option.
+- An override or a `mismatch` naming nothing in the trait says what was
+  probably meant: the associated item or method within an edit or two, the
+  enum option `from` or `try_from` for a typo of it, what chooses the field
+  or the variants for `target`, `to`, `field`, `delegate` and `via`, and
+  otherwise everything there is to name.
+- A variant that is not `Name(Payload)` is reported with what it holds
+  instead, "holds no payload", "holds 2 fields, not one payload" or "has
+  named fields", and with inherent dispatch as the way around it, under `*`
+  as well. An enum whose every variant is rejected no longer gets "needs at
+  least one variant" on top.
+- `#[dispatchable]` reports `#[async_trait]` below it, which rewrites the
+  signatures after the carrier has read them, and `#[typetag::serde]` above
+  it, whose per-impl methods a forwarder would answer with the payload's
+  tag, silently; each with the order to use.
+- Reported as one sentence now: a return type mentioning `Self` where it
+  cannot be rewrapped, naming the struct or enum and the way out of the
+  method's own path, where it said "the enum" on a struct; a projection
+  `F::Value` through a trait parameter with several bounds, which rustc
+  reported as an unknown type; a second `#[dispatch]` on one inherent
+  method; a closure after `with`; the number and names of a generic trait's
+  parameters when none is given; and the partial block a receiverless
+  method goes in, spelled with the trait's arguments and the enum's
+  generics.
+- The README names the layout a private prelude glob makes ambiguous for
+  the carrier's re-export, with the ways around it; says that the `TryFrom`
+  error being the enum asks for `Debug` under `.unwrap()`; that a payload
+  type held by two variants gets no `From`; that a restatement's own imports
+  count as unused and its paths go in full; that an inherent arm uses
+  method-call syntax and `with` may name a generic function; that a generic
+  trait may be dispatched at the enum's own parameters; and what "could not
+  find `Trait` in `other`" means. The struct section is "Forwarding from a
+  struct field" and shows a field that is not an enum.
 - The design is written down under `docs/`: the vision with its five rules,
   what holds each of them, and what the crate will not be; a decision
   record per choice made among real alternatives, with the condition that

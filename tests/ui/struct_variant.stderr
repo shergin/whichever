@@ -1,13 +1,5 @@
-error: a dispatch variant must be `Name(Payload)`
+error: `A` has named fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/struct_variant.rs:16:5
    |
 16 |     A { inner: A },
    |     ^^^^^^^^^^^^^^
-
-error: a dispatch enum needs at least one variant
-  --> tests/ui/struct_variant.rs:15:1
-   |
-15 | / enum Kind {
-16 | |     A { inner: A },
-17 | | }
-   | |_^

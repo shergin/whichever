@@ -1,0 +1,5 @@
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `A`; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or give it a body
+  --> tests/ui/struct_self_return_limit.rs:17:37
+   |
+17 |     pub fn mul_u64(self, b: u64) -> (Self, bool);
+   |                                     ^^^^^^^^^^^^

@@ -1,0 +1,12 @@
+error: `View` is a generic associated type, which only the enum can declare; write `type View<'s> = ..;` in a `#[whichever::dispatch] impl Make for Kind` block
+  --> tests/ui/gat_undeclared_in_block.rs:8:5
+   |
+ 8 | /     type View<'s>
+ 9 | |     where
+10 | |         Self: 's;
+   | |_________________^
+...
+33 |   #[whichever::dispatch]
+   |   ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Make` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -5,6 +5,6 @@ error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut
    |                      ^^^^^^^^
 ...
 16 | #[whichever::dispatch(Consume)]
-   | ------------------------------- in this attribute macro expansion
+   |                       ------- in this macro invocation
    |
-   = note: this error originates in the macro `Consume` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Consume` (in Nightly builds, run with -Z macro-backtrace for more info)

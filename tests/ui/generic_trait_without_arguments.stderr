@@ -1,4 +1,4 @@
-error: `Convert` takes 1 generic argument(s); name them, e.g. `Trait<Arg>`
+error: `Convert` takes 1 generic argument; name it, `Convert<X>`
   --> tests/ui/generic_trait_without_arguments.rs:21:23
    |
 21 | #[whichever::dispatch(Convert)]

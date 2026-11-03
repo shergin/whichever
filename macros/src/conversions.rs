@@ -2,18 +2,22 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::visit_mut::VisitMut;
-use syn::{parse_quote, Error, GenericParam, Ident, Path, Result, Type};
+use syn::{parse_quote, Error, GenericParam, Ident, Path, Type};
 
 use crate::shape::bare_ident;
 use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
 
-/// Writes the `From<Payload>` and `TryFrom<Enum>` impls that were asked for.
+/// Writes the `From<Payload>` and `TryFrom<Enum>` impls that were asked
+/// for. A payload whose impl cannot be written is reported into `errors`
+/// and the other payloads' impls are written all the same, so that the
+/// code around the enum resolves and each error stands alone.
 pub(crate) fn conversion_impls(
     subject: &Subject,
     entries: &[Entry],
     from: bool,
     try_from: bool,
-) -> Result<TokenStream2> {
+    errors: &mut Vec<Error>,
+) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = subject.generics().split_for_impl();
     let enum_ident = subject.ident();
     let prefix = Path::from(enum_ident.clone());
@@ -27,16 +31,7 @@ pub(crate) fn conversion_impls(
     // A payload that is a type parameter of the enum can be any type, the
     // other payloads included, so its `From` overlaps theirs; rustc would
     // only report conflicting implementations on the attribute.
-    if from && converting.len() > 1 {
-        for (target, _) in &converting {
-            if let Some(ident) = type_parameter(subject, target) {
-                return Err(Error::new_spanned(
-                    &target.payload,
-                    format!("`{ident}` is a type parameter of `{enum_ident}`, so `From<{ident}>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
-                ));
-            }
-        }
-    }
+    let overlapping = from && converting.len() > 1;
     // A payload type held by two variants gets no conversion: the impls
     // would conflict, and neither variant is the obvious target. A variant
     // marked `from = false` takes no part at all.
@@ -56,7 +51,13 @@ pub(crate) fn conversion_impls(
         }
         let built = target.rebuild(&self_path, quote!(#value));
         let pattern = target.pattern(&prefix, &value);
-        if from {
+        let parameter = type_parameter(subject, target);
+        if let (true, Some(ident)) = (overlapping, parameter) {
+            errors.push(Error::new_spanned(
+                payload,
+                format!("`{ident}` is a type parameter of `{enum_ident}`, so `From<{ident}>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
+            ));
+        } else if from {
             output.extend(quote! {
                 #(#cfgs)*
                 #[automatically_derived]
@@ -72,11 +73,12 @@ pub(crate) fn conversion_impls(
             // `TryFrom<Enum<T>> for T` implements a foreign trait for a type
             // parameter, which the orphan rules forbid; rustc would report
             // that on the enum's generics.
-            if let Some(ident) = type_parameter(subject, target) {
-                return Err(Error::new_spanned(
+            if let Some(ident) = parameter {
+                errors.push(Error::new_spanned(
                     payload,
                     format!("`{ident}` is a type parameter of `{enum_ident}`, so `TryFrom<{enum_ident}> for {ident}` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant"),
                 ));
+                continue;
             }
             // The payload is the impl's own type here, so a `Self` it names
             // must be spelled out as the enum.
@@ -99,7 +101,7 @@ pub(crate) fn conversion_impls(
             });
         }
     }
-    Ok(output)
+    output
 }
 
 /// Returns the payload of `target` when it is a bare type parameter of the

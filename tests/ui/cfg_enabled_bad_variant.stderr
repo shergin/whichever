@@ -1,4 +1,4 @@
-error: a dispatch variant must be `Name(Payload)`
+error: `Mock` holds no payload, so no trait method can be forwarded to it; write it as `Mock(Payload)`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/cfg_enabled_bad_variant.rs:20:5
    |
 20 | /     #[cfg(all())]

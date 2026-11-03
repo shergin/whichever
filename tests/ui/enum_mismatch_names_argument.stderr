@@ -11,5 +11,5 @@ help: an identifier with the same name is defined here, but is not accessible du
    |                    ^^^^^
 ...
 17 | #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
-   | ----------------------------------------------------------- in this attribute macro expansion
-   = note: this error originates in the macro `Same` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   |                       ---- in this macro invocation
+   = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,10 @@
+error: `presets` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl<T: Copy> GridTrait<T> for Grid<T>` block
+  --> tests/ui/static_without_default_generic.rs:5:5
+   |
+ 5 |     fn presets() -> Vec<T>;
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+...
+30 | #[whichever::dispatch(GridTrait<T>)]
+   |                       --------- in this macro invocation
+   |
+   = note: this error originates in the macro `GridTrait` (in Nightly builds, run with -Z macro-backtrace for more info)

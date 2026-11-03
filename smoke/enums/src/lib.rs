@@ -3,7 +3,7 @@
 //! through `Into`, a generic trait at a concrete instantiation, two traits
 //! on one enum, `async` methods and `-> Self`.
 #![allow(async_fn_in_trait)]
-use smoke_traits::{Description, Device, Encoder, Format, Shape, Storage};
+use smoke_traits::{Description, Device, Encoder, Format, Lend, Shape, Storage};
 use whichever::{dispatch, dispatchable};
 
 #[derive(Debug, Clone)]
@@ -189,6 +189,63 @@ pub enum AnyDevice {
     Scanner(Scanner),
 }
 
+pub struct Text(pub String);
+pub struct Bytes(pub Vec<u8>);
+
+impl Lend for Text {
+    type Item<'a> = &'a str;
+    fn lend(&self) -> &str {
+        &self.0
+    }
+    fn count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl Lend for Bytes {
+    type Item<'a> = &'a [u8];
+    fn lend(&self) -> &[u8] {
+        &self.0
+    }
+    fn count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum AnyItem<'a> {
+    Str(&'a str),
+    Bytes(&'a [u8]),
+}
+
+impl<'a> From<&'a str> for AnyItem<'a> {
+    fn from(value: &'a str) -> Self {
+        AnyItem::Str(value)
+    }
+}
+
+impl<'a> From<&'a [u8]> for AnyItem<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        AnyItem::Bytes(value)
+    }
+}
+
+/// A generic associated type declared across the crate boundary: the GAT's
+/// `where` clause travels in the carrier.
+#[dispatch]
+pub enum Content {
+    Text(Text),
+    Bytes(Bytes),
+}
+
+#[dispatch]
+impl Lend for Content {
+    type Item<'a>
+        = AnyItem<'a>
+    where
+        Self: 'a;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +282,15 @@ mod tests {
             AnyEncoder::from(Compact).encode_all(&[1, 2]),
             vec!["1".to_owned(), "2".to_owned()]
         );
+    }
+
+    #[test]
+    fn a_lent_item_converts_into_the_declared_type() {
+        let text: Content = Text("hi".to_owned()).into();
+        let bytes: Content = Bytes(vec![1, 2, 3]).into();
+        assert_eq!(text.lend(), AnyItem::Str("hi"));
+        assert_eq!(bytes.lend(), AnyItem::Bytes(&[1, 2, 3]));
+        assert_eq!((text.count(), bytes.count()), (2, 3));
     }
 
     #[test]

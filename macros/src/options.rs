@@ -14,6 +14,58 @@ use syn::{
     Type,
 };
 
+/// Returns the candidate closest to `name` when it is within one edit, or
+/// within two when both names are long enough for two edits to leave them
+/// recognisable, so that a message can say what was probably meant.
+pub(crate) fn closest<'a>(
+    name: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
+    candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let distance = edit_distance(name, candidate);
+            let close = distance == 1 || (distance == 2 && name.len() >= 5 && candidate.len() >= 5);
+            close.then_some((distance, candidate))
+        })
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, candidate)| candidate)
+}
+
+/// Returns the number of insertions, deletions, substitutions and
+/// transpositions of adjacent characters that turn `a` into `b`.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut rows: Vec<Vec<usize>> = (0..=a.len()).map(|i| vec![i; b.len() + 1]).collect();
+    for (j, cell) in rows[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            let mut best = (rows[i - 1][j] + 1)
+                .min(rows[i][j - 1] + 1)
+                .min(rows[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                best = best.min(rows[i - 2][j - 2] + 1);
+            }
+            rows[i][j] = best;
+        }
+    }
+    rows[a.len()][b.len()]
+}
+
+/// Spells `names` out as a list, `` `a` ``, `` `a` and `b` `` or
+/// `` `a`, `b` and `c` ``.
+pub(crate) fn listed(names: &[String]) -> String {
+    let quoted: Vec<String> = names.iter().map(|name| format!("`{name}`")).collect();
+    match quoted.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    }
+}
+
 /// Returns whether `attribute` is this crate's `dispatch` attribute, written
 /// bare or as `whichever::dispatch`.
 pub(crate) fn is_dispatch_attribute(attribute: &Attribute) -> bool {
@@ -142,8 +194,16 @@ impl Parse for DispatchAttribute {
             mismatch: vec![],
         };
         let mut switches = Switches::default();
-        if spec.path.is_some() && !input.is_empty() {
-            input.parse::<Token![,]>()?;
+        if let Some(path) = &spec.path {
+            // `Item<'a> = ..` as the first thing is read as a trait path.
+            if input.peek(Token![=]) {
+                if let [segment] = path.segments.iter().collect::<Vec<_>>().as_slice() {
+                    return Err(gat_override(&segment.ident, None));
+                }
+            }
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
         }
         parse_options(input, |key, input| {
             if key == "mismatch" {
@@ -157,6 +217,9 @@ impl Parse for DispatchAttribute {
                     spec.mismatch.push((pair.key, pair.value));
                 }
                 return Ok(());
+            }
+            if input.peek(Token![<]) {
+                return Err(gat_override(&key, spec.path.as_ref()));
             }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
@@ -181,6 +244,18 @@ impl Parse for DispatchAttribute {
 
 fn given_twice(key: &Ident) -> Error {
     Error::new(key.span(), format!("`{key}` is given twice"))
+}
+
+/// The error for `Name<..> = Type`, an attempt to fix a generic associated
+/// type with an option: only a partial impl block declares one.
+fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
+    let trait_name = trait_path
+        .map(|path| path.to_token_stream().to_string().replace(' ', ""))
+        .unwrap_or_else(|| "Trait".to_owned());
+    Error::new(
+        name.span(),
+        format!("`{name}<..>` is a generic associated type, which only the enum can declare; write `type {name}<..> = ..;` in a `#[whichever::dispatch] impl {trait_name} for ..` block"),
+    )
 }
 
 /// The subject's say on its conversions.
@@ -400,6 +475,12 @@ impl Parse for ForwardingOptions {
                     input.parse::<Token![=]>()?;
                     match ident.to_string().as_str() {
                         "call" => forwarding.call = Some(input.parse()?),
+                        "with" if input.peek(Token![|]) || input.peek(Token![move]) => {
+                            return Err(Error::new(
+                                ident.span(),
+                                "`with` takes the path of a function, called on each arm's result; write a helper function instead of a closure, generic over the result when the payloads' results differ",
+                            ))
+                        }
                         "with" => forwarding.with = Some(input.parse()?),
                         other => {
                             return Err(Error::new(
@@ -528,6 +609,14 @@ mod tests {
         assert!(syn::parse_str::<DispatchAttribute>("Trait, Error = A, Error = B").is_err());
         assert!(syn::parse_str::<DispatchAttribute>("Trait, from = false, from = true").is_err());
         assert!(syn::parse_str::<DispatchAttribute>("Trait, bogus").is_err());
+        let gat = |tokens: &str| {
+            syn::parse_str::<DispatchAttribute>(tokens)
+                .err()
+                .expect("an error")
+                .to_string()
+        };
+        assert!(gat("Lend, Item<'a> = &'a str").contains("`Item<..>` is a generic associated type"));
+        assert!(gat("Item<'a> = &'a str").contains("impl Trait for .."));
     }
 
     #[test]
@@ -540,6 +629,39 @@ mod tests {
         assert!(syn::parse_str::<ForwardingOptions>("*, Circle").is_err());
         assert!(syn::parse_str::<ForwardingOptions>("Circle, Circle").is_err());
         assert!(syn::parse_str::<ForwardingOptions>("with = Some").is_err());
+        let closure = syn::parse_str::<ForwardingOptions>("*, with = |s| Some(s)")
+            .err()
+            .expect("an error")
+            .to_string();
+        assert!(
+            closure.starts_with("`with` takes the path of a function"),
+            "{closure}"
+        );
+    }
+
+    #[test]
+    fn the_closest_name_is_within_one_edit_or_two_for_long_names() {
+        let names = ["Unit", "Error", "from", "try_from"];
+        assert_eq!(closest("Unti", names), Some("Unit"));
+        assert_eq!(closest("form", names), Some("from"));
+        assert_eq!(closest("Eror", names), Some("Error"));
+        assert_eq!(closest("try_form", names), Some("try_from"));
+        assert_eq!(closest("tri_form", names), Some("try_from"));
+        assert_eq!(closest("Unix", names), Some("Unit"));
+        assert_eq!(
+            closest("Un", names),
+            None,
+            "two edits on a short name say nothing"
+        );
+        assert_eq!(closest("target", names), None);
+        assert_eq!(edit_distance("eqq", "eq"), 1);
+        assert_eq!(edit_distance("same", "sane"), 1);
+        assert_eq!(listed(&[]), "");
+        assert_eq!(listed(&["a".into()]), "`a`");
+        assert_eq!(
+            listed(&["a".into(), "b".into(), "c".into()]),
+            "`a`, `b` and `c`"
+        );
     }
 
     #[test]

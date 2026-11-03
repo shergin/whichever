@@ -1,10 +1,10 @@
 # `impl Trait` returns are rejected, except futures
 
-Status: accepted, 2026-11-02 (0.2.2). Serves rules 1 and 3 of the
-[vision](../vision.md), the output is the hand's and what earns a shape.
-Reopen when a
-second return-position `impl Trait` shape has a single-block spelling a hand
-would write, and a surveyed project writes it by hand.
+Status: superseded on 2026-11-02 by
+[`impl Trait` returns: an enum forwards futures, a struct forwards them all](impl-trait-returns-are-forwarded-through-a-struct.md),
+after rsynko met the reopening condition with a struct. Accepted
+2026-11-02 (0.2.2). Served rules 1 and 3 of the [vision](../vision.md), the
+output is the hand's and what earns a shape.
 
 ## Context
 

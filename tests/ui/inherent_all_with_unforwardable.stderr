@@ -1,4 +1,4 @@
-error: `len` is forwarded to every variant, but `NoOrder` holds no payload to forward to; name the variants that do and give the method a body for the rest
+error: `len` is forwarded to every variant, but `NoOrder` holds no payload; name the variants with a payload and give the method a body for the rest
   --> tests/ui/inherent_all_with_unforwardable.rs:18:8
    |
 18 |     fn len(&self) -> usize;
