@@ -1,6 +1,7 @@
 # A rejected enum is still emitted
 
-Status: accepted, 2026-11-02 (0.2.2; `#[cfg]` in 0.4.0). Serves rule 4 of
+Status: accepted, 2026-11-02 (0.2.2; `#[cfg]` in 0.4.0; inherent blocks in
+0.5.0). Serves rule 4 of
 the [vision](../vision.md), a limit is one sentence; this is its mechanism.
 Reopen never; superseding it would mean changing the rule.
 
@@ -19,7 +20,9 @@ attributes stripped from its variants, followed by the one `compile_error!`
 at the span of the item at fault. Derives and uses resolve, and what is left
 is the real error plus, at worst, the missing trait methods. A variant whose
 shape is rejected is reported under its own `#[cfg]`, so a variant compiled
-out, such as a test-only mock, is no error.
+out, such as a test-only mock, is no error. A rejected `#[dispatch]` on an
+inherent impl block keeps the block and the methods it could forward, for
+the same reason.
 
 ## Evidence
 

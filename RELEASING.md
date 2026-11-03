@@ -1,17 +1,17 @@
 # Releasing whichever
 
 Releases are cut from a clean `main` with every CI job green. Two crates
-ship: `whichever-macros`, which `whichever` depends on by version, and
-`whichever`. The macro crate is versioned on its own and bumped when its
-code changed.
+ship together at one version, `whichever-macros` and `whichever`, and
+`whichever` pins the macro crate to the exact version, since `__private`
+and the generated code are one interface.
 
 ## 1. Prepare the release commit
 
 - Choose the version. Before 1.0 a breaking change raises the minor
   version, and the changelog lists it without apology.
-- Set `version` in `Cargo.toml`. If the macro crate changed, set `version`
-  in `macros/Cargo.toml` and raise the `whichever-macros` dependency version
-  in `Cargo.toml` to it.
+- Set `version` in `Cargo.toml` and in `macros/Cargo.toml` to the same
+  number, and the `whichever-macros` dependency in `Cargo.toml` to
+  `=<version>`.
 - Rename `## Unreleased` in `CHANGELOG.md` to `## <version> - <date>` and add
   a fresh empty `## Unreleased` above it. Each entry's first sentence says
   what the release is for.
@@ -53,11 +53,10 @@ the planning notes and `CLAUDE.md`.
 
 ## 4. Publish and tag
 
-1. `cargo publish -p whichever-macros` when it changed, and wait until the
-   new version resolves from the registry.
+1. `cargo publish -p whichever-macros`, and wait until the new version
+   resolves from the registry.
 2. `cargo publish -p whichever`.
-3. Tag the release commit `v<version>` (and `macros-v<version>` for a
-   macro-crate release on its own), push the commit and the tags, and
+3. Tag the release commit `v<version>`, push the commit and the tag, and
    check that docs.rs builds both crates.
 4. Leave the worktree clean. A post-release issue goes in the planning
    notes, not into a historical release entry.

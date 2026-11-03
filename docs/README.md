@@ -8,6 +8,11 @@ What to read when.
 - **Why this and not the alternative?**
   [decisions/](decisions/) has one file per choice: the context, the
   decision, the evidence, what was not chosen, and what would reopen it.
+- **How is the macro crate built?**
+  [../macros/ARCHITECTURE.md](../macros/ARCHITECTURE.md): how an expansion
+  flows through the four proc macros, the module map, the forwarding
+  engine, the protocol between the carriers, and the invariants every
+  change keeps.
 - **What do the attributes generate, and what are the options and limits?**
   The [README](../README.md), and the API reference on
   [docs.rs](https://docs.rs/whichever), which carries the same text with

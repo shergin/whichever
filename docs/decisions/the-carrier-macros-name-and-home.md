@@ -1,6 +1,7 @@
 # The carrier macro's name and home
 
-Status: accepted, 2026-11-02 (0.2.2 and 0.3.0). Serves rule 2 of the
+Status: accepted, 2026-11-02 (0.2.2 and 0.3.0; the hash fixed in 0.5.0).
+Serves rule 2 of the
 [vision](../vision.md), nothing between expansions. Reopen if a `pub` trait inside a private module, a sealed trait, collides in
 a real project, or if rustc offers an export that two identical traits
 cannot share.
@@ -36,6 +37,9 @@ two carriers could not share one trait, E0252.
   with the project and the file for each.
 - `proc_macro::Span::file()` and `line()` are stable since 1.88, the
   crate's MSRV.
+- Since 0.5.0 the hash is FNV-1a, written out in `macros/src/naming.rs`,
+  so the name no longer rests on the compiler's `DefaultHasher` and stays
+  the same across compiler releases.
 - The 0.2.2 and 0.3.0 release entries; the smoke crates, which import a
   trait from another crate and dispatch it, still pass.
 
