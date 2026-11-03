@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.5.1 - 2026-11-02
+
+A patch for the nine bugs the ambassador and enum_delegate surveys filed
+against 0.5.0, and for the gap items whose design was settled. Nothing that
+compiled before is read differently, except an inherent method of a struct
+whose `Self` argument now means the field. The generated code of the
+benchmarked shapes is unchanged, so the numbers stand.
+
 - A struct forwards a return-position `impl Trait` as it is: its `match`
   has one arm, so there is one opaque type. A future whose output needs
   nothing is forwarded without an `async` block; one whose output is
