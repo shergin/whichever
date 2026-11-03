@@ -15,6 +15,60 @@ changes are expected and listed without apology.
   that `#[dispatchable]` leaves next to a trait is the carrier macro
   throughout; the README and the crate docs had called it the hidden macro.
 
+## 0.5.0 - 2026-11-02
+
+Both crates move to 0.5.0 together; `whichever` pins `whichever-macros` to
+the exact version from here on.
+
+- A method returning `Result<Self, Self::Error>` with `Error` fixed on the
+  enum rewraps the value and converts the error; before, the error was left
+  as the payload's and rustc reported a type mismatch at the trait's
+  attribute. `Option<Self::X>` and `Result<Self::X, E>` with `X` fixed
+  convert too, and a `Self` in a `Result`'s error position is reported as a
+  limit.
+- The forwarding impl keeps the trait's parameter names, so `fn write(&mut
+  self, buf: &[u8])` reads as written instead of `__argument0`; a parameter
+  whose pattern is not a plain identifier still gets a generated name.
+- Every trait item that cannot be forwarded is reported, not only the
+  first.
+- A const fixed on the enum may be written as a tuple of paths, `RANGE =
+  (LOW, HIGH)`; it was read as a type and rejected.
+- A trait path in the `#[dispatch(..)]` of a partial impl block is
+  reported; the trait is the one the block implements.
+- The macro crate is split into modules, described in
+  `macros/ARCHITECTURE.md`. The carrier macros' names come from a fixed
+  hash now, so the hidden name a `pub` trait exports changes once with this
+  release and then stays the same across compiler releases.
+- An `unsafe trait` is implemented by an `unsafe impl`; it got a plain
+  `impl`, which rustc rejected.
+- A trait method's own `#[inline(..)]` is carried onto the generated method;
+  it was dropped, and the method got no `#[inline]` at all.
+- A generic method whose type or const parameter no argument fixes is
+  called with the parameters spelled out; before, rustc asked for type
+  annotations inside the generated code.
+- The associated types and consts come from the first variant that is not
+  under `#[cfg]`, and an enum whose every variant is gets one sentence
+  asking for an override. An associated item under `#[cfg]` in the trait
+  stays under it in the impl.
+- A `mismatch` expression written on the trait method may use a `Self` or
+  `&mut Self` argument; the fallback arm binds it again under its name.
+- An error rustc finds in the generated code points at the enum or at the
+  trait method, not at the trait's `#[dispatchable]` attribute, which may
+  be in another crate.
+- Reported as one sentence now: an override or `mismatch` naming nothing in
+  the trait, an option or a variant given twice, an associated type bound
+  inside the trait's path, `try_from = true` on a type-parameter payload,
+  `mismatch` on a method without a `Self` argument, two `#[dispatch]`
+  attributes on one trait method, a bare `#[dispatch]` on an inherent
+  method, and a trait path in a partial block's attribute. The `Box<Self>`
+  message spells the payload as written and says to add `deref` when the
+  payload is a `Box` already.
+- A rejected `#[dispatch]` on an inherent impl block keeps the block, so
+  its methods resolve and the one error stands alone.
+- `whichever` pins `whichever-macros` to the exact version: the hidden
+  `__private` module and the generated code are one interface, and the two
+  crates are released together.
+
 ## 0.4.0 - 2026-11-02
 
 - `#[dispatch(Trait)]` on a struct forwards the trait to its one field, or

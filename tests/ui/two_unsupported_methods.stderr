@@ -1,0 +1,21 @@
+error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`
+  --> tests/ui/two_unsupported_methods.rs:7:21
+   |
+ 7 |     fn shared(self: Rc<Self>) -> u32;
+   |                     ^^^^^^^^
+...
+25 | #[whichever::dispatch(Shape)]
+   | ----------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Shape` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+  --> tests/ui/two_unsupported_methods.rs:8:25
+   |
+ 8 |     fn points(&self) -> impl Iterator<Item = u32>;
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+25 | #[whichever::dispatch(Shape)]
+   | ----------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Shape` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

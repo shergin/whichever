@@ -8,7 +8,7 @@ pub trait Store {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Store_78be65bbc36a2a11_3_1 as Store;
+pub use __whichever_Store_9f72d21a75c6b704_3_1 as Store;
 pub struct Memory;
 pub struct Disk;
 impl Store for Memory {
@@ -63,7 +63,7 @@ impl ::core::convert::From<Disk> for AnyStore {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyStore_bc7134310d176a55_51_1 as AnyStore;
+pub(crate) use __whichever_dispatch_AnyStore_86e2dc5e734305f7_51_1 as AnyStore;
 #[automatically_derived]
 impl Store for AnyStore {
     #[inline]
@@ -74,18 +74,13 @@ impl Store for AnyStore {
         }
     }
     #[inline]
-    fn truncate(
-        &mut self,
-        __argument0: u64,
-    ) -> impl Future<Output = Result<(), ()>> + Send {
+    fn truncate(&mut self, max: u64) -> impl Future<Output = Result<(), ()>> + Send {
         async move {
             match self {
                 AnyStore::Memory(__inner) => {
-                    <Memory as Store>::truncate(__inner, __argument0).await
+                    <Memory as Store>::truncate(__inner, max).await
                 }
-                AnyStore::Disk(__inner) => {
-                    <Disk as Store>::truncate(__inner, __argument0).await
-                }
+                AnyStore::Disk(__inner) => <Disk as Store>::truncate(__inner, max).await,
             }
         }
     }

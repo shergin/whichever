@@ -6,7 +6,7 @@ pub trait Describe {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Describe_ee8911ec9f8c3da5_1_1 as Describe;
+pub use __whichever_Describe_0bdcefceec403608_1_1 as Describe;
 pub struct Cat;
 pub struct Dog;
 impl Describe for Cat {
@@ -39,7 +39,7 @@ impl ::core::convert::From<Dog> for Animal {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_Animal_52774b0d1fd69278_24_1 as Animal;
+pub(crate) use __whichever_dispatch_Animal_dc42ed18437bc606_24_1 as Animal;
 #[automatically_derived]
 impl Describe for Animal {
     #[inline]

@@ -5,7 +5,7 @@ pub trait Proof {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Proof_757e60a92f3e796a_1_1 as Proof;
+pub use __whichever_Proof_afea899646099a48_1_1 as Proof;
 pub struct Encoding;
 pub struct Ordering;
 impl Proof for Encoding {
@@ -42,7 +42,7 @@ impl ::core::convert::From<Ordering> for AnyProof {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_enum_AnyProof_01d6d10efd4dbec6_27_1 as AnyProof;
+pub(crate) use __whichever_dispatch_AnyProof_3d9ab1c0236f9740_27_1 as AnyProof;
 #[automatically_derived]
 impl Proof for AnyProof {
     const KIND: &'static str = "any";

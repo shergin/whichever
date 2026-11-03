@@ -255,7 +255,9 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `Name = Type` fixes the associated type `Name` instead of taking it from
   the first variant. A method returning `Self::Name` is converted with
   `Into`, one returning `Result<_, Self::Name>` with `map_err(Into::into)`,
-  so variants with their own error types can share one enum:
+  and `Option<Self::Name>`, `Result<Self::Name, E>` and `Result<Self,
+  Self::Name>` are mapped the same way, so variants with their own error
+  types can share one enum:
 
   ```rust
   #[whichever::dispatch(Storage, Error = StorageError)]
@@ -289,6 +291,11 @@ All options follow the trait path in `#[dispatch(..)]`.
       fn congruent(&self, other: &Self) -> bool;
   }
   ```
+
+  An expression on the trait method may use the method's parameters, a
+  `Self` argument included; one on the enum can use neither them nor
+  `self`, since the trait's tokens reach the enum through a `macro_rules!`
+  body and carry its hygiene.
 
 - `from = false` suppresses the `From<Payload>` impls.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
@@ -361,7 +368,8 @@ variant: `#[dispatch(Circle, with = Some)]` on `fn grown(&self) ->
 Option<Self>` calls a `Circle::grown` that returns a `Circle`. The `impl`
 block has to be in the enum's crate, which inherent impls are anyway; a
 bare `#[dispatch]` on an enum registers it for this without dispatching a
-trait.
+trait. A block on a dispatch struct forwards the same way, under `*` or the
+field's name.
 
 ## Traits from `std` and other crates
 
@@ -400,7 +408,6 @@ replaces the usual hand-written `match`, and the variant that holds a
 ```rust
 #[derive(Debug)]
 #[whichever::dispatch(whichever::foreign::Display)]
-#[whichever::dispatch(whichever::foreign::Error)]
 pub enum ClientError {
     Io(io::Error),
     Parse(ParseIntError),
@@ -409,9 +416,12 @@ pub enum ClientError {
 }
 ```
 
-A method the enum answers differently from every payload, such as
-`Error::source` returning `None` for some variants, goes in a
-[partial impl block](#methods-the-enum-implements-itself).
+`whichever::foreign::Error` forwards `source` the same way when every
+payload is an error type. When one is not, as the `String` above, or when
+the enum answers a method differently from every payload, that method goes
+in a [partial impl block](#methods-the-enum-implements-itself) over the
+declaration: `#[dispatch] impl whichever::foreign::Error for ClientError
+{ fn source(&self) -> .. { None } }`.
 
 ## Methods the enum implements itself
 
@@ -481,16 +491,18 @@ hold the same field.
 | --- | --- |
 | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
 | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
-| method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]`. |
+| method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]` or the trait method's own `#[inline(..)]`. |
+| generic method | Called with its type and const parameters spelled out when no argument fixes them. |
 | `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error, since boxing it again would allocate. |
 | `self: Pin<&Self>`, `self: Pin<&mut Self>` | The enum is unpinned, matched, and the payload pinned again, which needs every payload to be `Unpin`. |
 | default body | Ignored: forwarded like any other method. |
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
+| `unsafe trait` | An `unsafe impl`. |
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
-| `#[cfg]` on a method or variant | Carried onto the generated method or arm. |
+| `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
 
 ## Limits
 
