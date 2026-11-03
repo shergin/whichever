@@ -5,6 +5,15 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.5.2 - 2026-11-02
+
+A patch for the three bugs the enum_dispatch page-1 surveys filed against
+0.5.0: two compile errors from the associated-type agreement check on
+lifetime-generic enums, and a `#[cfg]`-gated method in a partial block that
+hid the payload's override silently. The last changes what such a method
+does with the `cfg` off, which was the defect; nothing else that compiled
+before is read differently.
+
 - The associated-type agreement check compiles for every lifetime-generic
   enum. Its helpers were free functions carrying the enum's generics,
   which rustc rejected with E0794 when the first payload did not mention
