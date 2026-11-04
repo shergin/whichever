@@ -1,4 +1,4 @@
-//! The core matrix: one `&self` call per element over a 1024-element
+//! The core matrix: one `&self` call per element over a 64 Ki-element
 //! collection, for every subject, at 2 to 32 variants, with payload bodies
 //! the optimiser can inline (`trivial`) or not (`opaque`), and with the
 //! variants laid out uniformly, cyclically or at random.

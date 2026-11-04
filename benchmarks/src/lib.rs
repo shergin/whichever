@@ -12,9 +12,14 @@ use std::time::Duration;
 use criterion::Criterion;
 use dispatch_subjects::{Dispatch, Resize};
 
-/// Elements per collection in the dispatch and method benchmarks: 24 KiB of
-/// enums, comfortably inside L1, so the loop measures dispatch and not memory.
-pub const LEN: usize = 1024;
+/// Elements per collection in the dispatch and method benchmarks: 1.5 MiB of
+/// enums. A branch predictor can memorise a random sequence of a thousand
+/// variants that the loop replays every iteration, so a shorter collection
+/// would not be random to it; at this length the cost of a random layout is
+/// within a few percent of a collection of a million. The walk is sequential,
+/// so the prefetcher keeps it from costing more per element than one inside
+/// L1, which the `uniform` rows show.
+pub const LEN: usize = 64 * 1024;
 
 /// The seed every collection is built from.
 pub const SEED: u64 = 0x005E_ED0F_D159_A7C4;

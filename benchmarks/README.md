@@ -39,9 +39,10 @@ Everything is one loop over a collection, timed by [criterion] with
 `Throughput::Elements`, and reported as nanoseconds per element. The
 collection, its layout and the subject are the variables.
 
-**`dispatch`** is the main matrix: one `&self` call per element over 1024
-elements (24 KiB of enums, inside L1, so dispatch is measured and not memory),
-for every subject, at 2, 4, 8, 16 and 32 variants, in two families and three
+**`dispatch`** is the main matrix: one `&self` call per element over 64 Ki
+elements (1.5 MiB of enums, walked in order, so the prefetcher keeps memory
+out of the measurement and the `uniform` rows cost what they would inside
+L1), for every subject, at 2, 4, 8, 16 and 32 variants, in two families and three
 layouts.
 
 - The `trivial` family marks the payload methods `#[inline]`. A strategy the
@@ -57,7 +58,7 @@ layouts.
   period a branch predictor may or may not learn. `shuffled` draws each
   element's variant at random: the heterogeneous collection dynamic dispatch
   exists for, where the branch is unpredictable, for a `match` and a vtable
-  alike.
+  alike, because the collection is too long for the predictor to memorise.
 
 **`methods`** takes the 8-variant `trivial` enums in the `shuffled` layout and
 times each kind of method: `&self` returning a value, `&mut self`, the
@@ -67,7 +68,10 @@ default-body method and `-> Self`.
 collections of 1 Ki to 4 Mi elements that were shuffled after being built, so
 each `Box<dyn>` points at an unrelated heap address, as it would in a program
 that has been running for a while; an enum carries its payload with it and
-does not notice. `build_and_drop` builds a 1024-element collection, which for
+does not notice. Every element holds the same variant, so the branch is
+predicted for both and only memory is left to differ; with random variants
+the predictor would learn the short collections and not the long ones, and
+that would read as a memory effect. `build_and_drop` builds a 1024-element collection, which for
 an enum is no allocation at all.
 
 **Generated code.** `scripts/codegen.py` compiles
@@ -92,6 +96,14 @@ of calls*. A generated `match` always contains calls, so a strategy that omits
 and the assembly. `enum_delegate`, `delegation` and `static-dispatch` omit
 it. `cargo bench -p whichever-benchmarks --profile bench-lto` runs with fat
 LTO to show how much of the difference it recovers.
+
+**The collection is longer than the predictor's memory.** The loop replays
+the same sequence of variants every iteration, and a branch predictor with a
+long history learns a random sequence of a thousand elements: over 1024
+elements, an M1 Pro ran the `shuffled` layout at 16 and 32 variants nearly as
+fast as a predictable one, which is no measurement of random dispatch. At
+64 Ki elements the cost of the random layout is within a few percent of what
+it is over a million, while the collection still fits in L2.
 
 **The only variable is the strategy.** Each subject is one invocation of the
 same `family!` macro with that strategy's attributes; the trait, the payload
@@ -178,15 +190,19 @@ What the tables show, and why:
   `opaque` family what the dispatch alone buys, and the layouts show where
   the branch predictor stops helping either of them. A jump table at 16 or 32
   variants is an indirect branch too: predicted, it costs a little more than
-  the vtable call it replaces; unpredicted, both pay.
+  the vtable call it replaces; unpredicted, both pay the same. Below 16
+  variants with out-of-line bodies the `match` is a chain of compares, which
+  a random variant can send the wrong way more than once per element, so
+  there the vtable call is the faster.
 - With up to 8 small arms, LLVM compiles the `match` into branch-free select
   code that evaluates every arm, so the `trivial` family is slower at 8
   variants than at 16 or 32, where a jump table takes over. That is the
   compiler's choice for every `match`-based subject alike, and no choice a
   vtable can make.
 - The `memory` tables are where the enum's inline payload shows: a scattered
-  `Box<dyn>` collection pays a cache miss per element and building one pays an
-  allocation per element.
+  `Box<dyn>` collection pays for memory on every element once its heap
+  objects no longer fit in the cache, and building one pays an allocation per
+  element.
 - `monomorphic` is the floor. The distance from it is the price of having a
   choice at all. Where it reads `<0.01`, the optimiser folded the whole loop
   into a constant.

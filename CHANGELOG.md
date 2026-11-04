@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The benchmarks time the random layout over 64 Ki elements instead of
+  1024, a sequence short enough for the branch predictor to learn, and the
+  scattered collections over a single variant, so the memory table shows
+  memory alone. The numbers in the README and the guide are from the new
+  run: through a `Box<dyn Trait>`, a call over random variants costs 6.8 ns
+  rather than 2.3 ns, and the `match` is no faster than the vtable where
+  the payload methods cannot inline. The generated code is unchanged.
+
 ## 0.5.2 - 2026-11-02
 
 A patch for the three bugs the enum_dispatch page-1 surveys filed against

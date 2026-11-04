@@ -100,7 +100,7 @@ slice of what real traits look like:
   in arguments or returns, no associated consts and no `From` impls.
 - `enum_delegate` handles `-> Self` and unifies associated types, but
   panics at runtime on `&Self` arguments, has no `async`, generic traits or
-  generic methods, and leaves out `#[inline]`, which costs from 15% to 4x
+  generic methods, and leaves out `#[inline]`, which costs up to 3.5x
   across a crate boundary.
 - `delegate` handles almost anything, because you list every signature
   again by hand.
@@ -187,15 +187,15 @@ uniform, cyclic and random layouts. From the last run, on an Apple M1 Pro
   it generates are identical to the hand-written ones, instruction for
   instruction.
 - Over a random 8-variant collection, one `&self` call costs 1.7 ns per
-  element against 2.3 ns through a `Box<dyn Trait>` when the method bodies
-  can be inlined, and 2.1 ns against 2.3 ns when they cannot. Most of the
-  enum's advantage is what the optimiser gets to see, not the dispatch.
-- Where the payload's place matters, the gap is wide: 1.7 ns against 8.1 ns
+  element against 6.8 ns through a `Box<dyn Trait>` when the method bodies
+  can be inlined, and 8.4 ns against 6.7 ns when they cannot. The enum's
+  advantage is what the optimiser gets to see, not the dispatch.
+- Where the payload's place matters, the gap is wide: 1.7 ns against 6.5 ns
   per element over 4 Mi scattered elements, and a collection is built 13x
   faster without a box per element.
 - A generated impl without `#[inline]` (`enum_delegate`, `delegation`) pays
-  an extra out-of-line call across the crate boundary, from 15% to 4x
-  depending on the method and the variant count.
+  an extra out-of-line call across the crate boundary, up to 5x depending
+  on the method, the variant count and the layout.
 
 Whether an enum is the right choice for a given program, and how to get
 these numbers out of it, is the subject of

@@ -79,7 +79,8 @@ pub enum Pattern {
     /// branch predictor may or may not learn.
     RoundRobin,
     /// Variants drawn uniformly at random: the realistic heterogeneous
-    /// collection, where each element's branch is unpredictable.
+    /// collection, where each element's branch is unpredictable once the
+    /// collection is too long for the predictor to memorise.
     Shuffled,
 }
 

@@ -26,3 +26,4 @@ the planning notes, the note holds the long form and the record names it.
 - [A variant without a payload is left to the fallback](a-variant-without-a-payload-is-left-to-the-fallback.md)
 - [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)
 - [Benchmarks are runtime only](benchmarks-are-runtime-only.md)
+- [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
