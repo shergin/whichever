@@ -5,12 +5,12 @@ use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Error, Field, Fields, Ident, Index, Item, ItemEnum, ItemStruct, Member, Path,
-    Result, Type, Variant,
+    Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item, ItemEnum, ItemStruct,
+    Member, Path, Result, Type, Variant,
 };
 
 use crate::options::{is_dispatch_attribute, TargetOptions};
-use crate::shape::{is_self, last_segment};
+use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
 
 /// The item an impl is written for: an enum over implementors, or a struct
 /// wrapping one.
@@ -242,6 +242,30 @@ impl Target {
         } else {
             quote!(#payload)
         }
+    }
+
+    /// Returns the type parameter of `generics` that the trait is called
+    /// on: the payload when it is a bare parameter, or what a `deref`
+    /// payload points at, `T` for `Box<T>`, `Rc<T>` or `&T`. The impl then
+    /// needs the bound `T: Trait`, which a hand writes and nothing else
+    /// supplies.
+    pub(crate) fn bounded_parameter(&self, generics: &syn::Generics) -> Option<&Ident> {
+        let candidate = if self.deref {
+            match &self.payload {
+                Type::Reference(reference) => bare_ident(&reference.elem),
+                other => match last_segment(other).map(generic_type_args) {
+                    Some(arguments) if arguments.len() == 1 => bare_ident(arguments[0]),
+                    _ => None,
+                },
+            }
+        } else {
+            bare_ident(&self.payload)
+        }?;
+        generics
+            .params
+            .iter()
+            .any(|param| matches!(param, GenericParam::Type(param) if param.ident == *candidate))
+            .then_some(candidate)
     }
 
     /// Returns whether the payload is a `Box`, dereferenced to the

@@ -55,7 +55,6 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         user_items,
     } = &header;
     let derived = partial.is_none().then(|| quote!(#[automatically_derived]));
-    let (impl_generics, _, where_clause) = generics.split_for_impl();
     // The partial impl block a message points at, spelled with the trait as
     // the subject names it and the subject's own generics.
     let block_header = {
@@ -77,6 +76,16 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         }
     }
     let variants = targets(&entries);
+    // The bounds a hand writes: a payload that is a type parameter of the
+    // subject gets `Param: Trait` on the impl, which the arms need and
+    // nothing else supplies. A partial block's header is the user's and is
+    // written as it is.
+    let generics = match partial {
+        Some(_) => (*generics).clone(),
+        None => with_payload_bounds(generics, &variants, subject.generics(), trait_path),
+    };
+    let generics = &generics;
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
     // A partial block is the only dispatch of its trait, so a variant that
     // cannot be forwarded to is reported here, under its own `cfg`.
     let shape_errors = match &partial {
@@ -301,6 +310,32 @@ fn unknown_override_hint(
         "its associated items are {}, and the other options are {options}",
         listed(associated)
     )
+}
+
+/// Returns `generics` with `Param: Trait` added for every target whose
+/// payload is the type parameter `Param` of `declared`, each bound once.
+fn with_payload_bounds(
+    generics: &Generics,
+    variants: &[&Target],
+    declared: &Generics,
+    trait_path: &Path,
+) -> Generics {
+    let mut generics = generics.clone();
+    let mut bounded: Vec<&Ident> = vec![];
+    for target in variants {
+        let Some(parameter) = target.bounded_parameter(declared) else {
+            continue;
+        };
+        if bounded.contains(&parameter) {
+            continue;
+        }
+        bounded.push(parameter);
+        generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#parameter: #trait_path));
+    }
+    generics
 }
 
 /// Spells `tokens` as a hand writes them, without the spaces `quote` puts

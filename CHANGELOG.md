@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A payload that is a type parameter of the enum, or of the struct, gives
+  the impl the bound a hand writes, `Raw: Trait` for `Raw(Raw)` and
+  `T: Trait` for a `deref` payload `Box<T>`, `Rc<T>` or `&T`. Before, rustc
+  reported the missing bound at the variant, and the way around it, an
+  empty partial impl block with a bounded header, was documented nowhere;
+  sux writes about 116 such blocks.
 - A method taking `Self` arguments gets its fallback arm only when the
   enum has two variants to meet, or a variant under `#[cfg]`; a one-variant
   enum needs no `mismatch` and gets no arm, as a hand writes none. The
