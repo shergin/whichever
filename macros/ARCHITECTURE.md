@@ -304,8 +304,13 @@ two live in different hygiene contexts, the trait's tokens having come
 through a `macro_rules!` body, so the engine resolves the receiver's `self`
 token and the written argument bindings at the chosen expression's span
 with `Span::resolved_at` (stable since 1.45); the arms use that same `self`
-token. Errors rustc finds in generated code land on the enum or on the
-trait method, never on the trait's attribute.
+token. A rustc error inside generated code is accepted only where a
+hand-written impl gets the same error on the same user token, a variant's
+payload or a trait method; one on an attribute is a defect. So no module
+that writes generated code uses a bare `quote!` or `parse_quote!`: every
+token carries the subject's, the method's or the payload's span, and the
+unit test in `spans.rs` reads those modules and names a token written at
+the call site, which inside `implement!` is the trait's attribute.
 
 ## 4. Plan
 
@@ -543,6 +548,8 @@ case.
 - Generated bindings use `Span::mixed_site()`; the receiver uses the trait
   method's own `self` token; a variant's `#[cfg]` is carried onto its arm,
   a trait item's is decided by which carrier the trait's crate compiled.
+- Every token the engine writes carries a user span, never the call site:
+  `spans.rs` reads the engine's modules and names a bare `quote!`.
 - Nothing is kept between expansions.
 - `implement!` keeps its name and accepts every `@v1` message a 0.x carrier
   emits; the facade and the macros crate move as one version.

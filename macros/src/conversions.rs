@@ -46,14 +46,17 @@ pub(crate) fn conversion_impls(
     }
     let value = Ident::new("__value", Span::mixed_site());
     let other = Ident::new("__other", Span::mixed_site());
+    // The call site here is the subject's own attribute; its tokens are
+    // spelled at the subject's name all the same.
+    let site = enum_ident.span();
     let mut output = TokenStream2::new();
     for (target, conversions) in &converting {
         let Target { payload, cfgs, .. } = target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
         }
-        let built = target.rebuild(&self_path, quote!(#value));
-        let pattern = target.pattern(&prefix, &value);
+        let built = target.rebuild(&self_path, quote!(#value), site);
+        let pattern = target.pattern(&prefix, &value, site);
         let parameter = type_parameter(subject, target);
         if let (true, Some(ident)) = (overlapping, parameter) {
             errors.push(Error::new_spanned(
@@ -149,7 +152,7 @@ pub(crate) fn conversion_impls(
         for entry in entries {
             match entry {
                 Entry::Target(variant) if variant.conversions().is_some() => {
-                    let pattern = variant.pattern(&prefix, &value);
+                    let pattern = variant.pattern(&prefix, &value, site);
                     let cfgs = &variant.cfgs;
                     arms.push(
                         quote! { #(#cfgs)* #pattern => ::core::convert::Into::into(#value), },

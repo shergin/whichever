@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::quote_spanned;
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, PathArguments, PathSegment, Receiver,
@@ -465,7 +465,8 @@ pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
     if parameters.is_empty() || inferred {
         return None;
     }
-    Some(quote!(::<#(#parameters),*>))
+    let site = crate::at(signature.ident.span());
+    Some(quote_spanned!(site => ::<#(#parameters),*>))
 }
 
 /// Every identifier a type names: in its paths, their generic arguments,
@@ -515,6 +516,7 @@ pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
 
 #[cfg(test)]
 mod tests {
+    use quote::quote;
     use syn::parse_quote;
 
     use super::*;

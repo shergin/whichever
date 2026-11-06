@@ -70,7 +70,7 @@ impl Route {
         through_reference: bool,
         site: Span,
     ) -> TokenStream2 {
-        let mut expression = quote!(#binding);
+        let mut expression = quote_spanned!(site => #binding);
         let mut derefs = 0usize;
         for (index, step) in self.steps.iter().enumerate() {
             match step {

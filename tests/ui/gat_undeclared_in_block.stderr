@@ -6,7 +6,7 @@ error: `View` is a generic associated type, which only the enum can declare; wri
 10 | |         Self: 's;
    | |_________________^
 ...
-33 |   #[whichever::dispatch]
-   |   ---------------------- in this attribute macro expansion
+34 |   impl Make for Kind {
+   |        ---- in this macro invocation
    |
-   = note: this error originates in the macro `Make` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `Make` (in Nightly builds, run with -Z macro-backtrace for more info)

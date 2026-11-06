@@ -4,8 +4,8 @@ error[E0277]: the trait bound `AnyItem<'_>: From<u32>` is not satisfied
 40 | enum Kind {
    |      ^^^^ unsatisfied trait bound
 ...
-45 | #[whichever::dispatch]
-   | ---------------------- in this attribute macro expansion
+46 | impl Lend for Kind {
+   |      ---- in this macro invocation
    |
 help: the trait `From<u32>` is not implemented for `AnyItem<'_>`
       but trait `From<&A>` is implemented for it
@@ -15,4 +15,4 @@ help: the trait `From<u32>` is not implemented for `AnyItem<'_>`
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `&A`, found `u32`
    = note: required for `u32` to implement `Into<AnyItem<'_>>`
-   = note: this error originates in the macro `Kind` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Lend` (in Nightly builds, run with -Z macro-backtrace for more info)

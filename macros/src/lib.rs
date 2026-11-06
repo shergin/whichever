@@ -9,6 +9,7 @@
 //! with one `match` per method. No state is shared between expansions, so
 //! the trait and the enum may live in different crates.
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
 
@@ -19,6 +20,14 @@ use crate::implement::expand_implement;
 use crate::options::DispatchableOptions;
 use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
+
+/// Returns the span a generated token carries: located at `span`, a token
+/// the user wrote, so that an error rustc finds in the generated code lands
+/// there, and resolved at the expansion's own site, so that lints treat the
+/// token as the expansion's and not as the user's.
+pub(crate) fn at(span: Span) -> Span {
+    Span::mixed_site().located_at(span)
+}
 
 /// Folds `errors` into the first, so that all of them are reported at once.
 pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
@@ -44,6 +53,8 @@ mod options;
 mod protocol;
 mod route;
 mod shape;
+#[cfg(test)]
+mod spans;
 mod subject;
 mod substitution;
 

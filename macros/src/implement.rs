@@ -3,17 +3,17 @@ use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    parse_quote, Attribute, Block, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Meta,
-    Path, Result, Signature, Token, TraitItem, TraitItemConst, TraitItemFn, TraitItemType, Type,
+    parse_quote_spanned, Attribute, Block, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait,
+    Meta, Path, Result, Signature, Token, TraitItem, TraitItemConst, TraitItemFn, TraitItemType,
+    Type,
 };
 
-use crate::agreement::{associated_const_check, associated_type_check};
+use crate::agreement::Agreement;
 use crate::block::{check_body, one_attribute, select_targets, BodylessMethod};
-use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -26,6 +26,7 @@ use crate::subject::{
     carried_attributes, cfg_attributes, shape_errors, targets, Entry, Subject, Target,
 };
 use crate::substitution::Substitution;
+use crate::{at, combined};
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
@@ -71,12 +72,19 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         methods,
         user_items,
     } = &header;
-    let derived = partial.is_none().then(|| quote!(#[automatically_derived]));
+    // Every token written here carries the subject's span: the call site is
+    // the trait's attribute, which may be in another crate.
+    let site = at(subject.ident().span());
+    let derived = partial
+        .is_none()
+        .then(|| quote_spanned!(site => #[automatically_derived]));
     // The partial impl block a message points at, spelled with the trait as
     // the subject names it and the subject's own generics.
     let block_header = {
         let (impl_generics, ty_generics, _) = subject.generics().split_for_impl();
-        spelled(&quote!(impl #impl_generics #spec_path for #subject_path #ty_generics))
+        spelled(
+            &quote_spanned!(site => impl #impl_generics #spec_path for #subject_path #ty_generics),
+        )
     };
     let mut entries = subject.entries_for(Some(&spec_path))?;
     // A partial block's header may name the subject's parameters as it
@@ -173,7 +181,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         let (complement, written_at) = match written {
             Some(Written::Always) => continue,
             Some(Written::Under { conditions, span }) => {
-                (Some(not_all_of(conditions)), Some(*span))
+                (Some(not_all_of(conditions, at(*span))), Some(*span))
             }
             None => (None, None),
         };
@@ -203,15 +211,21 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 span,
                 format!("`{}` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds", constant.ident),
             )),
-            (TraitItem::Type(assoc), None) => {
-                associated_type(assoc, &spec, &supplier, &block_header, &mut agreed_types)
-            }
+            (TraitItem::Type(assoc), None) => associated_type(
+                assoc,
+                &spec,
+                &supplier,
+                &block_header,
+                &mut agreed_types,
+                site,
+            ),
             (TraitItem::Const(constant), None) => associated_const(
                 constant,
                 &spec,
                 &supplier,
                 &mut substitution,
                 &mut agreed_consts,
+                site,
             ),
             (TraitItem::Fn(function), _) => {
                 plain_forwarding |= forwarded.is_none() && function.sig.receiver().is_some();
@@ -229,7 +243,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 &mut substitution,
                 forwarded,
             )
-            .map(|forwarded| quote! { #complement #forwarded })
+            .map(|forwarded| quote_spanned! { site => #complement #forwarded })
             }
             (TraitItem::Macro(item), _) => Err(Error::new_spanned(
                 item,
@@ -300,33 +314,23 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         let first_outside = first
             .target_type_outside(self_ty)
             .expect("the supplier is chosen among the targets with a type");
-        let types = associated_type_check(
-            &agreed_types,
-            &variants,
+        let agreement = Agreement {
+            variants: &variants,
             first,
             trait_path,
-            &first_outside,
+            first_payload: &first_outside,
             generics,
-            self_ty,
-        );
-        let consts = associated_const_check(
-            &agreed_consts,
-            &variants,
-            first,
-            trait_path,
-            &first_outside,
-            generics,
-            self_ty,
-        );
-        quote! { #types #consts }
+            self_type: self_ty,
+            site,
+        };
+        let types = agreement.types(&agreed_types);
+        let consts = agreement.consts(&agreed_consts);
+        quote_spanned! { site => #types #consts }
     });
     let shape_errors = match &partial {
         Some(_) if plain_forwarding => shape_errors(&entries),
         _ => TokenStream2::new(),
     };
-    // The header's own tokens carry the subject's span: the call site here
-    // is the trait's attribute, which may be in another crate.
-    let site = subject.ident().span();
     Ok(quote_spanned! { site =>
         #(#impl_attrs)*
         #derived
@@ -399,10 +403,11 @@ fn with_payload_bounds(
             continue;
         }
         bounded.push(parameter);
+        let span = at(parameter.span());
         generics
             .make_where_clause()
             .predicates
-            .push(parse_quote!(#parameter: #trait_path));
+            .push(parse_quote_spanned!(span => #parameter: #trait_path));
     }
     generics
 }
@@ -555,16 +560,16 @@ impl Written {
 
 /// Returns the `#[cfg]` under which none of `conditions` holds: each is
 /// the `all` of one item's predicates, and the item exists under `any` of
-/// them.
-fn not_all_of(conditions: &[Vec<Attribute>]) -> TokenStream2 {
+/// them. The attribute's own tokens carry `span`, the block item's.
+fn not_all_of(conditions: &[Vec<Attribute>], span: Span) -> TokenStream2 {
     let predicates = conditions.iter().map(|cfgs| {
         let predicates = cfgs.iter().map(|attribute| match &attribute.meta {
             syn::Meta::List(list) => list.tokens.clone(),
             _ => TokenStream2::new(),
         });
-        quote!(all(#(#predicates),*))
+        quote_spanned!(span => all(#(#predicates),*))
     });
-    quote!(#[cfg(not(any(#(#predicates),*)))])
+    quote_spanned!(span => #[cfg(not(any(#(#predicates),*)))])
 }
 
 impl<'a> ImplHeader<'a> {
@@ -580,9 +585,10 @@ impl<'a> ImplHeader<'a> {
             let path = remote
                 .cloned()
                 .unwrap_or_else(|| Path::from(subject.ident().clone()));
+            let site = at(subject.ident().span());
             return Ok(Self {
                 generics: subject.generics(),
-                self_ty: parse_quote!(#path #ty_generics),
+                self_ty: parse_quote_spanned!(site => #path #ty_generics),
                 attrs: &[],
                 // An `unsafe trait` is implemented by an `unsafe impl`.
                 unsafety: item_trait.unsafety,
@@ -677,8 +683,9 @@ struct Supplier<'a> {
 }
 
 impl Supplier<'_> {
-    /// Returns `<First as Trait>::name`, or the error for an enum whose
-    /// every variant is under `#[cfg]`.
+    /// Returns `<First as Trait>::name`, spelled at the first variant's
+    /// payload so that an error about the projection lands there, or the
+    /// error for an enum whose every variant is under `#[cfg]`.
     fn item(&self, name: &Ident) -> Result<TokenStream2> {
         let Some(first) = self.first else {
             return Err(Error::new_spanned(
@@ -690,20 +697,23 @@ impl Supplier<'_> {
             .target_type()
             .expect("the supplier is chosen among the targets with a type");
         let trait_path = self.trait_path;
-        Ok(quote!(<#payload as #trait_path>::#name))
+        let span = at(first.payload.span());
+        Ok(quote_spanned!(span => <#payload as #trait_path>::#name))
     }
 }
 
 /// Writes `type Name = ..;`: the override, or the supplier's type with
 /// `Name` recorded for the agreement check. A generic associated type has
 /// no supplier: the enum declares it in a partial impl block, which is
-/// where one the block writes was taken out of this path.
+/// where one the block writes was taken out of this path. The item's own
+/// tokens carry `site`.
 fn associated_type<'a>(
     assoc: &'a TraitItemType,
     spec: &TraitSpec,
     supplier: &Supplier,
     block_header: &str,
     agreed: &mut Vec<&'a Ident>,
+    site: Span,
 ) -> Result<TokenStream2> {
     let name = &assoc.ident;
     if !assoc.generics.params.is_empty() {
@@ -728,17 +738,19 @@ fn associated_type<'a>(
             supplier.item(name)?
         }
     };
-    Ok(quote! { #(#carried)* type #name = #ty; })
+    Ok(quote_spanned! { site => #(#carried)* type #name = #ty; })
 }
 
 /// Writes `const NAME: T = ..;`: the override, or the supplier's value with
-/// `NAME` recorded for the agreement check.
+/// `NAME` recorded for the agreement check. The item's own tokens carry
+/// `site`.
 fn associated_const<'a>(
     constant: &'a TraitItemConst,
     spec: &TraitSpec,
     supplier: &Supplier,
     substitution: &mut Substitution,
     agreed: &mut Vec<(&'a Ident, Type)>,
+    site: Span,
 ) -> Result<TokenStream2> {
     let name = &constant.ident;
     let carried = carried_attributes(&constant.attrs);
@@ -757,7 +769,7 @@ fn associated_const<'a>(
             supplier.item(name)?
         }
     };
-    Ok(quote! { #(#carried)* const #name: #ty = #value; })
+    Ok(quote_spanned! { site => #(#carried)* const #name: #ty = #value; })
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every
@@ -792,7 +804,8 @@ fn expand_method(
             None => carried_attributes(&function.attrs),
         };
         let error = error.to_compile_error();
-        quote! { #(#carried)* #signature { #error } }
+        let span = at(signature.ident.span());
+        quote_spanned! { span => #(#carried)* #signature { #error } }
     }))
 }
 
@@ -849,7 +862,7 @@ fn forward_trait_method(
         subject: subject_ident,
         prefix: subject_path.clone(),
         lift: None,
-        site: subject_ident.span(),
+        site: at(subject_ident.span()),
     };
     // The enum's `mismatch` wins over the trait method's, and the names the
     // fallback arm binds resolve where the chosen expression was written.
@@ -912,10 +925,12 @@ fn forward_trait_method(
                     // error stands, which the fallback arm does when there
                     // is one.
                     Entry::Unforwardable(unforwardable) if !plan.has_same_variant() => {
+                        let site = context.site;
                         arms.push(Arm::unforwardable(
                             &context.prefix,
                             unforwardable,
-                            quote!(::core::unreachable!()),
+                            quote_spanned!(site => ::core::unreachable!()),
+                            site,
                         ));
                     }
                     Entry::Unforwardable(_) => {}
@@ -942,7 +957,7 @@ fn forward_trait_method(
     // `mismatch`; under `*` without a body the trait's rule applies.
     let body_arm = forwarded
         .and_then(|forwarded| forwarded.body.as_ref())
-        .map(|body| Arm::rest(body.to_token_stream()));
+        .map(|body| Arm::rest(body.to_token_stream(), context.site));
     let needs_fallback = body_arm.is_none()
         && plan.has_same_variant()
         && subject.can_mismatch()
@@ -956,15 +971,16 @@ fn forward_trait_method(
                 format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
             ));
         };
-        Some(plan.fallback(expr.to_token_stream()))
+        Some(plan.fallback(expr.to_token_stream(), context.site))
     } else {
         None
     };
     if let Some(selection) = selection {
         arms.extend(selection.unforwardable_arms);
     }
+    let site = context.site;
     let allow_unreachable = (fallback.is_some() && forwarded.is_none() && always_present < 2)
-        .then(|| quote! { #[allow(unreachable_patterns)] });
+        .then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
     // The method's own `#[inline]`, the block's or the trait's, or ours.
     let own_attrs: &[Attribute] = match forwarded {
         Some(forwarded) => &forwarded.attrs,
@@ -974,7 +990,7 @@ fn forward_trait_method(
         .iter()
         .find(|attribute| attribute.path().is_ident("inline"))
         .map(ToTokens::to_token_stream)
-        .unwrap_or_else(|| quote! { #[inline] });
+        .unwrap_or_else(|| quote_spanned! { site => #[inline] });
     let carried: Vec<Attribute> = match forwarded {
         Some(forwarded) => forwarded
             .attrs
@@ -990,8 +1006,8 @@ fn forward_trait_method(
         fallback,
         future: plan.future,
     }
-    .body(method.span());
-    Ok(quote! {
+    .body(at(method.span()));
+    Ok(quote_spanned! { site =>
         #(#carried)*
         #inline
         #allow_unreachable
@@ -1001,6 +1017,7 @@ fn forward_trait_method(
 
 #[cfg(test)]
 mod tests {
+    use quote::quote;
     use syn::parse_quote;
 
     use super::*;
@@ -1013,7 +1030,7 @@ mod tests {
         ];
         let unix: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
         assert_eq!(
-            not_all_of(&[named.clone(), unix.clone()]).to_string(),
+            not_all_of(&[named.clone(), unix.clone()], Span::call_site()).to_string(),
             quote!(#[cfg(not(any(all(feature = "named", not(test)), all(unix))))]).to_string()
         );
         let mut written = Written::new(named, Span::call_site());

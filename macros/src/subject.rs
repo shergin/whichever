@@ -1,7 +1,7 @@
 //! The subject an impl is written for: an enum over implementors, or a struct
 //! wrapping one, and the targets its methods forward to.
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -10,6 +10,7 @@ use syn::{
     Member, Path, Result, Type, Variant,
 };
 
+use crate::at;
 use crate::options::{is_dispatch_attribute, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
@@ -213,48 +214,60 @@ impl Target {
     }
 
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
-    /// which is the subject's name or `Self`.
-    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident) -> TokenStream2 {
+    /// which is the subject's name or `Self`; the pattern's own tokens
+    /// carry `site`.
+    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => quote!(#prefix::#ident(#binding)),
+            Place::Variant { field: None, .. } => {
+                quote_spanned!(site => #prefix::#ident(#binding))
+            }
             Place::Variant {
                 field: Some(Member::Unnamed(index)),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote!(_));
-                quote!(#prefix::#ident(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
+                quote_spanned!(site => #prefix::#ident(#(#skipped,)* #binding, ..))
             }
             Place::Variant {
                 field: Some(member),
                 ..
-            } => quote!(#prefix::#ident { #member: #binding, .. }),
+            } => quote_spanned!(site => #prefix::#ident { #member: #binding, .. }),
             Place::Field {
                 member: Member::Unnamed(index),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote!(_));
-                quote!(#prefix(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
+                quote_spanned!(site => #prefix(#(#skipped,)* #binding, ..))
             }
-            Place::Field { member, .. } => quote!(#prefix { #member: #binding, .. }),
+            Place::Field { member, .. } => {
+                quote_spanned!(site => #prefix { #member: #binding, .. })
+            }
         }
     }
 
     /// Returns the expression building the subject around `value`, or
     /// `None` when other fields would be missing.
-    pub(crate) fn rebuild(&self, prefix: &Path, value: TokenStream2) -> Option<TokenStream2> {
+    pub(crate) fn rebuild(
+        &self,
+        prefix: &Path,
+        value: TokenStream2,
+        site: Span,
+    ) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident(#value))),
+            Place::Variant { field: None, .. } => {
+                Some(quote_spanned!(site => #prefix::#ident(#value)))
+            }
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote!(#prefix(#value))),
+            } => Some(quote_spanned!(site => #prefix(#value))),
             Place::Field {
                 member,
                 rebuildable: true,
-            } => Some(quote!(#prefix { #member: #value })),
+            } => Some(quote_spanned!(site => #prefix { #member: #value })),
             Place::Field {
                 rebuildable: false, ..
             } => None,
@@ -262,21 +275,21 @@ impl Target {
     }
 
     /// Returns a function building the subject from a payload, for `map`.
-    pub(crate) fn constructor(&self, prefix: &Path) -> Option<TokenStream2> {
+    pub(crate) fn constructor(&self, prefix: &Path, site: Span) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident)),
+            Place::Variant { field: None, .. } => Some(quote_spanned!(site => #prefix::#ident)),
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote!(#prefix)),
+            } => Some(quote_spanned!(site => #prefix)),
             Place::Field {
                 member,
                 rebuildable: true,
             } => {
                 let value = Ident::new("__value", Span::mixed_site());
-                Some(quote!(|#value| #prefix { #member: #value }))
+                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
             }
             Place::Field {
                 rebuildable: false, ..
@@ -287,9 +300,10 @@ impl Target {
     /// Returns the type the trait is called on, when the route lets it be
     /// named from the payload's: the payload, or what it dereferences to. A
     /// field's or a method's type cannot be, and the call is qualified by
-    /// the trait alone.
+    /// the trait alone. The tokens carry the payload's span, so that an
+    /// error about the type lands on the variant.
     pub(crate) fn target_type(&self) -> Option<TokenStream2> {
-        Self::routed_type(&self.payload, &self.route)
+        Self::routed_type(&self.payload, &self.route, at(self.payload.span()))
     }
 
     /// Returns the same type for a position outside the subject's own
@@ -297,17 +311,17 @@ impl Target {
     pub(crate) fn target_type_outside(&self, self_type: &Type) -> Option<TokenStream2> {
         let mut payload = self.payload.clone();
         SelfReplacer(self_type.clone()).visit_type_mut(&mut payload);
-        Self::routed_type(&payload, &self.route)
+        Self::routed_type(&payload, &self.route, at(self.payload.span()))
     }
 
-    fn routed_type(payload: &Type, route: &Route) -> Option<TokenStream2> {
+    fn routed_type(payload: &Type, route: &Route, site: Span) -> Option<TokenStream2> {
         if !route.names_the_target() {
             return None;
         }
         if route.is_deref() {
-            Some(quote!(<#payload as ::core::ops::Deref>::Target))
+            Some(quote_spanned!(site => <#payload as ::core::ops::Deref>::Target))
         } else {
-            Some(quote!(#payload))
+            Some(quote_spanned!(site => #payload))
         }
     }
 
@@ -375,7 +389,7 @@ impl Unforwardable {
     pub(crate) fn compile_error(&self) -> TokenStream2 {
         let cfgs = &self.cfgs;
         let error = self.error.to_compile_error();
-        quote! { #(#cfgs)* #error }
+        quote_spanned! { self.ident.span() => #(#cfgs)* #error }
     }
 }
 

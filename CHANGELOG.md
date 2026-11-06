@@ -5,6 +5,17 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Every token the generated code is written with carries a user span, the
+  enum's, the method's or the payload's. Before, the patterns, the
+  associated items, the agreement block and a dereferenced payload's type
+  were written at the call site, which inside the implementation macro is
+  the trait's `#[dispatchable]` attribute, so a rustc error about them, a
+  `dyn` payload under a `Self: Sized` method, a first variant without the
+  impl, a deprecated variant, was reported on the trait's attribute, in
+  another crate's file when the trait is foreign. A unit test of the macro
+  crate reads the engine's modules and names a token written at the call
+  site, so the rule cannot rot.
+
 ## 0.6.0 - 2026-11-06
 
 The shapes the surveys found written by hand: a route to the target,

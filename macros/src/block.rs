@@ -1,13 +1,15 @@
 //! `implement_block!`: inherent blocks forwarded method by method, and
 //! partial trait impl blocks handed on to the trait's carrier.
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::{
-    parse_quote, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Meta, Path, Result,
+    parse_quote_spanned, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Meta, Path, Result,
     ReturnType, Signature, Token, Type, Visibility,
 };
 
+use crate::at;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -59,7 +61,10 @@ pub(crate) fn expand_partial(
         remote,
         partial: Some(&item_impl),
     };
-    Ok(quote! { #macro_path! { #request } })
+    // The invocation carries the block's trait path, so that an error rustc
+    // finds in the impl is labelled on the block.
+    let site = trait_path.span();
+    Ok(quote_spanned! { site => #macro_path! { #request } })
 }
 
 /// A method declared without a body, which `syn` leaves as verbatim tokens.
@@ -187,7 +192,8 @@ pub(crate) fn expand_inherent(
     }
     item_impl.items = items;
     let errors = errors.into_iter().map(|error| error.to_compile_error());
-    Ok(quote! { #item_impl #(#errors)* })
+    let site = at(item_impl.impl_token.span);
+    Ok(quote_spanned! { site => #item_impl #(#errors)* })
 }
 
 /// What a method's `#[dispatch(..)]` selects: the targets, with the
@@ -224,6 +230,7 @@ pub(crate) fn select_targets(
                     prefix,
                     unforwardable,
                     quote_spanned! { method.span() => ::core::compile_error!(#message) },
+                    at(method.span()),
                 ));
             }
         }
@@ -329,8 +336,9 @@ pub(crate) fn forward_method(
 ) -> Result<TokenStream2> {
     let subject_ident = subject.ident();
     let noun = subject.target_noun();
-    let prefix: Path = parse_quote!(Self);
     let method = &sig.ident;
+    let site = at(method.span());
+    let prefix: Path = parse_quote_spanned!(site => Self);
     if sig.receiver().is_none() {
         return Err(Error::new_spanned(
             sig,
@@ -363,7 +371,7 @@ pub(crate) fn forward_method(
         subject: subject_ident,
         prefix,
         lift: forwarding.with.as_ref(),
-        site: method.span(),
+        site,
     };
     // In an inherent method `Self` is the subject. For an enum the argument
     // is handed over as it is: a payload method taking the enum is a
@@ -400,9 +408,9 @@ pub(crate) fn forward_method(
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,
-        fallback: body.map(|body| Arm::rest(body.to_token_stream())),
+        fallback: body.map(|body| Arm::rest(body.to_token_stream(), context.site)),
         future: plan.future,
     }
-    .body(method.span());
-    Ok(quote! { #(#attrs)* #vis #signature #body })
+    .body(site);
+    Ok(quote_spanned! { site => #(#attrs)* #vis #signature #body })
 }
