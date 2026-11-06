@@ -798,7 +798,9 @@ tokio)]` names the macro explicitly and tells the two apart.
 `no_std`, with no dependencies beyond the proc-macro crate. The minimum
 supported Rust version is 1.88. Both the crate that owns the trait and the
 crate that owns the enum depend on `whichever`; renaming the dependency is
-fine.
+fine under the default feature `renamed-dependency`, which looks the name
+up through `proc-macro-crate`, and without it the macro crate's dependency
+tree is `proc-macro2`, `quote` and `syn` alone.
 
 `#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
 the carrier macro, to the crate root, named after the trait and the position

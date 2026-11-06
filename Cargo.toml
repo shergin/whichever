@@ -12,6 +12,12 @@ categories = ["rust-patterns"]
 readme = "README.md"
 exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
 
+[features]
+default = ["renamed-dependency"]
+# A crate that renames its `whichever` dependency needs this; without it
+# the macro crate's dependency tree is `proc-macro2`, `quote` and `syn`.
+renamed-dependency = ["whichever-macros/renamed-dependency"]
+
 [dependencies]
 # Pinned exactly: the facade's `__private` module and the macros' generated
 # code are one interface, and the two crates are released together.

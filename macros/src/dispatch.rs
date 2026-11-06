@@ -1,7 +1,6 @@
 //! `#[dispatch]` on a subject or on an impl block: what is emitted at the
 //! attribute, before any carrier macro runs.
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use proc_macro_crate::FoundCrate;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
@@ -349,7 +348,13 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
     }
 }
 
+/// Returns the name the facade crate has in the crate being compiled: the
+/// one `proc-macro-crate` finds in its manifest, or `whichever` itself
+/// without the `renamed-dependency` feature.
+#[cfg(feature = "renamed-dependency")]
 pub(crate) fn facade_ident() -> Result<Ident> {
+    use proc_macro2::Span;
+    use proc_macro_crate::FoundCrate;
     match proc_macro_crate::crate_name(FACADE) {
         Ok(FoundCrate::Itself) => Ok(format_ident!("{FACADE}")),
         Ok(FoundCrate::Name(name)) => Ok(Ident::new(&name, Span::call_site())),
@@ -358,4 +363,11 @@ pub(crate) fn facade_ident() -> Result<Ident> {
             format!("`{FACADE}` must be a dependency of this crate: {error}"),
         )),
     }
+}
+
+/// Returns the name the facade crate has in the crate being compiled,
+/// which is its own without the `renamed-dependency` feature.
+#[cfg(not(feature = "renamed-dependency"))]
+pub(crate) fn facade_ident() -> Result<Ident> {
+    Ok(format_ident!("{FACADE}"))
 }

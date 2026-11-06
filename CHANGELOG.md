@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `proc-macro-crate`, which lets a crate rename its `whichever`
+  dependency, sits behind the default feature `renamed-dependency`;
+  without it the macro crate's dependency tree is `proc-macro2`, `quote`
+  and `syn` alone, which the surveys counted as five to ten build crates
+  fewer. CI checks the build without the feature and runs
+  `cargo-semver-checks` against the last published version.
 - Every sentence the macros write is pinned by a `tests/ui` snapshot, and
   a unit test of the macro crate reads the sources and the snapshots and
   fails when one is not; thirty sentences had none and have a case now,

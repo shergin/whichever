@@ -556,9 +556,9 @@ case.
 - Subject-level `from` and `try_from` on a trait attribute are accepted
   today. Stage 5 keeps accepting them; rejecting them is a breaking change
   for a later release.
-- `proc-macro-crate` exists only so the facade can be renamed and brings
-  eight build-time crates. A `renamed-dependency` feature, on by default, is
-  the smallest way to let a user opt out.
+- Settled on 2026-11-05: `proc-macro-crate` sits behind the default
+  feature `renamed-dependency`; without it the facade is `whichever` and
+  the macro crate's tree is `proc-macro2`, `quote` and `syn`.
 - An enum with two partial impl blocks, or a dispatched trait and a partial
   block, reports an unforwardable variant once per block. Nothing stateless
   can tell the blocks apart; the duplicate is left.
