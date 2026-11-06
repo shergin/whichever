@@ -177,6 +177,20 @@ and are generated; an inherent method's are the user's, and are kept. The
 one difference that is not deliberate, the trait path renaming parameters
 that could keep their names, goes in stage 6.
 
+Above the engine, `implement.rs` plans before it writes: `ItemPlan` says
+what each trait item becomes, skipped, rejected with its sentence as its
+body, an associated type or const from the override or the first variant,
+a method forwarded as the block's attribute names under the complement of
+the block's `cfg`, or a limit, and `ItemWriter` renders the plan while
+keeping what the agreement checks and the shape errors need afterwards.
+`forward_trait_method` asks `fallback_for` for the arm the targets' arms
+leave and whether the lint about an unreachable pattern is allowed, and
+`check_trait_objects` for the one shape a target refuses. The routes a
+trait keys by variant and the options naming nothing in the trait are
+applied and checked by `apply_routes` and `unknown_names`, so that
+`expand_implement` reads as the sequence it is: the header, the entries,
+the bounds, the supplier, the items, the checks.
+
 ### 3.3 The return model
 
 ```rust
@@ -594,6 +608,11 @@ where the two keys agree).
 The target selection moved from `block.rs` into `selection.rs`, so the
 trait path and the inherent path both sit on the engine and neither on the
 other.
+`expand_implement` plans each item before writing it (`ItemPlan`,
+`ItemWriter`), and `forward_trait_method` asks `fallback_for` and
+`check_trait_objects`; no golden or snapshot changed. `expand_implement` is
+207 lines where it was 311 and `forward_trait_method` 163 where it was 184;
+`conversion_impls` (184) and `expand_subject` (124) are the next seams.
 
 ## 5. Invariants every stage keeps
 

@@ -88,6 +88,10 @@ changes are expected and listed without apology.
   `bar/x/y.rs` collided. A file outside the manifest directory keeps the
   two components. A carrier's name changes once with this release wherever
   the two keys differ, which nothing but an expansion can see.
+- The macro crate's trait path plans each trait item before writing it,
+  and its selection of targets lives in a module of its own, shared with
+  the inherent path; `macros/ARCHITECTURE.md` describes the shape. Nothing
+  generated changed.
 
 ## 0.6.0 - 2026-11-06
 

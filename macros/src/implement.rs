@@ -7,9 +7,9 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait,
-    Meta, Path, Result, Signature, Token, TraitItem, TraitItemConst, TraitItemFn, TraitItemType,
-    Type,
+    parse_quote_spanned, Attribute, Block, Error, Expr, Generics, Ident, ImplItem, ItemImpl,
+    ItemTrait, Meta, Path, Result, Signature, Token, TraitItem, TraitItemConst, TraitItemFn,
+    TraitItemType, Type,
 };
 
 use crate::agreement::Agreement;
@@ -20,7 +20,7 @@ use crate::options::{
     closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override, TraitSpec,
 };
 use crate::protocol::ImplementInput;
-use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
+use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod, Selection};
 use crate::shape::{takes_self_argument, ReturnSite};
 use crate::subject::{
     allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
@@ -104,24 +104,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             }
         }
     }
-    // The trait's own routes through named variants, over the variants'.
-    let mut route_errors = vec![];
-    for (variant, route) in &spec.routes {
-        let target = entries.iter_mut().find_map(|entry| match entry {
-            Entry::Target(target) if target.ident == *variant => Some(target),
-            _ => None,
-        });
-        match target {
-            Some(target) => target.route = route.clone(),
-            None => route_errors.push(Error::new(
-                variant.span(),
-                format!(
-                    "`{}` has no variant `{variant}` to route through",
-                    subject.ident()
-                ),
-            )),
-        }
-    }
+    let route_errors = apply_routes(&spec, &mut entries, &subject);
     let variants = targets(&entries);
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and
@@ -133,11 +116,6 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     };
     let generics = &generics;
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    // A partial block is the only dispatch of its trait, so a variant that
-    // cannot be forwarded to is reported here, under its own `cfg`, once
-    // some method forwards to every variant; a block whose every method
-    // names its variants leaves such a variant to the bodies.
-    let mut plain_forwarding = false;
     if variants.is_empty() {
         if entries.is_empty() {
             return Err(Error::new_spanned(
@@ -165,170 +143,55 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         subject: subject.ident(),
         trait_path,
     };
-    let mut substitution = Substitution::of_trait(&item_trait, trait_path, generics)?;
-    let mut items = TokenStream2::new();
-    let mut agreed_types: Vec<&Ident> = vec![];
-    let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
-    // The agreement checks name every associated item; a deprecated one
-    // puts them under `#[allow(deprecated)]`.
-    let mut deprecated_items = false;
-    // Every item that cannot be forwarded is reported, not only the first.
+    // Every item of the trait is planned and written in turn; every item
+    // that cannot be forwarded is reported, not only the first.
+    let mut writer = ItemWriter {
+        context: MethodContext {
+            entries: &entries,
+            subject: &subject,
+            subject_path: &subject_path,
+            trait_path,
+            spec: &spec,
+            block_header: &block_header,
+            provided: &provided,
+        },
+        supplier: &supplier,
+        written,
+        methods,
+        trait_ident,
+        restated,
+        substitution: Substitution::of_trait(&item_trait, trait_path, generics)?,
+        site,
+        items: TokenStream2::new(),
+        agreed_types: vec![],
+        agreed_consts: vec![],
+        deprecated_items: false,
+        plain_forwarding: false,
+        errors: vec![],
+    };
+    for item in &item_trait.items {
+        writer.write(item);
+    }
+    let ItemWriter {
+        items,
+        agreed_types,
+        agreed_consts,
+        deprecated_items,
+        plain_forwarding,
+        errors,
+        ..
+    } = writer;
     // An option naming nothing in the trait, or a route through no variant,
     // is reported beside the impl, which is right without it; only an item
     // that cannot be written withholds the impl.
-    let mut reported: Vec<Error> = route_errors;
-    let mut errors: Vec<Error> = vec![];
-    for item in &item_trait.items {
-        match item {
-            TraitItem::Type(assoc) => deprecated_items |= is_deprecated(&assoc.attrs),
-            TraitItem::Const(constant) => deprecated_items |= is_deprecated(&constant.attrs),
-            _ => {}
-        }
-        let name = match item {
-            TraitItem::Type(assoc) => Some(&assoc.ident),
-            TraitItem::Const(constant) => Some(&constant.ident),
-            TraitItem::Fn(function) => Some(&function.sig.ident),
-            _ => None,
-        };
-        // An item the partial block writes is the block's: in every build
-        // when it is written unconditionally, and where its `cfg` holds
-        // when it is written under one, in which case the forwarded item
-        // takes the builds where it does not, as a hand writes the two arms.
-        let written = name.and_then(|name| written.get(&name.to_string()));
-        let (complement, written_at) = match written {
-            Some(Written::Always) => continue,
-            Some(Written::Under { conditions, span }) => {
-                (Some(not_all_of(conditions, at(*span))), Some(*span))
-            }
-            None => (None, None),
-        };
-        // A method the block marks: forwarded to the variants it names
-        // around its body, or left to the trait's default.
-        let block_method = name.and_then(|name| methods.get(&name.to_string()));
-        let forwarded = match (item, block_method) {
-            (TraitItem::Fn(function), Some(BlockMethod::Default(span))) => {
-                if restated || function.default.is_some() || provided.contains(&function.sig.ident)
-                {
-                    continue;
-                }
-                // Written with the sentence as its body, as a method that
-                // cannot be forwarded is, so that the impl stays complete.
-                let error = Error::new(
-                    *span,
-                    format!("`{}` has no default body in `{trait_ident}` to be left to; give it a body, or forward it", function.sig.ident),
-                );
-                match rejected_method(function, &mut substitution, error) {
-                    Ok(tokens) => items.extend(tokens),
-                    Err(error) => errors.push(error),
-                }
-                continue;
-            }
-            (_, Some(BlockMethod::Forwarded(forwarded))) => Some(forwarded),
-            _ => None,
-        };
-        let generated = match (item, written_at) {
-            (TraitItem::Type(assoc), Some(span)) => Err(Error::new(
-                span,
-                format!("`{}` is declared under `#[cfg]`, and an associated type is declared in every build, since the forwarded methods convert into it; put the whole block under the `cfg`, with a second block for the other builds", assoc.ident),
-            )),
-            (TraitItem::Const(constant), Some(span)) => Err(Error::new(
-                span,
-                format!("`{}` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds", constant.ident),
-            )),
-            (TraitItem::Type(assoc), None) => associated_type(
-                assoc,
-                &spec,
-                &supplier,
-                &block_header,
-                &mut agreed_types,
-                site,
-            ),
-            (TraitItem::Const(constant), None) => associated_const(
-                constant,
-                &spec,
-                &supplier,
-                &mut substitution,
-                &mut agreed_consts,
-                site,
-            ),
-            (TraitItem::Fn(function), _) => {
-                plain_forwarding |= forwarded.is_none() && function.sig.receiver().is_some();
-                expand_method(
-                function,
-                &MethodContext {
-                    entries: &entries,
-                    subject: &subject,
-                    subject_path: &subject_path,
-                    trait_path,
-                    spec: &spec,
-                    block_header: &block_header,
-                    provided: &provided,
-                },
-                &mut substitution,
-                forwarded,
-            )
-            .map(|forwarded| quote_spanned! { site => #complement #forwarded })
-            }
-            (TraitItem::Macro(item), _) => Err(Error::new_spanned(
-                item,
-                "macro invocations inside the trait are not supported",
-            )),
-            _ => Ok(TokenStream2::new()),
-        };
-        match generated {
-            Ok(tokens) => items.extend(tokens),
-            Err(error) => errors.push(error),
-        }
-    }
-    // An option naming an item the trait does not have is a typo, which
-    // would otherwise turn into a type error somewhere else; the message
-    // says what was probably meant, or what there is to mean.
-    let associated: Vec<String> = item_trait
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            TraitItem::Type(assoc) => Some(assoc.ident.to_string()),
-            TraitItem::Const(constant) => Some(constant.ident.to_string()),
-            _ => None,
-        })
-        .collect();
-    let on_subject = partial.is_none();
-    for fixed in &spec.overrides {
-        let name = fixed.name.to_string();
-        if associated.contains(&name) {
-            continue;
-        }
-        let hint = unknown_override_hint(&name, &associated, &subject, on_subject);
-        reported.push(Error::new(
-            fixed.name.span(),
-            format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
-        ));
-    }
-    let deciding: Vec<String> = item_trait
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            TraitItem::Fn(function) if takes_self_argument(&function.sig) => {
-                Some(function.sig.ident.to_string())
-            }
-            _ => None,
-        })
-        .collect();
-    for (method, _) in &spec.mismatch {
-        let name = method.to_string();
-        if deciding.contains(&name) {
-            continue;
-        }
-        let hint = match closest(&name, deciding.iter().map(String::as_str)) {
-            Some(near) => format!("did you mean `{near}`?"),
-            None if deciding.is_empty() => "none of its methods takes one".to_owned(),
-            None => format!("its methods taking one are {}", listed(&deciding)),
-        };
-        reported.push(Error::new(
-            method.span(),
-            format!("`{trait_ident}` has no method `{name}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; {hint}"),
-        ));
-    }
+    let mut reported = route_errors;
+    reported.extend(unknown_names(
+        &spec,
+        &item_trait,
+        trait_ident,
+        &subject,
+        partial.is_none(),
+    ));
     if let Some(error) = combined(errors) {
         return Err(error);
     }
@@ -353,6 +216,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         let consts = agreement.consts(&agreed_consts);
         quote_spanned! { site => #types #consts }
     });
+    // A partial block is the only dispatch of its trait, so a variant that
+    // cannot be forwarded to is reported here, under its own `cfg`, once
+    // some method forwards to every variant; a block whose every method
+    // names its variants leaves such a variant to the bodies.
     let shape_errors = match &partial {
         Some(_) if plain_forwarding => shape_errors(&entries),
         _ => TokenStream2::new(),
@@ -368,6 +235,264 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #shape_errors
         #reported
     })
+}
+
+/// Applies the trait's own routes, `via(Variant = ..)`, to the entries they
+/// name, and returns the error for each that names no variant.
+fn apply_routes(spec: &TraitSpec, entries: &mut [Entry], subject: &Subject) -> Vec<Error> {
+    let mut errors = vec![];
+    for (variant, route) in &spec.routes {
+        let target = entries.iter_mut().find_map(|entry| match entry {
+            Entry::Target(target) if target.ident == *variant => Some(target),
+            _ => None,
+        });
+        match target {
+            Some(target) => target.route = route.clone(),
+            None => errors.push(Error::new(
+                variant.span(),
+                format!(
+                    "`{}` has no variant `{variant}` to route through",
+                    subject.ident()
+                ),
+            )),
+        }
+    }
+    errors
+}
+
+/// Returns the errors for the options naming nothing in the trait: an
+/// override of an associated item it does not have, or a `mismatch` for a
+/// method without a `Self` argument. Each is a typo that would otherwise
+/// turn into a type error somewhere else, so the message says what was
+/// probably meant, or what there is to mean.
+fn unknown_names(
+    spec: &TraitSpec,
+    item_trait: &ItemTrait,
+    trait_ident: &Ident,
+    subject: &Subject,
+    on_subject: bool,
+) -> Vec<Error> {
+    let mut errors = vec![];
+    let associated: Vec<String> = item_trait
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            TraitItem::Type(assoc) => Some(assoc.ident.to_string()),
+            TraitItem::Const(constant) => Some(constant.ident.to_string()),
+            _ => None,
+        })
+        .collect();
+    for fixed in &spec.overrides {
+        let name = fixed.name.to_string();
+        if associated.contains(&name) {
+            continue;
+        }
+        let hint = unknown_override_hint(&name, &associated, subject, on_subject);
+        errors.push(Error::new(
+            fixed.name.span(),
+            format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
+        ));
+    }
+    let deciding: Vec<String> = item_trait
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            TraitItem::Fn(function) if takes_self_argument(&function.sig) => {
+                Some(function.sig.ident.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    for (method, _) in &spec.mismatch {
+        let name = method.to_string();
+        if deciding.contains(&name) {
+            continue;
+        }
+        let hint = match closest(&name, deciding.iter().map(String::as_str)) {
+            Some(near) => format!("did you mean `{near}`?"),
+            None if deciding.is_empty() => "none of its methods takes one".to_owned(),
+            None => format!("its methods taking one are {}", listed(&deciding)),
+        };
+        errors.push(Error::new(
+            method.span(),
+            format!("`{trait_ident}` has no method `{name}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; {hint}"),
+        ));
+    }
+    errors
+}
+
+/// What one item of the trait becomes in the impl, decided before anything
+/// is written.
+enum ItemPlan<'a> {
+    /// The partial block writes it in every build, or leaves it to the
+    /// trait's default: nothing to write.
+    Skip,
+    /// A method marked `#[dispatch(default)]` on a trait that gives it no
+    /// default: written with the sentence as its body.
+    Rejected(&'a TraitItemFn, Error),
+    /// An associated type, from the override or the first variant.
+    Type(&'a TraitItemType),
+    /// An associated const, from the override or the first variant.
+    Const(&'a TraitItemConst),
+    /// A method, forwarded to every variant or as the block's attribute
+    /// names, under the complement of the block's `cfg` when the block
+    /// writes it in some builds.
+    Method {
+        function: &'a TraitItemFn,
+        forwarded: Option<&'a Forwarded>,
+        complement: Option<TokenStream2>,
+    },
+    /// A shape the impl cannot write.
+    Limit(Error),
+}
+
+/// Writes the items of one trait's impl: plans each item of the trait, then
+/// renders the plan, keeping what the agreement checks and the shape errors
+/// need to know afterwards.
+struct ItemWriter<'a> {
+    context: MethodContext<'a>,
+    supplier: &'a Supplier<'a>,
+    /// The items the partial block writes, by name, and in which builds.
+    written: &'a HashMap<String, Written>,
+    /// The methods the partial block marks with `#[dispatch(..)]`, by name.
+    methods: &'a HashMap<String, BlockMethod>,
+    trait_ident: &'a Ident,
+    /// Whether the trait is a restatement, whose provided methods it cannot
+    /// see.
+    restated: bool,
+    substitution: Substitution,
+    /// The span the items' own tokens carry.
+    site: Span,
+    items: TokenStream2,
+    /// The associated types taken from the first variant, for the check.
+    agreed_types: Vec<&'a Ident>,
+    /// The associated consts taken from the first variant, with their
+    /// types, for the check.
+    agreed_consts: Vec<(&'a Ident, Type)>,
+    /// Whether the trait deprecates an associated item, which the checks
+    /// name and so allow.
+    deprecated_items: bool,
+    /// Whether some method with a receiver is forwarded to every variant,
+    /// so that a variant no method can forward to is reported.
+    plain_forwarding: bool,
+    /// The items that could not be written, which withhold the impl.
+    errors: Vec<Error>,
+}
+
+impl<'a> ItemWriter<'a> {
+    /// Plans and writes one item of the trait.
+    fn write(&mut self, item: &'a TraitItem) {
+        match item {
+            TraitItem::Type(assoc) => self.deprecated_items |= is_deprecated(&assoc.attrs),
+            TraitItem::Const(constant) => self.deprecated_items |= is_deprecated(&constant.attrs),
+            _ => {}
+        }
+        let generated = match self.plan(item) {
+            ItemPlan::Skip => Ok(TokenStream2::new()),
+            ItemPlan::Rejected(function, error) => {
+                rejected_method(function, &mut self.substitution, error)
+            }
+            ItemPlan::Type(assoc) => associated_type(
+                assoc,
+                self.context.spec,
+                self.supplier,
+                self.context.block_header,
+                &mut self.agreed_types,
+                self.site,
+            ),
+            ItemPlan::Const(constant) => associated_const(
+                constant,
+                self.context.spec,
+                self.supplier,
+                &mut self.substitution,
+                &mut self.agreed_consts,
+                self.site,
+            ),
+            ItemPlan::Method {
+                function,
+                forwarded,
+                complement,
+            } => {
+                self.plain_forwarding |= forwarded.is_none() && function.sig.receiver().is_some();
+                let site = self.site;
+                expand_method(function, &self.context, &mut self.substitution, forwarded)
+                    .map(|forwarded| quote_spanned! { site => #complement #forwarded })
+            }
+            ItemPlan::Limit(error) => Err(error),
+        };
+        match generated {
+            Ok(tokens) => self.items.extend(tokens),
+            Err(error) => self.errors.push(error),
+        }
+    }
+
+    /// Decides what `item` becomes. An item the partial block writes is the
+    /// block's: in every build when it is written unconditionally, and
+    /// where its `cfg` holds when it is written under one, in which case
+    /// the forwarded item takes the builds where it does not, as a hand
+    /// writes the two arms. A method the block marks is forwarded to the
+    /// variants it names around its body, or left to the trait's default.
+    fn plan(&self, item: &'a TraitItem) -> ItemPlan<'a> {
+        let name = match item {
+            TraitItem::Type(assoc) => Some(&assoc.ident),
+            TraitItem::Const(constant) => Some(&constant.ident),
+            TraitItem::Fn(function) => Some(&function.sig.ident),
+            TraitItem::Macro(item) => {
+                return ItemPlan::Limit(Error::new_spanned(
+                    item,
+                    "macro invocations inside the trait are not supported",
+                ))
+            }
+            _ => return ItemPlan::Skip,
+        };
+        let written = name.and_then(|name| self.written.get(&name.to_string()));
+        let (complement, written_at) = match written {
+            Some(Written::Always) => return ItemPlan::Skip,
+            Some(Written::Under { conditions, span }) => {
+                (Some(not_all_of(conditions, at(*span))), Some(*span))
+            }
+            None => (None, None),
+        };
+        let block_method = name.and_then(|name| self.methods.get(&name.to_string()));
+        match (item, written_at, block_method) {
+            (TraitItem::Type(assoc), Some(span), _) => ItemPlan::Limit(Error::new(
+                span,
+                format!("`{}` is declared under `#[cfg]`, and an associated type is declared in every build, since the forwarded methods convert into it; put the whole block under the `cfg`, with a second block for the other builds", assoc.ident),
+            )),
+            (TraitItem::Const(constant), Some(span), _) => ItemPlan::Limit(Error::new(
+                span,
+                format!("`{}` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds", constant.ident),
+            )),
+            (TraitItem::Type(assoc), None, _) => ItemPlan::Type(assoc),
+            (TraitItem::Const(constant), None, _) => ItemPlan::Const(constant),
+            (TraitItem::Fn(function), _, Some(BlockMethod::Default(span))) => {
+                let provided = self.restated
+                    || function.default.is_some()
+                    || self.context.provided.contains(&function.sig.ident);
+                if provided {
+                    return ItemPlan::Skip;
+                }
+                // Written with the sentence as its body, as a method that
+                // cannot be forwarded is, so that the impl stays complete.
+                ItemPlan::Rejected(
+                    function,
+                    Error::new(
+                        *span,
+                        format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
+                    ),
+                )
+            }
+            (TraitItem::Fn(function), _, block_method) => ItemPlan::Method {
+                function,
+                forwarded: match block_method {
+                    Some(BlockMethod::Forwarded(forwarded)) => Some(forwarded),
+                    _ => None,
+                },
+                complement,
+            },
+            _ => ItemPlan::Skip,
+        }
+    }
 }
 
 /// Returns the second half of the message for an override naming nothing in
@@ -840,6 +965,93 @@ fn expand_method(
     }))
 }
 
+/// Reports a method that requires `Self: Sized` forwarded to a trait object,
+/// which cannot take it; a hand leaves such a method to the trait's
+/// default, and the partial block says so with `#[dispatch(default)]`.
+fn check_trait_objects(
+    plan: &MethodPlan,
+    selection: Option<&Selection>,
+    entries: &[Entry],
+    function: &TraitItemFn,
+    block_header: &str,
+) -> Result<()> {
+    if !plan.requires_sized() {
+        return Ok(());
+    }
+    let forwarded_to: Vec<&Target> = match selection {
+        Some(selection) => selection.targets.iter().collect(),
+        None => targets(entries),
+    };
+    let Some(target) = forwarded_to.iter().find(|target| target.is_trait_object()) else {
+        return Ok(());
+    };
+    let method = &function.sig.ident;
+    Err(Error::new_spanned(
+        &function.sig,
+        format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident),
+    ))
+}
+
+/// The arm for everything the targets' arms leave, and whether the lint
+/// about an unreachable pattern is allowed on the `match`.
+struct Fallback {
+    arm: Option<Arm>,
+    allow_unreachable: bool,
+}
+
+/// Decides the fallback arm of a trait method. A block method's body is the
+/// arm for every variant it does not name, the mismatch of two different
+/// variants included, so it needs no `mismatch`; under `*` without a body
+/// the trait's rule applies. Two values of a struct always hold the same
+/// field, so only an enum needs the arm for two different variants, and an
+/// enum with one variant that is always compiled in has no second variant
+/// to meet: a hand writes no fallback arm there, and neither does the
+/// engine. The arm stays unreachable in some builds when a variant is under
+/// `cfg`, which is the one case the lint is allowed for.
+fn fallback_for(
+    plan: &MethodPlan,
+    entries: &[Entry],
+    subject: &Subject,
+    forwarded: Option<&Forwarded>,
+    mismatch: Option<Expr>,
+    function: &TraitItemFn,
+    context: &ArmContext,
+) -> Result<Fallback> {
+    let always_present = entries
+        .iter()
+        .filter(|entry| matches!(entry, Entry::Target(target) if target.cfgs.is_empty()))
+        .count();
+    let conditional = entries.iter().any(|entry| match entry {
+        Entry::Target(target) => !target.cfgs.is_empty(),
+        Entry::Unforwardable(_) => true,
+    });
+    if let Some(body) = forwarded.and_then(|forwarded| forwarded.body.as_ref()) {
+        return Ok(Fallback {
+            arm: Some(Arm::rest(body.to_token_stream(), context.site)),
+            allow_unreachable: false,
+        });
+    }
+    let needs_fallback =
+        plan.has_same_variant() && subject.can_mismatch() && (always_present >= 2 || conditional);
+    if !needs_fallback {
+        return Ok(Fallback {
+            arm: None,
+            allow_unreachable: false,
+        });
+    }
+    let method = &function.sig.ident;
+    let Some(expr) = mismatch else {
+        return Err(Error::new_spanned(
+            &function.sig,
+            format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
+        ));
+    };
+    Ok(Fallback {
+        arm: Some(plan.fallback(expr.to_token_stream(), context.site)),
+        allow_unreachable: forwarded.is_none() && always_present < 2,
+    })
+}
+
 /// Writes a trait method that cannot be forwarded as the impl writes it:
 /// the trait's signature, substituted, with `error`'s sentence as its body.
 /// Only a signature the substitution cannot write is an error of the impl.
@@ -965,27 +1177,7 @@ fn forward_trait_method(
         }
         None => None,
     };
-    // A method that requires `Self: Sized` cannot be called on a trait
-    // object, and a hand leaves it to the trait's default; the partial
-    // block says so with `#[dispatch(default)]`.
-    if plan.requires_sized() {
-        let forwarded_to: Vec<&Target> = match &selection {
-            Some(selection) => selection.targets.iter().collect(),
-            None => entries
-                .iter()
-                .filter_map(|entry| match entry {
-                    Entry::Target(target) => Some(target),
-                    Entry::Unforwardable(_) => None,
-                })
-                .collect(),
-        };
-        if let Some(target) = forwarded_to.iter().find(|target| target.is_trait_object()) {
-            return Err(Error::new_spanned(
-                &function.sig,
-                format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident),
-            ));
-        }
-    }
+    check_trait_objects(&plan, selection.as_ref(), entries, function, block_header)?;
     let mut arms = Vec::with_capacity(entries.len());
     match &selection {
         Some(selection) => {
@@ -1015,49 +1207,18 @@ fn forward_trait_method(
             }
         }
     }
-    // Two values of a struct always hold the same field, so only an enum
-    // needs the arm for two different variants, and an enum with one
-    // variant that is always compiled in has no second variant to meet: a
-    // hand writes no fallback arm there, and neither does the engine. The
-    // arm stays unreachable in some builds when a variant is under `cfg`,
-    // which is the one case the lint is allowed for.
-    let always_present = entries
-        .iter()
-        .filter(|entry| matches!(entry, Entry::Target(target) if target.cfgs.is_empty()))
-        .count();
-    let conditional = entries.iter().any(|entry| match entry {
-        Entry::Target(target) => !target.cfgs.is_empty(),
-        Entry::Unforwardable(_) => true,
-    });
-    // A block method's body is the arm for every variant it does not name,
-    // the mismatch of two different variants included, so it needs no
-    // `mismatch`; under `*` without a body the trait's rule applies.
-    let body_arm = forwarded
-        .and_then(|forwarded| forwarded.body.as_ref())
-        .map(|body| Arm::rest(body.to_token_stream(), context.site));
-    let needs_fallback = body_arm.is_none()
-        && plan.has_same_variant()
-        && subject.can_mismatch()
-        && (always_present >= 2 || conditional);
-    let fallback = if let Some(body_arm) = body_arm {
-        Some(body_arm)
-    } else if needs_fallback {
-        let Some(expr) = mismatch else {
-            return Err(Error::new_spanned(
-                &function.sig,
-                format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
-            ));
-        };
-        Some(plan.fallback(expr.to_token_stream(), context.site))
-    } else {
-        None
-    };
+    let Fallback {
+        arm: fallback,
+        allow_unreachable,
+    } = fallback_for(
+        &plan, entries, subject, forwarded, mismatch, function, &context,
+    )?;
     if let Some(selection) = selection {
         arms.extend(selection.unforwardable_arms);
     }
     let site = context.site;
-    let allow_unreachable = (fallback.is_some() && forwarded.is_none() && always_present < 2)
-        .then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
+    let allow_unreachable =
+        allow_unreachable.then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
     // The method's own `#[inline]`, the block's or the trait's, or ours.
     let own_attrs: &[Attribute] = match forwarded {
         Some(forwarded) => &forwarded.attrs,
