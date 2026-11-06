@@ -65,6 +65,11 @@ changes are expected and listed without apology.
   too. `#[dispatch(default)]` on a method the trait gives no default is
   written with its sentence as its body, as a method that cannot be
   forwarded is.
+- An inherent method of a dispatch struct may name any field, marked or
+  not, `#[dispatch(right, call = radius)]`, and `*` is the field marked bare
+  or the only field; a struct whose marked fields each name their traits
+  and marks none bare is one sentence under `*`. Before, `*` took the first
+  marked field silently, and only that field could be named.
 
 ## 0.6.0 - 2026-11-06
 

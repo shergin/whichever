@@ -217,7 +217,7 @@ pub(crate) fn select_targets(
     let noun = subject.target_noun();
     let variants = targets(entries);
     let mut unforwardable_arms = vec![];
-    let selected: Vec<&Target> = if forwarding.all {
+    let selected: Vec<Target> = if forwarding.all {
         for entry in entries {
             if let Entry::Unforwardable(unforwardable) = entry {
                 let Unforwardable { ident, reason, .. } = unforwardable;
@@ -230,14 +230,19 @@ pub(crate) fn select_targets(
                 ));
             }
         }
-        variants.clone()
+        // On a struct `*` is the field marked bare, or the one field; on an
+        // enum, every variant.
+        match subject.star_target()? {
+            Some(target) => vec![target],
+            None => variants.iter().map(|target| (*target).clone()).collect(),
+        }
     } else {
         forwarding
             .variants
             .iter()
             .map(|name| {
                 if let Some(target) = variants.iter().find(|target| &target.ident == name) {
-                    return Ok(*target);
+                    return Ok((*target).clone());
                 }
                 let unforwardable = entries.iter().find_map(|entry| match entry {
                     Entry::Unforwardable(unforwardable) if &unforwardable.ident == name => {
@@ -256,16 +261,17 @@ pub(crate) fn select_targets(
             })
             .collect::<Result<_>>()?
     };
+    // A struct always holds every field it names, so one field covers it.
     let covers_all = forwarding.all
+        || subject.has_one_target()
         || entries.iter().all(|entry| match entry {
             Entry::Target(target) => forwarding.variants.contains(&target.ident),
             Entry::Unforwardable(_) => false,
         });
     // The method's own route, when it gives one, over the variants'.
     let targets = selected
-        .iter()
-        .map(|target| {
-            let mut target = (*target).clone();
+        .into_iter()
+        .map(|mut target| {
             if let Some(route) = &forwarding.via {
                 target.route = route.clone();
             }

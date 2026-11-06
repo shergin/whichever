@@ -579,6 +579,9 @@ graph (`carrier_newer_than_the_reader` and `carrier_older_than_the_request`
 are new; the older-release test gained the 0.6.0 shape).
 An unknown override or `mismatch` name and a route through no variant are
 reported beside the impl (`unknown_override_keeps_the_impl` is new).
+A struct's inherent block sees every field, `*` the bare or only one
+(`star_on_a_struct_with_marked_fields` is new; `struct_without_marked_field`
+names the trait now).
 
 ## 5. Invariants every stage keeps
 

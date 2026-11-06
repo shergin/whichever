@@ -466,8 +466,9 @@ the payload's method as it is. A variant under `#[cfg]` may be named; where
 it is compiled out, the method takes its body. The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
 on an enum registers it for this without dispatching a trait. A block on a
-dispatch struct forwards the same way, under `*` or the field's name; there
-a `Self` argument is the other value's field, as in trait dispatch, and a
+dispatch struct forwards the same way: `*` is the field marked bare, or the
+only field, and a field's name is that field, marked or not; there a `Self`
+argument is the other value's field, as in trait dispatch, and a
 return-position `impl Trait` is forwarded as it is.
 
 ## Traits from `std` and other crates

@@ -110,11 +110,26 @@ impl Subject {
 
     /// Returns the entries `trait_path` is forwarded to: every variant of
     /// the enum, or the struct's field that names the trait, else the one
-    /// marked bare, else its one field.
+    /// marked bare, else its one field. Without a trait, for an inherent
+    /// block, every field of the struct, so that a method may name any;
+    /// `*` then takes [`Subject::star_target`].
     pub(crate) fn entries_for(&self, trait_path: Option<&Path>) -> Result<Vec<Entry>> {
         match self {
             Subject::Enum(item) => item.variants.iter().map(variant_entry).collect(),
-            Subject::Struct(item) => Ok(vec![Entry::Target(struct_target(item, trait_path)?)]),
+            Subject::Struct(item) => match trait_path {
+                Some(_) => Ok(vec![Entry::Target(struct_target(item, trait_path)?)]),
+                None => struct_fields(item),
+            },
+        }
+    }
+
+    /// Returns the target `*` names on a struct, the field marked bare or
+    /// its one field, or the error for a struct that has neither; an enum's
+    /// `*` names every variant, so `None`.
+    pub(crate) fn star_target(&self) -> Result<Option<Target>> {
+        match self {
+            Subject::Enum(_) => Ok(None),
+            Subject::Struct(item) => struct_target(item, None).map(Some),
         }
     }
 
@@ -630,23 +645,28 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
             ),
         ));
     }
-    let chosen = match (
-        fields.as_slice(),
-        named.first(),
-        bare.first(),
-        marked.first(),
-    ) {
-        ([], _, _, _) => {
+    let chosen = match (fields.as_slice(), named.first(), bare.first()) {
+        ([], _, _) => {
             return Err(Error::new_spanned(
                 &item.ident,
                 "a dispatch struct needs a field to forward to",
             ))
         }
-        (_, Some(named), _, _) => **named,
-        (_, None, Some(bare), _) => **bare,
-        ([one], None, None, _) => one,
-        (_, None, None, Some(any)) if trait_path.is_none() => *any,
-        (_, None, None, _) => {
+        (_, Some(named), _) => **named,
+        (_, None, Some(bare)) => **bare,
+        ([one], None, None) => one,
+        // Under `*` with no trait, several fields each naming their traits
+        // and none marked bare name no field; the method names one.
+        (_, None, None) if trait_path.is_none() && !marked.is_empty() => {
+            return Err(Error::new_spanned(
+                &item.ident,
+                format!(
+                    "`{}` names traits on its fields and marks none bare, so `*` names no field; mark the field to forward to with `#[dispatch]`, or name it on the method, `#[dispatch(field)]`",
+                    item.ident
+                ),
+            ));
+        }
+        (_, None, None) => {
             let about = match trait_path.and_then(|path| path.segments.last()) {
                 Some(segment) => format!(" `{}` to", segment.ident),
                 None => String::new(),
@@ -661,23 +681,53 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
         }
     };
     let (member, field, options) = chosen;
+    Ok(field_target(member, field, options, fields.len() == 1))
+}
+
+/// Returns every field of a struct as a target, for an inherent block whose
+/// methods name the field they forward to.
+fn struct_fields(item: &ItemStruct) -> Result<Vec<Entry>> {
+    let rebuildable = item.fields.len() == 1;
+    item.fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let member = member_of(field, index);
+            let options = TargetOptions::read(&field.attrs, false)?;
+            Ok(Entry::Target(field_target(
+                &member,
+                field,
+                &options,
+                rebuildable,
+            )))
+        })
+        .collect()
+}
+
+/// Returns the target a struct's field is: named by the field, or `_<index>`
+/// for an unnamed one, with the field's own route.
+fn field_target(
+    member: &Member,
+    field: &Field,
+    options: &TargetOptions,
+    rebuildable: bool,
+) -> Target {
     let member = member.clone();
-    let route = options.route.clone();
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),
     };
-    Ok(Target {
+    Target {
         ident,
         place: Place::Field {
             member,
-            rebuildable: fields.len() == 1,
+            rebuildable,
         },
         payload: field.ty.clone(),
         cfgs: vec![],
         deprecated: is_deprecated(&field.attrs),
-        route: route.unwrap_or_default(),
-    })
+        route: options.route.clone().unwrap_or_default(),
+    }
 }
 
 pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
