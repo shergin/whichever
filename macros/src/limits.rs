@@ -169,8 +169,14 @@ fn every_sentence_is_pinned_by_a_snapshot() {
             }
         }
     }
+    // The snapshots live in the facade crate, which the registry archive of
+    // this crate does not carry; outside the repository there is nothing to
+    // check against, and the rule is held where the sources are.
+    let Ok(cases) = fs::read_dir(root.join("../tests/ui")) else {
+        return;
+    };
     let mut snapshots = String::new();
-    for entry in fs::read_dir(root.join("../tests/ui")).expect("the ui cases") {
+    for entry in cases {
         let path = entry.expect("an entry").path();
         if path
             .extension()
