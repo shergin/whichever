@@ -151,10 +151,10 @@ impl Parse for TraitSpec {
     /// subject.
     fn parse(input: ParseStream) -> Result<Self> {
         let DispatchAttribute { spec, switches } = input.parse()?;
-        if let Some(switch) = switches.first() {
+        if let Some(span) = switches.first_span() {
             return Err(Error::new(
-                switch.span(),
-                "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
+                span,
+                "`from`, `try_from` and `into` are options of the enum; put them on its `#[dispatch]` attribute",
             ));
         }
         Ok(spec)
@@ -249,7 +249,7 @@ impl Parse for DispatchAttribute {
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
-                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false` and `try_from = true`"),
+                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true` and `into = Target`"),
                 ));
             }
             input.parse::<Token![=]>()?;
@@ -258,6 +258,10 @@ impl Parse for DispatchAttribute {
                 "try_from" if switches.try_from.is_some() => return Err(given_twice(&key)),
                 "from" => switches.from = Some(Switch::parse(key, input)?),
                 "try_from" => switches.try_from = Some(Switch::parse(key, input)?),
+                "into" => switches.into.push(IntoTarget {
+                    key,
+                    target: input.parse()?,
+                }),
                 _ if spec.is_overridden(&key) => return Err(given_twice(&key)),
                 _ => spec.overrides.push(Override::parse(key, input)?),
             }
@@ -288,35 +292,121 @@ fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
 pub(crate) struct Switches {
     pub(crate) from: Option<Switch>,
     pub(crate) try_from: Option<Switch>,
+    /// The types the enum converts into, `into = Target`, each through
+    /// every payload's own `Into<Target>`.
+    pub(crate) into: Vec<IntoTarget>,
 }
 
 impl Switches {
-    /// Returns the first switch written, for a message about any of them.
-    pub(crate) fn first(&self) -> Option<&Switch> {
-        self.from.as_ref().or(self.try_from.as_ref())
+    /// Returns where the first switch was written, for a message about any
+    /// of them.
+    pub(crate) fn first_span(&self) -> Option<Span> {
+        self.from
+            .as_ref()
+            .map(Switch::span)
+            .or(self.try_from.as_ref().map(Switch::span))
+            .or(self.into.first().map(|into| into.key.span()))
     }
+}
+
+/// One `into = Target`.
+pub(crate) struct IntoTarget {
+    pub(crate) key: Ident,
+    pub(crate) target: Type,
 }
 
 /// One `from = ..` or `try_from = ..`, with where it was written.
 pub(crate) struct Switch {
     key: Ident,
-    value: LitBool,
+    value: TryFromForms,
 }
 
 impl Switch {
+    /// `from` takes `true` or `false`; `try_from` takes those, `ref` and
+    /// `ref_mut`.
     fn parse(key: Ident, input: ParseStream) -> Result<Self> {
-        Ok(Self {
-            key,
-            value: input.parse()?,
-        })
+        let value = TryFromForms::parse(input)?;
+        if key == "from" && (value.by_ref || value.by_mut) {
+            return Err(Error::new(
+                key.span(),
+                "`from` is `true` or `false`; the by-reference forms are `try_from`'s",
+            ));
+        }
+        Ok(Self { key, value })
     }
 
+    /// Returns whether the switch is on at all.
     pub(crate) fn value(&self) -> bool {
-        self.value.value
+        self.value.owned
+    }
+
+    pub(crate) fn forms(&self) -> TryFromForms {
+        self.value
     }
 
     pub(crate) fn span(&self) -> Span {
         self.key.span()
+    }
+}
+
+/// Which `TryFrom` impls a payload gets: `true` is `TryFrom<Enum> for
+/// Payload`; `ref` adds `TryFrom<&Enum> for &Payload`; `ref_mut` adds
+/// `TryFrom<&mut Enum> for &mut Payload` to those; `false` is none. The
+/// words are `derive_more`'s.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TryFromForms {
+    pub(crate) owned: bool,
+    pub(crate) by_ref: bool,
+    pub(crate) by_mut: bool,
+}
+
+impl TryFromForms {
+    pub(crate) const NONE: Self = Self {
+        owned: false,
+        by_ref: false,
+        by_mut: false,
+    };
+
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(LitBool) {
+            let on = input.parse::<LitBool>()?.value;
+            return Ok(Self {
+                owned: on,
+                by_ref: false,
+                by_mut: false,
+            });
+        }
+        if input.peek(Token![ref]) {
+            input.parse::<Token![ref]>()?;
+            return Ok(Self {
+                owned: true,
+                by_ref: true,
+                by_mut: false,
+            });
+        }
+        let word: Ident = input
+            .parse()
+            .map_err(|_| input.error("expected `true`, `false`, `ref` or `ref_mut`"))?;
+        if word == "ref_mut" {
+            return Ok(Self {
+                owned: true,
+                by_ref: true,
+                by_mut: true,
+            });
+        }
+        Err(Error::new(
+            word.span(),
+            "expected `true`, `false`, `ref` or `ref_mut`",
+        ))
+    }
+
+    /// The forms either of two switches asks for.
+    pub(crate) fn or(self, other: Self) -> Self {
+        Self {
+            owned: self.owned || other.owned,
+            by_ref: self.by_ref || other.by_ref,
+            by_mut: self.by_mut || other.by_mut,
+        }
     }
 }
 
@@ -440,7 +530,7 @@ pub(crate) struct TargetOptions {
     /// How an arm reaches the target from the payload; `deref` is `*`.
     pub(crate) route: Option<Route>,
     pub(crate) from: bool,
-    pub(crate) try_from: Option<bool>,
+    pub(crate) try_from: Option<TryFromForms>,
 }
 
 impl TargetOptions {
@@ -482,7 +572,7 @@ impl TargetOptions {
                         options.from = input.parse::<LitBool>()?.value;
                     } else if key == "try_from" && on_variant {
                         input.parse::<Token![=]>()?;
-                        options.try_from = Some(input.parse::<LitBool>()?.value);
+                        options.try_from = Some(TryFromForms::parse(input)?);
                     } else {
                         let known = if on_variant {
                             "the options are `deref`, `via = route`, `from = false` and `try_from = true`"
@@ -693,6 +783,12 @@ mod tests {
             switches_only.switches.try_from.as_ref().map(Switch::value),
             Some(true)
         );
+        let by_ref = attribute("try_from = ref, into = Target<A, B>, into = Other");
+        let forms = by_ref.switches.try_from.as_ref().unwrap().forms();
+        assert!(forms.owned && forms.by_ref && !forms.by_mut);
+        assert_eq!(by_ref.switches.into.len(), 2);
+        assert!(syn::parse_str::<DispatchAttribute>("from = ref").is_err());
+        assert!(syn::parse_str::<DispatchAttribute>("try_from = sometimes").is_err());
         let with_path = attribute("a::Trait<X>, mismatch(same = false, other = 1)");
         assert!(with_path.spec.path.is_some());
         assert_eq!(with_path.spec.mismatch.len(), 2);
@@ -766,7 +862,18 @@ mod tests {
         ];
         let variant = TargetOptions::read(&attributes, true).unwrap();
         assert!(variant.route.as_ref().is_some_and(Route::is_deref));
-        assert!(!variant.from && variant.try_from == Some(true));
+        assert!(
+            !variant.from
+                && variant
+                    .try_from
+                    .is_some_and(|forms| forms.owned && !forms.by_ref)
+        );
+        let by_ref: Vec<Attribute> = vec![parse_quote!(#[dispatch(try_from = ref_mut)])];
+        let forms = TargetOptions::read(&by_ref, true)
+            .unwrap()
+            .try_from
+            .unwrap();
+        assert!(forms.owned && forms.by_ref && forms.by_mut);
         assert!(
             TargetOptions::read(&attributes, false).is_err(),
             "a field takes `deref` and `via` only"

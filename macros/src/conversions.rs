@@ -1,21 +1,24 @@
-//! The `From<Payload>` and `TryFrom<Enum>` impls.
+//! The `From<Payload>`, `TryFrom<Enum>` and `From<Enum> for Target` impls.
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::visit_mut::VisitMut;
-use syn::{parse_quote, Error, GenericParam, Ident, Path, Type};
+use syn::{parse_quote, Error, GenericParam, Ident, Lifetime, Path, Type};
 
+use crate::options::{IntoTarget, TryFromForms};
 use crate::shape::bare_ident;
 use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
 
-/// Writes the `From<Payload>` and `TryFrom<Enum>` impls that were asked
-/// for. A payload whose impl cannot be written is reported into `errors`
-/// and the other payloads' impls are written all the same, so that the
-/// code around the enum resolves and each error stands alone.
+/// Writes the `From<Payload>`, `TryFrom<Enum>` and `From<Enum> for Target`
+/// impls that were asked for. A payload whose impl cannot be written is
+/// reported into `errors` and the other payloads' impls are written all
+/// the same, so that the code around the enum resolves and each error
+/// stands alone.
 pub(crate) fn conversion_impls(
     subject: &Subject,
     entries: &[Entry],
     from: bool,
-    try_from: bool,
+    try_from: TryFromForms,
+    into: &[&IntoTarget],
     errors: &mut Vec<Error>,
 ) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = subject.generics().split_for_impl();
@@ -44,7 +47,7 @@ pub(crate) fn conversion_impls(
     let value = Ident::new("__value", Span::mixed_site());
     let other = Ident::new("__other", Span::mixed_site());
     let mut output = TokenStream2::new();
-    for (target, conversions) in converting {
+    for (target, conversions) in &converting {
         let Target { payload, cfgs, .. } = target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
@@ -69,21 +72,25 @@ pub(crate) fn conversion_impls(
                 }
             });
         }
-        if conversions.try_from.unwrap_or(try_from) {
-            // `TryFrom<Enum<T>> for T` implements a foreign trait for a type
-            // parameter, which the orphan rules forbid; rustc would report
-            // that on the enum's generics.
-            if let Some(ident) = parameter {
-                errors.push(Error::new_spanned(
-                    payload,
-                    format!("`{ident}` is a type parameter of `{enum_ident}`, so `TryFrom<{enum_ident}> for {ident}` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant"),
-                ));
-                continue;
-            }
-            // The payload is the impl's own type here, so a `Self` it names
-            // must be spelled out as the enum.
-            let mut outside = payload.clone();
-            SelfReplacer(self_type.clone()).visit_type_mut(&mut outside);
+        let forms = conversions.try_from.unwrap_or(try_from);
+        if forms == TryFromForms::NONE {
+            continue;
+        }
+        // `TryFrom<Enum<T>> for T` implements a foreign trait for a type
+        // parameter, which the orphan rules forbid; rustc would report
+        // that on the enum's generics.
+        if let Some(ident) = parameter {
+            errors.push(Error::new_spanned(
+                payload,
+                format!("`{ident}` is a type parameter of `{enum_ident}`, so `TryFrom<{enum_ident}> for {ident}` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant"),
+            ));
+            continue;
+        }
+        // The payload is the impl's own type here, so a `Self` it names
+        // must be spelled out as the enum.
+        let mut outside = payload.clone();
+        SelfReplacer(self_type.clone()).visit_type_mut(&mut outside);
+        if forms.owned {
             output.extend(quote! {
                 #(#cfgs)*
                 #[automatically_derived]
@@ -100,6 +107,87 @@ pub(crate) fn conversion_impls(
                 }
             });
         }
+        // The by-reference forms borrow for one lifetime of their own,
+        // which the enum's generics may not name.
+        let lifetime = Lifetime::new("'__enum", Span::mixed_site());
+        let mut by_reference = subject.generics().clone();
+        by_reference
+            .params
+            .insert(0, GenericParam::Lifetime(parse_quote!(#lifetime)));
+        let (reference_generics, _, _) = by_reference.split_for_impl();
+        let references = [
+            (forms.by_ref, quote!(&#lifetime)),
+            (forms.by_mut, quote!(&#lifetime mut)),
+        ];
+        for (wanted, reference) in references {
+            if !wanted {
+                continue;
+            }
+            output.extend(quote! {
+                #(#cfgs)*
+                #[automatically_derived]
+                impl #reference_generics ::core::convert::TryFrom<#reference #enum_ident #ty_generics> for #reference #outside #where_clause {
+                    type Error = #reference #enum_ident #ty_generics;
+                    #[inline]
+                    #[allow(unreachable_patterns)]
+                    fn try_from(#value: #reference #enum_ident #ty_generics) -> ::core::result::Result<Self, Self::Error> {
+                        match #value {
+                            #pattern => ::core::result::Result::Ok(#value),
+                            #other => ::core::result::Result::Err(#other),
+                        }
+                    }
+                }
+            });
+        }
+    }
+    // `into = Target`: the enum converts into the target through every
+    // payload's own `Into<Target>`, so every variant has to hold a payload
+    // and nothing else.
+    for IntoTarget { key, target } in into {
+        let mut arms = vec![];
+        let mut whole = true;
+        for entry in entries {
+            match entry {
+                Entry::Target(variant) if variant.conversions().is_some() => {
+                    let pattern = variant.pattern(&prefix, &value);
+                    let cfgs = &variant.cfgs;
+                    arms.push(
+                        quote! { #(#cfgs)* #pattern => ::core::convert::Into::into(#value), },
+                    );
+                }
+                Entry::Target(variant) => {
+                    whole = false;
+                    errors.push(Error::new(
+                        key.span(),
+                        format!("`into` converts every variant's payload, and `{}` has other fields beside its payload, or is left out with `from = false`", variant.ident),
+                    ));
+                }
+                Entry::Unforwardable(unforwardable) => {
+                    whole = false;
+                    errors.push(Error::new(
+                        key.span(),
+                        format!(
+                            "`into` converts every variant's payload, and `{}` {}",
+                            unforwardable.ident, unforwardable.reason
+                        ),
+                    ));
+                }
+            }
+        }
+        if !whole {
+            continue;
+        }
+        output.extend(quote! {
+            #[automatically_derived]
+            impl #impl_generics ::core::convert::From<#enum_ident #ty_generics> for #target #where_clause {
+                #[inline]
+                fn from(#value: #enum_ident #ty_generics) -> Self {
+                    match #value {
+                        #(#arms)*
+                    }
+                }
+            }
+        });
     }
     output
 }

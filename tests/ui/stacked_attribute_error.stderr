@@ -1,4 +1,4 @@
-error: expected boolean literal
+error: expected `true`, `false`, `ref` or `ref_mut`
   --> tests/ui/stacked_attribute_error.rs:40:36
    |
 40 | #[whichever::dispatch(Name, from = 1)]

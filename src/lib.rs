@@ -113,6 +113,10 @@
 //! - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload
 //!   type, with the enum itself as the error, so a mismatch hands the value
 //!   back; `.unwrap()` on the result therefore needs the enum to be `Debug`.
+//!   `try_from = ref` adds `TryFrom<&Enum> for &Payload` to that, and
+//!   `try_from = ref_mut` adds `TryFrom<&mut Enum> for &mut Payload` too.
+//! - `into = Target` adds `From<Enum> for Target`, each arm converting the
+//!   payload through its own `Into<Target>`; the option may be repeated.
 //!
 //! Four options go on a variant. `#[dispatch(from = false)]` leaves the
 //! variant out of the `From` and `TryFrom` impls, for a payload such as

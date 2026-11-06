@@ -5,6 +5,13 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `try_from = ref` adds `TryFrom<&Enum> for &Payload` and `try_from =
+  ref_mut` adds `TryFrom<&mut Enum> for &mut Payload` too, each handing the
+  reference back as the error, on the enum or on one variant; hugr writes
+  22 of the first by hand and sound_flow has both in its public bounds.
+  `into = Target` adds `From<Enum> for Target`, each arm converting the
+  payload through its own `Into<Target>`; twitch-irc, screeps and boreholeio
+  write it by hand. The words `ref` and `ref_mut` are `derive_more`'s.
 - A method of a partial impl block may name the variants it forwards to,
   `#[dispatch(Wep, Wpa)] fn fmt(..) { f.write_str("Others") }`, and its
   body is the arm for every other variant: a unit variant, a payload

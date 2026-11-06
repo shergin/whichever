@@ -9,7 +9,7 @@ use syn::{
     Member, Path, Result, Type, Variant,
 };
 
-use crate::options::{is_dispatch_attribute, TargetOptions};
+use crate::options::{is_dispatch_attribute, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
 
@@ -165,8 +165,8 @@ pub(crate) struct Conversions {
     /// Whether the variant takes part at all; `#[dispatch(from = false)]`
     /// leaves it out of both impls.
     pub(crate) from: bool,
-    /// The variant's own say on its `TryFrom` impl, over the enum's option.
-    pub(crate) try_from: Option<bool>,
+    /// The variant's own say on its `TryFrom` impls, over the enum's option.
+    pub(crate) try_from: Option<TryFromForms>,
 }
 
 impl Target {

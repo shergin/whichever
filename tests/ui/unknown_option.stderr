@@ -1,4 +1,4 @@
-error: unknown option `inline`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false` and `try_from = true`
+error: unknown option `inline`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true` and `into = Target`
   --> tests/ui/unknown_option.rs:14:30
    |
 14 | #[whichever::dispatch(Value, inline)]

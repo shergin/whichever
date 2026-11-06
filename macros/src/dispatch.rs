@@ -9,7 +9,9 @@ use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
 use crate::combined;
 use crate::conversions::conversion_impls;
 use crate::naming;
-use crate::options::{is_dispatch_attribute, DispatchAttribute, Switch, TraitSpec};
+use crate::options::{
+    is_dispatch_attribute, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
+};
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
@@ -149,26 +151,30 @@ fn conversions(
     errors: &mut Vec<Error>,
 ) -> TokenStream2 {
     if !subject.has_conversions() {
-        if let Some(switch) = attributes
+        if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.switches.first())
+            .find_map(|attribute| attribute.switches.first_span())
         {
             errors.push(Error::new(
-                switch.span(),
-                "`from` and `try_from` are options of an enum; a struct gets no conversions",
+                span,
+                "`from`, `try_from` and `into` are options of an enum; a struct gets no conversions",
             ));
         }
         return TokenStream2::new();
     }
-    let switch = |pick: fn(&DispatchAttribute) -> Option<&Switch>, value: bool| {
-        attributes
-            .iter()
-            .filter_map(pick)
-            .any(|switch| switch.value() == value)
-    };
-    let from = !switch(|attribute| attribute.switches.from.as_ref(), false);
-    let try_from = switch(|attribute| attribute.switches.try_from.as_ref(), true);
-    conversion_impls(subject, entries, from, try_from, errors)
+    let from = !attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.from.as_ref())
+        .any(|switch| !switch.value());
+    let try_from = attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.try_from.as_ref())
+        .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
+    let into: Vec<&IntoTarget> = attributes
+        .iter()
+        .flat_map(|attribute| attribute.switches.into.iter())
+        .collect();
+    conversion_impls(subject, entries, from, try_from, &into, errors)
 }
 
 /// Writes the subject's own carrier macro, which carries its definition,

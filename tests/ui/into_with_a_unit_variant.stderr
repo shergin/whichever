@@ -1,0 +1,5 @@
+error: `into` converts every variant's payload, and `Nothing` holds no payload
+  --> tests/ui/into_with_a_unit_variant.rs:12:23
+   |
+12 | #[whichever::dispatch(into = Printed)]
+   |                       ^^^^

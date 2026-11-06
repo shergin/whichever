@@ -169,7 +169,7 @@ The swap is mechanical:
 | `#[enum_dispatch(Enum)]` on the trait | name the trait on the enum instead |
 | `enum E { Circle, Square }` | `enum E { Circle(Circle), Square(Square) }` |
 | `From<Payload>` | the same, opt out with `from = false` |
-| `TryInto<Payload>`, error `&'static str` | `try_from = true`: `TryFrom<E> for Payload`, the error hands the enum back |
+| `TryInto<Payload>`, error `&'static str` | `try_from = true`: `TryFrom<E> for Payload`, the error hands the enum back; `ref` and `ref_mut` for the by-reference forms |
 
 Three things to watch:
 
@@ -238,7 +238,7 @@ crate, goes back to a hand-written `match`.
 | `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
 | A field of the payload, or of a variant with several fields, as the target | yes, a route or a marked field | no | no | no | no | no | no | yes, by hand |
 | `-> impl Trait` | `impl Future<Output = T>` on an enum; any, through a struct | no | through a struct | no | no | no | no | no |
-| `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
+| `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in, by value, `&` and `&mut`; `From<Enum> for Target` with `into =` | yes, plus a forced `TryInto` | no | no | yes, with `&` and `&mut` `TryInto` | no | no | no |
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 | Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
 | A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
@@ -315,7 +315,15 @@ All options follow the trait path in `#[dispatch(..)]`.
   same `From` is a conflict.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
   with the enum as the error, so a mismatch hands the value back; `.unwrap()`
-  on the result therefore needs the enum to be `Debug`.
+  on the result therefore needs the enum to be `Debug`. `try_from = ref`
+  adds `TryFrom<&Enum> for &Payload` to that, and `try_from = ref_mut` adds
+  `TryFrom<&mut Enum> for &mut Payload` too, each handing the reference
+  back as the error; the words are `derive_more`'s.
+- `into = Target` adds `From<Enum> for Target`, with each arm converting
+  the payload through its own `Into<Target>`, so an enum over messages
+  that all convert into one wire type converts in one line; the option
+  may be repeated. Every variant has to hold a payload and take part in the
+  conversions.
 
 Four options go on a variant. `#[dispatch(from = false)]` leaves the
 variant out of the `From` and `TryFrom` impls, for a payload such as
