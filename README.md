@@ -308,6 +308,9 @@ All options follow the trait path in `#[dispatch(..)]`.
   An expression on the trait method or on the enum may use the method's
   parameters, a `Self` argument included, and `self` when the method
   takes `&self`; `&mut self` and `self` are moved into the `match`.
+  A path in an expression on the trait method resolves where the enum is,
+  as the signature types do, so a helper beside the trait is spelled from
+  `crate::`.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
   by two variants gets none either way, and a payload whose `From` is

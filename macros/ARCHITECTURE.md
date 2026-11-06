@@ -584,6 +584,8 @@ A struct's inherent block sees every field, `*` the bare or only one
 names the trait now).
 A by-value move through a pointer that is not a `Box` is one sentence
 (`route_moves_through_a_shared_pointer` is new).
+A trait-side `mismatch` path resolving at the enum is documented
+(`mismatch_path_resolves_at_the_enum` is new).
 
 ## 5. Invariants every stage keeps
 

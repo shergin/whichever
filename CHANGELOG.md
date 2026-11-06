@@ -74,6 +74,10 @@ changes are expected and listed without apology.
   starting with `*`, to a payload that is not a `Box` is one sentence on
   the variant: a reference or a shared pointer cannot be moved out of.
   rustc said so, on the whole enum.
+- The README and the crate docs say that a path in a `mismatch` expression
+  written on the trait method resolves where the enum is, as the signature
+  types do, so a helper beside the trait is spelled from `crate::`; a
+  compile-fail case pins rustc's error for a bare name.
 
 ## 0.6.0 - 2026-11-06
 
