@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Check that an older reader reports a newer carrier in one sentence.
+"""Check that an older reader gives an honest result for a newer carrier.
 
-Builds `smoke/mixed`, whose enum crate dispatches with the last published
-`whichever` a trait whose carrier this checkout wrote, and asserts that the
-build fails with that reader's sentence for a prefix it does not know, and
-not with a wrong sentence about the trait. Needs the registry.
+Builds `smoke/mixed`, whose enum crate dispatches with the minor before this
+checkout's a trait whose carrier this checkout wrote, and asserts that the
+build either succeeds, the older reader reading a prefix it knows, or fails
+with that reader's one sentence for a prefix it does not know; never with
+a wrong sentence about the trait, and never with anything else. Needs the
+registry.
 """
 
 import subprocess
@@ -12,7 +14,11 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-EXPECTED = "unsupported `whichever` protocol version"
+# The sentence of the readers up to 0.6, and the one from 0.7 on.
+HONEST = (
+    "unsupported `whichever` protocol version",
+    "written by a newer `whichever` than the one dispatching it",
+)
 WRONG = "has no receiver"
 
 
@@ -24,12 +30,13 @@ def main():
     )
     output = result.stdout + result.stderr
     if result.returncode == 0:
-        sys.exit("the mixed-version build succeeded; the older reader read a newer carrier silently")
+        print("ok: the older reader reads the carrier")
+        return
     if WRONG in output:
         sys.exit(f"the older reader gave a wrong sentence:\n{output}")
-    if EXPECTED not in output:
+    if not any(sentence in output for sentence in HONEST):
         sys.exit(f"the older reader did not report the newer carrier:\n{output}")
-    print(f"ok: the older reader says \"{EXPECTED}\"")
+    print("ok: the older reader reports the newer carrier")
 
 
 if __name__ == "__main__":

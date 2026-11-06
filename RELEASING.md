@@ -15,6 +15,9 @@ and the generated code are one interface.
 - Rename `## Unreleased` in `CHANGELOG.md` to `## <version> - <date>` and add
   a fresh empty `## Unreleased` above it. Each entry's first sentence says
   what the release is for.
+- Point `smoke/mixed/enums/Cargo.toml` at the minor before the one being
+  released, so the two-version graph `python3 smoke/mixed/check.py` builds
+  stays one step wide.
 - When the generated code or the benchmarks changed and a number is quoted,
   rerun the suite on an otherwise idle machine with
   `benchmarks/scripts/run.sh`, which regenerates `benchmarks/RESULTS.md`,
@@ -33,6 +36,7 @@ cargo test --test expand -- --ignored
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p whichever -p whichever-macros
 cargo check -p whichever --no-default-features --tests
 cargo check -p smoke-no-std --target thumbv7em-none-eabi
+python3 smoke/mixed/check.py
 cargo bench -p whichever-benchmarks --no-run
 python3 benchmarks/scripts/codegen.py
 python3 benchmarks/scripts/check_numbers.py

@@ -5,6 +5,23 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.7.0 - 2026-11-06
+
+The review of 2026-11-06, executed. rustc's errors inside generated code
+land on the enum, the method or the payload, never on the trait's
+attribute; the prefix a trait's carrier macro puts in front is versioned,
+so an older `whichever` reports a newer trait crate in one sentence instead
+of misreading it; and deprecated items, trait object payloads, defaulted
+trait parameters, same-named traits on a struct's fields, a struct's fields
+in an inherent block and a boxed future's converted output are handled as a
+hand writes them. The minor rises because the carried prefix changed: a
+trait crate on 0.7 read by an enum crate on 0.6 is reported, and before 1.0
+the trait's crate and the enum's crate use the same minor. Nothing that
+compiled before is read differently, except an associated const of type
+`f32` or `f64` that disagrees between the variants, which is reported now
+as the integers' is. The generated code of the benchmarked shapes is
+unchanged, so the numbers stand.
+
 - Every token the generated code is written with carries a user span, the
   enum's, the method's or the payload's. Before, the patterns, the
   associated items, the agreement block and a dereferenced payload's type
