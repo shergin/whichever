@@ -308,6 +308,9 @@ All options follow the trait path in `#[dispatch(..)]`.
   An expression on the trait method or on the enum may use the method's
   parameters, a `Self` argument included, and `self` when the method
   takes `&self`; `&mut self` and `self` are moved into the `match`.
+  A path in an expression on the trait method resolves where the enum is,
+  as the signature types do, so a helper beside the trait is spelled from
+  `crate::`.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
   by two variants gets none either way, and a payload whose `From` is
@@ -363,7 +366,9 @@ pub enum AnyShape { /* .. */ }
 
 A generic trait is dispatched at an instantiation named on the enum: a
 concrete one, `#[whichever::dispatch(Encoder<Json>)]`, or the enum's own
-parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`. Type,
+parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`; a
+parameter with a default may be left out, `#[whichever::dispatch(Enc)]`
+for `trait Enc<F = Json>`, as `impl Enc for A` leaves it out. Type,
 lifetime and const parameters are substituted in every signature, and a
 projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
 bound; with several bounds the trait has to spell `<F as Format>::Value`
@@ -403,6 +408,13 @@ through a call. A method returning `Self` is reported on a routed variant,
 other fields beside the payload gets no `From` or `TryFrom`, and a variant
 whose target has no nameable type takes no part in the agreement checks,
 where a disagreement shows in the arm instead.
+
+A `deref` variant holding a trait object, `Box<dyn Trait>` or `&dyn Trait`,
+is how an enum holds an open set beside its sized payloads. A method the
+trait declares with `where Self: Sized` cannot be called on it, and is
+reported in one sentence; a partial block leaves that method to the trait's
+default with `#[dispatch(default)]`, as a hand does, and the rest is
+forwarded.
 
 ## Inherent methods
 
@@ -450,15 +462,18 @@ line_no)]` on `fn line_no(&self) -> usize;` is `inner.line_no` in every
 arm; and `value` makes the arm the target itself, which `with` wraps or
 the return type widens, so `#[dispatch(Controller, Spawn, value, with =
 Some)]` on `fn as_owned(&self) -> Option<&dyn Owned> { None }` is
-`Some(inner)` for the named variants. `via = route` reaches the target
+`Some(inner)` for the named variants. A target reached through a route is
+borrowed as the return type asks, as a field is, so `via = .name, value`
+is `field = name` spelled out. `via = route` reaches the target
 for this method alone, over the variant's own route. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
 it is compiled out, the method takes its body. The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
 on an enum registers it for this without dispatching a trait. A block on a
-dispatch struct forwards the same way, under `*` or the field's name; there
-a `Self` argument is the other value's field, as in trait dispatch, and a
+dispatch struct forwards the same way: `*` is the field marked bare, or the
+only field, and a field's name is that field, marked or not; there a `Self`
+argument is the other value's field, as in trait dispatch, and a
 return-position `impl Trait` is forwarded as it is.
 
 ## Traits from `std` and other crates
@@ -584,7 +599,9 @@ may name the variants it forwards to, as an inherent method does, and its
 body is then the arm for every other variant, two different variants of a
 `Self` argument included; `*` with a bodiless method is the plain
 forwarding written out, and `#[dispatch(default)]` on a bodiless method
-leaves it to the trait's default, neither forwarded nor written:
+leaves it to the trait's default, neither forwarded nor written; over a
+restatement that is the real trait's default, which the restatement cannot
+see:
 
 ```rust
 #[whichever::dispatch]
@@ -668,7 +685,10 @@ pub struct Beacon {
 
 A field may name the traits it is the target of, and the field marked bare
 takes every trait not named elsewhere; the struct's attribute still names
-every trait it dispatches:
+every trait it dispatches. A field names a trait as the struct's attribute
+spells it, arguments included, so two instantiations of one generic trait,
+`Encoder<Json>` and `Encoder<Xml>`, or two traits of one name from two
+modules, go to two fields:
 
 ```rust
 #[whichever::dispatch(Rom)]
@@ -698,7 +718,7 @@ unwrapped to it.
 | Trait item | Enum impl |
 | --- | --- |
 | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
-| `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
+| `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, a float, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`, with `#[inline]` or the trait method's own `#[inline(..)]`. |
 | generic method | Called with its type and const parameters spelled out when no argument fixes them. |
 | `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error, since boxing it again would allocate. |
@@ -707,12 +727,15 @@ unwrapped to it.
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
 | `unsafe trait` | An `unsafe impl`. |
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
+| `-> Pin<Box<dyn Future<Output = T> + ..>>`, as `#[async_trait]` writes it | Forwarded as it is, one type for every arm; when `T` is rewrapped or converted, every arm is awaited in one `async move` block that is boxed and pinned again with the `Box` the signature names, as the attribute itself writes. |
 | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
 | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |
+| `#[deprecated]` on a variant | Its arms and its conversions are written under `#[allow(deprecated)]`; the deprecation reaches the code that names the variant. |
+| `#[deprecated]` on a method or an associated item | Forwarded under `#[allow(deprecated)]`, as a hand writes it; the deprecation reaches the callers through the trait's item. |
 | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 
 ## Limits
@@ -730,6 +753,9 @@ unwrapped to it.
   a method returning `Self`: there is no way to put the result back behind
   the pointer or around the other fields. A route ending in a method call
   cannot serve a `&mut self` method.
+- A method that requires `Self: Sized` cannot be forwarded to a `deref`
+  variant holding a trait object; a partial block leaves it to the trait's
+  default with `#[dispatch(default)]`.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`
@@ -757,7 +783,7 @@ unwrapped to it.
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
   They must also be nameable from there: a private alias or type in a
   signature limits the trait to its own crate.
-- An associated const of a type other than an integer, `bool`, `char` or
+- An associated const of a type other than an integer, a float, `bool`, `char` or
   `&str`, or on a generic enum, is taken from the first variant without a
   check.
 - A trait whose items carry more than four distinct `#[cfg]` predicates
@@ -805,7 +831,11 @@ tree is `proc-macro2`, `quote` and `syn` alone.
 `#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
 the carrier macro, to the crate root, named after the trait and the position
 of its tokens, which is how another crate's enum reaches the trait's
-signatures. The macro holds the signatures and the attributes the generated
+signatures. The carrier is read by whatever `whichever` the enum's crate
+builds with, so before 1.0 the two crates use the same minor: a newer
+`whichever` reads every older carrier, and an older one reports a newer
+carrier in one sentence, since to Cargo two minors of a 0.x crate are two
+crates and a graph may hold both. The macro holds the signatures and the attributes the generated
 items carry, and nothing else: no default body, no doc comment, no bound. A trait
 of any other visibility keeps its macro in its own module and adds nothing
 to the crate root. A trait with items under `#[cfg]` defines the macro once

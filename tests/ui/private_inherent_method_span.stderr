@@ -2,7 +2,7 @@ error[E0624]: method `radius` is private
   --> tests/ui/private_inherent_method_span.rs:26:19
    |
 20 |         fn radius(&self) -> u32;
-   |         ----------------------- private method defined here
+   |            ------ private method defined here
 ...
 26 |     let _ = shape.radius();
    |                   ^^^^^^ private method

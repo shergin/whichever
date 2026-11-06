@@ -2,7 +2,8 @@
 //!
 //! A `pub` trait's carrier is exported at the crate root, so its name has
 //! to be unique across the crate: it carries the trait's name, a hash of
-//! the trait's text and of the position of every one of its tokens, and the
+//! the trait's text and of the position of every one of its tokens, the
+//! file taken relative to the crate's manifest directory, and the
 //! attribute's call site. A subject's carrier stays in its module and is
 //! named the same way, for one rule. The hash is a fixed FNV-1a, so the
 //! names come out the same on every compiler release.
@@ -20,7 +21,12 @@ pub(crate) type Position = (String, usize, usize);
 /// can ask; a unit test hands [`trait_carrier`] a stand-in instead.
 pub(crate) fn written_at(span: Span) -> Position {
     let span = span.unwrap();
-    (file_key(&span.file()), span.line(), span.column())
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok();
+    (
+        file_key(&span.file(), manifest_dir.as_deref()),
+        span.line(),
+        span.column(),
+    )
 }
 
 /// FNV-1a over 64 bits, written out so that a carrier macro's name comes
@@ -116,11 +122,23 @@ fn hash_token_positions(
     }
 }
 
-/// Returns the last two components of a source file's path. They tell
-/// `tokio/mod.rs` from `smol/mod.rs` without depending on where the checkout
-/// lives, so the carrier macros' names come out the same on every machine.
-fn file_key(path: &str) -> String {
-    let mut components = path.rsplit(['/', '\\']);
+/// Returns the key of a source file's path: the path relative to the
+/// crate's manifest directory, which is the same on every machine and names
+/// one file in the crate, or, for a file outside it, as under a remapped
+/// path, its last two components, which tell `tokio/mod.rs` from
+/// `smol/mod.rs` without depending on where the checkout lives.
+fn file_key(path: &str, manifest_dir: Option<&str>) -> String {
+    let path = path.replace('\\', "/");
+    if let Some(manifest_dir) = manifest_dir {
+        let manifest_dir = manifest_dir.replace('\\', "/");
+        if let Some(relative) = path.strip_prefix(manifest_dir.as_str()) {
+            let relative = relative.trim_start_matches('/');
+            if !relative.is_empty() {
+                return relative.to_owned();
+            }
+        }
+    }
+    let mut components = path.rsplit('/');
     let file = components.next().unwrap_or_default();
     match components.next() {
         Some(directory) => format!("{directory}/{file}"),
@@ -196,9 +214,30 @@ mod tests {
     }
 
     #[test]
-    fn the_file_key_is_the_last_two_components() {
-        assert_eq!(file_key("/home/me/src/tokio/mod.rs"), "tokio/mod.rs");
-        assert_eq!(file_key("C:\\src\\smol\\mod.rs"), "smol/mod.rs");
-        assert_eq!(file_key("lib.rs"), "lib.rs");
+    fn the_file_key_is_relative_to_the_manifest_or_the_last_two_components() {
+        let manifest = Some("/home/me/src/tokio");
+        assert_eq!(
+            file_key("/home/me/src/tokio/src/io/mod.rs", manifest),
+            "src/io/mod.rs"
+        );
+        assert_eq!(
+            file_key(
+                "/home/me/src/tokio/src/io/mod.rs",
+                Some("/home/me/src/tokio/")
+            ),
+            "src/io/mod.rs"
+        );
+        assert_eq!(
+            file_key("C:\\src\\tokio\\src\\lib.rs", Some("C:\\src\\tokio")),
+            "src/lib.rs"
+        );
+        assert_eq!(
+            file_key("/remapped/tokio/mod.rs", manifest),
+            "tokio/mod.rs",
+            "a file outside the manifest directory keeps its last two components"
+        );
+        assert_eq!(file_key("/home/me/src/tokio/mod.rs", None), "tokio/mod.rs");
+        assert_eq!(file_key("C:\\src\\smol\\mod.rs", None), "smol/mod.rs");
+        assert_eq!(file_key("lib.rs", None), "lib.rs");
     }
 }

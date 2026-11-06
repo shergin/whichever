@@ -68,6 +68,16 @@ pub(crate) fn listed(names: &[String]) -> String {
     }
 }
 
+/// Returns what tells two traits apart wherever the macros compare them:
+/// the path as written, generic arguments included, without the spaces
+/// `quote` puts between tokens. A macro cannot resolve names, so two
+/// spellings of one trait are two traits, and two instantiations of one
+/// generic trait, or two traits of one name from two modules, are two as
+/// well, as they are to the compiler.
+pub(crate) fn trait_key(path: &Path) -> String {
+    path.to_token_stream().to_string().replace(' ', "")
+}
+
 /// Returns whether `attribute` is this crate's `dispatch` attribute, written
 /// bare or as `whichever::dispatch`.
 pub(crate) fn is_dispatch_attribute(attribute: &Attribute) -> bool {

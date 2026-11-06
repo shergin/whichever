@@ -82,10 +82,13 @@ const _: () = {
     struct __WhicheverAgreement(Any);
     #[allow(dead_code, non_snake_case)]
     impl __WhicheverAgreement {
+        fn __first_implements<__First: ?Sized + Marker>() {}
         fn __same_as_first_variant<
             __Variant: ?Sized + Marker<Tag = <Present as Marker>::Tag>,
         >() {}
-        fn __whichever_associated_types_agree() {}
+        fn __whichever_associated_types_agree() {
+            Self::__first_implements::<Present>();
+        }
     }
 };
 fn main() {}

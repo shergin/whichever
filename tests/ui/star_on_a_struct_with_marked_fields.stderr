@@ -1,0 +1,10 @@
+error: `Mapper` names traits on its fields and marks none bare, so `*` names no field; mark the field to forward to with `#[dispatch]`, or name it on the method, `#[dispatch(field)]`
+  --> tests/ui/star_on_a_struct_with_marked_fields.rs:43:12
+   |
+43 | pub struct Mapper {
+   |            ^^^^^^
+...
+50 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Mapper` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

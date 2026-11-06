@@ -1,0 +1,14 @@
+error[E0425]: cannot find function `never` in this scope
+  --> tests/ui/mismatch_path_resolves_at_the_enum.rs:12:31
+   |
+12 |         #[dispatch(mismatch = never())]
+   |                               ^^^^^ not found in this scope
+...
+41 |     #[whichever::dispatch(Shape)]
+   |                           ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this function
+   |
+18 +     use crate::shapes::never;
+   |

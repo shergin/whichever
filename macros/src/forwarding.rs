@@ -11,16 +11,18 @@
 //!
 //! Tokens the engine writes carry the context's `site`, the subject's or the
 //! method's own span: a proc macro's call site, inside the carrier's
-//! expansion, is the trait's attribute, which may be in another crate.
+//! expansion, is the trait's attribute, which may be in another crate. No
+//! module that writes generated code uses a bare `quote!`; a unit test of
+//! the crate reads the sources and says so.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote_spanned, ToTokens};
 use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
 use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, ReceiverKind, ReturnSite,
+    argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
+    ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -42,6 +44,38 @@ pub(crate) enum ArgumentNames {
     /// The identifiers written, and an error for any other pattern: an
     /// inherent method's parameters are the user's to rename.
     Written,
+}
+
+/// Returns whether the signature's `where` clause has `Self: Sized`, the
+/// bound a provided method takes to be left out of a trait object's
+/// vtable, which a `dyn` payload therefore cannot satisfy.
+fn requires_sized(signature: &Signature) -> bool {
+    let Some(where_clause) = &signature.generics.where_clause else {
+        return false;
+    };
+    where_clause.predicates.iter().any(|predicate| {
+        let syn::WherePredicate::Type(predicate) = predicate else {
+            return false;
+        };
+        is_self(&predicate.bounded_ty)
+            && predicate.bounds.iter().any(|bound| match bound {
+                syn::TypeParamBound::Trait(bound) => {
+                    matches!(bound.modifier, syn::TraitBoundModifier::None)
+                        && bound
+                            .path
+                            .segments
+                            .last()
+                            .is_some_and(|segment| segment.ident == "Sized")
+                }
+                _ => false,
+            })
+    })
+}
+
+/// Returns whether `payload` is a `Box`, by the name its path ends in,
+/// which is the one pointer a value is moved out of by dereferencing.
+fn holds_a_box(payload: &syn::Type) -> bool {
+    last_segment(payload).is_some_and(|segment| segment.ident == "Box")
 }
 
 /// Returns the pattern that binds `ident` and nothing else.
@@ -83,11 +117,14 @@ pub(crate) struct MethodPlan {
     /// The generic arguments a call spells out, when inference could not.
     turbofish: Option<TokenStream2>,
     return_model: Conversion,
-    /// Whether the method returns `impl Future`, so that the `match` sits in
-    /// one `async move` block and every arm is awaited inside it.
-    pub(crate) future: bool,
+    /// The future the method returns, when the `match` sits in one `async
+    /// move` block and every arm is awaited inside it.
+    pub(crate) future: Option<FutureShape>,
     awaited: bool,
     unsafety: bool,
+    /// Whether the method's `where` clause requires `Self: Sized`, which a
+    /// trait object payload cannot satisfy.
+    requires_sized: bool,
 }
 
 impl MethodPlan {
@@ -164,6 +201,7 @@ impl MethodPlan {
             arguments.push(binding);
         }
         let (return_model, future) = classify_return(&signature.output, spec, site)?;
+        let awaited = signature.asyncness.is_some() || future.is_some();
         Ok(Self {
             receiver,
             self_token,
@@ -172,8 +210,9 @@ impl MethodPlan {
             turbofish: turbofish(signature),
             return_model,
             future,
-            awaited: signature.asyncness.is_some() || future,
+            awaited,
             unsafety: signature.unsafety.is_some(),
+            requires_sized: requires_sized(signature),
         })
     }
 
@@ -181,6 +220,12 @@ impl MethodPlan {
     /// two different variants need a fallback arm.
     pub(crate) fn has_same_variant(&self) -> bool {
         !self.same_variant.is_empty()
+    }
+
+    /// Returns whether the method requires `Self: Sized`, so that a trait
+    /// object payload cannot take it.
+    pub(crate) fn requires_sized(&self) -> bool {
+        self.requires_sized
     }
 
     /// Returns the expression the `match` looks at: the receiver, with the
@@ -203,16 +248,16 @@ impl MethodPlan {
 
     /// Returns the pattern binding `target`'s payload to `binding`, with the
     /// same-variant arguments' payloads bound beside it.
-    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident) -> TokenStream2 {
-        let own = target.pattern(prefix, binding);
+    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
+        let own = target.pattern(prefix, binding, site);
         if self.same_variant.is_empty() {
             return own;
         }
         let same = self
             .same_variant
             .iter()
-            .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index)));
-        quote! { (#own, #(#same),*) }
+            .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index), site));
+        quote_spanned! { site => (#own, #(#same),*) }
     }
 
     /// Returns the arguments handed to `target`'s method: each binding as it
@@ -226,7 +271,7 @@ impl MethodPlan {
                     Some((_, access)) => {
                         payload_expression(&target.route, *access, &Self::same_binding(index), site)
                     }
-                    None => quote!(#ident),
+                    None => quote_spanned!(site => #ident),
                 },
             )
             .collect()
@@ -247,7 +292,6 @@ impl MethodPlan {
         let Target {
             ident: target_ident,
             payload,
-            cfgs,
             route,
             ..
         } = target;
@@ -280,12 +324,27 @@ impl MethodPlan {
                 format!("`{method}` takes `&mut self`, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), callee.by_hand()),
             ));
         }
+        // A value is moved out of a `Box` by dereferencing it, and out of
+        // nothing else: a reference or a shared pointer keeps what it points
+        // at.
+        let owned = matches!(self.receiver, ReceiverKind::Value(Access::Owned))
+            || self
+                .same_variant
+                .iter()
+                .any(|(_, access)| matches!(access, Access::Owned));
+        if owned && route.starts_with_deref() && !holds_a_box(payload) {
+            let spelled = payload.to_token_stream().to_string().replace(' ', "");
+            return Err(Error::new_spanned(
+                payload,
+                format!("`{method}` takes `self` by value, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
+            ));
+        }
         let inner = hygienic("__inner");
         let receiver = match (callee, self.receiver) {
             // Method-call syntax reaches through a pointer by itself, so
             // the route is followed from the binding as it is.
             (Callee::Method { .. }, ReceiverKind::Value(_)) => route.reach(&inner, false, site),
-            (Callee::Place { .. }, _) => quote!(#inner),
+            (Callee::Place { .. }, _) => quote_spanned!(site => #inner),
             _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
         let arguments = self.call_arguments(target, site);
@@ -314,11 +373,22 @@ impl MethodPlan {
                     !matches!(self.receiver, ReceiverKind::Value(Access::Owned)),
                     site,
                 );
-                match (field, borrow) {
-                    (None, _) => reached,
-                    (Some(field), None) => quote_spanned! { site => #reached.#field },
-                    (Some(field), Some(None)) => quote_spanned! { site => &#reached.#field },
-                    (Some(field), Some(Some(_))) => quote_spanned! { site => &mut #reached.#field },
+                let place = match field {
+                    Some(field) => quote_spanned! { site => #reached.#field },
+                    None => reached,
+                };
+                // The binding itself is borrowed as the receiver is; a
+                // place reached through a field or a route is borrowed as
+                // the return type asks, so `via = .name, value` and `field
+                // = name` are one arm.
+                if field.is_none() && route.is_direct() {
+                    place
+                } else {
+                    match borrow {
+                        None => place,
+                        Some(None) => quote_spanned! { site => &#place },
+                        Some(Some(_)) => quote_spanned! { site => &mut #place },
+                    }
                 }
             }
         };
@@ -339,9 +409,10 @@ impl MethodPlan {
             value = quote_spanned! { site => #lift(#value) };
         }
         Ok(Arm {
-            cfgs: cfgs.clone(),
-            pattern: self.pattern(target, prefix, &inner),
+            cfgs: target.arm_attributes(site),
+            pattern: self.pattern(target, prefix, &inner, site),
             value,
+            site,
         })
     }
 
@@ -349,20 +420,16 @@ impl MethodPlan {
     /// as its result. A same-variant argument the scrutinee moved, an owned
     /// or `&mut Self`, is bound again under its own name, so that a
     /// `mismatch` expression written on the trait method may use it.
-    pub(crate) fn fallback(&self, value: TokenStream2) -> Arm {
+    pub(crate) fn fallback(&self, value: TokenStream2, site: Span) -> Arm {
         let moved = |access: &Access| !matches!(access, Access::Shared);
         if !self.same_variant.iter().any(|(_, access)| moved(access)) {
-            return Arm {
-                cfgs: vec![],
-                pattern: quote!(_),
-                value,
-            };
+            return Arm::rest(value, site);
         }
         let positions = self.same_variant.iter().map(|(index, access)| {
             if moved(access) {
                 Self::same_binding(*index).into_token_stream()
             } else {
-                quote!(_)
+                quote_spanned!(site => _)
             }
         });
         let rebound = self
@@ -372,12 +439,13 @@ impl MethodPlan {
             .map(|(index, _)| {
                 let name = &self.arguments[*index];
                 let binding = Self::same_binding(*index);
-                quote!(let #name = #binding;)
+                quote_spanned!(site => let #name = #binding;)
             });
         Arm {
             cfgs: vec![],
-            pattern: quote!((_, #(#positions),*)),
-            value: quote!({ #(#rebound)* #value }),
+            pattern: quote_spanned!(site => (_, #(#positions),*)),
+            value: quote_spanned!(site => { #(#rebound)* #value }),
+            site,
         }
     }
 }
@@ -445,6 +513,8 @@ pub(crate) struct Arm {
     pub(crate) cfgs: Vec<Attribute>,
     pub(crate) pattern: TokenStream2,
     pub(crate) value: TokenStream2,
+    /// The span of the arm's own tokens, the arrow and the comma.
+    pub(crate) site: Span,
 }
 
 impl Arm {
@@ -454,21 +524,24 @@ impl Arm {
         prefix: &Path,
         unforwardable: &Unforwardable,
         value: TokenStream2,
+        site: Span,
     ) -> Self {
         let ident = &unforwardable.ident;
         Arm {
-            cfgs: unforwardable.cfgs.clone(),
-            pattern: quote!(#prefix::#ident { .. }),
+            cfgs: unforwardable.arm_attributes(site),
+            pattern: quote_spanned!(site => #prefix::#ident { .. }),
             value,
+            site,
         }
     }
 
     /// The arm for everything else, with `value` as its result.
-    pub(crate) fn rest(value: TokenStream2) -> Self {
+    pub(crate) fn rest(value: TokenStream2, site: Span) -> Self {
         Arm {
             cfgs: vec![],
-            pattern: quote!(_),
+            pattern: quote_spanned!(site => _),
             value,
+            site,
         }
     }
 }
@@ -479,8 +552,9 @@ impl ToTokens for Arm {
             cfgs,
             pattern,
             value,
+            site,
         } = self;
-        tokens.extend(quote! { #(#cfgs)* #pattern => #value, });
+        tokens.extend(quote_spanned! { *site => #(#cfgs)* #pattern => #value, });
     }
 }
 
@@ -491,15 +565,18 @@ pub(crate) struct Forwarding {
     /// The arm for everything the others leave: the mismatch of a trait
     /// method, or the fallback body of an inherent one.
     pub(crate) fallback: Option<Arm>,
-    pub(crate) future: bool,
+    /// The future the method returns, when every arm is awaited inside one
+    /// `async move` block: an opaque one, or a boxed one pinned again with
+    /// the `Box` the signature names.
+    pub(crate) future: Option<FutureShape>,
 }
 
 impl Forwarding {
     /// Renders the body: the `match`, inside an `async move` block when the
-    /// method returns `impl Future` so that every arm is awaited where an
-    /// `async fn` would await it, in braces carrying the method's own span,
-    /// so that the item rustc points at as "defined here" is the method and
-    /// not the attribute that generated it.
+    /// method returns a future the arms are awaited in, so that every arm
+    /// is awaited where an `async fn` would await it, in braces carrying the
+    /// method's own span, so that the item rustc points at as "defined here"
+    /// is the method and not the attribute that generated it.
     pub(crate) fn body(&self, span: Span) -> TokenStream2 {
         let Forwarding {
             scrutinee,
@@ -508,8 +585,14 @@ impl Forwarding {
             future,
         } = self;
         let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
-        if *future {
-            body = quote_spanned! { span => async move { #body } };
+        match future {
+            None => {}
+            Some(FutureShape::Opaque) => {
+                body = quote_spanned! { span => async move { #body } };
+            }
+            Some(FutureShape::Boxed(path)) => {
+                body = quote_spanned! { span => #path::pin(async move { #body }) };
+            }
         }
         let mut group = Group::new(Delimiter::Brace, body);
         group.set_span(span);
@@ -534,14 +617,16 @@ fn convert(
     let path = |conversion: &Conversion| -> Result<Option<TokenStream2>> {
         Ok(match conversion {
             Conversion::Keep => None,
-            Conversion::Rewrap => Some(target.constructor(prefix).ok_or_else(rebuild_error)?),
+            Conversion::Rewrap => Some(target.constructor(prefix, site).ok_or_else(rebuild_error)?),
             Conversion::Into => Some(quote_spanned! { site => ::core::convert::Into::into }),
             _ => unreachable!("a conversion under a wrapper is a path"),
         })
     };
     Ok(match conversion {
         Conversion::Keep => value,
-        Conversion::Rewrap => target.rebuild(prefix, value).ok_or_else(rebuild_error)?,
+        Conversion::Rewrap => target
+            .rebuild(prefix, value, site)
+            .ok_or_else(rebuild_error)?,
         Conversion::Into => quote_spanned! { site => ::core::convert::Into::into(#value) },
         Conversion::Map(inner) => match path(inner)? {
             Some(path) => quote_spanned! { site => #value.map(#path) },
@@ -565,7 +650,8 @@ fn convert(
                 .iter()
                 .zip(&bindings)
                 .map(|(item, binding)| {
-                    convert(quote!(#binding), item, target, prefix, site, rebuild_error)
+                    let binding = quote_spanned!(site => #binding);
+                    convert(binding, item, target, prefix, site, rebuild_error)
                 })
                 .collect::<Result<Vec<_>>>()?;
             quote_spanned! { site => {
@@ -581,7 +667,7 @@ fn convert(
 /// unpinned.
 fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Span) -> TokenStream2 {
     match kind {
-        ReceiverKind::Value(_) => quote!(#self_token),
+        ReceiverKind::Value(_) => quote_spanned!(site => #self_token),
         ReceiverKind::Boxed => quote_spanned!(site => *#self_token),
         ReceiverKind::Pinned(Access::Exclusive) => {
             quote_spanned!(site => ::core::pin::Pin::get_mut(#self_token))
@@ -619,7 +705,7 @@ fn receiver_expression(
                     format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or implement the method by hand"),
                 ));
             }
-            Ok(quote!(#binding))
+            Ok(quote_spanned!(site => #binding))
         }
         ReceiverKind::Pinned(access) => {
             let payload = payload_expression(&target.route, access, binding, site);
@@ -634,7 +720,7 @@ fn receiver_expression(
 /// call yields a value, which is handed over as it is.
 fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
     if route.is_direct() {
-        return quote!(#binding);
+        return quote_spanned!(site => #binding);
     }
     let reached = route.reach(binding, !matches!(access, Access::Owned), site);
     if route.ends_in_a_method() {

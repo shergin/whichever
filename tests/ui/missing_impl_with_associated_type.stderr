@@ -1,0 +1,207 @@
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:22:12
+   |
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+22 |     Memory(Memory),
+   |            ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:7:5
+   |
+ 7 |     fn load(&self) -> Result<u32, Self::Error>;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:7:23
+   |
+ 7 |     fn load(&self) -> Result<u32, Self::Error>;
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:21:6
+   |
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ unsatisfied trait bound
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:6:10
+   |
+ 6 |     type Error;
+   |          ^^^^^ unsatisfied trait bound
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:22:12
+   |
+22 |     Memory(Memory),
+   |            ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:22:12
+   |
+22 |     Memory(Memory),
+   |            ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+note: required by a bound in `__WhicheverAgreement::__first_implements`
+  --> tests/ui/missing_impl_with_associated_type.rs:20:23
+   |
+20 | #[whichever::dispatch(Storage)]
+   |                       ^^^^^^^ required by this bound in `__WhicheverAgreement::__first_implements`
+21 | enum Kind {
+   |      ---- required by a bound in this associated function
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Memory: Storage` is not satisfied
+  --> tests/ui/missing_impl_with_associated_type.rs:23:10
+   |
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+...
+23 |     Disk(Disk),
+   |          ^^^^ unsatisfied trait bound
+   |
+help: the trait `Storage` is not implemented for `Memory`
+  --> tests/ui/missing_impl_with_associated_type.rs:10:1
+   |
+10 | struct Memory;
+   | ^^^^^^^^^^^^^
+help: the following other types implement trait `Storage`
+  --> tests/ui/missing_impl_with_associated_type.rs:13:1
+   |
+13 | impl Storage for Disk {
+   | ^^^^^^^^^^^^^^^^^^^^^ `Disk`
+...
+20 | #[whichever::dispatch(Storage)]
+   |                       ------- in this macro invocation
+21 | enum Kind {
+   |      ^^^^ `Kind`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)

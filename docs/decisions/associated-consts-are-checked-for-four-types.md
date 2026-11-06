@@ -18,7 +18,7 @@ leave the rule and warn in the docs.
 
 ## Decision
 
-An associated const of an integer, `bool`, `char` or `&str` type, on a
+An associated const of an integer, a float, `bool`, `char` or `&str` type, on a
 non-generic enum, is checked at compile time to agree between the variants,
 with the error on the variant that differs. `Name = value` on the enum fixes
 a const that differs per payload by design, as `Name = Type` fixes an
@@ -28,8 +28,10 @@ limit.
 
 ## Evidence
 
-- A `const` block compares integers, `bool` and `char` directly and `&str`
-  through a `const fn` byte loop; the macro cannot see a type's kind beyond
+- A `const` block compares integers, floats, `bool` and `char` directly and
+  `&str` through a `const fn` byte loop; floats joined on 2026-11-06, since
+  their comparison in a `const` is stable from Rust 1.82, within the
+  crate's minimum; the macro cannot see a type's kind beyond
   its tokens, so the recognised set is syntactic.
 - The planning note `notes/gaps/diagnostics.md`, section 3, with the
   celestia case.

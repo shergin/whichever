@@ -1,0 +1,10 @@
+error: this trait's carrier macro was written by an older `whichever` than the one dispatching it; update the trait's crate, or build both crates with the same `whichever` minor
+ --> tests/ui/carrier_older_than_the_request.rs:3:1
+  |
+3 | #[whichever::dispatchable]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8 | Size! { @v9 facade { ::whichever } enum { pub enum Any { Fixed(Fixed) } } spec { Size } }
+  | ----------------------------------------------------------------------------------------- in this macro invocation
+  |
+  = note: this error originates in the macro `Size` (in Nightly builds, run with -Z macro-backtrace for more info)

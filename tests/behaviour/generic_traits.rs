@@ -91,6 +91,34 @@ enum Filler {
     Twos(Twos),
 }
 
+/// A parameter with a default may be left out, as `impl Describe for Short`
+/// leaves it out.
+#[whichever::dispatchable]
+trait Describe<T = u32> {
+    fn describe(&self, value: T) -> String;
+}
+
+struct Short;
+struct Long;
+
+impl Describe for Short {
+    fn describe(&self, value: u32) -> String {
+        format!("{value}")
+    }
+}
+
+impl Describe<u32> for Long {
+    fn describe(&self, value: u32) -> String {
+        format!("the number {value}")
+    }
+}
+
+#[whichever::dispatch(Describe)]
+enum Describer {
+    Short(Short),
+    Long(Long),
+}
+
 #[test]
 fn parameters_are_substituted_with_the_arguments_the_enum_names() {
     assert_eq!(Step::from(Inc).convert(1), 2);
@@ -98,4 +126,10 @@ fn parameters_are_substituted_with_the_arguments_the_enum_names() {
     assert_eq!(AnyEncoder::from(Pretty).encode(&7), "7 ");
     assert_eq!(AnyEncoder::from(Compact).encode_document(&Document(3)), "3");
     assert_eq!(Filler::from(Twos).fill(), [2, 2, 2, 2]);
+}
+
+#[test]
+fn a_defaulted_parameter_may_be_left_out() {
+    assert_eq!(Describer::from(Short).describe(7), "7");
+    assert_eq!(Describer::from(Long).describe(7), "the number 7");
 }

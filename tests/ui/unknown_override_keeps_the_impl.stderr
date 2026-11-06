@@ -1,0 +1,11 @@
+error: `Shape` has no associated type or const `Eror`; it has none, and the other options are `mismatch(method = expr)`, `from = false` and `try_from = true`
+  --> tests/ui/unknown_override_keeps_the_impl.rs:17:30
+   |
+17 | #[whichever::dispatch(Shape, Eror = u8, mismatch(congruent = false))]
+   |                              ^^^^
+
+error: `Shape` has no method `congruent` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one
+  --> tests/ui/unknown_override_keeps_the_impl.rs:17:50
+   |
+17 | #[whichever::dispatch(Shape, Eror = u8, mismatch(congruent = false))]
+   |                                                  ^^^^^^^^^

@@ -15,5 +15,8 @@ help: the following other types implement trait `Value`
  9 | impl Value for A {
    | ^^^^^^^^^^^^^^^^ `A`
 ...
+15 | #[whichever::dispatch(Value)]
+   |                       ----- in this macro invocation
 16 | enum Kind {
    |      ^^^^ `Kind`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Value` (in Nightly builds, run with -Z macro-backtrace for more info)

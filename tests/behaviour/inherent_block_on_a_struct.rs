@@ -80,3 +80,35 @@ fn the_field_answers() {
     assert_eq!(labelled.text(), "circle 2");
     assert_eq!(labelled.label, "a");
 }
+
+/// `*` forwards to the field marked bare; a field's name forwards to that
+/// field, marked or not.
+#[whichever::dispatch]
+pub struct Pair {
+    #[dispatch]
+    left: Circle,
+    right: Circle,
+}
+
+#[whichever::dispatch]
+impl Pair {
+    #[dispatch(*)]
+    pub fn radius(&self) -> u32;
+
+    #[dispatch(right, call = radius)]
+    pub fn right_radius(&self) -> u32;
+
+    #[dispatch(left, call = describe, with = Some)]
+    pub fn left_text(&self) -> Option<String>;
+}
+
+#[test]
+fn a_named_field_answers_and_star_is_the_bare_one() {
+    let pair = Pair {
+        left: Circle(1),
+        right: Circle(2),
+    };
+    assert_eq!(pair.radius(), 1);
+    assert_eq!(pair.right_radius(), 2);
+    assert_eq!(pair.left_text(), Some("circle 1".to_owned()));
+}

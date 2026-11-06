@@ -1,0 +1,5 @@
+error: `consume` takes `self` by value, and `Shared` dereferences a `Rc<Account>`, which a value cannot be moved out of; hold a `Box`, or implement the method by hand
+  --> tests/ui/route_moves_through_a_shared_pointer.rs:25:12
+   |
+25 |     Shared(Rc<Account>),
+   |            ^^^^^^^^^^^

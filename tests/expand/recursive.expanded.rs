@@ -80,8 +80,10 @@ const _: () = {
     struct __WhicheverAgreement(Node);
     #[allow(dead_code, non_snake_case)]
     impl __WhicheverAgreement {
+        fn __first_implements<__First: ?Sized + Eval>() {}
         fn __same_as_first_variant<__Variant: ?Sized + Eval<Out = <Leaf as Eval>::Out>>() {}
         fn __whichever_associated_types_agree() {
+            Self::__first_implements::<Leaf>();
             Self::__same_as_first_variant::<Wrap<Node>>();
         }
     }

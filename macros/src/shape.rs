@@ -2,10 +2,10 @@
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::quote_spanned;
 use syn::visit::Visit;
 use syn::{
-    Error, FnArg, GenericArgument, GenericParam, Ident, PathArguments, PathSegment, Receiver,
+    Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
     Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
 };
 
@@ -143,15 +143,54 @@ pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
     }
 }
 
-/// Returns the `Output` of a return-position `impl Future`: `Some(Some(T))`
-/// for `impl Future<Output = T>` with any further bounds, `Some(None)` for
-/// an `impl Future` without an `Output` binding, and `None` for any other
-/// type.
-pub(crate) fn future_output(ty: &Type) -> Option<Option<&Type>> {
-    let Type::ImplTrait(impl_trait) = ty else {
-        return None;
+/// How a method spells the future it returns.
+#[derive(Clone)]
+pub(crate) enum FutureShape {
+    /// `impl Future<Output = T>`: every arm's future is a type of its own,
+    /// so the `match` sits in one `async move` block.
+    Opaque,
+    /// `Pin<Box<dyn Future<Output = T> + ..>>`, as `#[async_trait]` writes
+    /// it: one type for every arm, forwarded as it is, or, when the output
+    /// is converted, awaited in one `async move` block that is boxed and
+    /// pinned with the `Box` the signature names, as the attribute itself
+    /// writes. The path is the `Box` as written, without its arguments.
+    Boxed(Path),
+}
+
+/// Returns the `Output` of a returned future and how the future is
+/// spelled: `Some((Some(T), shape))` for `impl Future<Output = T>` with any
+/// further bounds or for `Pin<Box<dyn Future<Output = T> + ..>>`,
+/// `Some((None, shape))` for a future without an `Output` binding, and
+/// `None` for any other type.
+pub(crate) fn future_output(ty: &Type) -> Option<(Option<&Type>, FutureShape)> {
+    let (bounds, shape) = match ty {
+        Type::ImplTrait(impl_trait) => (&impl_trait.bounds, FutureShape::Opaque),
+        _ => {
+            let pin = last_segment(ty).filter(|segment| segment.ident == "Pin")?;
+            let pin_arguments = generic_type_args(pin);
+            let [boxed] = pin_arguments.as_slice() else {
+                return None;
+            };
+            let boxed: &Type = boxed;
+            let box_segment = last_segment(boxed).filter(|segment| segment.ident == "Box")?;
+            let box_arguments = generic_type_args(box_segment);
+            let [pointee] = box_arguments.as_slice() else {
+                return None;
+            };
+            let Type::TraitObject(object) = *pointee else {
+                return None;
+            };
+            let Type::Path(TypePath { path, .. }) = boxed else {
+                return None;
+            };
+            let mut box_path = path.clone();
+            if let Some(last) = box_path.segments.last_mut() {
+                last.arguments = PathArguments::None;
+            }
+            (&object.bounds, FutureShape::Boxed(box_path))
+        }
     };
-    impl_trait.bounds.iter().find_map(|bound| {
+    bounds.iter().find_map(|bound| {
         let TypeParamBound::Trait(bound) = bound else {
             return None;
         };
@@ -160,12 +199,13 @@ pub(crate) fn future_output(ty: &Type) -> Option<Option<&Type>> {
             return None;
         }
         let PathArguments::AngleBracketed(arguments) = &last.arguments else {
-            return Some(None);
+            return Some((None, shape.clone()));
         };
-        Some(arguments.args.iter().find_map(|argument| match argument {
+        let output = arguments.args.iter().find_map(|argument| match argument {
             GenericArgument::AssocType(assoc) if assoc.ident == "Output" => Some(&assoc.ty),
             _ => None,
-        }))
+        });
+        Some((output, shape.clone()))
     })
 }
 
@@ -184,36 +224,46 @@ pub(crate) struct ReturnSite<'a> {
 }
 
 /// Classifies what the arms of a method must do with the payload's result,
-/// and whether the method returns `impl Future`, in which case the arms are
-/// awaited inside one `async` block and the classification applies to the
-/// future's `Output`. `spec` carries the associated type overrides of a
-/// trait; inherent methods have none.
+/// and whether the method returns a future the arms are awaited inside, in
+/// which case the classification applies to the future's `Output`. `spec`
+/// carries the associated type overrides of a trait; inherent methods have
+/// none.
 ///
 /// A `match` with several arms cannot return `impl Trait`, since every arm
 /// would return a different opaque type; a future is the exception, because
-/// one `async` block around the `match` is one future. A `match` with one
-/// arm returns that arm's type, so a struct forwards any opaque type as it
-/// is, a future included, unless its `Output` has to be converted, in which
-/// case the `async` block is where the conversion happens.
+/// one `async` block around the `match` is one future. A boxed future is one
+/// type already and is forwarded as it is, unless its `Output` has to be
+/// converted, in which case the `async` block, boxed and pinned again, is
+/// where the conversion happens. A `match` with one arm returns that arm's
+/// type, so a struct forwards any opaque type as it is, a future included,
+/// unless its `Output` has to be converted.
 pub(crate) fn classify_return(
     output: &ReturnType,
     spec: Option<&TraitSpec>,
     site: &ReturnSite,
-) -> Result<(Conversion, bool)> {
+) -> Result<(Conversion, Option<FutureShape>)> {
     let ReturnType::Type(_, ty) = output else {
-        return Ok((Conversion::Keep, false));
+        return Ok((Conversion::Keep, None));
     };
-    let (ty, returns_future) = match future_output(ty) {
-        Some(Some(output)) => (output, true),
-        Some(None) => return Ok((Conversion::Keep, !site.one_target)),
-        None => (&**ty, false),
+    let (ty, future) = match future_output(ty) {
+        Some((Some(output), shape)) => (output, Some(shape)),
+        // A future without an `Output` has nothing to convert; an opaque
+        // one still needs the one `async` block on an enum.
+        Some((None, FutureShape::Opaque)) => {
+            return Ok((
+                Conversion::Keep,
+                (!site.one_target).then_some(FutureShape::Opaque),
+            ));
+        }
+        Some((None, FutureShape::Boxed(_))) => return Ok((Conversion::Keep, None)),
+        None => (&**ty, None),
     };
     if site.one_target {
         if let Type::ImplTrait(_) = ty {
-            return Ok((Conversion::Keep, false));
+            return Ok((Conversion::Keep, None));
         }
         let conversion = return_model(ty, spec, site)?;
-        let awaited = returns_future && conversion != Conversion::Keep;
+        let awaited = future.filter(|_| conversion != Conversion::Keep);
         return Ok((conversion, awaited));
     }
     if let Some(opaque) = first_impl_trait(ty) {
@@ -222,7 +272,12 @@ pub(crate) fn classify_return(
             "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
-    Ok((return_model(ty, spec, site)?, returns_future))
+    let conversion = return_model(ty, spec, site)?;
+    let future = match future {
+        Some(FutureShape::Boxed(_)) if conversion == Conversion::Keep => None,
+        other => other,
+    };
+    Ok((conversion, future))
 }
 
 /// Returns the first `impl Trait` in `ty`, at any depth: the type itself,
@@ -465,7 +520,8 @@ pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
     if parameters.is_empty() || inferred {
         return None;
     }
-    Some(quote!(::<#(#parameters),*>))
+    let site = crate::at(signature.ident.span());
+    Some(quote_spanned!(site => ::<#(#parameters),*>))
 }
 
 /// Every identifier a type names: in its paths, their generic arguments,
@@ -515,6 +571,7 @@ pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
 
 #[cfg(test)]
 mod tests {
+    use quote::{quote, ToTokens};
     use syn::parse_quote;
 
     use super::*;
@@ -669,10 +726,10 @@ mod tests {
         let kind = kind();
         let returns = |output: ReturnType| classify_return(&output, None, &site(&kind, false));
         let (model, future) = returns(parse_quote!(-> impl Future<Output = Self> + Send)).unwrap();
-        assert!(future);
+        assert!(matches!(future, Some(FutureShape::Opaque)));
         assert_eq!(model, Conversion::Rewrap);
         let (model, future) = returns(parse_quote!(-> impl Future)).unwrap();
-        assert!(future);
+        assert!(matches!(future, Some(FutureShape::Opaque)));
         assert_eq!(model, Conversion::Keep);
         assert!(returns(parse_quote!(-> impl Iterator<Item = u32>)).is_err());
         assert!(
@@ -680,7 +737,40 @@ mod tests {
             "an opaque type is found at any depth"
         );
         let (_, future) = returns(parse_quote!()).unwrap();
-        assert!(!future);
+        assert!(future.is_none());
+    }
+
+    #[test]
+    fn a_boxed_future_is_awaited_only_to_convert_its_output() {
+        let kind = kind();
+        let spec = overriding("Error");
+        let returns = |output: ReturnType| {
+            classify_return(&output, Some(&spec), &site(&kind, false)).unwrap()
+        };
+        let (model, future) = returns(parse_quote!(
+            -> ::core::pin::Pin<Box<dyn ::core::future::Future<Output = u32> + Send + 'async_trait>>
+        ));
+        assert_eq!(model, Conversion::Keep);
+        assert!(
+            future.is_none(),
+            "one type for every arm, forwarded as it is"
+        );
+        let (model, future) = returns(parse_quote!(
+            -> Pin<alloc::boxed::Box<dyn Future<Output = Result<u32, Self::Error>> + Send + 'a>>
+        ));
+        assert_eq!(
+            model,
+            Conversion::MapErr(Box::new(Conversion::Keep), Box::new(Conversion::Into))
+        );
+        let Some(FutureShape::Boxed(path)) = future else {
+            panic!("a converted output is awaited in a boxed block");
+        };
+        assert_eq!(
+            path.to_token_stream().to_string().replace(' ', ""),
+            "alloc::boxed::Box"
+        );
+        let (_, future) = returns(parse_quote!(-> Pin<Box<dyn Iterator<Item = u32>>>));
+        assert!(future.is_none(), "a boxed trait object that is no future");
     }
 
     #[test]
@@ -688,18 +778,16 @@ mod tests {
         let kind = kind();
         let returns =
             |output: ReturnType| classify_return(&output, None, &site(&kind, true)).unwrap();
-        assert_eq!(
-            returns(parse_quote!(-> impl Iterator<Item = u32>)),
-            (Conversion::Keep, false)
-        );
-        assert_eq!(
-            returns(parse_quote!(-> impl Future<Output = u32> + Send)),
-            (Conversion::Keep, false),
+        let (model, future) = returns(parse_quote!(-> impl Iterator<Item = u32>));
+        assert!(model == Conversion::Keep && future.is_none());
+        let (model, future) = returns(parse_quote!(-> impl Future<Output = u32> + Send));
+        assert!(
+            model == Conversion::Keep && future.is_none(),
             "a future whose output needs nothing is forwarded without an `async` block"
         );
         let (model, future) = returns(parse_quote!(-> impl Future<Output = Self>));
         assert!(
-            future,
+            matches!(future, Some(FutureShape::Opaque)),
             "a future whose output is rewrapped is awaited in an `async` block"
         );
         assert_eq!(model, Conversion::Rewrap);

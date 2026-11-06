@@ -1,0 +1,11 @@
+[package]
+name = "mixed-enums"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The last published version, on purpose; `check.py` expects its reader to
+# report the newer carrier.
+whichever = "=0.6.0"
+mixed-traits = { path = "../traits" }

@@ -23,10 +23,13 @@ two carriers could not share one trait, E0252.
   own module, re-exported with the trait's visibility. Nothing reaches the
   crate root for it.
 - A `pub` trait's carrier macro is named after the text of every token of
-  the trait and the position of each, with the last two components of the
-  file's path, so the name is the same on every machine and differs
-  between two emissions of one `macro_rules!` body whenever any token comes
-  from the invocation.
+  the trait and the position of each, with the file's path relative to the
+  crate's manifest directory, so the name is the same on every machine and
+  differs between two emissions of one `macro_rules!` body whenever any
+  token comes from the invocation. A file outside that directory, as under
+  a remapped path, keeps its last two components, which the name used for
+  every file until 2026-11-06; two files of one crate with the same last
+  two components, `foo/x/y.rs` and `bar/x/y.rs`, collided then.
 - `#[dispatchable(name = ident)]` names the macro explicitly, for the one
   case the position cannot tell apart: a trait written out in full inside a
   `macro_rules!` body and emitted twice.

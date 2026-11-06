@@ -5,6 +5,107 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Every token the generated code is written with carries a user span, the
+  enum's, the method's or the payload's. Before, the patterns, the
+  associated items, the agreement block and a dereferenced payload's type
+  were written at the call site, which inside the implementation macro is
+  the trait's `#[dispatchable]` attribute, so a rustc error about them, a
+  `dyn` payload under a `Self: Sized` method, a first variant without the
+  impl, a deprecated variant, was reported on the trait's attribute, in
+  another crate's file when the trait is foreign. A unit test of the macro
+  crate reads the engine's modules and names a token written at the call
+  site, so the rule cannot rot.
+- The agreement block asks the first variant for the trait's impl before
+  it compares the others' associated types with its, so a first variant
+  whose payload lacks the impl is "the trait bound `Memory: Storage` is not
+  satisfied" on that variant; before, rustc reported a type mismatch
+  resolving the enum's own projection, twice, on the trait's attribute and
+  the trait method. The block is written for a struct and a one-variant
+  enum too, where it holds that one check.
+- A `#[deprecated]` trait method or associated item is forwarded under
+  `#[allow(deprecated)]`, and the arms and conversions of a `#[deprecated]`
+  variant are written under it, as a hand writes them; the deprecation
+  still reaches the callers through the trait's item and the variant.
+  Before, an enum dispatching a trait with a deprecated method, or holding
+  a deprecated variant, could not compile under `deny(deprecated)`, since
+  no attribute of the enum's author reaches the generated code.
+- A method that requires `Self: Sized` forwarded to a `deref` variant
+  holding a trait object, `Box<dyn Trait>` or `&dyn Trait`, is one sentence
+  on the method, naming the partial block that leaves it to the trait's
+  default; rustc reported that the trait object has no size, twice. The
+  shape is how an enum holds an open set, and `foreign::Iterator`'s
+  `count`, `last` and `fold` have the bound, so the block over a
+  restatement accepts `#[dispatch(default)]` for a method the restatement
+  carries no body for, leaving it to the real trait's.
+- A trait parameter with a default may be left out of the trait's path on
+  the enum, `#[dispatch(Enc)]` for `trait Enc<F = Json>`, as `impl Enc for
+  A` leaves it out; before, the count of arguments was reported as a limit.
+- A struct's field names a trait as the struct's attribute spells it,
+  arguments included, so `Encoder<Json>` and `Encoder<Xml>`, or `a::Named`
+  and `b::Named`, go to two fields; before, the last segment of the path
+  was the trait's identity, and both were "named on two fields". One rule
+  tells two traits apart wherever the macros compare them: the path as
+  written, which is what a macro that cannot resolve names can say.
+- The prefix a trait's carrier macro puts in front of a request is `v2`:
+  0.6.0 changed what the `trait { .. }` segment holds, signatures without
+  bodies, under the `v1` of the releases that held the bodies, so an enum
+  crate on 0.5 reading a trait crate on 0.6 took a provided method without
+  a receiver for a required one and said "give it a default body". The
+  reader reads both versions; a reader too old for a prefix says the
+  carrier is newer than it, and every carrier now ends in a rule that says
+  the opposite for a request it does not match. `smoke/mixed` builds a
+  trait crate on this checkout against an enum crate on the last published
+  version and checks the older reader's sentence, in CI. Before 1.0 the
+  trait's crate and the enum's crate use the same `whichever` minor, which
+  the README says now.
+- An option naming nothing in the trait, `Eror = u8` or `mismatch(congruent
+  = ..)` on a trait without such a method, and a `via(Variant = ..)` naming
+  no variant, are reported beside the impl, which is right without them;
+  before, the whole impl was withheld and every call around the enum failed
+  too. `#[dispatch(default)]` on a method the trait gives no default is
+  written with its sentence as its body, as a method that cannot be
+  forwarded is.
+- An inherent method of a dispatch struct may name any field, marked or
+  not, `#[dispatch(right, call = radius)]`, and `*` is the field marked bare
+  or the only field; a struct whose marked fields each name their traits
+  and marks none bare is one sentence under `*`. Before, `*` took the first
+  marked field silently, and only that field could be named.
+- A method taking `self` by value forwarded through `deref`, or a route
+  starting with `*`, to a payload that is not a `Box` is one sentence on
+  the variant: a reference or a shared pointer cannot be moved out of.
+  rustc said so, on the whole enum.
+- The README and the crate docs say that a path in a `mismatch` expression
+  written on the trait method resolves where the enum is, as the signature
+  types do, so a helper beside the trait is spelled from `crate::`; a
+  compile-fail case pins rustc's error for a bare name.
+- An associated const of type `f32` or `f64` is checked to agree between
+  the variants, as the integers, `bool`, `char` and `&str` are; comparing
+  floats in a `const` is stable since Rust 1.82, within the crate's minimum.
+- The carrier macro's name hashes the trait's file as a path relative to
+  the crate's manifest directory, which is the same on every machine and
+  names one file in the crate; before, the last two components of the path,
+  so two identical `pub` traits at the same line of `foo/x/y.rs` and
+  `bar/x/y.rs` collided. A file outside the manifest directory keeps the
+  two components. A carrier's name changes once with this release wherever
+  the two keys differ, which nothing but an expansion can see.
+- The macro crate's trait path plans each trait item before writing it,
+  and its selection of targets lives in a module of its own, shared with
+  the inherent path; `macros/ARCHITECTURE.md` describes the shape. Nothing
+  generated changed.
+- `value` on an inherent method borrows a target reached through a route
+  as the return type asks, as `field` does, so `via = .name, value` on a
+  method returning `&str` is the arm `&inner.name`, and `field = name` is
+  that spelled short; before, `value` handed the place over by value and
+  rustc reported the type. The target itself, without a route, is handed
+  over as before.
+- A method returning `Pin<Box<dyn Future<Output = T> + ..>>`, as
+  `#[async_trait]` writes one, is forwarded as it is, and when `T` is an
+  overridden associated type, or a `Self` to rewrap, every arm is awaited
+  in one `async move` block that is boxed and pinned again with the `Box`
+  the signature names, as the attribute itself writes; before, the boxed
+  return was a plain type and the override gave rustc's mismatch at the
+  trait's attribute. The decision record says why the box is the hand's.
+
 ## 0.6.0 - 2026-11-06
 
 The shapes the surveys found written by hand: a route to the target,

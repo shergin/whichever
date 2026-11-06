@@ -110,6 +110,7 @@ src/
   implement.rs     `implement!`: the forwarding impl for one trait
   block.rs         `implement_block!`: inherent blocks and partial impl blocks
   forwarding.rs    the engine: a plan per method, arms per target, one renderer
+  selection.rs     the engine's choice of targets: which a method's attribute names, with the checks on the attribute and the body
   shape.rs         classifying receivers, arguments, return types and generics
   substitution.rs  the trait's generics replaced by the subject's arguments
   agreement.rs     the associated type and const checks
@@ -176,6 +177,20 @@ and are generated; an inherent method's are the user's, and are kept. The
 one difference that is not deliberate, the trait path renaming parameters
 that could keep their names, goes in stage 6.
 
+Above the engine, `implement.rs` plans before it writes: `ItemPlan` says
+what each trait item becomes, skipped, rejected with its sentence as its
+body, an associated type or const from the override or the first variant,
+a method forwarded as the block's attribute names under the complement of
+the block's `cfg`, or a limit, and `ItemWriter` renders the plan while
+keeping what the agreement checks and the shape errors need afterwards.
+`forward_trait_method` asks `fallback_for` for the arm the targets' arms
+leave and whether the lint about an unreachable pattern is allowed, and
+`check_trait_objects` for the one shape a target refuses. The routes a
+trait keys by variant and the options naming nothing in the trait are
+applied and checked by `apply_routes` and `unknown_names`, so that
+`expand_implement` reads as the sequence it is: the header, the entries,
+the bounds, the supplier, the items, the checks.
+
 ### 3.3 The return model
 
 ```rust
@@ -199,8 +214,12 @@ classifier's: a conversion under a wrapper has to be a path, since
 `Option` is a limit with the one sentence, while a tuple holding a
 wrapper is fine. The recognition rules stay syntactic: `Option` and
 `Result` by the name a path ends in, `Self::X` as a two-segment path,
-`impl Future` by its `Output` binding, and any other `Self` in a return
-type is a limit. `Result<Self, Self::Error>` with `Error` overridden
+`impl Future` by its `Output` binding, a boxed future, `Pin<Box<dyn
+Future<Output = T> + ..>>`, by the same binding under `Pin` and `Box`
+(`FutureShape`), and any other `Self` in a return type is a limit. An
+opaque future is one `async move` block whatever the conversion; a boxed
+one is wrapped, and pinned again with the signature's own `Box`, only to
+convert its output. `Result<Self, Self::Error>` with `Error` overridden
 rewraps and converts (golden `overridden_results`); `(Self, u32)` and
 `(Self::Rest, Option<Self>)` take the tuple apart (golden
 `tuple_returns`).
@@ -240,11 +259,18 @@ The options travel typed: a `TraitRequest` carries a `TraitSpec`, a
 `BlockRequest` the partial block's options, parsed and checked at the
 attribute. The trait's carrier is compiled into the trait's crate and read
 by whatever version of this crate the subject's crate builds with, so the
-first two lines are a compatibility surface. Between two keywords a message
-is a run of segments, `tag` or `tag { .. }`; a segment is only ever added,
-and the readers skip a tag they do not know, so an older reader accepts a
-newer carrier, which a unit test and a behaviour test with a carrier of the
-0.4.0 shape pin. `v1` becomes `v2` when a segment changes meaning or order.
+first two lines are a compatibility surface frozen into every published
+trait crate. Between two keywords a message is a run of segments, `tag` or
+`tag { .. }`; a segment is only ever added, and the readers skip a tag they
+do not know, so an older reader accepts a newer prefix of the same version,
+which a unit test and a behaviour test with carriers of the 0.4.0 and 0.6.0
+shapes pin. The version changes when a segment changes meaning or order:
+the carried trait's prefix is `v2` since 2026-11-06, when the carrier came
+to hold signatures only, and `implement!` reads `v1` and `v2`; the request
+stays `v1`, which every carrier ever written matches, and every carrier's
+last rule reports any other request as newer than the carrier. A reader
+too old for a prefix says so in one sentence, which `smoke/mixed` holds
+against the last published version.
 The subject's carrier never leaves its crate and forwards the facade's
 name, so a partial impl needs no second lookup, and the traits the subject's
 own attributes dispatch, so a partial block of one of them is reported as
@@ -285,7 +311,10 @@ further, so the impl is complete, the calls around it resolve, and the
 sentence stands alone; only a signature the substitution could not write,
 a projection it could not qualify, withholds the impl, as does an
 associated item that cannot be supplied, since neither has a body to hold
-an error. The inherent path keeps the block and the methods it could
+an error. An option naming nothing in the trait, or a route through no
+variant, is reported beside the impl, which is right without it, and a
+`#[dispatch(default)]` on a method without a default is written with the
+sentence as its body. The inherent path keeps the block and the methods it could
 forward, for the same reason. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
@@ -304,8 +333,13 @@ two live in different hygiene contexts, the trait's tokens having come
 through a `macro_rules!` body, so the engine resolves the receiver's `self`
 token and the written argument bindings at the chosen expression's span
 with `Span::resolved_at` (stable since 1.45); the arms use that same `self`
-token. Errors rustc finds in generated code land on the enum or on the
-trait method, never on the trait's attribute.
+token. A rustc error inside generated code is accepted only where a
+hand-written impl gets the same error on the same user token, a variant's
+payload or a trait method; one on an attribute is a defect. So no module
+that writes generated code uses a bare `quote!` or `parse_quote!`: every
+token carries the subject's, the method's or the payload's span, and the
+unit test in `spans.rs` reads those modules and names a token written at
+the call site, which inside `implement!` is the trait's attribute.
 
 ## 4. Plan
 
@@ -535,6 +569,61 @@ changed shape in `carried_attributes` and `recursive`;
 `associated_type_disagreement` moved with the helper's new home; one new
 case.
 
+### Stage 16: the review of 2026-11-06
+
+Status: landed on 2026-11-06 on the branch `execute-review-2026-11-06`, one
+commit per item in the order of `notes/review-2026-11-06.md` section 8, and
+merged the same day. Every
+token the engine writes carries a user span through `at`, located at the
+subject's, the method's or the payload's token and resolved at the
+expansion's own site, and `spans.rs` holds it (snapshots:
+`associated_const_disagreement`, `associated_type_disagreement`,
+`gat_payload_without_into`, `gat_undeclared_in_block`, `missing_impl`,
+`partial_without_receiverless` and `private_inherent_method_span` moved
+their labels from the trait's attribute to the enum, the block or the
+method; no golden changed). The agreement block asks the first variant for
+the impl (goldens `carried_attributes` and `recursive` gained the
+`__first_implements` line; `missing_impl_with_associated_type` is new).
+A deprecated trait item or variant is forwarded under `#[allow(deprecated)]`
+(golden `deprecated` and the behaviour test `deprecated_items` are new;
+the carrier keeps `#[deprecated]` beside `#[inline]`).
+A `Self: Sized` method over a trait object payload is one sentence
+(`dyn_payload_under_sized_method` and the behaviour test
+`trait_objects_in_deref_variants` are new; `#[dispatch(default)]` over a
+restatement needs no `provided` name).
+A defaulted trait parameter is filled from its default.
+One `trait_key`, the path as written, tells traits apart at every comparison.
+The carried trait's prefix is `v2`, the reader reads `v1` too, every
+carrier ends in a catch-all rule, and `smoke/mixed` builds the two-version
+graph (`carrier_newer_than_the_reader` and `carrier_older_than_the_request`
+are new; the older-release test gained the 0.6.0 shape).
+An unknown override or `mismatch` name and a route through no variant are
+reported beside the impl (`unknown_override_keeps_the_impl` is new).
+A struct's inherent block sees every field, `*` the bare or only one
+(`star_on_a_struct_with_marked_fields` is new; `struct_without_marked_field`
+names the trait now).
+A by-value move through a pointer that is not a `Box` is one sentence
+(`route_moves_through_a_shared_pointer` is new).
+A trait-side `mismatch` path resolving at the enum is documented
+(`mismatch_path_resolves_at_the_enum` is new).
+Floats joined the const check.
+The carrier name's file key is relative to the manifest directory (no
+golden changed: their files sit at `src/main.rs` of a generated crate,
+where the two keys agree).
+The target selection moved from `block.rs` into `selection.rs`, so the
+trait path and the inherent path both sit on the engine and neither on the
+other.
+`expand_implement` plans each item before writing it (`ItemPlan`,
+`ItemWriter`), and `forward_trait_method` asks `fallback_for` and
+`check_trait_objects`; no golden or snapshot changed. `expand_implement` is
+207 lines where it was 311 and `forward_trait_method` 163 where it was 184;
+`conversion_impls` (184) and `expand_subject` (124) are the next seams.
+`value` borrows a routed place as the return type asks, so it and `field`
+are one arm (behaviour test `routes` extended; no golden changed).
+A boxed future's output is converted inside a `Box::pin(async move { .. })`
+(golden `boxed_futures` and the `async_trait_above_dispatchable` case are
+new; `docs/decisions/a-boxed-future-is-rewrapped-by-boxing.md`).
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
@@ -543,9 +632,12 @@ case.
 - Generated bindings use `Span::mixed_site()`; the receiver uses the trait
   method's own `self` token; a variant's `#[cfg]` is carried onto its arm,
   a trait item's is decided by which carrier the trait's crate compiled.
+- Every token the engine writes carries a user span, never the call site:
+  `spans.rs` reads the engine's modules and names a bare `quote!`.
 - Nothing is kept between expansions.
-- `implement!` keeps its name and accepts every `@v1` message a 0.x carrier
-  emits; the facade and the macros crate move as one version.
+- `implement!` keeps its name and reads every prefix a 0.x carrier wrote,
+  `v1` and `v2`; the request stays `v1`; a carrier's last rule reports any
+  other request; the facade and the macros crate move as one version.
 - A rejected subject is still emitted, with its carrier, so the code around
   it compiles.
 - The facade stays `no_std` and dependency-free; the minimum Rust version

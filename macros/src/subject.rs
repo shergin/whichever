@@ -1,16 +1,17 @@
 //! The subject an impl is written for: an enum over implementors, or a struct
 //! wrapping one, and the targets its methods forward to.
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item, ItemEnum, ItemStruct,
-    Member, Path, Result, Type, Variant,
+    parse_quote_spanned, Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item,
+    ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
-use crate::options::{is_dispatch_attribute, TargetOptions, TryFromForms};
+use crate::at;
+use crate::options::{is_dispatch_attribute, trait_key, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
 
@@ -109,11 +110,26 @@ impl Subject {
 
     /// Returns the entries `trait_path` is forwarded to: every variant of
     /// the enum, or the struct's field that names the trait, else the one
-    /// marked bare, else its one field.
+    /// marked bare, else its one field. Without a trait, for an inherent
+    /// block, every field of the struct, so that a method may name any;
+    /// `*` then takes [`Subject::star_target`].
     pub(crate) fn entries_for(&self, trait_path: Option<&Path>) -> Result<Vec<Entry>> {
         match self {
             Subject::Enum(item) => item.variants.iter().map(variant_entry).collect(),
-            Subject::Struct(item) => Ok(vec![Entry::Target(struct_target(item, trait_path)?)]),
+            Subject::Struct(item) => match trait_path {
+                Some(_) => Ok(vec![Entry::Target(struct_target(item, trait_path)?)]),
+                None => struct_fields(item),
+            },
+        }
+    }
+
+    /// Returns the target `*` names on a struct, the field marked bare or
+    /// its one field, or the error for a struct that has neither; an enum's
+    /// `*` names every variant, so `None`.
+    pub(crate) fn star_target(&self) -> Result<Option<Target>> {
+        match self {
+            Subject::Enum(_) => Ok(None),
+            Subject::Struct(item) => struct_target(item, None).map(Some),
         }
     }
 
@@ -166,6 +182,10 @@ pub(crate) struct Target {
     pub(crate) place: Place,
     pub(crate) payload: Type,
     pub(crate) cfgs: Vec<Attribute>,
+    /// Whether the variant or field is `#[deprecated]`, so that the arms
+    /// and the conversions that name it are written under
+    /// `#[allow(deprecated)]`, as a hand writes them.
+    pub(crate) deprecated: bool,
     /// How an arm reaches the value the trait is called on from the
     /// payload: the payload itself, what it dereferences to, a field, or
     /// what a method returns.
@@ -200,6 +220,12 @@ pub(crate) struct Conversions {
 }
 
 impl Target {
+    /// Returns the attributes an arm or an impl naming the target carries:
+    /// its `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
+    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+        arm_attributes(&self.cfgs, self.deprecated, site)
+    }
+
     /// Returns the variant's part in the conversions; a field has none,
     /// and neither has a variant with other fields beside the payload.
     pub(crate) fn conversions(&self) -> Option<Conversions> {
@@ -213,48 +239,60 @@ impl Target {
     }
 
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
-    /// which is the subject's name or `Self`.
-    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident) -> TokenStream2 {
+    /// which is the subject's name or `Self`; the pattern's own tokens
+    /// carry `site`.
+    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => quote!(#prefix::#ident(#binding)),
+            Place::Variant { field: None, .. } => {
+                quote_spanned!(site => #prefix::#ident(#binding))
+            }
             Place::Variant {
                 field: Some(Member::Unnamed(index)),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote!(_));
-                quote!(#prefix::#ident(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
+                quote_spanned!(site => #prefix::#ident(#(#skipped,)* #binding, ..))
             }
             Place::Variant {
                 field: Some(member),
                 ..
-            } => quote!(#prefix::#ident { #member: #binding, .. }),
+            } => quote_spanned!(site => #prefix::#ident { #member: #binding, .. }),
             Place::Field {
                 member: Member::Unnamed(index),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote!(_));
-                quote!(#prefix(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
+                quote_spanned!(site => #prefix(#(#skipped,)* #binding, ..))
             }
-            Place::Field { member, .. } => quote!(#prefix { #member: #binding, .. }),
+            Place::Field { member, .. } => {
+                quote_spanned!(site => #prefix { #member: #binding, .. })
+            }
         }
     }
 
     /// Returns the expression building the subject around `value`, or
     /// `None` when other fields would be missing.
-    pub(crate) fn rebuild(&self, prefix: &Path, value: TokenStream2) -> Option<TokenStream2> {
+    pub(crate) fn rebuild(
+        &self,
+        prefix: &Path,
+        value: TokenStream2,
+        site: Span,
+    ) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident(#value))),
+            Place::Variant { field: None, .. } => {
+                Some(quote_spanned!(site => #prefix::#ident(#value)))
+            }
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote!(#prefix(#value))),
+            } => Some(quote_spanned!(site => #prefix(#value))),
             Place::Field {
                 member,
                 rebuildable: true,
-            } => Some(quote!(#prefix { #member: #value })),
+            } => Some(quote_spanned!(site => #prefix { #member: #value })),
             Place::Field {
                 rebuildable: false, ..
             } => None,
@@ -262,21 +300,21 @@ impl Target {
     }
 
     /// Returns a function building the subject from a payload, for `map`.
-    pub(crate) fn constructor(&self, prefix: &Path) -> Option<TokenStream2> {
+    pub(crate) fn constructor(&self, prefix: &Path, site: Span) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident)),
+            Place::Variant { field: None, .. } => Some(quote_spanned!(site => #prefix::#ident)),
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote!(#prefix)),
+            } => Some(quote_spanned!(site => #prefix)),
             Place::Field {
                 member,
                 rebuildable: true,
             } => {
                 let value = Ident::new("__value", Span::mixed_site());
-                Some(quote!(|#value| #prefix { #member: #value }))
+                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
             }
             Place::Field {
                 rebuildable: false, ..
@@ -287,9 +325,10 @@ impl Target {
     /// Returns the type the trait is called on, when the route lets it be
     /// named from the payload's: the payload, or what it dereferences to. A
     /// field's or a method's type cannot be, and the call is qualified by
-    /// the trait alone.
+    /// the trait alone. The tokens carry the payload's span, so that an
+    /// error about the type lands on the variant.
     pub(crate) fn target_type(&self) -> Option<TokenStream2> {
-        Self::routed_type(&self.payload, &self.route)
+        Self::routed_type(&self.payload, &self.route, at(self.payload.span()))
     }
 
     /// Returns the same type for a position outside the subject's own
@@ -297,17 +336,17 @@ impl Target {
     pub(crate) fn target_type_outside(&self, self_type: &Type) -> Option<TokenStream2> {
         let mut payload = self.payload.clone();
         SelfReplacer(self_type.clone()).visit_type_mut(&mut payload);
-        Self::routed_type(&payload, &self.route)
+        Self::routed_type(&payload, &self.route, at(self.payload.span()))
     }
 
-    fn routed_type(payload: &Type, route: &Route) -> Option<TokenStream2> {
+    fn routed_type(payload: &Type, route: &Route, site: Span) -> Option<TokenStream2> {
         if !route.names_the_target() {
             return None;
         }
         if route.is_deref() {
-            Some(quote!(<#payload as ::core::ops::Deref>::Target))
+            Some(quote_spanned!(site => <#payload as ::core::ops::Deref>::Target))
         } else {
-            Some(quote!(#payload))
+            Some(quote_spanned!(site => #payload))
         }
     }
 
@@ -343,6 +382,24 @@ impl Target {
         self.route.is_deref()
             && last_segment(&self.payload).is_some_and(|segment| segment.ident == "Box")
     }
+
+    /// Returns whether the trait is called on a trait object: a `deref`
+    /// payload that is a reference to one, `&dyn Trait`, or a pointer with
+    /// one as its one type argument, `Box<dyn Trait>` or `Rc<dyn Trait>`.
+    /// Such a target cannot take a method that requires `Self: Sized`.
+    pub(crate) fn is_trait_object(&self) -> bool {
+        if !self.route.is_deref() {
+            return false;
+        }
+        let pointee = match &self.payload {
+            Type::Reference(reference) => Some(&*reference.elem),
+            other => match last_segment(other).map(generic_type_args) {
+                Some(arguments) if arguments.len() == 1 => Some(arguments[0]),
+                _ => None,
+            },
+        };
+        matches!(pointee, Some(Type::TraitObject(_)))
+    }
 }
 
 /// Replaces `Self` with the subject's type, for a payload type written
@@ -365,6 +422,9 @@ impl VisitMut for SelfReplacer {
 pub(crate) struct Unforwardable {
     pub(crate) ident: Ident,
     pub(crate) cfgs: Vec<Attribute>,
+    /// Whether the variant is `#[deprecated]`, so that an arm naming it is
+    /// written under `#[allow(deprecated)]`.
+    pub(crate) deprecated: bool,
     /// What the variant holds instead of one payload, as a predicate of its
     /// name: "holds no payload", "holds 2 fields, not one payload".
     pub(crate) reason: String,
@@ -375,8 +435,38 @@ impl Unforwardable {
     pub(crate) fn compile_error(&self) -> TokenStream2 {
         let cfgs = &self.cfgs;
         let error = self.error.to_compile_error();
-        quote! { #(#cfgs)* #error }
+        quote_spanned! { self.ident.span() => #(#cfgs)* #error }
     }
+
+    /// Returns the attributes an arm naming the variant carries: its
+    /// `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
+    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+        arm_attributes(&self.cfgs, self.deprecated, site)
+    }
+}
+
+/// Returns `cfgs` with `#[allow(deprecated)]` added when `deprecated`: the
+/// attribute a hand writes on the arm of a deprecated variant, so that the
+/// deprecation reaches the code that names the variant and not the
+/// forwarding that has to.
+fn arm_attributes(cfgs: &[Attribute], deprecated: bool, site: Span) -> Vec<Attribute> {
+    let mut attributes = cfgs.to_vec();
+    if deprecated {
+        attributes.push(allow_deprecated(site));
+    }
+    attributes
+}
+
+/// Returns whether `attributes` deprecate their item.
+pub(crate) fn is_deprecated(attributes: &[Attribute]) -> bool {
+    attributes
+        .iter()
+        .any(|attribute| attribute.path().is_ident("deprecated"))
+}
+
+/// Returns `#[allow(deprecated)]`, written at `site`.
+pub(crate) fn allow_deprecated(site: Span) -> Attribute {
+    parse_quote_spanned!(site => #[allow(deprecated)])
 }
 
 // Short-lived and few; the size difference does not matter here.
@@ -422,6 +512,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
     } = TargetOptions::read(&variant.attrs, true)?;
     let ident = &variant.ident;
     let cfgs = cfg_attributes(&variant.attrs);
+    let deprecated = is_deprecated(&variant.attrs);
     let marked: Vec<(Member, &Field)> = variant
         .fields
         .iter()
@@ -461,6 +552,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
             return Ok(Entry::Unforwardable(Unforwardable {
                 ident: ident.clone(),
                 cfgs,
+                deprecated,
                 error: Error::new_spanned(
                     variant,
                     format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body answers for it"),
@@ -487,6 +579,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
         },
         payload: field.ty.clone(),
         cfgs,
+        deprecated,
         route,
     }))
 }
@@ -524,11 +617,11 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
         .iter()
         .filter(|(_, _, options)| options.traits.is_empty())
         .collect();
+    let wanted = trait_path.map(trait_key);
     let same_trait = |path: &Path| {
-        trait_path.is_some_and(|wanted| {
-            wanted.segments.last().map(|segment| &segment.ident)
-                == path.segments.last().map(|segment| &segment.ident)
-        })
+        wanted
+            .as_ref()
+            .is_some_and(|wanted| *wanted == trait_key(path))
     };
     let named: Vec<&&(Member, &Field, TargetOptions)> = marked
         .iter()
@@ -552,23 +645,28 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
             ),
         ));
     }
-    let chosen = match (
-        fields.as_slice(),
-        named.first(),
-        bare.first(),
-        marked.first(),
-    ) {
-        ([], _, _, _) => {
+    let chosen = match (fields.as_slice(), named.first(), bare.first()) {
+        ([], _, _) => {
             return Err(Error::new_spanned(
                 &item.ident,
                 "a dispatch struct needs a field to forward to",
             ))
         }
-        (_, Some(named), _, _) => **named,
-        (_, None, Some(bare), _) => **bare,
-        ([one], None, None, _) => one,
-        (_, None, None, Some(any)) if trait_path.is_none() => *any,
-        (_, None, None, _) => {
+        (_, Some(named), _) => **named,
+        (_, None, Some(bare)) => **bare,
+        ([one], None, None) => one,
+        // Under `*` with no trait, several fields each naming their traits
+        // and none marked bare name no field; the method names one.
+        (_, None, None) if trait_path.is_none() && !marked.is_empty() => {
+            return Err(Error::new_spanned(
+                &item.ident,
+                format!(
+                    "`{}` names traits on its fields and marks none bare, so `*` names no field; mark the field to forward to with `#[dispatch]`, or name it on the method, `#[dispatch(field)]`",
+                    item.ident
+                ),
+            ));
+        }
+        (_, None, None) => {
             let about = match trait_path.and_then(|path| path.segments.last()) {
                 Some(segment) => format!(" `{}` to", segment.ident),
                 None => String::new(),
@@ -583,22 +681,53 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
         }
     };
     let (member, field, options) = chosen;
+    Ok(field_target(member, field, options, fields.len() == 1))
+}
+
+/// Returns every field of a struct as a target, for an inherent block whose
+/// methods name the field they forward to.
+fn struct_fields(item: &ItemStruct) -> Result<Vec<Entry>> {
+    let rebuildable = item.fields.len() == 1;
+    item.fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let member = member_of(field, index);
+            let options = TargetOptions::read(&field.attrs, false)?;
+            Ok(Entry::Target(field_target(
+                &member,
+                field,
+                &options,
+                rebuildable,
+            )))
+        })
+        .collect()
+}
+
+/// Returns the target a struct's field is: named by the field, or `_<index>`
+/// for an unnamed one, with the field's own route.
+fn field_target(
+    member: &Member,
+    field: &Field,
+    options: &TargetOptions,
+    rebuildable: bool,
+) -> Target {
     let member = member.clone();
-    let route = options.route.clone();
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),
     };
-    Ok(Target {
+    Target {
         ident,
         place: Place::Field {
             member,
-            rebuildable: fields.len() == 1,
+            rebuildable,
         },
         payload: field.ty.clone(),
         cfgs: vec![],
-        route: route.unwrap_or_default(),
-    })
+        deprecated: is_deprecated(&field.attrs),
+        route: options.route.clone().unwrap_or_default(),
+    }
 }
 
 pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
