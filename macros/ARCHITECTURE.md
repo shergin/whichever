@@ -562,6 +562,7 @@ A `Self: Sized` method over a trait object payload is one sentence
 `trait_objects_in_deref_variants` are new; `#[dispatch(default)]` over a
 restatement needs no `provided` name).
 A defaulted trait parameter is filled from its default.
+One `trait_key`, the path as written, tells traits apart at every comparison.
 
 ## 5. Invariants every stage keeps
 

@@ -40,6 +40,12 @@ changes are expected and listed without apology.
 - A trait parameter with a default may be left out of the trait's path on
   the enum, `#[dispatch(Enc)]` for `trait Enc<F = Json>`, as `impl Enc for
   A` leaves it out; before, the count of arguments was reported as a limit.
+- A struct's field names a trait as the struct's attribute spells it,
+  arguments included, so `Encoder<Json>` and `Encoder<Xml>`, or `a::Named`
+  and `b::Named`, go to two fields; before, the last segment of the path
+  was the trait's identity, and both were "named on two fields". One rule
+  tells two traits apart wherever the macros compare them: the path as
+  written, which is what a macro that cannot resolve names can say.
 
 ## 0.6.0 - 2026-11-06
 

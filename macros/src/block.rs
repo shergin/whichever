@@ -13,7 +13,7 @@ use crate::at;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{is_dispatch_attribute, ForwardingOptions, TraitSpec};
+use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitSpec};
 use crate::protocol::{carrier_path, TraitRequest};
 use crate::shape::ReturnSite;
 use crate::subject::{targets, Entry, Subject, Target, Unforwardable};
@@ -40,13 +40,9 @@ pub(crate) fn expand_partial(
     let Some((_, trait_path, _)) = &item_impl.trait_ else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
-    let spelled = |path: &Path| path.to_token_stream().to_string();
-    if dispatched
-        .iter()
-        .any(|path| spelled(path) == spelled(trait_path))
-    {
+    let trait_name = trait_key(trait_path);
+    if dispatched.iter().any(|path| trait_key(path) == trait_name) {
         let subject = subject.ident();
-        let trait_name = spelled(trait_path).replace(' ', "");
         return Err(Error::new_spanned(
             trait_path,
             format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),

@@ -11,7 +11,7 @@ use syn::{
 };
 
 use crate::at;
-use crate::options::{is_dispatch_attribute, TargetOptions, TryFromForms};
+use crate::options::{is_dispatch_attribute, trait_key, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
 
@@ -602,11 +602,11 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
         .iter()
         .filter(|(_, _, options)| options.traits.is_empty())
         .collect();
+    let wanted = trait_path.map(trait_key);
     let same_trait = |path: &Path| {
-        trait_path.is_some_and(|wanted| {
-            wanted.segments.last().map(|segment| &segment.ident)
-                == path.segments.last().map(|segment| &segment.ident)
-        })
+        wanted
+            .as_ref()
+            .is_some_and(|wanted| *wanted == trait_key(path))
     };
     let named: Vec<&&(Member, &Field, TargetOptions)> = marked
         .iter()

@@ -9,7 +9,7 @@ use crate::combined;
 use crate::conversions::conversion_impls;
 use crate::naming;
 use crate::options::{
-    is_dispatch_attribute, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
+    is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
 };
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
@@ -102,15 +102,10 @@ pub(crate) fn expand_subject(
     // A trait a field names is one the struct's attribute dispatches; a
     // field's mark for any other is dead, and says so.
     for (field, path) in captured.field_traits() {
-        let last = |path: &Path| {
-            path.segments
-                .last()
-                .map(|segment| segment.ident.to_string())
-        };
-        if dispatched.iter().any(|known| last(known) == last(&path)) {
+        let spelled = trait_key(&path);
+        if dispatched.iter().any(|known| trait_key(known) == spelled) {
             continue;
         }
-        let spelled = path.to_token_stream().to_string().replace(' ', "");
         errors.push(Error::new_spanned(
             &path,
             format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),

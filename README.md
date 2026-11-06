@@ -679,7 +679,10 @@ pub struct Beacon {
 
 A field may name the traits it is the target of, and the field marked bare
 takes every trait not named elsewhere; the struct's attribute still names
-every trait it dispatches:
+every trait it dispatches. A field names a trait as the struct's attribute
+spells it, arguments included, so two instantiations of one generic trait,
+`Encoder<Json>` and `Encoder<Xml>`, or two traits of one name from two
+modules, go to two fields:
 
 ```rust
 #[whichever::dispatch(Rom)]
