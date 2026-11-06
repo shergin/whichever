@@ -292,7 +292,10 @@ further, so the impl is complete, the calls around it resolve, and the
 sentence stands alone; only a signature the substitution could not write,
 a projection it could not qualify, withholds the impl, as does an
 associated item that cannot be supplied, since neither has a body to hold
-an error. The inherent path keeps the block and the methods it could
+an error. An option naming nothing in the trait, or a route through no
+variant, is reported beside the impl, which is right without it, and a
+`#[dispatch(default)]` on a method without a default is written with the
+sentence as its body. The inherent path keeps the block and the methods it could
 forward, for the same reason. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
@@ -574,6 +577,8 @@ The carried trait's prefix is `v2`, the reader reads `v1` too, every
 carrier ends in a catch-all rule, and `smoke/mixed` builds the two-version
 graph (`carrier_newer_than_the_reader` and `carrier_older_than_the_request`
 are new; the older-release test gained the 0.6.0 shape).
+An unknown override or `mismatch` name and a route through no variant are
+reported beside the impl (`unknown_override_keeps_the_impl` is new).
 
 ## 5. Invariants every stage keeps
 

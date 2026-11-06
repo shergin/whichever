@@ -58,6 +58,13 @@ changes are expected and listed without apology.
   version and checks the older reader's sentence, in CI. Before 1.0 the
   trait's crate and the enum's crate use the same `whichever` minor, which
   the README says now.
+- An option naming nothing in the trait, `Eror = u8` or `mismatch(congruent
+  = ..)` on a trait without such a method, and a `via(Variant = ..)` naming
+  no variant, are reported beside the impl, which is right without them;
+  before, the whole impl was withheld and every call around the enum failed
+  too. `#[dispatch(default)]` on a method the trait gives no default is
+  written with its sentence as its body, as a method that cannot be
+  forwarded is.
 
 ## 0.6.0 - 2026-11-06
 

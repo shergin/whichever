@@ -173,7 +173,11 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // puts them under `#[allow(deprecated)]`.
     let mut deprecated_items = false;
     // Every item that cannot be forwarded is reported, not only the first.
-    let mut errors: Vec<Error> = route_errors;
+    // An option naming nothing in the trait, or a route through no variant,
+    // is reported beside the impl, which is right without it; only an item
+    // that cannot be written withholds the impl.
+    let mut reported: Vec<Error> = route_errors;
+    let mut errors: Vec<Error> = vec![];
     for item in &item_trait.items {
         match item {
             TraitItem::Type(assoc) => deprecated_items |= is_deprecated(&assoc.attrs),
@@ -207,10 +211,16 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 {
                     continue;
                 }
-                errors.push(Error::new(
+                // Written with the sentence as its body, as a method that
+                // cannot be forwarded is, so that the impl stays complete.
+                let error = Error::new(
                     *span,
                     format!("`{}` has no default body in `{trait_ident}` to be left to; give it a body, or forward it", function.sig.ident),
-                ));
+                );
+                match rejected_method(function, &mut substitution, error) {
+                    Ok(tokens) => items.extend(tokens),
+                    Err(error) => errors.push(error),
+                }
                 continue;
             }
             (_, Some(BlockMethod::Forwarded(forwarded))) => Some(forwarded),
@@ -289,7 +299,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             continue;
         }
         let hint = unknown_override_hint(&name, &associated, &subject, on_subject);
-        errors.push(Error::new(
+        reported.push(Error::new(
             fixed.name.span(),
             format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
         ));
@@ -314,7 +324,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             None if deciding.is_empty() => "none of its methods takes one".to_owned(),
             None => format!("its methods taking one are {}", listed(&deciding)),
         };
-        errors.push(Error::new(
+        reported.push(Error::new(
             method.span(),
             format!("`{trait_ident}` has no method `{name}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; {hint}"),
         ));
@@ -322,6 +332,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     if let Some(error) = combined(errors) {
         return Err(error);
     }
+    let reported = combined(reported).map(|error| error.to_compile_error());
     // The checks live outside the impl, where a `Self` in a payload type
     // has to be spelled out as the implementing type.
     let checks = first.map(|first| {
@@ -355,6 +366,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         }
         #checks
         #shape_errors
+        #reported
     })
 }
 
@@ -824,10 +836,33 @@ fn expand_method(
             Some(forwarded) => forwarded.attrs.clone(),
             None => carried_attributes(&function.attrs),
         };
-        let error = error.to_compile_error();
-        let span = at(signature.ident.span());
-        quote_spanned! { span => #(#carried)* #signature { #error } }
+        error_body(&signature, carried, error)
     }))
+}
+
+/// Writes a trait method that cannot be forwarded as the impl writes it:
+/// the trait's signature, substituted, with `error`'s sentence as its body.
+/// Only a signature the substitution cannot write is an error of the impl.
+fn rejected_method(
+    function: &TraitItemFn,
+    substitution: &mut Substitution,
+    error: Error,
+) -> Result<TokenStream2> {
+    let mut signature = function.sig.clone();
+    substitution.visit_signature_mut(&mut signature);
+    substitution.check()?;
+    let carried = carried_attributes(&function.attrs);
+    Ok(error_body(&signature, carried, error))
+}
+
+/// Writes `signature` with `error`'s sentence as its body: rustc treats a
+/// `compile_error!` as an error expression and type-checks no further, so
+/// the impl is complete, the calls around it resolve, and the sentence
+/// stands alone.
+fn error_body(signature: &Signature, carried: Vec<Attribute>, error: Error) -> TokenStream2 {
+    let error = error.to_compile_error();
+    let span = at(signature.ident.span());
+    quote_spanned! { span => #(#carried)* #signature { #error } }
 }
 
 /// What every method of one trait's impl is written against.
