@@ -81,6 +81,13 @@ changes are expected and listed without apology.
 - An associated const of type `f32` or `f64` is checked to agree between
   the variants, as the integers, `bool`, `char` and `&str` are; comparing
   floats in a `const` is stable since Rust 1.82, within the crate's minimum.
+- The carrier macro's name hashes the trait's file as a path relative to
+  the crate's manifest directory, which is the same on every machine and
+  names one file in the crate; before, the last two components of the path,
+  so two identical `pub` traits at the same line of `foo/x/y.rs` and
+  `bar/x/y.rs` collided. A file outside the manifest directory keeps the
+  two components. A carrier's name changes once with this release wherever
+  the two keys differ, which nothing but an expansion can see.
 
 ## 0.6.0 - 2026-11-06
 

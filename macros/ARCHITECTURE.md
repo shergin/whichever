@@ -587,6 +587,9 @@ A by-value move through a pointer that is not a `Box` is one sentence
 A trait-side `mismatch` path resolving at the enum is documented
 (`mismatch_path_resolves_at_the_enum` is new).
 Floats joined the const check.
+The carrier name's file key is relative to the manifest directory (no
+golden changed: their files sit at `src/main.rs` of a generated crate,
+where the two keys agree).
 
 ## 5. Invariants every stage keeps
 
