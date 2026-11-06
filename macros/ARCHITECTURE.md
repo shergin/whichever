@@ -582,6 +582,8 @@ reported beside the impl (`unknown_override_keeps_the_impl` is new).
 A struct's inherent block sees every field, `*` the bare or only one
 (`star_on_a_struct_with_marked_fields` is new; `struct_without_marked_field`
 names the trait now).
+A by-value move through a pointer that is not a `Box` is one sentence
+(`route_moves_through_a_shared_pointer` is new).
 
 ## 5. Invariants every stage keeps
 

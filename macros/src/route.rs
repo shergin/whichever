@@ -45,6 +45,13 @@ impl Route {
         matches!(self.steps.as_slice(), [Step::Deref])
     }
 
+    /// Returns whether the first step dereferences the payload, so that a
+    /// value reached through the route is moved out of what the payload
+    /// points at.
+    pub(crate) fn starts_with_deref(&self) -> bool {
+        matches!(self.steps.first(), Some(Step::Deref))
+    }
+
     /// Returns whether the target's type can be named from the payload's:
     /// the payload itself, or what it dereferences to. A field's or a
     /// method's type cannot be, and the call is qualified by the trait

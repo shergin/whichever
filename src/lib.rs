@@ -279,7 +279,8 @@
 //! a reference. The trait is called on `<Payload as Deref>::Target`, with
 //! the receiver and any `Self` argument dereferenced to match: `&**inner`
 //! for `&self`, `&mut **inner` for `&mut self` (the payload must implement
-//! `DerefMut`), `*inner` for `self` (a `Box` moves out, a reference cannot).
+//! `DerefMut`), `*inner` for `self` (a `Box` moves out; a reference or a
+//! shared pointer, which a value cannot be moved out of, is reported).
 //!
 //! ```
 //! use std::rc::Rc;

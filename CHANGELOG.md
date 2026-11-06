@@ -70,6 +70,10 @@ changes are expected and listed without apology.
   or the only field; a struct whose marked fields each name their traits
   and marks none bare is one sentence under `*`. Before, `*` took the first
   marked field silently, and only that field could be named.
+- A method taking `self` by value forwarded through `deref`, or a route
+  starting with `*`, to a payload that is not a `Box` is one sentence on
+  the variant: a reference or a shared pointer cannot be moved out of.
+  rustc said so, on the whole enum.
 
 ## 0.6.0 - 2026-11-06
 

@@ -72,6 +72,12 @@ fn requires_sized(signature: &Signature) -> bool {
     })
 }
 
+/// Returns whether `payload` is a `Box`, by the name its path ends in,
+/// which is the one pointer a value is moved out of by dereferencing.
+fn holds_a_box(payload: &syn::Type) -> bool {
+    last_segment(payload).is_some_and(|segment| segment.ident == "Box")
+}
+
 /// Returns the pattern that binds `ident` and nothing else.
 fn plain(ident: Ident) -> Pat {
     Pat::Ident(PatIdent {
@@ -315,6 +321,21 @@ impl MethodPlan {
             return Err(Error::new_spanned(
                 payload,
                 format!("`{method}` takes `&mut self`, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), callee.by_hand()),
+            ));
+        }
+        // A value is moved out of a `Box` by dereferencing it, and out of
+        // nothing else: a reference or a shared pointer keeps what it points
+        // at.
+        let owned = matches!(self.receiver, ReceiverKind::Value(Access::Owned))
+            || self
+                .same_variant
+                .iter()
+                .any(|(_, access)| matches!(access, Access::Owned));
+        if owned && route.starts_with_deref() && !holds_a_box(payload) {
+            let spelled = payload.to_token_stream().to_string().replace(' ', "");
+            return Err(Error::new_spanned(
+                payload,
+                format!("`{method}` takes `self` by value, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
             ));
         }
         let inner = hygienic("__inner");
