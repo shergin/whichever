@@ -10,6 +10,7 @@ use syn::{
 };
 
 use crate::options::{is_dispatch_attribute, TargetOptions};
+use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
 
 /// The item an impl is written for: an enum over implementors, or a struct
@@ -70,7 +71,7 @@ impl Subject {
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its
-    /// variants or fields.
+    /// variants, their fields, or its fields.
     pub(crate) fn without_inner_attributes(mut self) -> Self {
         match &mut self {
             Subject::Enum(item) => {
@@ -78,6 +79,11 @@ impl Subject {
                     variant
                         .attrs
                         .retain(|attribute| !is_dispatch_attribute(attribute));
+                    for field in &mut variant.fields {
+                        field
+                            .attrs
+                            .retain(|attribute| !is_dispatch_attribute(attribute));
+                    }
                 }
             }
             Subject::Struct(item) => {
@@ -122,6 +128,7 @@ impl ToTokens for Subject {
 }
 
 /// A variant or field a method forwards to.
+#[derive(Clone)]
 pub(crate) struct Target {
     /// The variant's name, or the field's name; an unnamed field is
     /// `_<index>`.
@@ -129,14 +136,23 @@ pub(crate) struct Target {
     pub(crate) place: Place,
     pub(crate) payload: Type,
     pub(crate) cfgs: Vec<Attribute>,
-    /// Whether the trait is called on what the payload dereferences to.
-    pub(crate) deref: bool,
+    /// How an arm reaches the value the trait is called on from the
+    /// payload: the payload itself, what it dereferences to, a field, or
+    /// what a method returns.
+    pub(crate) route: Route,
 }
 
 /// How a target is matched and built.
+#[derive(Clone)]
 pub(crate) enum Place {
-    /// `Enum::Variant(payload)`, with the variant's say on the conversions.
-    Variant(Conversions),
+    /// `Enum::Variant(payload)`, with the variant's say on the conversions;
+    /// or, with `field`, the marked field of a variant with several,
+    /// `Enum::Variant(_, payload, ..)` or `Enum::Variant { member: payload,
+    /// .. }`, which no value can be built around.
+    Variant {
+        conversions: Conversions,
+        field: Option<Member>,
+    },
     /// `Struct { member: payload, .. }` or `Struct(_, payload, ..)`;
     /// `rebuildable` when the struct has no other field, so that the value
     /// built around a payload is whole.
@@ -154,11 +170,15 @@ pub(crate) struct Conversions {
 }
 
 impl Target {
-    /// Returns the variant's part in the conversions; a field has none.
+    /// Returns the variant's part in the conversions; a field has none,
+    /// and neither has a variant with other fields beside the payload.
     pub(crate) fn conversions(&self) -> Option<Conversions> {
         match &self.place {
-            Place::Variant(conversions) => Some(*conversions),
-            Place::Field { .. } => None,
+            Place::Variant {
+                conversions,
+                field: None,
+            } => Some(*conversions),
+            Place::Variant { .. } | Place::Field { .. } => None,
         }
     }
 
@@ -167,7 +187,18 @@ impl Target {
     pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant(_) => quote!(#prefix::#ident(#binding)),
+            Place::Variant { field: None, .. } => quote!(#prefix::#ident(#binding)),
+            Place::Variant {
+                field: Some(Member::Unnamed(index)),
+                ..
+            } => {
+                let skipped = (0..index.index).map(|_| quote!(_));
+                quote!(#prefix::#ident(#(#skipped,)* #binding, ..))
+            }
+            Place::Variant {
+                field: Some(member),
+                ..
+            } => quote!(#prefix::#ident { #member: #binding, .. }),
             Place::Field {
                 member: Member::Unnamed(index),
                 ..
@@ -184,7 +215,8 @@ impl Target {
     pub(crate) fn rebuild(&self, prefix: &Path, value: TokenStream2) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant(_) => Some(quote!(#prefix::#ident(#value))),
+            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident(#value))),
+            Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
@@ -203,7 +235,8 @@ impl Target {
     pub(crate) fn constructor(&self, prefix: &Path) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant(_) => Some(quote!(#prefix::#ident)),
+            Place::Variant { field: None, .. } => Some(quote!(#prefix::#ident)),
+            Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
@@ -221,26 +254,30 @@ impl Target {
         }
     }
 
-    /// Returns the type the trait is called on: the payload, or what it
-    /// dereferences to.
-    pub(crate) fn target_type(&self) -> TokenStream2 {
-        let payload = &self.payload;
-        if self.deref {
-            quote!(<#payload as ::core::ops::Deref>::Target)
-        } else {
-            quote!(#payload)
-        }
+    /// Returns the type the trait is called on, when the route lets it be
+    /// named from the payload's: the payload, or what it dereferences to. A
+    /// field's or a method's type cannot be, and the call is qualified by
+    /// the trait alone.
+    pub(crate) fn target_type(&self) -> Option<TokenStream2> {
+        Self::routed_type(&self.payload, &self.route)
     }
 
     /// Returns the same type for a position outside the subject's own
     /// impls, where a `Self` the payload names would not be the subject.
-    pub(crate) fn target_type_outside(&self, self_type: &Type) -> TokenStream2 {
+    pub(crate) fn target_type_outside(&self, self_type: &Type) -> Option<TokenStream2> {
         let mut payload = self.payload.clone();
         SelfReplacer(self_type.clone()).visit_type_mut(&mut payload);
-        if self.deref {
-            quote!(<#payload as ::core::ops::Deref>::Target)
+        Self::routed_type(&payload, &self.route)
+    }
+
+    fn routed_type(payload: &Type, route: &Route) -> Option<TokenStream2> {
+        if !route.names_the_target() {
+            return None;
+        }
+        if route.is_deref() {
+            Some(quote!(<#payload as ::core::ops::Deref>::Target))
         } else {
-            quote!(#payload)
+            Some(quote!(#payload))
         }
     }
 
@@ -250,7 +287,9 @@ impl Target {
     /// needs the bound `T: Trait`, which a hand writes and nothing else
     /// supplies.
     pub(crate) fn bounded_parameter(&self, generics: &syn::Generics) -> Option<&Ident> {
-        let candidate = if self.deref {
+        let candidate = if self.route.is_direct() {
+            bare_ident(&self.payload)
+        } else if self.route.is_deref() {
             match &self.payload {
                 Type::Reference(reference) => bare_ident(&reference.elem),
                 other => match last_segment(other).map(generic_type_args) {
@@ -259,7 +298,7 @@ impl Target {
                 },
             }
         } else {
-            bare_ident(&self.payload)
+            None
         }?;
         generics
             .params
@@ -271,7 +310,8 @@ impl Target {
     /// Returns whether the payload is a `Box`, dereferenced to the
     /// implementor, which is what a `self: Box<Self>` receiver needs.
     pub(crate) fn holds_box(&self) -> bool {
-        self.deref && last_segment(&self.payload).is_some_and(|segment| segment.ident == "Box")
+        self.route.is_deref()
+            && last_segment(&self.payload).is_some_and(|segment| segment.ident == "Box")
     }
 }
 
@@ -339,45 +379,92 @@ pub(crate) fn shape_errors(entries: &[Entry]) -> TokenStream2 {
         .collect()
 }
 
+/// Reads a variant: `Name(Payload)` forwards to its one field, a variant
+/// with several fields to the one marked `#[dispatch]`, and any other shape
+/// is an entry no trait method can forward to. The route is the marked
+/// field's or the variant's own.
 pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
     let TargetOptions {
-        deref,
+        route,
         from,
         try_from,
     } = TargetOptions::read(&variant.attrs, true)?;
-    let reason = match &variant.fields {
-        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => None,
-        Fields::Unnamed(fields) if fields.unnamed.is_empty() => Some("holds no payload".to_owned()),
-        Fields::Unnamed(fields) => Some(format!(
-            "holds {} fields, not one payload",
-            fields.unnamed.len()
-        )),
-        Fields::Named(_) => Some("has named fields, not one payload".to_owned()),
-        Fields::Unit => Some("holds no payload".to_owned()),
-    };
     let ident = &variant.ident;
-    if let Some(reason) = reason {
-        return Ok(Entry::Unforwardable(Unforwardable {
-            ident: ident.clone(),
-            cfgs: cfg_attributes(&variant.attrs),
-            error: Error::new_spanned(
-                variant,
-                format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`, or forward inherent methods instead, whose body answers for it"),
-            ),
-            reason,
-        }));
-    }
-    let Fields::Unnamed(fields) = &variant.fields else {
-        unreachable!("every other shape has a reason")
+    let cfgs = cfg_attributes(&variant.attrs);
+    let marked: Vec<(Member, &Field)> = variant
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| field.attrs.iter().any(is_dispatch_attribute))
+        .map(|(index, field)| (member_of(field, index), field))
+        .collect();
+    let (member, field) = match (&variant.fields, marked.as_slice()) {
+        (Fields::Unnamed(fields), []) if fields.unnamed.len() == 1 => (None, &fields.unnamed[0]),
+        (Fields::Unnamed(fields), [(member, field)]) if fields.unnamed.len() == 1 => {
+            let _ = member;
+            (None, *field)
+        }
+        (_, [(member, field)]) => (Some(member.clone()), *field),
+        (_, [_, (_, second), ..]) => {
+            return Err(Error::new_spanned(
+                second,
+                format!("only one field of `{ident}` can be forwarded to; `#[dispatch]` marks it"),
+            ))
+        }
+        (fields, []) => {
+            let reason = match fields {
+                Fields::Unnamed(fields) if fields.unnamed.is_empty() => {
+                    "holds no payload".to_owned()
+                }
+                Fields::Unnamed(fields) => {
+                    format!("holds {} fields, not one payload", fields.unnamed.len())
+                }
+                Fields::Named(_) => "has named fields, not one payload".to_owned(),
+                Fields::Unit => "holds no payload".to_owned(),
+            };
+            let marking = match fields {
+                Fields::Unit => "",
+                Fields::Unnamed(fields) if fields.unnamed.is_empty() => "",
+                _ => ", mark the field to forward to with `#[dispatch]`",
+            };
+            return Ok(Entry::Unforwardable(Unforwardable {
+                ident: ident.clone(),
+                cfgs,
+                error: Error::new_spanned(
+                    variant,
+                    format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body answers for it"),
+                ),
+                reason,
+            }));
+        }
     };
-    let payload = fields.unnamed[0].ty.clone();
+    let field_options = TargetOptions::read(&field.attrs, false)?;
+    let route = match (route, field_options.route) {
+        (Some(_), Some(_)) => {
+            return Err(Error::new_spanned(
+                field,
+                format!("`{ident}` and its field both give a route; give one"),
+            ))
+        }
+        (route, field_route) => route.or(field_route).unwrap_or_default(),
+    };
     Ok(Entry::Target(Target {
-        ident: variant.ident.clone(),
-        place: Place::Variant(Conversions { from, try_from }),
-        payload,
-        cfgs: cfg_attributes(&variant.attrs),
-        deref,
+        ident: ident.clone(),
+        place: Place::Variant {
+            conversions: Conversions { from, try_from },
+            field: member,
+        },
+        payload: field.ty.clone(),
+        cfgs,
+        route,
     }))
+}
+
+fn member_of(field: &Field, index: usize) -> Member {
+    match &field.ident {
+        Some(ident) => Member::Named(ident.clone()),
+        None => Member::Unnamed(Index::from(index)),
+    }
 }
 
 /// Returns the one field of a struct that is forwarded to: its only field,
@@ -423,7 +510,7 @@ pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
             ))
         }
     };
-    let TargetOptions { deref, .. } = TargetOptions::read(&field.attrs, false)?;
+    let TargetOptions { route, .. } = TargetOptions::read(&field.attrs, false)?;
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),
@@ -436,7 +523,7 @@ pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
         },
         payload: field.ty.clone(),
         cfgs: vec![],
-        deref,
+        route: route.unwrap_or_default(),
     })
 }
 

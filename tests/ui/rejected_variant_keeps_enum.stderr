@@ -1,4 +1,4 @@
-error: `B` has named fields, not one payload, so no trait method can be forwarded to it; write it as `B(Payload)`, or forward inherent methods instead, whose body answers for it
+error: `B` has named fields, not one payload, so no trait method can be forwarded to it; write it as `B(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/rejected_variant_keeps_enum.rs:31:5
    |
 31 |     B { inner: A },

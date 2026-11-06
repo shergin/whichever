@@ -4,8 +4,8 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    parse_quote, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Signature,
-    Token, Visibility,
+    parse_quote, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Meta, Path, Result,
+    ReturnType, Signature, Token, Type, Visibility,
 };
 
 use crate::forwarding::{
@@ -215,10 +215,28 @@ pub(crate) fn forward_method(
             format!("`{method}` has no receiver, so there is no {noun} to forward to"),
         ));
     }
-    let context = ArmContext {
-        callee: Callee::Method {
-            name: forwarding.call.as_ref().unwrap_or(method),
+    // `field` and `value` make the arm a place instead of a call, borrowed
+    // as the declared return type asks: `&inner.f` for `-> &T`, `inner.f`
+    // for a value.
+    let borrow = match &sig.output {
+        ReturnType::Type(_, ty) => match &**ty {
+            Type::Reference(reference) => Some(reference.mutability),
+            _ => None,
         },
+        ReturnType::Default => None,
+    };
+    let callee = if forwarding.value || forwarding.field.is_some() {
+        Callee::Place {
+            field: forwarding.field.as_ref(),
+            borrow,
+        }
+    } else {
+        Callee::Method {
+            name: forwarding.call.as_ref().unwrap_or(method),
+        }
+    };
+    let context = ArmContext {
+        callee,
         method,
         subject: subject_ident,
         prefix,
@@ -312,7 +330,18 @@ pub(crate) fn forward_method(
         }
         _ => {}
     }
-    let mut arms = selected
+    // The method's own route, when it gives one, over the variants'.
+    let routed: Vec<Target> = selected
+        .iter()
+        .map(|target| {
+            let mut target = (*target).clone();
+            if let Some(route) = &forwarding.via {
+                target.route = route.clone();
+            }
+            target
+        })
+        .collect();
+    let mut arms = routed
         .iter()
         .map(|target| plan.arm(target, &context))
         .collect::<Result<Vec<_>>>()?;

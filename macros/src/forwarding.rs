@@ -14,9 +14,10 @@
 //! expansion, is the trait's attribute, which may be in another crate.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, quote_spanned, ToTokens};
-use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature, Token};
+use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
 use crate::options::TraitSpec;
+use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
     ArgumentKind, Conversion, ReceiverKind, ReturnModel, ReturnSite, Value, Wrapper,
@@ -223,7 +224,7 @@ impl MethodPlan {
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
                     Some((_, access)) => {
-                        payload_expression(target.deref, *access, &Self::same_binding(index), site)
+                        payload_expression(&target.route, *access, &Self::same_binding(index), site)
                     }
                     None => quote!(#ident),
                 },
@@ -247,7 +248,7 @@ impl MethodPlan {
             ident: target_ident,
             payload,
             cfgs,
-            deref,
+            route,
             ..
         } = target;
         // Under a lift the payload returns the plain value and the lift
@@ -261,29 +262,68 @@ impl MethodPlan {
         } else {
             wrapper
         };
-        if *deref && matches!(needs, Value::Rewrap) {
+        if !route.is_direct() && matches!(needs, Value::Rewrap) {
+            let message = if route.is_deref() {
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand())
+            } else {
+                format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{target_ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), callee.by_hand())
+            };
+            return Err(Error::new_spanned(payload, message));
+        }
+        // What a method returns is a value, which `&mut self` cannot borrow
+        // through; a field is a place, which it can.
+        let exclusive = matches!(self.receiver, ReceiverKind::Value(Access::Exclusive))
+            || matches!(self.receiver, ReceiverKind::Pinned(Access::Exclusive))
+            || self
+                .same_variant
+                .iter()
+                .any(|(_, access)| matches!(access, Access::Exclusive));
+        if route.ends_in_a_method() && exclusive {
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand()),
+                format!("`{method}` takes `&mut self`, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), callee.by_hand()),
             ));
         }
         let inner = hygienic("__inner");
         let receiver = match (callee, self.receiver) {
-            // Method-call syntax reaches through a `deref` payload by itself.
-            (Callee::Method { .. }, ReceiverKind::Value(_)) => quote!(#inner),
+            // Method-call syntax reaches through a pointer by itself, so
+            // the route is followed from the binding as it is.
+            (Callee::Method { .. }, ReceiverKind::Value(_)) => route.reach(&inner, false, site),
+            (Callee::Place { .. }, _) => quote!(#inner),
             _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
         let arguments = self.call_arguments(target, site);
         let turbofish = &self.turbofish;
         let mut value = match callee {
             Callee::Qualified { trait_path, method } => {
-                let target_type = target.target_type();
+                // A field's or a method's type cannot be named; the call is
+                // then qualified by the trait alone, which still keeps an
+                // inherent method of the same name from taking over.
+                let qualified = match target.target_type() {
+                    Some(target_type) => quote_spanned! { site => <#target_type as #trait_path> },
+                    None => quote_spanned! { site => <_ as #trait_path> },
+                };
                 quote_spanned! { site =>
-                    <#target_type as #trait_path>::#method #turbofish (#receiver #(, #arguments)*)
+                    #qualified::#method #turbofish (#receiver #(, #arguments)*)
                 }
             }
             Callee::Method { name } => {
                 quote_spanned! { site => #receiver.#name #turbofish (#(#arguments),*) }
+            }
+            // The arm is the target itself, or a field of it: a place,
+            // borrowed as the declared return type asks.
+            Callee::Place { field, borrow } => {
+                let reached = route.reach(
+                    &inner,
+                    !matches!(self.receiver, ReceiverKind::Value(Access::Owned)),
+                    site,
+                );
+                match (field, borrow) {
+                    (None, _) => reached,
+                    (Some(field), None) => quote_spanned! { site => #reached.#field },
+                    (Some(field), Some(None)) => quote_spanned! { site => &#reached.#field },
+                    (Some(field), Some(Some(_))) => quote_spanned! { site => &mut #reached.#field },
+                }
             }
         };
         if self.unsafety {
@@ -395,6 +435,13 @@ pub(crate) enum Callee<'a> {
     /// `receiver.name(arguments..)`, for a method the payload has under
     /// that name.
     Method { name: &'a Ident },
+    /// No call: the arm is the target itself, or with `field` a field of
+    /// it, borrowed as `borrow` says, `None` by value, `Some(None)` by `&`
+    /// and `Some(Some(mut))` by `&mut`.
+    Place {
+        field: Option<&'a Member>,
+        borrow: Option<Option<Token![mut]>>,
+    },
 }
 
 impl Callee<'_> {
@@ -404,7 +451,7 @@ impl Callee<'_> {
     pub(crate) fn by_hand(&self) -> &'static str {
         match self {
             Callee::Qualified { .. } => "implement the method by hand",
-            Callee::Method { .. } => "give it a body",
+            Callee::Method { .. } | Callee::Place { .. } => "give it a body",
         }
     }
 
@@ -413,7 +460,7 @@ impl Callee<'_> {
     fn rebuild_hint(&self) -> &'static str {
         match self {
             Callee::Qualified { .. } => "write the method in a `#[whichever::dispatch] impl` block",
-            Callee::Method { .. } => "give it a body instead",
+            Callee::Method { .. } | Callee::Place { .. } => "give it a body instead",
         }
     }
 }
@@ -520,7 +567,7 @@ fn receiver_expression(
     site: Span,
 ) -> Result<TokenStream2> {
     match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding, site)),
+        ReceiverKind::Value(access) => Ok(payload_expression(&target.route, access, binding, site)),
         ReceiverKind::Boxed => {
             if !target.holds_box() {
                 let ident = &target.ident;
@@ -541,22 +588,27 @@ fn receiver_expression(
             Ok(quote!(#binding))
         }
         ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(target.deref, access, binding, site);
+            let payload = payload_expression(&target.route, access, binding, site);
             Ok(quote_spanned!(site => ::core::pin::Pin::new(#payload)))
         }
     }
 }
 
 /// Returns the expression that hands `binding`, bound to a variant's
-/// payload, to the trait method: the payload itself, or what it
-/// dereferences to for a `#[dispatch(deref)]` variant.
-fn payload_expression(deref: bool, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
-    if !deref {
+/// payload, to the trait method: the payload itself, or the target the
+/// route reaches, borrowed as the receiver is. A route ending in a method
+/// call yields a value, which is handed over as it is.
+fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
+    if route.is_direct() {
         return quote!(#binding);
     }
+    let reached = route.reach(binding, !matches!(access, Access::Owned), site);
+    if route.ends_in_a_method() {
+        return reached;
+    }
     match access {
-        Access::Shared => quote_spanned!(site => &**#binding),
-        Access::Exclusive => quote_spanned!(site => &mut **#binding),
-        Access::Owned => quote_spanned!(site => *#binding),
+        Access::Shared => quote_spanned!(site => &#reached),
+        Access::Exclusive => quote_spanned!(site => &mut #reached),
+        Access::Owned => reached,
     }
 }

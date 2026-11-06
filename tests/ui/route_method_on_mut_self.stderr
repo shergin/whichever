@@ -1,0 +1,5 @@
+error: `grow` takes `&mut self`, and the route `.base()` of `Module` ends in a method call, whose result cannot be borrowed mutably; route to a field, or implement the method by hand
+  --> tests/ui/route_method_on_mut_self.rs:29:12
+   |
+29 |     Module(Account),
+   |            ^^^^^^^

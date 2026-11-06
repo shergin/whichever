@@ -1,4 +1,4 @@
-error: `A` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, or forward inherent methods instead, whose body answers for it
+error: `A` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
   --> tests/ui/two_field_variant.rs:16:5
    |
 16 |     A(A, u32),

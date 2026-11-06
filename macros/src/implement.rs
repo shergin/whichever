@@ -76,6 +76,24 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             }
         }
     }
+    // The trait's own routes through named variants, over the variants'.
+    let mut route_errors = vec![];
+    for (variant, route) in &spec.routes {
+        let target = entries.iter_mut().find_map(|entry| match entry {
+            Entry::Target(target) if target.ident == *variant => Some(target),
+            _ => None,
+        });
+        match target {
+            Some(target) => target.route = route.clone(),
+            None => route_errors.push(Error::new(
+                variant.span(),
+                format!(
+                    "`{}` has no variant `{variant}` to route through",
+                    subject.ident()
+                ),
+            )),
+        }
+    }
     let variants = targets(&entries);
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and
@@ -105,10 +123,12 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         return Ok(shape_errors);
     }
     // The associated items come from the first variant that is always
-    // compiled in; one under `#[cfg]` may not be there to supply them.
+    // compiled in and whose target has a type to name; one under `#[cfg]`
+    // may not be there to supply them, and one reached through a field or
+    // a method has no type to project from.
     let first = variants
         .iter()
-        .find(|target| target.cfgs.is_empty())
+        .find(|target| target.cfgs.is_empty() && target.target_type().is_some())
         .copied();
     let supplier = Supplier {
         first,
@@ -120,7 +140,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let mut agreed_types: Vec<&Ident> = vec![];
     let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
     // Every item that cannot be forwarded is reported, not only the first.
-    let mut errors: Vec<Error> = vec![];
+    let mut errors: Vec<Error> = route_errors;
     for item in &item_trait.items {
         let name = match item {
             TraitItem::Type(assoc) => Some(&assoc.ident),
@@ -238,7 +258,9 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // The checks live outside the impl, where a `Self` in a payload type
     // has to be spelled out as the implementing type.
     let checks = first.map(|first| {
-        let first_outside = first.target_type_outside(self_ty);
+        let first_outside = first
+            .target_type_outside(self_ty)
+            .expect("the supplier is chosen among the targets with a type");
         let types = associated_type_check(
             &agreed_types,
             &variants,
@@ -503,10 +525,12 @@ impl Supplier<'_> {
         let Some(first) = self.first else {
             return Err(Error::new_spanned(
                 self.subject,
-                format!("every variant of `{}` is under `#[cfg]`, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`", self.subject),
+                format!("every variant of `{}` is under `#[cfg]` or reached through a field or a method, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`", self.subject),
             ));
         };
-        let payload = first.target_type();
+        let payload = first
+            .target_type()
+            .expect("the supplier is chosen among the targets with a type");
         let trait_path = self.trait_path;
         Ok(quote!(<#payload as #trait_path>::#name))
     }

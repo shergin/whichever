@@ -1,4 +1,4 @@
-error: unknown option `boxed`; the options are `deref`, `from = false` and `try_from = true`
+error: unknown option `boxed`; the options are `deref`, `via = route`, `from = false` and `try_from = true`
   --> tests/ui/variant_option.rs:16:16
    |
 16 |     #[dispatch(boxed)]

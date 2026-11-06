@@ -5,6 +5,20 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- An arm reaches its target through a route: `*` for what the payload
+  dereferences to, which `deref` spells, `.field` or `.0` for a field,
+  `.method()` for what a method returns. A route goes on a variant or a
+  struct field for every trait (`#[dispatch(via = .base)]`), on one field
+  of a variant with several as the marker a struct already uses
+  (`ConOut(#[dispatch] LineWriter<File>, u32)`), on the trait keyed by
+  variant when the route differs per trait (`via(VarChar = .0)`), or on an
+  inherent method for that method alone. Where the target's type cannot be
+  named the call is `<_ as Trait>::method(..)`, qualified by the trait
+  alone. Inherent dispatch gains `field = name`, which reads a field of the
+  target, and `value`, which makes the arm the target itself for `with` to
+  wrap or an `Option<&dyn Trait>` to widen. These are the projection
+  directions the surveys collected from proof-of-sql, celestia, atuin,
+  sqruff, mlt-core, memcache, regexml and screeps, among others.
 - The carrier macro holds the trait's signatures and nothing else: the
   default bodies, doc comments, supertraits and associated-type bounds stay
   in the trait, out of the exported macro and out of every expansion that

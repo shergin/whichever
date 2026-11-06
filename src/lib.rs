@@ -114,14 +114,17 @@
 //!   type, with the enum itself as the error, so a mismatch hands the value
 //!   back; `.unwrap()` on the result therefore needs the enum to be `Debug`.
 //!
-//! Three options go on a variant. `#[dispatch(from = false)]` leaves the
+//! Four options go on a variant. `#[dispatch(from = false)]` leaves the
 //! variant out of the `From` and `TryFrom` impls, for a payload such as
 //! `String` that should not convert into the enum, and
 //! `#[dispatch(try_from = true)]` adds the `TryFrom` impl for that payload
 //! alone. `#[dispatch(deref)]` calls the trait on what the payload
 //! dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and `&mut T`
-//! payloads dispatch like a plain `T`. See
-//! [dereferenced payloads](#dereferenced-payloads).
+//! payloads dispatch like a plain `T`, and `#[dispatch(via = route)]` on a
+//! field of the payload or on what a method of it returns. See
+//! [reaching the target](#reaching-the-target). A trait's own route,
+//! `via(Variant = route, ..)` after the trait path, wins over the
+//! variant's for that trait.
 //!
 //! Several traits are dispatched by repeating the attribute, one trait per
 //! attribute; a supertrait is just one more attribute:
@@ -239,15 +242,31 @@
 //! }
 //! ```
 //!
-//! # Dereferenced payloads
+//! # Reaching the target
+//!
+//! An arm calls the trait on the payload. A route names the steps from the
+//! payload to the value the trait is called on instead: `*` for what the
+//! payload dereferences to, which `deref` spells, `.field` or `.0` for a
+//! field, `.method()` for what a method returns, in any sequence. It is
+//! written on a variant or a struct field for every trait, `#[dispatch(via
+//! = .base)]`; as the marker on one field of a variant with several,
+//! `Node { id: u32, #[dispatch] data: Data }`; on the trait, keyed by
+//! variant, when the route differs per trait, `#[dispatch(Trait,
+//! via(VarChar = .0))]`; or on an inherent method, for that method alone.
+//! Where the route names the target's type, the call is `<Square as
+//! Shape>::area(&inner.base)`; a field's or a method's type cannot be
+//! named, and the call is `<_ as Shape>::area(&inner.base)`, qualified by
+//! the trait alone. A route ending in a method call serves `&self` and
+//! `self` methods, not `&mut self`; a method returning `Self` is reported
+//! on a routed variant, `deref` included; a variant with other fields
+//! beside the payload gets no `From` or `TryFrom`, and a target without a
+//! nameable type takes no part in the agreement checks.
 //!
 //! A variant marked `#[dispatch(deref)]` holds its value behind a pointer or
 //! a reference. The trait is called on `<Payload as Deref>::Target`, with
 //! the receiver and any `Self` argument dereferenced to match: `&**inner`
 //! for `&self`, `&mut **inner` for `&mut self` (the payload must implement
 //! `DerefMut`), `*inner` for `self` (a `Box` moves out, a reference cannot).
-//! A method returning `Self` cannot wrap its result back into such a
-//! payload, so it is rejected for a `deref` variant.
 //!
 //! ```
 //! use std::rc::Rc;
@@ -357,7 +376,11 @@
 //! trait dispatch does; with `with`, the payload returns the plain value and
 //! `with` lifts the wrapped variant, so `#[dispatch(Circle, with = Some)]`
 //! on `fn grown(&self) -> Option<Self>` calls a `Circle::grown` that returns
-//! a `Circle`. A `Self` argument is the enum itself and is handed to the
+//! a `Circle`. `field = name` makes the arm read that field of the target,
+//! by reference when the method returns one and by value otherwise; `value`
+//! makes the arm the target itself, for `with` to wrap or the return type
+//! to widen, `Some(inner)` as an `Option<&dyn Trait>`; and `via = route`
+//! reaches the target for this method alone. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be
@@ -571,7 +594,8 @@
 //! # Requirements and limits
 //!
 //! - Every variant a trait is dispatched to holds exactly one unnamed
-//!   field, `Name(Payload)`, and every payload implements the trait. A
+//!   field, `Name(Payload)`, or marks the field to forward to with
+//!   `#[dispatch]`, and every target implements the trait. A
 //!   variant of another shape is reported under its own `#[cfg]`, so a
 //!   variant compiled out is no error, and an enum that only forwards
 //!   inherent methods may hold such variants, which take the method's body.

@@ -104,6 +104,7 @@ src/
   dispatch.rs      `#[dispatch]` on a subject or an impl block: what is emitted
   naming.rs        how the carrier macros are named: a fixed hash of text and token positions
   subject.rs       Subject, Target, Place, Entry; reading variants and fields
+  route.rs         the route: how an arm reaches its target from the payload
   options.rs       every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar, one struct per position
   protocol.rs      the `@v1` messages: one struct each, `ToTokens` and `Parse`, and the carrier builder
   implement.rs     `implement!`: the forwarding impl for one trait
@@ -203,7 +204,14 @@ argument needs a mismatch arm), whether it has conversions, and the shape
 errors of its unforwardable entries. `from` and `try_from` move from
 `Target` into `Place::Variant`, since only a variant has them. The subject's
 carrier is named `__whichever_dispatch_..` for both cases, after the
-attribute that writes it.
+attribute that writes it. Since 2026-11-05 a `Target` carries a `Route`,
+the steps from the bound payload to the value the trait is called on,
+where it carried a `deref` flag: `deref` is the route `*`, a field or a
+method is a step, and `Place::Variant` holds the marked field of a variant
+with several. `Target::target_type` is `None` where the route leaves the
+type unnameable, and the engine then qualifies the call by the trait
+alone, `<_ as Trait>::method`. The inherent path's `Callee::Place` is the
+arm that calls nothing: the target itself, or a field of it.
 
 ### 3.5 The protocol
 
@@ -472,6 +480,21 @@ of which lost their "needs at least one variant" follow-up;
 `generic_associated_type`, `generic_trait_without_arguments`,
 `unknown_option_names` and `self_in_aliased_return` reworded; fourteen new
 cases.
+
+### Stage 15: the review of 2026-11-05
+
+Status: landing, one commit per item. The fallback arm and its lint
+allowance only when a mismatch can happen (golden
+`self_argument_and_return`); the bound a hand writes for a type-parameter
+payload (golden `generic_payloads`); the enum-side `mismatch` resolved at
+its own site (`enum_mismatch_names_argument` became a behaviour test); a
+rejected trait method written with its error as its body
+(`rejected_method_keeps_the_impl`); a trait item's `cfg` decided in the
+trait's crate by one carrier per combination (`cfg_on_trait_items`,
+`too_many_cfg_predicates`, the smoke crates' `Gated`); the carrier
+holding signatures only, with the `provided` segment; the impl header
+documented (`impl_header`); routes (`routes`, four compile-fail cases,
+seven snapshots reworded for the new options and the marker).
 
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 

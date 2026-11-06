@@ -1,4 +1,4 @@
-error: every variant of `Any` is under `#[cfg]`, so none can supply `Tag` in every build; fix it on the enum with `Tag = ..`
+error: every variant of `Any` is under `#[cfg]` or reached through a field or a method, so none can supply `Tag` in every build; fix it on the enum with `Tag = ..`
   --> tests/ui/all_variants_conditional.rs:19:6
    |
 19 | enum Any {
