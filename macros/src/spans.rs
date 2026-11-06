@@ -22,6 +22,7 @@ const ENGINE: &[&str] = &[
     "block.rs",
     "forwarding.rs",
     "implement.rs",
+    "selection.rs",
     "shape.rs",
     "subject.rs",
     "substitution.rs",

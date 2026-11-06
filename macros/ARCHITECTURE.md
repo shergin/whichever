@@ -110,6 +110,7 @@ src/
   implement.rs     `implement!`: the forwarding impl for one trait
   block.rs         `implement_block!`: inherent blocks and partial impl blocks
   forwarding.rs    the engine: a plan per method, arms per target, one renderer
+  selection.rs     the engine's choice of targets: which a method's attribute names, with the checks on the attribute and the body
   shape.rs         classifying receivers, arguments, return types and generics
   substitution.rs  the trait's generics replaced by the subject's arguments
   agreement.rs     the associated type and const checks
@@ -590,6 +591,9 @@ Floats joined the const check.
 The carrier name's file key is relative to the manifest directory (no
 golden changed: their files sit at `src/main.rs` of a generated crate,
 where the two keys agree).
+The target selection moved from `block.rs` into `selection.rs`, so the
+trait path and the inherent path both sit on the engine and neither on the
+other.
 
 ## 5. Invariants every stage keeps
 

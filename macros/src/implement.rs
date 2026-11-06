@@ -13,7 +13,6 @@ use syn::{
 };
 
 use crate::agreement::Agreement;
-use crate::block::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -21,6 +20,7 @@ use crate::options::{
     closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override, TraitSpec,
 };
 use crate::protocol::ImplementInput;
+use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{takes_self_argument, ReturnSite};
 use crate::subject::{
     allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
