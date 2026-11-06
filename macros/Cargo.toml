@@ -13,8 +13,14 @@ exclude = ["ARCHITECTURE.md"]
 [lib]
 proc-macro = true
 
+[features]
+# Looks the facade's name up through `proc-macro-crate`, so that a crate
+# which renames its `whichever` dependency still works; off, the facade is
+# `whichever` and the tree is `proc-macro2`, `quote` and `syn` alone.
+renamed-dependency = ["dep:proc-macro-crate"]
+
 [dependencies]
-proc-macro-crate = "3"
+proc-macro-crate = { version = "3", optional = true }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "visit", "visit-mut"] }

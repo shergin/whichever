@@ -1,0 +1,5 @@
+error: `Any` has no variant `Circle` to route through
+  --> tests/ui/route_through_unknown_variant.rs:15:33
+   |
+15 | #[whichever::dispatch(Area, via(Circle = .0))]
+   |                                 ^^^^^^

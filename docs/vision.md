@@ -100,17 +100,18 @@ wish.
    says what is wrong and, where one exists, the way around it. The enum is
    still emitted, so that one error stands alone.
    *Held by* `tests/ui`, one compile-fail case per limit, with the wording
-   pinned to stable's.
+   pinned to stable's, and by a unit test of the macro crate that reads
+   every sentence its sources write and fails when one has no snapshot.
 5. **Claims are measured against the hand.** Every number in these docs
    comes from the benchmark suite, with machine, toolchain and date, called
    from a crate other than the enum's, without link-time optimisation. The
    reference is the hand-written `match`, never a competitor. Benchmarks are
    runtime only.
    *Held by* `benchmarks/RESULTS.md`, which `benchmarks/scripts/report.py`
-   writes with its date, machine and toolchain, and by the `agree!` tests
-   that check every subject against the hand before anything is timed. The
-   numbers the README quotes are still copies of that file; a splice that
-   CI checks is owed.
+   writes with its date, machine and toolchain, by the `agree!` tests
+   that check every subject against the hand before anything is timed, and
+   by `benchmarks/scripts/check_numbers.py`, which CI runs so that every
+   number the README and the guide quote is one that file holds.
 
 ## Decisions
 
@@ -126,8 +127,9 @@ superseded. The rules may not.
 - Not a visitor or a type-level selector. A `match` that calls a method is
   what is written; mapping each variant to its payload's type as a generic
   argument is a different generator.
-- Not a way to dispatch over an enum another crate defines. The attribute
-  sits on the definition, as a hand-written impl would have to.
+- Not a way to read another crate's enum. A restatement names its variants
+  once, as it names a trait's signatures, and the impl is written for the
+  real path, as a hand writes `impl LocalTrait for other::Either<L, R>`.
 - No state between expansions, however convenient a case it would make
   work.
 - No code a careful hand would not write: no allocation, no refcount, no

@@ -1,0 +1,5 @@
+error: `consume` takes `self: Box<Self>`, and `Boxed` holds a plain `Box<Circle>`; add `#[dispatch(deref)]` to `Boxed`, or implement the method by hand
+  --> tests/ui/box_receiver_on_a_box_without_deref.rs:17:11
+   |
+17 |     Boxed(Box<Circle>),
+   |           ^^^^^^^^^^^

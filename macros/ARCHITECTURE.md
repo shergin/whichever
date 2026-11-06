@@ -30,8 +30,8 @@ as tokens through `macro_rules!` carriers. Four proc macros take part.
 
 | Step | Where | What happens |
 | --- | --- | --- |
-| `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's tokens is emitted next to it and re-exported under the trait's own name, in the macro namespace. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
-| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } }` is emitted. |
+| `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's signatures, with the attributes the generated items carry and the names of the methods that have a default, is emitted next to it and re-exported under the trait's own name, in the macro namespace; a trait with items under `#[cfg]` gets one definition of the carrier per combination of its distinct predicates, each under that combination's `cfg` and holding the items that exist under it with their `cfg` attributes taken off, so that the predicate is decided in this crate. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
+| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes, unless it restates another crate's enum with `remote = path`, in which case nothing is emitted for it. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } [remote { path }] }` is emitted. |
 | The trait's carrier | expands in the subject's crate | Prepends `trait { tokens } [remote { path }]` and calls `::facade::__private::implement!`. |
 | `implement!` | | Parses the trait, the subject, the options and an optional partial impl block; writes the forwarding impl, the agreement checks and the shape errors. |
 | `#[dispatch]` on an impl block | the subject's crate | Emits `Subject! { @v1 facade [partial { options }] impl { block } }`. |
@@ -104,6 +104,7 @@ src/
   dispatch.rs      `#[dispatch]` on a subject or an impl block: what is emitted
   naming.rs        how the carrier macros are named: a fixed hash of text and token positions
   subject.rs       Subject, Target, Place, Entry; reading variants and fields
+  route.rs         the route: how an arm reaches its target from the payload
   options.rs       every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar, one struct per position
   protocol.rs      the `@v1` messages: one struct each, `ToTokens` and `Parse`, and the carrier builder
   implement.rs     `implement!`: the forwarding impl for one trait
@@ -178,21 +179,31 @@ that could keep their names, goes in stage 6.
 ### 3.3 The return model
 
 ```rust
-struct ReturnModel { wrapper: Wrapper, value: Value }  // `future` travels beside it in the plan
-
-enum Wrapper { None, Option, Result { error: Conversion } }
-enum Value { Plain, Rewrap, Into }    // `Rewrap`: `Self`; `Into`: `Self::X` with `X` overridden
-enum Conversion { Keep, Into }        // `Into` when the error is an overridden `Self::X`
+enum Conversion {                 // `future` travels beside it in the plan
+    Keep,                         // the payload's result as it is
+    Rewrap,                       // `Self`: the variant's constructor around it
+    Into,                         // `Self::X` with `X` overridden: `Into::into`
+    Map(Box<Conversion>),         // `Option<T>`, `io::Result<T>`: `.map(path)`
+    MapErr(Box<Conversion>, Box<Conversion>),  // `Result<T, E>`: `.map(path).map_err(path)`
+    Tuple(Vec<Conversion>),       // `(A, B)`: taken apart, converted, built again
+}
 ```
 
-Rendering composes: the inner conversion is the rewrap constructor or
-`Into::into`, applied directly under `Wrapper::None` and through `.map(..)`
-otherwise; `ErrorConversion::Into` adds `.map_err(Into::into)`. The
-recognition rules stay syntactic and unchanged: `Option` and `Result` by
-the name a path ends in, `Self::X` as a two-segment path, `impl Future` by
-its `Output` binding, and any other `Self` in a return type is a limit.
-`Result<Self, Self::Error>` with `Error` overridden then rewraps and
-converts, and gets a behaviour test and an expansion golden.
+Since 2026-11-05 the model is a tree over the return type, where it was a
+wrapper around a value. Rendering is one recursive function: a rewrap is
+the constructor and an `Into` is `Into::into`, each applied directly or as
+the path a `.map(..)` or a `.map_err(..)` takes, and a tuple is `{ let (a,
+b) = call; (Variant(a), b) }`. The rule that keeps rule 1 is the
+classifier's: a conversion under a wrapper has to be a path, since
+`.map(|x| ..)` is a closure the vision forbids, so a tuple under an
+`Option` is a limit with the one sentence, while a tuple holding a
+wrapper is fine. The recognition rules stay syntactic: `Option` and
+`Result` by the name a path ends in, `Self::X` as a two-segment path,
+`impl Future` by its `Output` binding, and any other `Self` in a return
+type is a limit. `Result<Self, Self::Error>` with `Error` overridden
+rewraps and converts (golden `overridden_results`); `(Self, u32)` and
+`(Self::Rest, Option<Self>)` take the tuple apart (golden
+`tuple_returns`).
 
 ### 3.4 The subject
 
@@ -203,7 +214,14 @@ argument needs a mismatch arm), whether it has conversions, and the shape
 errors of its unforwardable entries. `from` and `try_from` move from
 `Target` into `Place::Variant`, since only a variant has them. The subject's
 carrier is named `__whichever_dispatch_..` for both cases, after the
-attribute that writes it.
+attribute that writes it. Since 2026-11-05 a `Target` carries a `Route`,
+the steps from the bound payload to the value the trait is called on,
+where it carried a `deref` flag: `deref` is the route `*`, a field or a
+method is a step, and `Place::Variant` holds the marked field of a variant
+with several. `Target::target_type` is `None` where the route leaves the
+type unnameable, and the engine then qualifies the call by the trait
+alone, `<_ as Trait>::method`. The inherent path's `Callee::Place` is the
+arm that calls nothing: the target itself, or a field of it.
 
 ### 3.5 The protocol
 
@@ -213,7 +231,7 @@ are written by, and the grammar in one place:
 
 ```
 @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]       sent by #[dispatch] to a trait's carrier
-@v1 trait { <trait> } [remote { <path> }] <the rest of the message above>   what the carrier hands implement!
+@v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }] <the rest of the message above>   what the carrier hands implement!
 @v1 <facade> [partial { <options> }] impl { <block> }                        sent by #[dispatch] to a subject's carrier
 @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } <the rest above>   what the carrier hands implement_block!
 ```
@@ -260,11 +278,16 @@ with them the 1.88 minimum.
 ### 3.8 Diagnostics policy
 
 Every generator collects errors with `syn::Error::combine` and reports all
-of them. The two paths then differ on purpose: the trait path withholds
-the impl, since an impl missing items would draw a second error from rustc
-and the user is about to fix the trait or the enum anyway; the inherent
-path keeps the block and the methods it could forward, since they stand on
-their own. At the subject the unit of rejection is the attribute: the
+of them, and every generator emits the item. A trait method that cannot be
+forwarded is written with its signature and its sentence as its body, a
+`compile_error!` rustc treats as an error expression and type-checks no
+further, so the impl is complete, the calls around it resolve, and the
+sentence stands alone; only a signature the substitution could not write,
+a projection it could not qualify, withholds the impl, as does an
+associated item that cannot be supplied, since neither has a body to hold
+an error. The inherent path keeps the block and the methods it could
+forward, for the same reason. At the subject the unit of rejection is the
+attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors
 follow; "rejected", the flag the carrier hands the subject's impl blocks, is
@@ -275,13 +298,14 @@ trait's impl is labelled on that attribute and not on the first of the
 stack. A trait method's parameter keeps its own name when its
 pattern is a plain identifier and gets `__argument<n>` otherwise, so
 expansions read like the trait, and a `mismatch` expression written on the
-trait method may name the arguments, a moved `Self` argument included,
-which the fallback arm binds again. One written on the enum cannot: the
-trait's tokens reach the enum through a `macro_rules!` body and carry its
-hygiene, while the enum's attribute carries the enum's, which is also why
-the generated `match` reuses the receiver's own `self` token. Errors rustc
-finds in generated code land on the enum or on the trait method, never on
-the trait's attribute.
+trait method or on the enum may name the arguments, a moved `Self` argument
+included, which the fallback arm binds again, and a `&self` receiver. The
+two live in different hygiene contexts, the trait's tokens having come
+through a `macro_rules!` body, so the engine resolves the receiver's `self`
+token and the written argument bindings at the chosen expression's span
+with `Span::resolved_at` (stable since 1.45); the arms use that same `self`
+token. Errors rustc finds in generated code land on the enum or on the
+trait method, never on the trait's attribute.
 
 ## 4. Plan
 
@@ -420,7 +444,7 @@ to the enum or the method.
 Status: landed. Kept parameter names under every name the engine uses, a
 carrier of the 0.4.0 shape read by the new reader, an inherent block on a
 struct, a partial block over a `foreign` declaration, the enum-side
-`mismatch` hygiene boundary, and unit tests for `protocol.rs`,
+`mismatch` hygiene boundary (lifted since, 3.8), and unit tests for `protocol.rs`,
 `options.rs` and `shape.rs`.
 
 ### Stage 12: record
@@ -467,6 +491,37 @@ of which lost their "needs at least one variant" follow-up;
 `unknown_option_names` and `self_in_aliased_return` reworded; fourteen new
 cases.
 
+### Stage 15: the review of 2026-11-05
+
+Status: landed on 2026-11-06, one commit per item, on the branch
+`execute-review-2026-11-05`. The fallback arm and its lint
+allowance only when a mismatch can happen (golden
+`self_argument_and_return`); the bound a hand writes for a type-parameter
+payload (golden `generic_payloads`); the enum-side `mismatch` resolved at
+its own site (`enum_mismatch_names_argument` became a behaviour test); a
+rejected trait method written with its error as its body
+(`rejected_method_keeps_the_impl`); a trait item's `cfg` decided in the
+trait's crate by one carrier per combination (`cfg_on_trait_items`,
+`too_many_cfg_predicates`, the smoke crates' `Gated`); the carrier
+holding signatures only, with the `provided` segment; the impl header
+documented (`impl_header`); routes (`routes`, four compile-fail cases,
+seven snapshots reworded for the new options and the marker); the partial
+block's method attributes, with the target selection shared between the
+inherent path and the trait path (`partial_block_methods`, three
+compile-fail cases); the by-reference `TryFrom` forms and `into = Target`
+(`conversions`, one compile-fail case); a struct's field naming its traits,
+with `Subject::entries_for` choosing the target per trait
+(`per_trait_fields`, two compile-fail cases); the restated subject, whose
+real path travels in a `remote` segment of the request and of the subject's
+carrier and is the impl's self type and the patterns' prefix
+(`restated_enum`, two compile-fail cases, the smoke crates' `Either`);
+the return model as a tree with tuple returns (`tuple_returns`, one
+compile-fail case, `struct_self_return_limit` re-pinned on `Vec<Self>`);
+every sentence pinned by a snapshot (`limits.rs`, thirty cases);
+`proc-macro-crate` behind the `renamed-dependency` feature and a
+semver-checks job; the carrier names under unit test; the quoted numbers
+checked in CI; the behaviour tests split by capability.
+
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 
 Status: landed, after 0.5.1. The associated-type agreement check's helpers
@@ -486,7 +541,8 @@ case.
   qualified call per arm, `#[inline]`, no conversion unless an option asks
   for one. `benchmarks/scripts/codegen.py` keeps checking this.
 - Generated bindings use `Span::mixed_site()`; the receiver uses the trait
-  method's own `self` token; `#[cfg]` is carried onto arms and methods.
+  method's own `self` token; a variant's `#[cfg]` is carried onto its arm,
+  a trait item's is decided by which carrier the trait's crate compiled.
 - Nothing is kept between expansions.
 - `implement!` keeps its name and accepts every `@v1` message a 0.x carrier
   emits; the facade and the macros crate move as one version.
@@ -496,6 +552,8 @@ case.
   stays 1.88.
 - Every change to a golden or a `.stderr` file is listed in the stage's
   status line.
+- Every sentence the macros write has a `tests/ui` snapshot: `limits.rs`
+  reads the sources and the snapshots and names the ones that do not.
 
 ## 6. Open decisions
 
@@ -505,9 +563,9 @@ case.
 - Subject-level `from` and `try_from` on a trait attribute are accepted
   today. Stage 5 keeps accepting them; rejecting them is a breaking change
   for a later release.
-- `proc-macro-crate` exists only so the facade can be renamed and brings
-  eight build-time crates. A `renamed-dependency` feature, on by default, is
-  the smallest way to let a user opt out.
+- Settled on 2026-11-05: `proc-macro-crate` sits behind the default
+  feature `renamed-dependency`; without it the facade is `whichever` and
+  the macro crate's tree is `proc-macro2`, `quote` and `syn`.
 - An enum with two partial impl blocks, or a dispatched trait and a partial
   block, reports an unforwardable variant once per block. Nothing stateless
   can tell the blocks apart; the duplicate is left.
@@ -515,7 +573,7 @@ case.
   "the body would never run" and then the arm's. Reading `*` as "every
   forwardable variant" with the body for the rest would be one; a design
   call for later.
-- The trait path withholds the impl on an error where the inherent path
-  keeps the block. Emitting the impl with the failing methods left out
-  would trade the cascade at call sites for one E0046 from rustc; the
-  present choice keeps every compile-fail output to the whichever errors.
+- Settled on 2026-11-05: the trait path emits the impl with a failing
+  method's sentence as that method's body (3.8). Withholding the impl had
+  traded a cascade at every call site for a tidy compile-fail output;
+  emitting the method with its error as its body keeps both.

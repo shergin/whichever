@@ -1,0 +1,5 @@
+error: `#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements
+  --> tests/ui/block_with_trait_path.rs:20:23
+   |
+20 | #[whichever::dispatch(Shape)]
+   |                       ^^^^^

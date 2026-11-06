@@ -1,0 +1,8 @@
+error: `name` is left to the trait's default, so it takes no body; end the signature with `;`
+  --> tests/ui/block_default_with_a_body.rs:27:36
+   |
+27 |       fn name(&self) -> &'static str {
+   |  ____________________________________^
+28 | |         "kind"
+29 | |     }
+   | |_____^

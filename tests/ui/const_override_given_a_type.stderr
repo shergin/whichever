@@ -1,0 +1,5 @@
+error: `WIDTH` is an associated const; give it a value
+  --> tests/ui/const_override_given_a_type.rs:13:39
+   |
+13 | #[whichever::dispatch(Sized2, WIDTH = Vec<u8>)]
+   |                                       ^^^^^^^

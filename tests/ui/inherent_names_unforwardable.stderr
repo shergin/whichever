@@ -1,0 +1,5 @@
+error: `Nothing` holds no payload, so nothing can be forwarded to it
+  --> tests/ui/inherent_names_unforwardable.rs:24:16
+   |
+24 |     #[dispatch(Nothing)]
+   |                ^^^^^^^

@@ -6,3 +6,10 @@ publish = false
 
 [dependencies]
 whichever = { path = "../.." }
+
+# Features of this crate alone: `smoke-enums` has neither, and dispatches a
+# trait whose items are under them.
+[features]
+default = ["extra"]
+extra = []
+more = []

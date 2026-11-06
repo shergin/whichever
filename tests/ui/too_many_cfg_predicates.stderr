@@ -1,0 +1,6 @@
+error: this is the 5th distinct `#[cfg]` predicate among the trait's items, and the trait's carrier macro is written once per combination of them; combine the predicates, or move the items under this one to a trait of their own
+  --> tests/ui/too_many_cfg_predicates.rs:13:5
+   |
+13 | /     #[cfg(target_pointer_width = "64")]
+14 | |     fn e(&self);
+   | |________________^

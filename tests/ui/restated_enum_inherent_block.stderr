@@ -1,0 +1,13 @@
+error: `other::Pair` is another crate's enum, which gets no inherent impl here; forward through a trait of this crate, or write free functions
+  --> tests/ui/restated_enum_inherent_block.rs:18:12
+   |
+18 | impl<L, R> Pair<L, R> {
+   |            ^^^^^^^^^^
+
+warning: unused import: `other::Pair`
+ --> tests/ui/restated_enum_inherent_block.rs:9:5
+  |
+9 | use other::Pair;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

@@ -51,7 +51,7 @@ any default.
 - `tests/ui/` holds one compile-fail case per limit, with the `.stderr`
   pinned to stable's wording. `tests/expand/` holds the expansion goldens,
   run with `cargo test --test expand -- --ignored` under `cargo-expand`.
-  `tests/behaviour.rs` runs the generated code. `smoke/` holds the
+  `tests/behaviour/` runs the generated code, one module per capability. `smoke/` holds the
   cross-crate, renamed-dependency and `no_std` crates.
   `benchmarks/subjects` checks every subject against the hand before
   anything is timed. The macro crate's `options`, `protocol` and `shape`
@@ -74,9 +74,11 @@ any default.
   `cargo test --workspace`,
   `cargo test --test expand -- --ignored`,
   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p whichever -p whichever-macros`,
+  `cargo check -p whichever --no-default-features --tests`,
   `cargo check -p smoke-no-std --target thumbv7em-none-eabi`,
-  `cargo bench -p whichever-benchmarks --no-run`, and
-  `python3 benchmarks/scripts/codegen.py`.
+  `cargo bench -p whichever-benchmarks --no-run`,
+  `python3 benchmarks/scripts/codegen.py`, and
+  `python3 benchmarks/scripts/check_numbers.py`.
 
 ## Rust
 

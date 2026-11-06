@@ -1,7 +1,8 @@
 # A rejected enum is still emitted
 
 Status: accepted, 2026-11-02 (0.2.2; `#[cfg]` in 0.4.0; inherent blocks in
-0.5.0; per attribute since 0.5.0). Serves rule 4 of
+0.5.0; per attribute since 0.5.0; a rejected trait method written with its
+error as its body since 2026-11-05). Serves rule 4 of
 the [vision](../vision.md), a limit is one sentence; this is its mechanism.
 Reopen never; superseding it would mean changing the rule.
 
@@ -31,6 +32,13 @@ such an enum is forwarded in full. Only an enum whose variants cannot be
 read is rejected as a whole, which is what tells its impl blocks not to
 report the same error again.
 
+The same holds inside a trait's impl: a method that cannot be forwarded is
+written with its signature and its sentence as its body, so the impl is
+complete and every call around it resolves. Withholding the impl, the
+choice until 2026-11-05, traded a cascade at the call sites for a tidy
+compile-fail output; `compile_error!` as the body keeps both, since rustc
+stops type-checking at an error expression and reports no E0046.
+
 ## Evidence
 
 - The proof-of-sql probe in `notes/gaps/diagnostics.md`, section 1, with
@@ -46,8 +54,13 @@ report the same error again.
   cameleon's partial block an E0046 on top of the enum's error
   (`notes/bugs/rejected-attribute-cascades.md`).
 
+- `tests/ui/rejected_method_keeps_the_impl.rs`: a rejected method beside
+  a forwarded one that `main` calls, one error.
+
 ## Not chosen
 
 - Dropping the item: the cascade above.
+- Withholding the trait impl on a rejected method: every call to any of
+  its methods failed too.
 - Emitting the enum unchanged, helper attributes included: rustc then
   reports the unknown attributes as a second error.

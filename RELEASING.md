@@ -31,9 +31,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --test expand -- --ignored
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p whichever -p whichever-macros
+cargo check -p whichever --no-default-features --tests
 cargo check -p smoke-no-std --target thumbv7em-none-eabi
 cargo bench -p whichever-benchmarks --no-run
 python3 benchmarks/scripts/codegen.py
+python3 benchmarks/scripts/check_numbers.py
 ```
 
 The compile-fail snapshots are pinned to stable's wording; CI runs the other

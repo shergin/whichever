@@ -1,0 +1,5 @@
+error: `value` calls no method, so `call` has nothing to name
+  --> tests/ui/value_with_call.rs:22:33
+   |
+22 |     #[dispatch(*, value, call = area)]
+   |                                 ^^^^

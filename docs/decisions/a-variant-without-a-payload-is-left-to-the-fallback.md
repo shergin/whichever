@@ -1,11 +1,11 @@
 # A variant without a payload is left to the fallback
 
 Status: accepted, 2026-11-02 (0.4.0). Serves rule 3 of the
-[vision](../vision.md), what earns a shape. Reopen when a
-second project needs a per-trait projection (a field path or a method
-applied to the variant's value before the call) or field forwarding under
-inherent dispatch; both are on the watch list with proof-of-sql, sqruff,
-celestia-types, twitch-irc, mlt-core and sourmash as the first cases.
+[vision](../vision.md), what earns a shape. Its reopening condition was
+met on 2026-11-05, and the per-trait projection and the field forwarding
+it watched shipped as routes, see [An arm reaches its target through a
+route](an-arm-reaches-its-target-through-a-route.md); the decision below,
+that a variant without a payload takes the fallback body, stands.
 
 ## Context
 

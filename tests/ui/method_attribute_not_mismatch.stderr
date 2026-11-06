@@ -1,0 +1,5 @@
+error: expected `#[dispatch(mismatch = <expr>)]`
+ --> tests/ui/method_attribute_not_mismatch.rs:4:16
+  |
+4 |     #[dispatch(fallback = false)]
+  |                ^^^^^^^^

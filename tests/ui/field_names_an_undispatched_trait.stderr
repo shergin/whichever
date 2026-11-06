@@ -1,0 +1,5 @@
+error: `Interrupt` is named on `rom` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch(Interrupt)]` on the struct
+  --> tests/ui/field_names_an_undispatched_trait.rs:22:16
+   |
+22 |     #[dispatch(Interrupt)]
+   |                ^^^^^^^^^

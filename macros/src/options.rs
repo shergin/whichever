@@ -10,9 +10,11 @@ use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{
-    parenthesized, Attribute, Error, Expr, Ident, LitBool, Meta, Path, Result, Token, TraitItemFn,
-    Type,
+    parenthesized, Attribute, Error, Expr, Ident, LitBool, LitInt, Member, Meta, Path, Result,
+    Token, TraitItemFn, Type,
 };
+
+use crate::route::Route;
 
 /// Returns the candidate closest to `name` when it is within one edit, or
 /// within two when both names are long enough for two edits to leave them
@@ -101,6 +103,9 @@ pub(crate) struct TraitSpec {
     pub(crate) path: Option<Path>,
     pub(crate) overrides: Vec<Override>,
     pub(crate) mismatch: Vec<(Ident, Expr)>,
+    /// The routes this trait takes through named variants, `via(Variant =
+    /// .0, ..)`, over the variants' own.
+    pub(crate) routes: Vec<(Ident, Route)>,
 }
 
 impl TraitSpec {
@@ -146,10 +151,10 @@ impl Parse for TraitSpec {
     /// subject.
     fn parse(input: ParseStream) -> Result<Self> {
         let DispatchAttribute { spec, switches } = input.parse()?;
-        if let Some(switch) = switches.first() {
+        if let Some(span) = switches.first_span() {
             return Err(Error::new(
-                switch.span(),
-                "`from` and `try_from` are options of the enum; put them on its `#[dispatch]` attribute",
+                span,
+                "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
             ));
         }
         Ok(spec)
@@ -167,6 +172,13 @@ impl ToTokens for TraitSpec {
                 .iter()
                 .map(|(method, expr)| quote!(#method = #expr));
             parts.push(quote!(mismatch(#(#pairs),*)));
+        }
+        if !self.routes.is_empty() {
+            let pairs = self
+                .routes
+                .iter()
+                .map(|(variant, route)| quote!(#variant = #route));
+            parts.push(quote!(via(#(#pairs),*)));
         }
         tokens.extend(quote!(#(#parts),*));
     }
@@ -192,6 +204,7 @@ impl Parse for DispatchAttribute {
             path,
             overrides: vec![],
             mismatch: vec![],
+            routes: vec![],
         };
         let mut switches = Switches::default();
         if let Some(path) = &spec.path {
@@ -218,13 +231,25 @@ impl Parse for DispatchAttribute {
                 }
                 return Ok(());
             }
+            if key == "via" && input.peek(syn::token::Paren) {
+                let content;
+                parenthesized!(content in input);
+                let pairs = Punctuated::<KeyedRoute, Token![,]>::parse_terminated(&content)?;
+                for pair in pairs {
+                    if spec.routes.iter().any(|(variant, _)| *variant == pair.key) {
+                        return Err(given_twice(&pair.key));
+                    }
+                    spec.routes.push((pair.key, pair.route));
+                }
+                return Ok(());
+            }
             if input.peek(Token![<]) {
                 return Err(gat_override(&key, spec.path.as_ref()));
             }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
-                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `from = false` and `try_from = true`"),
+                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
                 ));
             }
             input.parse::<Token![=]>()?;
@@ -233,6 +258,12 @@ impl Parse for DispatchAttribute {
                 "try_from" if switches.try_from.is_some() => return Err(given_twice(&key)),
                 "from" => switches.from = Some(Switch::parse(key, input)?),
                 "try_from" => switches.try_from = Some(Switch::parse(key, input)?),
+                "into" => switches.into.push(IntoTarget {
+                    key,
+                    target: input.parse()?,
+                }),
+                "remote" if switches.remote.is_some() => return Err(given_twice(&key)),
+                "remote" => switches.remote = Some((key, input.parse()?)),
                 _ if spec.is_overridden(&key) => return Err(given_twice(&key)),
                 _ => spec.overrides.push(Override::parse(key, input)?),
             }
@@ -263,35 +294,125 @@ fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
 pub(crate) struct Switches {
     pub(crate) from: Option<Switch>,
     pub(crate) try_from: Option<Switch>,
+    /// The types the enum converts into, `into = Target`, each through
+    /// every payload's own `Into<Target>`.
+    pub(crate) into: Vec<IntoTarget>,
+    /// The real path of an enum restated on behalf of another crate,
+    /// `remote = path`, with where it was written.
+    pub(crate) remote: Option<(Ident, Path)>,
 }
 
 impl Switches {
-    /// Returns the first switch written, for a message about any of them.
-    pub(crate) fn first(&self) -> Option<&Switch> {
-        self.from.as_ref().or(self.try_from.as_ref())
+    /// Returns where the first switch was written, for a message about any
+    /// of them.
+    pub(crate) fn first_span(&self) -> Option<Span> {
+        self.from
+            .as_ref()
+            .map(Switch::span)
+            .or(self.try_from.as_ref().map(Switch::span))
+            .or(self.into.first().map(|into| into.key.span()))
+            .or(self.remote.as_ref().map(|(key, _)| key.span()))
     }
+}
+
+/// One `into = Target`.
+pub(crate) struct IntoTarget {
+    pub(crate) key: Ident,
+    pub(crate) target: Type,
 }
 
 /// One `from = ..` or `try_from = ..`, with where it was written.
 pub(crate) struct Switch {
     key: Ident,
-    value: LitBool,
+    value: TryFromForms,
 }
 
 impl Switch {
+    /// `from` takes `true` or `false`; `try_from` takes those, `ref` and
+    /// `ref_mut`.
     fn parse(key: Ident, input: ParseStream) -> Result<Self> {
-        Ok(Self {
-            key,
-            value: input.parse()?,
-        })
+        let value = TryFromForms::parse(input)?;
+        if key == "from" && (value.by_ref || value.by_mut) {
+            return Err(Error::new(
+                key.span(),
+                "`from` is `true` or `false`; the by-reference forms are `try_from`'s",
+            ));
+        }
+        Ok(Self { key, value })
     }
 
+    /// Returns whether the switch is on at all.
     pub(crate) fn value(&self) -> bool {
-        self.value.value
+        self.value.owned
+    }
+
+    pub(crate) fn forms(&self) -> TryFromForms {
+        self.value
     }
 
     pub(crate) fn span(&self) -> Span {
         self.key.span()
+    }
+}
+
+/// Which `TryFrom` impls a payload gets: `true` is `TryFrom<Enum> for
+/// Payload`; `ref` adds `TryFrom<&Enum> for &Payload`; `ref_mut` adds
+/// `TryFrom<&mut Enum> for &mut Payload` to those; `false` is none. The
+/// words are `derive_more`'s.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TryFromForms {
+    pub(crate) owned: bool,
+    pub(crate) by_ref: bool,
+    pub(crate) by_mut: bool,
+}
+
+impl TryFromForms {
+    pub(crate) const NONE: Self = Self {
+        owned: false,
+        by_ref: false,
+        by_mut: false,
+    };
+
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(LitBool) {
+            let on = input.parse::<LitBool>()?.value;
+            return Ok(Self {
+                owned: on,
+                by_ref: false,
+                by_mut: false,
+            });
+        }
+        if input.peek(Token![ref]) {
+            input.parse::<Token![ref]>()?;
+            return Ok(Self {
+                owned: true,
+                by_ref: true,
+                by_mut: false,
+            });
+        }
+        let word: Ident = input
+            .parse()
+            .map_err(|_| input.error("expected `true`, `false`, `ref` or `ref_mut`"))?;
+        if word == "ref_mut" {
+            return Ok(Self {
+                owned: true,
+                by_ref: true,
+                by_mut: true,
+            });
+        }
+        Err(Error::new(
+            word.span(),
+            "expected `true`, `false`, `ref` or `ref_mut`",
+        ))
+    }
+
+    /// The forms either of two switches asks for.
+    pub(crate) fn or(self, other: Self) -> Self {
+        Self {
+            owned: self.owned || other.owned,
+            by_ref: self.by_ref || other.by_ref,
+            by_mut: self.by_mut || other.by_mut,
+        }
     }
 }
 
@@ -368,6 +489,21 @@ pub(crate) struct KeyedExpr {
     pub(crate) value: Expr,
 }
 
+/// One `Variant = route` of a `via(..)` option.
+struct KeyedRoute {
+    key: Ident,
+    route: Route,
+}
+
+impl Parse for KeyedRoute {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let key = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let route = input.parse()?;
+        Ok(Self { key, route })
+    }
+}
+
 impl Parse for KeyedExpr {
     fn parse(input: ParseStream) -> Result<Self> {
         let key = input.parse()?;
@@ -397,21 +533,26 @@ pub(crate) fn method_mismatch(function: &TraitItemFn) -> Result<Option<Expr>> {
 
 /// The `#[dispatch(..)]` options of a variant or a field.
 pub(crate) struct TargetOptions {
-    pub(crate) deref: bool,
+    /// How an arm reaches the target from the payload; `deref` is `*`.
+    pub(crate) route: Option<Route>,
     pub(crate) from: bool,
-    pub(crate) try_from: Option<bool>,
+    pub(crate) try_from: Option<TryFromForms>,
+    /// The traits a struct's field is the target of, `#[dispatch(Rom)]`,
+    /// over the field marked bare; a variant names none.
+    pub(crate) traits: Vec<Path>,
 }
 
 impl TargetOptions {
     /// Reads every `#[dispatch(..)]` attribute of a variant, or of a field
-    /// when `on_variant` is false: `deref` on either, `from = false` and
-    /// `try_from = true` on a variant. A bare `#[dispatch]` marks the field
-    /// to forward to and carries nothing.
+    /// when `on_variant` is false: `deref` and `via = route` on either,
+    /// `from = false` and `try_from = true` on a variant. A bare
+    /// `#[dispatch]` marks the field to forward to and carries nothing.
     pub(crate) fn read(attributes: &[Attribute], on_variant: bool) -> Result<Self> {
         let mut options = Self {
-            deref: false,
+            route: None,
             from: true,
             try_from: None,
+            traits: vec![],
         };
         for attribute in attributes
             .iter()
@@ -422,19 +563,56 @@ impl TargetOptions {
             }
             attribute.parse_args_with(|input: ParseStream| {
                 parse_options(input, |key, input| {
-                    if key == "deref" {
-                        options.deref = true;
+                    // A name that is no option and takes no value is a
+                    // trait the field is the target of.
+                    let is_option = key == "deref"
+                        || key == "via"
+                        || ((key == "from" || key == "try_from") && on_variant)
+                        || input.peek(Token![=]);
+                    if !is_option {
+                        if on_variant {
+                            return Err(Error::new(
+                                key.span(),
+                                format!("unknown option `{key}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                            ));
+                        }
+                        let mut path = Path::from(key);
+                        if input.peek(Token![<]) {
+                            let segment = path.segments.last_mut().expect("one segment");
+                            segment.arguments = syn::PathArguments::AngleBracketed(input.parse()?);
+                        }
+                        while input.peek(Token![::]) {
+                            input.parse::<Token![::]>()?;
+                            path.segments.push(input.parse()?);
+                        }
+                        options.traits.push(path);
+                        return Ok(());
+                    }
+                    if key == "deref" || key == "via" {
+                        let route = if key == "deref" {
+                            Route::deref()
+                        } else {
+                            input.parse::<Token![=]>()?;
+                            input.parse()?
+                        };
+                        if options.route.is_some() {
+                            return Err(Error::new(
+                                key.span(),
+                                "`deref` is the route `*`; give one route, `deref` or `via = ..`",
+                            ));
+                        }
+                        options.route = Some(route);
                     } else if key == "from" && on_variant {
                         input.parse::<Token![=]>()?;
                         options.from = input.parse::<LitBool>()?.value;
                     } else if key == "try_from" && on_variant {
                         input.parse::<Token![=]>()?;
-                        options.try_from = Some(input.parse::<LitBool>()?.value);
+                        options.try_from = Some(TryFromForms::parse(input)?);
                     } else {
                         let known = if on_variant {
-                            "the options are `deref`, `from = false` and `try_from = true`"
+                            "the options are `deref`, `via = route`, `from = false` and `try_from = true`"
                         } else {
-                            "the only one is `deref`"
+                            "the options are `deref` and `via = route`, and the traits the field is the target of"
                         };
                         return Err(Error::new(
                             key.span(),
@@ -455,6 +633,14 @@ pub(crate) struct ForwardingOptions {
     pub(crate) variants: Vec<Ident>,
     pub(crate) call: Option<Ident>,
     pub(crate) with: Option<Path>,
+    /// The route to the target for this method, over the variants' own.
+    pub(crate) via: Option<Route>,
+    /// `field = name`: the arm reads this field of the target instead of
+    /// calling a method.
+    pub(crate) field: Option<Member>,
+    /// `value`: the arm is the target itself, for `with` to wrap or an
+    /// unsized coercion to widen.
+    pub(crate) value: bool,
 }
 
 impl Parse for ForwardingOptions {
@@ -464,6 +650,9 @@ impl Parse for ForwardingOptions {
             variants: vec![],
             call: None,
             with: None,
+            via: None,
+            field: None,
+            value: false,
         };
         while !input.is_empty() {
             if input.peek(Token![*]) {
@@ -482,13 +671,27 @@ impl Parse for ForwardingOptions {
                             ))
                         }
                         "with" => forwarding.with = Some(input.parse()?),
+                        "via" => forwarding.via = Some(input.parse()?),
+                        "field" => {
+                            forwarding.field = Some(if input.peek(LitInt) {
+                                let index: LitInt = input.parse()?;
+                                Member::Unnamed(syn::Index {
+                                    index: index.base10_parse()?,
+                                    span: index.span(),
+                                })
+                            } else {
+                                Member::Named(input.parse()?)
+                            });
+                        }
                         other => {
                             return Err(Error::new(
                                 ident.span(),
-                                format!("unknown option `{other}`; the options are `call = method` and `with = path`"),
+                                format!("unknown option `{other}`; the options are `call = method`, `with = path`, `via = route` and `field = name`"),
                             ))
                         }
                     }
+                } else if ident == "value" {
+                    forwarding.value = true;
                 } else {
                     if forwarding.variants.contains(&ident) {
                         return Err(Error::new(
@@ -511,7 +714,27 @@ impl Parse for ForwardingOptions {
             ));
         }
         if !forwarding.all && forwarding.variants.is_empty() {
-            return Err(input.error("name the variants to forward to, or `*` for all of them"));
+            return Err(Error::new(
+                input.span(),
+                "name the variants to forward to, or `*` for all of them",
+            ));
+        }
+        let reads = match (&forwarding.field, forwarding.value) {
+            (Some(_), true) => {
+                return Err(Error::new(
+                    input.span(),
+                    "`field` reads a field and `value` is the target itself; give one",
+                ))
+            }
+            (Some(field), false) => Some(format!("`field = {}`", field.to_token_stream())),
+            (None, true) => Some("`value`".to_owned()),
+            (None, false) => None,
+        };
+        if let (Some(reads), Some(call)) = (reads, &forwarding.call) {
+            return Err(Error::new(
+                call.span(),
+                format!("{reads} calls no method, so `call` has nothing to name"),
+            ));
         }
         Ok(forwarding)
     }
@@ -599,6 +822,12 @@ mod tests {
             switches_only.switches.try_from.as_ref().map(Switch::value),
             Some(true)
         );
+        let by_ref = attribute("try_from = ref, into = Target<A, B>, into = Other");
+        let forms = by_ref.switches.try_from.as_ref().unwrap().forms();
+        assert!(forms.owned && forms.by_ref && !forms.by_mut);
+        assert_eq!(by_ref.switches.into.len(), 2);
+        assert!(syn::parse_str::<DispatchAttribute>("from = ref").is_err());
+        assert!(syn::parse_str::<DispatchAttribute>("try_from = sometimes").is_err());
         let with_path = attribute("a::Trait<X>, mismatch(same = false, other = 1)");
         assert!(with_path.spec.path.is_some());
         assert_eq!(with_path.spec.mismatch.len(), 2);
@@ -671,12 +900,53 @@ mod tests {
             parse_quote!(#[dispatch(try_from = true)]),
         ];
         let variant = TargetOptions::read(&attributes, true).unwrap();
-        assert!(variant.deref && !variant.from && variant.try_from == Some(true));
+        assert!(variant.route.as_ref().is_some_and(Route::is_deref));
+        assert!(
+            !variant.from
+                && variant
+                    .try_from
+                    .is_some_and(|forms| forms.owned && !forms.by_ref)
+        );
+        let by_ref: Vec<Attribute> = vec![parse_quote!(#[dispatch(try_from = ref_mut)])];
+        let forms = TargetOptions::read(&by_ref, true)
+            .unwrap()
+            .try_from
+            .unwrap();
+        assert!(forms.owned && forms.by_ref && forms.by_mut);
         assert!(
             TargetOptions::read(&attributes, false).is_err(),
-            "a field takes `deref` only"
+            "a field takes `deref` and `via` only"
         );
         let bare: Vec<Attribute> = vec![parse_quote!(#[dispatch])];
         assert!(TargetOptions::read(&bare, false).unwrap().from);
+        let named: Vec<Attribute> =
+            vec![parse_quote!(#[dispatch(Rom, io::Write, Encoder<Json>, deref)])];
+        let field = TargetOptions::read(&named, false).unwrap();
+        assert_eq!(field.traits.len(), 3);
+        assert!(field.route.is_some_and(|route| route.is_deref()));
+        assert!(
+            TargetOptions::read(&named, true).is_err(),
+            "a variant names no trait"
+        );
+        let routed: Vec<Attribute> = vec![parse_quote!(#[dispatch(via = .base.get_ref())])];
+        let route = TargetOptions::read(&routed, false).unwrap().route.unwrap();
+        assert_eq!(route.spelled(), ".base.get_ref()");
+        let both: Vec<Attribute> = vec![parse_quote!(#[dispatch(deref, via = .0)])];
+        assert!(TargetOptions::read(&both, true).is_err());
+        let spec: TraitSpec = syn::parse_str("Trait, via(VarChar = .1, Decimal = .2)").unwrap();
+        assert_eq!(spec.routes.len(), 2);
+        assert_eq!(
+            spec.to_token_stream().to_string().replace(' ', ""),
+            "Trait,via(VarChar=.1,Decimal=.2)"
+        );
+        let forwarding: ForwardingOptions = syn::parse_str("*, field = line_no").unwrap();
+        assert!(forwarding.field.is_some() && !forwarding.value);
+        let forwarding: ForwardingOptions = syn::parse_str("A, B, value, with = Some").unwrap();
+        assert!(forwarding.value && forwarding.with.is_some());
+        assert!(syn::parse_str::<ForwardingOptions>("*, field = a, value").is_err());
+        assert!(syn::parse_str::<ForwardingOptions>("*, value, call = m").is_err());
+        let forwarding: ForwardingOptions =
+            syn::parse_str("*, via = .content(), call = refresh").unwrap();
+        assert_eq!(forwarding.via.unwrap().spelled(), ".content()");
     }
 }

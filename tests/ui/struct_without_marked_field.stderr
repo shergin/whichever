@@ -1,4 +1,4 @@
-error: `Labelled` has several fields; mark the one to forward to with `#[dispatch]`
+error: `Labelled` has several fields; mark the one to forward with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`
   --> tests/ui/struct_without_marked_field.rs:15:8
    |
 15 | struct Labelled {

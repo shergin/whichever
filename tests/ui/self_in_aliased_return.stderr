@@ -1,4 +1,4 @@
-error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Number`; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or implement the method by hand
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Number`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or implement the method by hand
   --> tests/ui/self_in_aliased_return.rs:5:26
    |
  5 |     fn rebuild(&self) -> Fallible<Self>

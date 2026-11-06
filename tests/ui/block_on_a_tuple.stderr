@@ -1,0 +1,5 @@
+error: the impl must name a dispatch enum or struct by path
+  --> tests/ui/block_on_a_tuple.rs:16:16
+   |
+16 | impl Shape for (Circle, Circle) {}
+   |                ^^^^^^^^^^^^^^^^

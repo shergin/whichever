@@ -1,0 +1,5 @@
+error: `Boxed` and its field both give a route; give one
+  --> tests/ui/route_on_variant_and_field.rs:18:11
+   |
+18 |     Boxed(#[dispatch(via = *)] Box<Circle>),
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

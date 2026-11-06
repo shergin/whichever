@@ -14,12 +14,13 @@
 //! expansion, is the trait's attribute, which may be in another crate.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, quote_spanned, ToTokens};
-use syn::{Attribute, Error, FnArg, Ident, Pat, PatIdent, Path, Result, Signature, Token};
+use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
 use crate::options::TraitSpec;
+use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, ReceiverKind, ReturnModel, ReturnSite, Value, Wrapper,
+    ArgumentKind, Conversion, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -81,7 +82,7 @@ pub(crate) struct MethodPlan {
     same_variant: Vec<(usize, Access)>,
     /// The generic arguments a call spells out, when inference could not.
     turbofish: Option<TokenStream2>,
-    return_model: ReturnModel,
+    return_model: Conversion,
     /// Whether the method returns `impl Future`, so that the `match` sits in
     /// one `async move` block and every arm is awaited inside it.
     pub(crate) future: bool,
@@ -100,8 +101,9 @@ impl MethodPlan {
         self_arguments: SelfArguments,
         spec: Option<&TraitSpec>,
         site: &ReturnSite,
+        resolution: Option<Span>,
     ) -> Result<Self> {
-        let (receiver, self_token) = match signature.receiver() {
+        let (receiver, mut self_token) = match signature.receiver() {
             Some(receiver) => (classify_receiver(receiver)?, receiver.self_token),
             None => {
                 return Err(Error::new_spanned(
@@ -110,6 +112,21 @@ impl MethodPlan {
                 ))
             }
         };
+        // The receiver and the written arguments resolve where the
+        // `mismatch` expression was written, so that an expression on the
+        // enum sees names that came through the trait's carrier.
+        let resolve = |mut ident: Ident| {
+            if let Some(resolution) = resolution {
+                ident.set_span(ident.span().resolved_at(resolution));
+            }
+            ident
+        };
+        if let Some(resolution) = resolution {
+            self_token.span = self_token.span.resolved_at(resolution);
+            if let Some(FnArg::Receiver(receiver)) = signature.inputs.first_mut() {
+                receiver.self_token = self_token;
+            }
+        }
         let mut arguments = vec![];
         let mut same_variant = vec![];
         for (index, input) in signature.inputs.iter_mut().skip(1).enumerate() {
@@ -123,7 +140,7 @@ impl MethodPlan {
                 (Pat::Ident(pattern), ArgumentNames::WrittenOrGenerated)
                     if pattern.by_ref.is_none() && pattern.subpat.is_none() =>
                 {
-                    let ident = pattern.ident.clone();
+                    let ident = resolve(pattern.ident.clone());
                     *pat_type.pat = plain(ident.clone());
                     ident
                 }
@@ -207,7 +224,7 @@ impl MethodPlan {
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
                     Some((_, access)) => {
-                        payload_expression(target.deref, *access, &Self::same_binding(index), site)
+                        payload_expression(&target.route, *access, &Self::same_binding(index), site)
                     }
                     None => quote!(#ident),
                 },
@@ -231,43 +248,78 @@ impl MethodPlan {
             ident: target_ident,
             payload,
             cfgs,
-            deref,
+            route,
             ..
         } = target;
         // Under a lift the payload returns the plain value and the lift
         // wraps the rebuilt variant into the declared `Option` or `Result`.
-        let ReturnModel {
-            wrapper,
-            value: needs,
-        } = self.return_model;
-        let wrapper = if lift.is_some() {
-            Wrapper::None
+        let conversion = if lift.is_some() {
+            self.return_model.clone().unwrapped()
         } else {
-            wrapper
+            self.return_model.clone()
         };
-        if *deref && matches!(needs, Value::Rewrap) {
+        if !route.is_direct() && conversion.rewraps() {
+            let message = if route.is_deref() {
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand())
+            } else {
+                format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{target_ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), callee.by_hand())
+            };
+            return Err(Error::new_spanned(payload, message));
+        }
+        // What a method returns is a value, which `&mut self` cannot borrow
+        // through; a field is a place, which it can.
+        let exclusive = matches!(self.receiver, ReceiverKind::Value(Access::Exclusive))
+            || matches!(self.receiver, ReceiverKind::Pinned(Access::Exclusive))
+            || self
+                .same_variant
+                .iter()
+                .any(|(_, access)| matches!(access, Access::Exclusive));
+        if route.ends_in_a_method() && exclusive {
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand()),
+                format!("`{method}` takes `&mut self`, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), callee.by_hand()),
             ));
         }
         let inner = hygienic("__inner");
         let receiver = match (callee, self.receiver) {
-            // Method-call syntax reaches through a `deref` payload by itself.
-            (Callee::Method { .. }, ReceiverKind::Value(_)) => quote!(#inner),
+            // Method-call syntax reaches through a pointer by itself, so
+            // the route is followed from the binding as it is.
+            (Callee::Method { .. }, ReceiverKind::Value(_)) => route.reach(&inner, false, site),
+            (Callee::Place { .. }, _) => quote!(#inner),
             _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
         let arguments = self.call_arguments(target, site);
         let turbofish = &self.turbofish;
         let mut value = match callee {
             Callee::Qualified { trait_path, method } => {
-                let target_type = target.target_type();
+                // A field's or a method's type cannot be named; the call is
+                // then qualified by the trait alone, which still keeps an
+                // inherent method of the same name from taking over.
+                let qualified = match target.target_type() {
+                    Some(target_type) => quote_spanned! { site => <#target_type as #trait_path> },
+                    None => quote_spanned! { site => <_ as #trait_path> },
+                };
                 quote_spanned! { site =>
-                    <#target_type as #trait_path>::#method #turbofish (#receiver #(, #arguments)*)
+                    #qualified::#method #turbofish (#receiver #(, #arguments)*)
                 }
             }
             Callee::Method { name } => {
                 quote_spanned! { site => #receiver.#name #turbofish (#(#arguments),*) }
+            }
+            // The arm is the target itself, or a field of it: a place,
+            // borrowed as the declared return type asks.
+            Callee::Place { field, borrow } => {
+                let reached = route.reach(
+                    &inner,
+                    !matches!(self.receiver, ReceiverKind::Value(Access::Owned)),
+                    site,
+                );
+                match (field, borrow) {
+                    (None, _) => reached,
+                    (Some(field), None) => quote_spanned! { site => #reached.#field },
+                    (Some(field), Some(None)) => quote_spanned! { site => &#reached.#field },
+                    (Some(field), Some(Some(_))) => quote_spanned! { site => &mut #reached.#field },
+                }
             }
         };
         if self.unsafety {
@@ -282,28 +334,7 @@ impl MethodPlan {
                 format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", callee.rebuild_hint()),
             )
         };
-        value = match (wrapper, needs) {
-            (_, Value::Plain) => value,
-            (Wrapper::None, Value::Rewrap) => {
-                target.rebuild(prefix, value).ok_or_else(rebuild_error)?
-            }
-            (Wrapper::None, Value::Into) => {
-                quote_spanned! { site => ::core::convert::Into::into(#value) }
-            }
-            (_, Value::Rewrap) => {
-                let constructor = target.constructor(prefix).ok_or_else(rebuild_error)?;
-                quote_spanned! { site => #value.map(#constructor) }
-            }
-            (_, Value::Into) => {
-                quote_spanned! { site => #value.map(::core::convert::Into::into) }
-            }
-        };
-        if let Wrapper::Result {
-            error: Conversion::Into,
-        } = wrapper
-        {
-            value = quote_spanned! { site => #value.map_err(::core::convert::Into::into) };
-        }
+        value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
         if let Some(lift) = lift {
             value = quote_spanned! { site => #lift(#value) };
         }
@@ -379,6 +410,13 @@ pub(crate) enum Callee<'a> {
     /// `receiver.name(arguments..)`, for a method the payload has under
     /// that name.
     Method { name: &'a Ident },
+    /// No call: the arm is the target itself, or with `field` a field of
+    /// it, borrowed as `borrow` says, `None` by value, `Some(None)` by `&`
+    /// and `Some(Some(mut))` by `&mut`.
+    Place {
+        field: Option<&'a Member>,
+        borrow: Option<Option<Token![mut]>>,
+    },
 }
 
 impl Callee<'_> {
@@ -388,7 +426,7 @@ impl Callee<'_> {
     pub(crate) fn by_hand(&self) -> &'static str {
         match self {
             Callee::Qualified { .. } => "implement the method by hand",
-            Callee::Method { .. } => "give it a body",
+            Callee::Method { .. } | Callee::Place { .. } => "give it a body",
         }
     }
 
@@ -397,7 +435,7 @@ impl Callee<'_> {
     fn rebuild_hint(&self) -> &'static str {
         match self {
             Callee::Qualified { .. } => "write the method in a `#[whichever::dispatch] impl` block",
-            Callee::Method { .. } => "give it a body instead",
+            Callee::Method { .. } | Callee::Place { .. } => "give it a body instead",
         }
     }
 }
@@ -479,6 +517,65 @@ impl Forwarding {
     }
 }
 
+/// Applies `conversion` to `value`, the payload's result, as a hand writes
+/// it: the variant's constructor around a `Self`, `Into::into` around an
+/// overridden associated type, each as the path a `.map(..)` or a
+/// `.map_err(..)` takes, and a tuple taken apart and built again around
+/// its converted elements.
+fn convert(
+    value: TokenStream2,
+    conversion: &Conversion,
+    target: &Target,
+    prefix: &Path,
+    site: Span,
+    rebuild_error: &dyn Fn() -> Error,
+) -> Result<TokenStream2> {
+    // The path a `.map(..)` takes for a conversion of one value.
+    let path = |conversion: &Conversion| -> Result<Option<TokenStream2>> {
+        Ok(match conversion {
+            Conversion::Keep => None,
+            Conversion::Rewrap => Some(target.constructor(prefix).ok_or_else(rebuild_error)?),
+            Conversion::Into => Some(quote_spanned! { site => ::core::convert::Into::into }),
+            _ => unreachable!("a conversion under a wrapper is a path"),
+        })
+    };
+    Ok(match conversion {
+        Conversion::Keep => value,
+        Conversion::Rewrap => target.rebuild(prefix, value).ok_or_else(rebuild_error)?,
+        Conversion::Into => quote_spanned! { site => ::core::convert::Into::into(#value) },
+        Conversion::Map(inner) => match path(inner)? {
+            Some(path) => quote_spanned! { site => #value.map(#path) },
+            None => value,
+        },
+        Conversion::MapErr(inner, error) => {
+            let mut value = match path(inner)? {
+                Some(path) => quote_spanned! { site => #value.map(#path) },
+                None => value,
+            };
+            if let Some(path) = path(error)? {
+                value = quote_spanned! { site => #value.map_err(#path) };
+            }
+            value
+        }
+        Conversion::Tuple(items) => {
+            let bindings: Vec<Ident> = (0..items.len())
+                .map(|index| hygienic(&format!("__element{index}")))
+                .collect();
+            let converted = items
+                .iter()
+                .zip(&bindings)
+                .map(|(item, binding)| {
+                    convert(quote!(#binding), item, target, prefix, site, rebuild_error)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            quote_spanned! { site => {
+                let (#(#bindings,)*) = #value;
+                (#(#converted,)*)
+            } }
+        }
+    })
+}
+
 /// Returns the expression the generated `match` looks at for a receiver:
 /// the value itself, the enum moved out of its box, or the pinned reference
 /// unpinned.
@@ -504,7 +601,7 @@ fn receiver_expression(
     site: Span,
 ) -> Result<TokenStream2> {
     match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(target.deref, access, binding, site)),
+        ReceiverKind::Value(access) => Ok(payload_expression(&target.route, access, binding, site)),
         ReceiverKind::Boxed => {
             if !target.holds_box() {
                 let ident = &target.ident;
@@ -525,22 +622,27 @@ fn receiver_expression(
             Ok(quote!(#binding))
         }
         ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(target.deref, access, binding, site);
+            let payload = payload_expression(&target.route, access, binding, site);
             Ok(quote_spanned!(site => ::core::pin::Pin::new(#payload)))
         }
     }
 }
 
 /// Returns the expression that hands `binding`, bound to a variant's
-/// payload, to the trait method: the payload itself, or what it
-/// dereferences to for a `#[dispatch(deref)]` variant.
-fn payload_expression(deref: bool, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
-    if !deref {
+/// payload, to the trait method: the payload itself, or the target the
+/// route reaches, borrowed as the receiver is. A route ending in a method
+/// call yields a value, which is handed over as it is.
+fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
+    if route.is_direct() {
         return quote!(#binding);
     }
+    let reached = route.reach(binding, !matches!(access, Access::Owned), site);
+    if route.ends_in_a_method() {
+        return reached;
+    }
     match access {
-        Access::Shared => quote_spanned!(site => &**#binding),
-        Access::Exclusive => quote_spanned!(site => &mut **#binding),
-        Access::Owned => quote_spanned!(site => *#binding),
+        Access::Shared => quote_spanned!(site => &#reached),
+        Access::Exclusive => quote_spanned!(site => &mut #reached),
+        Access::Owned => reached,
     }
 }

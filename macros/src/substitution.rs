@@ -67,9 +67,10 @@ impl Substitution {
             return Err(Error::new_spanned(
                 trait_path,
                 format!(
-                    "`{}` takes {count} generic argument{plural}; name {}, `{}<{named}>`",
+                    "`{}` takes {count} generic argument{plural}; name {}, `{}<{named}>`, or write the impl's header in an empty `#[whichever::dispatch] impl<{named}> {}<{named}> for ..` block",
                     item_trait.ident,
                     if count == 1 { "it" } else { "them" },
+                    item_trait.ident,
                     item_trait.ident,
                 ),
             ));
@@ -345,7 +346,7 @@ mod tests {
             .to_string();
         assert_eq!(
             error,
-            "`ViewOp` takes 3 generic arguments; name them, `ViewOp<'a, T, N>`"
+            "`ViewOp` takes 3 generic arguments; name them, `ViewOp<'a, T, N>`, or write the impl's header in an empty `#[whichever::dispatch] impl<'a, T, N> ViewOp<'a, T, N> for ..` block"
         );
     }
 

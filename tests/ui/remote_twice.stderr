@@ -1,0 +1,5 @@
+error: `remote` is given twice
+  --> tests/ui/remote_twice.rs:12:45
+   |
+12 | #[whichever::dispatch(remote = other::Pair, remote = other::Pair)]
+   |                                             ^^^^^^

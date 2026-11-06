@@ -1,0 +1,5 @@
+error: `from` is `true` or `false`; the by-reference forms are `try_from`'s
+  --> tests/ui/from_by_reference.rs:15:30
+   |
+15 | #[whichever::dispatch(Shape, from = ref)]
+   |                              ^^^^

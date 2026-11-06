@@ -1,0 +1,5 @@
+error: a dispatch struct needs a field to forward to
+  --> tests/ui/unit_struct.rs:16:8
+   |
+16 | struct Unit;
+   |        ^^^^

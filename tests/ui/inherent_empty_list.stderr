@@ -1,0 +1,5 @@
+error: name the variants to forward to, or `*` for all of them
+  --> tests/ui/inherent_empty_list.rs:22:16
+   |
+22 |     #[dispatch()]
+   |                ^

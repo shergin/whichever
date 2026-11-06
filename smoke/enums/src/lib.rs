@@ -3,7 +3,7 @@
 //! through `Into`, a generic trait at a concrete instantiation, two traits
 //! on one enum, `async` methods and `-> Self`.
 #![allow(async_fn_in_trait)]
-use smoke_traits::{Description, Device, Encoder, Format, Lend, Shape, Storage};
+use smoke_traits::{Description, Device, Encoder, Format, Gate, Gated, Lend, Shape, Storage};
 use whichever::{dispatch, dispatchable};
 
 #[derive(Debug, Clone)]
@@ -306,5 +306,63 @@ mod tests {
         assert_eq!(*scanner.id(), 2);
         assert_eq!(scanner.kind(), "device");
         assert_eq!(<AnyDevice as Device>::kinds(), &["device"]);
+    }
+}
+
+/// The trait's `extra` is on and its `more` is off in `smoke-traits`; this
+/// crate has neither feature, and the impl follows the trait's crate.
+#[dispatch(Gated)]
+pub enum AnyGated {
+    Gate(Gate),
+}
+
+#[cfg(test)]
+mod gated {
+    use super::*;
+
+    #[test]
+    fn the_items_follow_the_traits_crate() {
+        let gated = AnyGated::Gate(Gate(1));
+        assert_eq!((gated.plain(), gated.extra()), (1, 2));
+    }
+}
+
+/// A trait of this crate, forwarded over the other crate's `Either`.
+#[dispatchable]
+pub trait Weighed {
+    fn weight(&self) -> u32;
+}
+
+impl Weighed for Square {
+    fn weight(&self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl Weighed for Circle {
+    fn weight(&self) -> u32 {
+        2 * self.0 as u32
+    }
+}
+
+/// `smoke_traits::Either`, restated: nothing is emitted for it but the
+/// carrier and the impl, written for the real path.
+#[dispatch(remote = smoke_traits::Either)]
+#[dispatch(Weighed)]
+pub enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+#[cfg(test)]
+mod restated {
+    use super::*;
+    use smoke_traits::Either;
+
+    #[test]
+    fn the_impl_is_written_for_the_other_crates_enum() {
+        let left: Either<Square, Circle> = Either::Left(Square(3));
+        let right: Either<Square, Circle> = Either::Right(Circle(3));
+        assert_eq!((left.weight(), right.weight()), (3, 6));
     }
 }

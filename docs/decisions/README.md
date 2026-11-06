@@ -24,6 +24,11 @@ the planning notes, the note holds the long form and the record names it.
 - [Foreign traits are restated, and the common ones ship](foreign-traits-are-restated.md)
 - [`From` is opt-out and `TryFrom` is opt-in](from-is-opt-out-and-try-from-is-opt-in.md)
 - [A variant without a payload is left to the fallback](a-variant-without-a-payload-is-left-to-the-fallback.md)
-- [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)
+- [A struct's field may name its traits](a-structs-field-may-name-its-traits.md),
+  superseding [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)
 - [Benchmarks are runtime only](benchmarks-are-runtime-only.md)
 - [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
+- [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)
+- [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
+- [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)
+- [The subject can be restated](the-subject-can-be-restated.md)

@@ -69,6 +69,23 @@ jobs:
           components: clippy, rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Without the default feature the macro crate's tree is
+      # `proc-macro2`, `quote` and `syn` alone.
+      - run: cargo check -p whichever --no-default-features --tests
       - run: cargo doc --no-deps -p whichever -p whichever-macros
         env:
           RUSTDOCFLAGS: -D warnings
+      # Every number the README and the guide quote is one RESULTS.md holds.
+      - run: python3 benchmarks/scripts/check_numbers.py
+
+  semver:
+    name: semver-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # Against the last published version, so a release entry's list of
+      # breaks can be seen to be whole.
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: whichever

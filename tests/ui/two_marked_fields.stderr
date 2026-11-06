@@ -1,0 +1,5 @@
+error: only one field of `Both` can be forwarded to; `#[dispatch]` marks it
+  --> tests/ui/two_marked_fields.rs:18:30
+   |
+18 |     Both(#[dispatch] Square, #[dispatch] Square),
+   |                              ^^^^^^^^^^^^^^^^^^

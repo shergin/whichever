@@ -1,7 +1,6 @@
 //! `#[dispatch]` on a subject or on an impl block: what is emitted at the
 //! attribute, before any carrier macro runs.
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use proc_macro_crate::FoundCrate;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
@@ -9,7 +8,9 @@ use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
 use crate::combined;
 use crate::conversions::conversion_impls;
 use crate::naming;
-use crate::options::{is_dispatch_attribute, DispatchAttribute, Switch, TraitSpec};
+use crate::options::{
+    is_dispatch_attribute, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
+};
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
@@ -36,7 +37,7 @@ pub(crate) fn expand_subject(
     // The subject as the carriers hold it, variant and field options
     // included, and as it is emitted, without them.
     let captured = subject;
-    let emitted = captured.clone().without_inner_attributes();
+    let mut emitted = Some(captured.clone().without_inner_attributes());
     let readable = captured
         .entries()
         .and_then(|entries| Ok((entries, facade_ident()?)));
@@ -44,7 +45,7 @@ pub(crate) fn expand_subject(
         Ok(readable) => readable,
         Err(error) => {
             errors.push(error);
-            let carrier = subject_carrier(&captured, true, &[], line, column);
+            let carrier = subject_carrier(&captured, true, &[], None, line, column);
             let errors = combined(errors).map(|error| error.to_compile_error());
             return quote! { #emitted #carrier #errors };
         }
@@ -60,11 +61,61 @@ pub(crate) fn expand_subject(
             Err(error) => errors.push(error),
         }
     }
-    let conversions = conversions(&captured, &entries, &attributes, &mut errors);
+    // A restatement of another crate's enum: nothing is emitted for it but
+    // its carrier and the impls, written for the real path, and it gets no
+    // conversions, which would implement a foreign trait for a foreign
+    // type.
+    let mut remotes = attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.remote.as_ref());
+    let remote = remotes.next().map(|(_, path)| path.clone());
+    if let Some((second, _)) = remotes.next() {
+        errors.push(Error::new(second.span(), "`remote` is given twice"));
+    }
+    if remote.is_some() {
+        emitted = None;
+        let conversion = attributes.iter().find_map(|attribute| {
+            let switches = &attribute.switches;
+            switches
+                .from
+                .as_ref()
+                .map(|switch| switch.span())
+                .or(switches.try_from.as_ref().map(|switch| switch.span()))
+                .or(switches.into.first().map(|into| into.key.span()))
+        });
+        if let Some(span) = conversion {
+            errors.push(Error::new(
+                span,
+                "a restated enum gets no conversions: `From`, `TryFrom` and `into` would implement a foreign trait for another crate's type",
+            ));
+        }
+    }
+    let conversions = if remote.is_some() {
+        TokenStream2::new()
+    } else {
+        conversions(&captured, &entries, &attributes, &mut errors)
+    };
     let dispatched: Vec<&Path> = attributes
         .iter()
         .filter_map(|attribute| attribute.spec.path.as_ref())
         .collect();
+    // A trait a field names is one the struct's attribute dispatches; a
+    // field's mark for any other is dead, and says so.
+    for (field, path) in captured.field_traits() {
+        let last = |path: &Path| {
+            path.segments
+                .last()
+                .map(|segment| segment.ident.to_string())
+        };
+        if dispatched.iter().any(|known| last(known) == last(&path)) {
+            continue;
+        }
+        let spelled = path.to_token_stream().to_string().replace(' ', "");
+        errors.push(Error::new_spanned(
+            &path,
+            format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
+        ));
+    }
     // Every variant must be forwardable when the item dispatches a trait.
     // The error carries the variant's `cfg`, so a variant that is compiled
     // out is no error, and it is reported here once rather than per trait.
@@ -85,6 +136,7 @@ pub(crate) fn expand_subject(
             facade: &facade,
             subject: &captured,
             spec: &attribute.spec,
+            remote: remote.as_ref(),
             partial: None,
         };
         // The invocation carries the span of its own attribute, so that an
@@ -93,7 +145,7 @@ pub(crate) fn expand_subject(
         let site = path.span();
         invocations.extend(quote_spanned! { site => #macro_path! { #request } });
     }
-    let carrier = subject_carrier(&captured, false, &dispatched, line, column);
+    let carrier = subject_carrier(&captured, false, &dispatched, remote.as_ref(), line, column);
     let errors = combined(errors).map(|error| error.to_compile_error());
     quote! {
         #emitted
@@ -149,26 +201,30 @@ fn conversions(
     errors: &mut Vec<Error>,
 ) -> TokenStream2 {
     if !subject.has_conversions() {
-        if let Some(switch) = attributes
+        if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.switches.first())
+            .find_map(|attribute| attribute.switches.first_span())
         {
             errors.push(Error::new(
-                switch.span(),
-                "`from` and `try_from` are options of an enum; a struct gets no conversions",
+                span,
+                "`from`, `try_from` and `into` are options of an enum; a struct gets no conversions",
             ));
         }
         return TokenStream2::new();
     }
-    let switch = |pick: fn(&DispatchAttribute) -> Option<&Switch>, value: bool| {
-        attributes
-            .iter()
-            .filter_map(pick)
-            .any(|switch| switch.value() == value)
-    };
-    let from = !switch(|attribute| attribute.switches.from.as_ref(), false);
-    let try_from = switch(|attribute| attribute.switches.try_from.as_ref(), true);
-    conversion_impls(subject, entries, from, try_from, errors)
+    let from = !attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.from.as_ref())
+        .any(|switch| !switch.value());
+    let try_from = attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.try_from.as_ref())
+        .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
+    let into: Vec<&IntoTarget> = attributes
+        .iter()
+        .flat_map(|attribute| attribute.switches.into.iter())
+        .collect();
+    conversion_impls(subject, entries, from, try_from, &into, errors)
 }
 
 /// Writes the subject's own carrier macro, which carries its definition,
@@ -182,6 +238,7 @@ fn subject_carrier(
     captured: &Subject,
     rejected: bool,
     dispatched: &[&Path],
+    remote: Option<&Path>,
     line: usize,
     column: usize,
 ) -> TokenStream2 {
@@ -194,6 +251,7 @@ fn subject_carrier(
         CarriedSubject {
             rejected,
             dispatched,
+            remote,
             subject: captured,
         },
     );
@@ -290,7 +348,13 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
     }
 }
 
+/// Returns the name the facade crate has in the crate being compiled: the
+/// one `proc-macro-crate` finds in its manifest, or `whichever` itself
+/// without the `renamed-dependency` feature.
+#[cfg(feature = "renamed-dependency")]
 pub(crate) fn facade_ident() -> Result<Ident> {
+    use proc_macro2::Span;
+    use proc_macro_crate::FoundCrate;
     match proc_macro_crate::crate_name(FACADE) {
         Ok(FoundCrate::Itself) => Ok(format_ident!("{FACADE}")),
         Ok(FoundCrate::Name(name)) => Ok(Ident::new(&name, Span::call_site())),
@@ -299,4 +363,11 @@ pub(crate) fn facade_ident() -> Result<Ident> {
             format!("`{FACADE}` must be a dependency of this crate: {error}"),
         )),
     }
+}
+
+/// Returns the name the facade crate has in the crate being compiled,
+/// which is its own without the `renamed-dependency` feature.
+#[cfg(not(feature = "renamed-dependency"))]
+pub(crate) fn facade_ident() -> Result<Ident> {
+    Ok(format_ident!("{FACADE}"))
 }

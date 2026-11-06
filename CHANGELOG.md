@@ -5,6 +5,124 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- CI checks that every number the README and the guide quote is one
+  `benchmarks/RESULTS.md` holds (`benchmarks/scripts/check_numbers.py`),
+  without running a benchmark; the vision had listed that check as owed.
+  The behaviour tests are one file per capability under `tests/behaviour/`.
+- `proc-macro-crate`, which lets a crate rename its `whichever`
+  dependency, sits behind the default feature `renamed-dependency`;
+  without it the macro crate's dependency tree is `proc-macro2`, `quote`
+  and `syn` alone, which the surveys counted as five to ten build crates
+  fewer. CI checks the build without the feature and runs
+  `cargo-semver-checks` against the last published version.
+- Every sentence the macros write is pinned by a `tests/ui` snapshot, and
+  a unit test of the macro crate reads the sources and the snapshots and
+  fails when one is not; thirty sentences had none and have a case now,
+  among them the empty enum, the unit struct, the route grammar and the
+  block's `default` with a body. Two sentences lost a "unexpected end of
+  input" prefix.
+- A method returning a tuple that holds `Self`, or an overridden
+  associated type, `(Self, u32)` or `(Self::Sender<T>, Self::Receiver<T>)`,
+  is forwarded: the arm takes the tuple apart, converts each element and
+  builds it again, as a hand writes it. The return model is a tree of
+  conversions now, where it was a wrapper around a value; the shapes that
+  compiled before expand as before. A tuple under an `Option` or a `Result`
+  stays a limit, since its rewrap would need a closure.
+- An enum another crate defines is restated once, `remote` naming the
+  real one, and a trait of this crate is forwarded over it, as a
+  hand-written `impl LocalTrait for other::Either<L, R>` is allowed by the
+  orphan rules; the impl is written for the real path and the restatement
+  emits nothing but its carrier. A restated enum gets no conversions and
+  no inherent impl. activitypub_federation and Lemmy write this over
+  `either::Either` by hand, and pixi over rattler's `ShellEnum`; the
+  vision's "What it will not be" had refused it for a reason the compiler
+  does not share, and its bullet is reworded.
+- A struct's field may name the traits it is the target of,
+  `#[dispatch(Rom)] rom: Cartridge` beside `#[dispatch(Interrupt)]
+  signals: Signals`, and the field marked bare takes every trait not named
+  elsewhere; the struct's attribute still names every trait. A trait named
+  on two fields, or on a field but not on the struct, is one sentence.
+  rsynko, sabicom, activityrust and russh forward different traits to
+  different fields by hand, which the struct decision had named as its
+  reopening condition.
+- `try_from = ref` adds `TryFrom<&Enum> for &Payload` and `try_from =
+  ref_mut` adds `TryFrom<&mut Enum> for &mut Payload` too, each handing the
+  reference back as the error, on the enum or on one variant; hugr writes
+  22 of the first by hand and sound_flow has both in its public bounds.
+  `into = Target` adds `From<Enum> for Target`, each arm converting the
+  payload through its own `Into<Target>`; twitch-irc, screeps and boreholeio
+  write it by hand. The words `ref` and `ref_mut` are `derive_more`'s.
+- A method of a partial impl block may name the variants it forwards to,
+  `#[dispatch(Wep, Wpa)] fn fmt(..) { f.write_str("Others") }`, and its
+  body is the arm for every other variant: a unit variant, a payload
+  without an impl, a variant the enum answers differently, or two different
+  variants of a `Self` argument. `#[dispatch(default)]` on a bodiless
+  method leaves it to the trait's default, neither forwarded nor written.
+  Nine surveyed projects wrote an inherent bridge and a one-line impl for
+  this (libwifi, polars, forest, boreholeio, nostralink, derive-sql,
+  mlt-core, sourmash, Lemmy); auto_impl's `keep_default_for` is the
+  precedent for the second.
+- An arm reaches its target through a route: `*` for what the payload
+  dereferences to, which `deref` spells, `.field` or `.0` for a field,
+  `.method()` for what a method returns. A route goes on a variant or a
+  struct field for every trait (`#[dispatch(via = .base)]`), on one field
+  of a variant with several as the marker a struct already uses
+  (`ConOut(#[dispatch] LineWriter<File>, u32)`), on the trait keyed by
+  variant when the route differs per trait (`via(VarChar = .0)`), or on an
+  inherent method for that method alone. Where the target's type cannot be
+  named the call is `<_ as Trait>::method(..)`, qualified by the trait
+  alone. Inherent dispatch gains `field = name`, which reads a field of the
+  target, and `value`, which makes the arm the target itself for `with` to
+  wrap or an `Option<&dyn Trait>` to widen. These are the projection
+  directions the surveys collected from proof-of-sql, celestia, atuin,
+  sqruff, mlt-core, memcache, regexml and screeps, among others.
+- The carrier macro holds the trait's signatures and nothing else: the
+  default bodies, doc comments, supertraits and associated-type bounds stay
+  in the trait, out of the exported macro and out of every expansion that
+  reads it. The names of the methods with a default travel beside the
+  signatures, since a method without a receiver is left to its default. A
+  carrier written by an earlier release is read as before.
+- The README and the crate docs say what was found by trial in the surveys:
+  an empty partial impl block is how the impl gets a header the enum's
+  attribute cannot write (the trait's own parameters, a lifetime the enum
+  lacks, one instantiation, a bound), and the error for a generic trait
+  dispatched without its arguments offers that block; a block in a module
+  where the trait's types are in scope is the way around "the types must be
+  in scope at the enum"; `with = Into::into` returns the enum at another
+  lifetime; an override in a block reaches the payloads through an inherent
+  `call = name` method; a payload with a hand-written `From` stays out with
+  `from = false` on its variant; and what else an expansion holds, the
+  `#[automatically_derived]`, the hygienic bindings and the agreement block.
+- A `#[cfg]` on a trait method, associated type or const is decided in the
+  trait's crate. The carrier macro is written once per combination of the
+  trait's distinct predicates, each under that combination's `cfg`, with
+  the items that exist under it; before, the attribute was carried onto the
+  generated item and evaluated in the enum's crate, where a feature of the
+  trait's crate is an unknown `cfg` and the item was compiled out or in for
+  the wrong reason (fvm's `CryptoOps::verify_signature`). A trait with
+  more than four distinct predicates is reported on the fifth.
+- A trait method that cannot be forwarded is written with its signature
+  and its sentence as its body, so the impl is complete and every call
+  around it resolves; before, the whole impl was withheld and each call
+  site failed too. A signature that cannot be written, a projection
+  through a parameter with several bounds, still withholds the impl.
+- A `mismatch` expression written on the enum may use the method's
+  parameters and, for a `&self` method, `self`, as one on the trait method
+  could. The two are written in different hygiene contexts, and the
+  fallback arm now binds the names where the expression was written. The
+  README had listed this as a limit of the carrier;
+  `tests/ui/enum_mismatch_names_argument` is a behaviour test now.
+- A payload that is a type parameter of the enum, or of the struct, gives
+  the impl the bound a hand writes, `Raw: Trait` for `Raw(Raw)` and
+  `T: Trait` for a `deref` payload `Box<T>`, `Rc<T>` or `&T`. Before, rustc
+  reported the missing bound at the variant, and the way around it, an
+  empty partial impl block with a bounded header, was documented nowhere;
+  sux writes about 116 such blocks.
+- A method taking `Self` arguments gets its fallback arm only when the
+  enum has two variants to meet, or a variant under `#[cfg]`; a one-variant
+  enum needs no `mismatch` and gets no arm, as a hand writes none. The
+  `#[allow(unreachable_patterns)]` that every such method carried is
+  written only when a `#[cfg]` variant can leave the arm unreachable.
 - The benchmarks time the random layout over 64 Ki elements instead of
   1024, a sequence short enough for the branch predictor to learn, and the
   scattered collections over a single variant, so the memory table shows

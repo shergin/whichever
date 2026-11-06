@@ -1,0 +1,5 @@
+error: `price` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`
+  --> tests/ui/block_bodiless_without_attribute.rs:23:5
+   |
+23 |     fn price(&self) -> u32;
+   |     ^^^^^^^^^^^^^^^^^^^^^^

@@ -73,6 +73,15 @@ That is the code a careful hand would write: no trait object, no closure,
 no conversion, and a variant's override of a default method is never hidden
 by the default.
 
+Three more things are in the expansion, and in `cargo expand`: the impl is
+marked `#[automatically_derived]`, which tells Clippy and coverage tools
+what it is; the bindings the arms use are named `__inner`, `__same0` and
+the like, with `macro_rules`-style hygiene, so they never collide with a
+name the trait wrote; and a `const _` block beside the impl holds the
+agreement checks for the associated types and consts, which compile to
+nothing. The enum keeps its definition in a crate-local carrier macro for
+its impl blocks, re-exported under the enum's name.
+
 ## Why another one
 
 An enum over the implementors of a trait is the cheapest way to hold "one
@@ -111,7 +120,7 @@ Whichever you pick, the first trait with a `&Self` argument or an
 associated const sends you back to writing the `match` by hand.
 
 `whichever` keeps nothing between expansions. `#[dispatchable]` exports a
-carrier macro holding the trait's tokens, re-exported under the trait's own
+carrier macro holding the trait's signatures, re-exported under the trait's own
 name, and `#[dispatch]` calls it. The trait reaches the enum through
 ordinary name resolution, so it works across crates, in any order, and
 every span is the one you wrote.
@@ -160,7 +169,7 @@ The swap is mechanical:
 | `#[enum_dispatch(Enum)]` on the trait | name the trait on the enum instead |
 | `enum E { Circle, Square }` | `enum E { Circle(Circle), Square(Square) }` |
 | `From<Payload>` | the same, opt out with `from = false` |
-| `TryInto<Payload>`, error `&'static str` | `try_from = true`: `TryFrom<E> for Payload`, the error hands the enum back |
+| `TryInto<Payload>`, error `&'static str` | `try_from = true`: `TryFrom<E> for Payload`, the error hands the enum back; `ref` and `ref_mut` for the by-reference forms |
 
 Three things to watch:
 
@@ -227,11 +236,13 @@ crate, goes back to a hand-written `match`.
 | Several traits on one enum | yes | yes | yes | yes | no | no | yes | yes |
 | Payload with a same-named inherent method | safe | safe | safe | safe | safe | safe | safe | calls it, unless `#[through]` |
 | `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
+| A field of the payload, or of a variant with several fields, as the target | yes, a route or a marked field | no | no | no | no | no | no | yes, by hand |
 | `-> impl Trait` | `impl Future<Output = T>` on an enum; any, through a struct | no | through a struct | no | no | no | no | no |
-| `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in | yes, plus a forced `TryInto` | no | no | yes | no | no | no |
+| `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in, by value, `&` and `&mut`; `From<Enum> for Target` with `into =` | yes, plus a forced `TryInto` | no | no | yes, with `&` and `&mut` `TryInto` | no | no | no |
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 | Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
 | A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
+| An enum another crate defines | yes, restated with `remote` | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
 | `self: Pin<&mut Self>`, `self: Box<Self>` | yes | - | - | - | - | - | - | - |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one
@@ -257,9 +268,9 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `Name = Type` fixes the associated type `Name` instead of taking it from
   the first variant. A method returning `Self::Name` is converted with
   `Into`, one returning `Result<_, Self::Name>` with `map_err(Into::into)`,
-  and `Option<Self::Name>`, `Result<Self::Name, E>` and `Result<Self,
-  Self::Name>` are mapped the same way, so variants with their own error
-  types can share one enum:
+  and `Option<Self::Name>`, `Result<Self::Name, E>`, `Result<Self,
+  Self::Name>` and a tuple holding `Self::Name` are mapped the same way, so
+  variants with their own error types can share one enum:
 
   ```rust
   #[whichever::dispatch(Storage, Error = StorageError)]
@@ -294,24 +305,36 @@ All options follow the trait path in `#[dispatch(..)]`.
   }
   ```
 
-  An expression on the trait method may use the method's parameters, a
-  `Self` argument included; one on the enum can use neither them nor
-  `self`, since the trait's tokens reach the enum through a `macro_rules!`
-  body and carry its hygiene.
+  An expression on the trait method or on the enum may use the method's
+  parameters, a `Self` argument included, and `self` when the method
+  takes `&self`; `&mut self` and `self` are moved into the `match`.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
-  by two variants gets none either way.
+  by two variants gets none either way, and a payload whose `From` is
+  written by hand, or that a derive supplies, stays out with
+  `#[dispatch(from = false)]` on its variant, since a second impl of the
+  same `From` is a conflict.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
   with the enum as the error, so a mismatch hands the value back; `.unwrap()`
-  on the result therefore needs the enum to be `Debug`.
+  on the result therefore needs the enum to be `Debug`. `try_from = ref`
+  adds `TryFrom<&Enum> for &Payload` to that, and `try_from = ref_mut` adds
+  `TryFrom<&mut Enum> for &mut Payload` too, each handing the reference
+  back as the error; the words are `derive_more`'s.
+- `into = Target` adds `From<Enum> for Target`, with each arm converting
+  the payload through its own `Into<Target>`, so an enum over messages
+  that all convert into one wire type converts in one line; the option
+  may be repeated. Every variant has to hold a payload and take part in the
+  conversions.
 
-Three options go on a variant. `#[dispatch(from = false)]` leaves the
+Four options go on a variant. `#[dispatch(from = false)]` leaves the
 variant out of the `From` and `TryFrom` impls, for a payload such as
 `String` that should not convert into the enum, and
 `#[dispatch(try_from = true)]` adds the `TryFrom` impl for that payload
 alone. `#[dispatch(deref)]` calls the trait on what the payload
 dereferences to, so `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and `&mut T`
-payloads dispatch like a plain `T`:
+payloads dispatch like a plain `T`, and `#[dispatch(via = route)]` calls
+it on a field of the payload or on what a method of it returns; see
+[Reaching the target](#reaching-the-target):
 
 ```rust
 #[whichever::dispatch(Shape)]
@@ -320,12 +343,17 @@ pub enum AnyShape<'a> {
     Boxed(Box<Circle>),
     #[dispatch(deref)]
     Borrowed(&'a Square),
+    #[dispatch(via = .shape)]
+    Labelled(Labelled),       // struct Labelled { shape: Square, label: String }
     Plain(Square),
 }
 ```
 
-Several traits are dispatched by repeating the attribute; a supertrait is
-one more attribute:
+A trait's own route through a variant, `via(Variant = route, ..)` after
+the trait path, wins over the variant's for that trait; a variant with
+several fields marks the one to forward to with `#[dispatch]` and is
+otherwise reported. Several traits are dispatched by repeating the
+attribute; a supertrait is one more attribute:
 
 ```rust
 #[whichever::dispatch(Shape)]
@@ -339,7 +367,42 @@ parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`. Type,
 lifetime and const parameters are substituted in every signature, and a
 projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
 bound; with several bounds the trait has to spell `<F as Format>::Value`
-itself.
+itself. A payload that is a type parameter of the enum, `Raw(Raw)` on
+`enum Lazy<Raw, Parsed>`, or `Box<T>` under `deref`, gives the impl the
+bound `Raw: Trait`, which is the bound a hand writes; a struct's field the
+same, `impl<T: Shape> Shape for Wrapper<T>` for `struct Wrapper<T>(T)`.
+
+## Reaching the target
+
+An arm calls the trait on the payload. A **route** names the steps from
+the payload to the value the trait is called on instead: `*` for what the
+payload dereferences to, which `deref` spells, `.field` or `.0` for a
+field, `.method()` for what a method returns, in any sequence. A route is
+written in four places, which are the places a hand writes it:
+
+- on a variant or a struct field, for every trait: `#[dispatch(via =
+  .base_account)]`, `#[dispatch(via = .1)]` on `VarChar((&[&str], &[S]))`;
+- as the marker a struct already uses, on one field of a variant with
+  several: `ConOut(#[dispatch] LineWriter<File>, u32)` or `Node { id: u32,
+  #[dispatch] data: Data }`; the other fields ride along in the pattern;
+- on the trait, keyed by variant, when the route differs per trait:
+  `#[dispatch(ProvableResultColumn, via(VarChar = .0))]` beside
+  `#[dispatch(MultilinearExtension, via(VarChar = .1))]`;
+- on an inherent method, for that method alone: `#[dispatch(*, via =
+  .content(), call = refresh)]`.
+
+The arm stays one line. Where the route names the target's type, the
+payload or what it dereferences to, the call is `<Square as Shape>::area(
+&inner.base)`; a field's or a method's type cannot be named, and the call
+is `<_ as Shape>::area(&inner.base)`, qualified by the trait alone, so an
+inherent method of the same name still never takes over. A route ending
+in a method call yields a value: it serves `&self` and `self` methods, and
+a `&mut self` method is reported, since nothing can be borrowed mutably
+through a call. A method returning `Self` is reported on a routed variant,
+`deref` included, since the rest of the payload is gone. A variant with
+other fields beside the payload gets no `From` or `TryFrom`, and a variant
+whose target has no nameable type takes no part in the agreement checks,
+where a disagreement shows in the arm instead.
 
 ## Inherent methods
 
@@ -370,14 +433,26 @@ Each arm calls the payload's method by method-call syntax,
 resolution apply as in hand-written code. `with = path` wraps each forwarded
 result in a call to `path`, which may be a generic function, called
 separately in each arm, so payloads whose results differ can meet in one
-declared return type; `call = name` forwards to a method of another name;
+declared return type, and `with = Into::into` rebuilds the enum through its
+`From` impls, which is the way to return the enum at another lifetime,
+`fn into_static(self) -> PlayableId<'static>`; `call = name` forwards to a
+method of another name;
 `async` methods and methods returning `impl Future` are awaited; and
 methods without the attribute are left alone. A method returning `Self`,
 `Option<Self>` or `Result<Self, E>` wraps the payload's result back into
 the variant, as trait dispatch does. With `with`, the payload returns the
 plain value and `with` lifts the wrapped variant: `#[dispatch(Circle, with =
 Some)]` on `fn grown(&self) -> Option<Self>` calls a `Circle::grown` that
-returns a `Circle`. A `Self` argument is the enum itself and is handed to
+returns a `Circle`. Two options make the arm a place instead of a call:
+`field = name` reads that field of the target, by reference when the
+method returns one and by value otherwise, so `#[dispatch(*, field =
+line_no)]` on `fn line_no(&self) -> usize;` is `inner.line_no` in every
+arm; and `value` makes the arm the target itself, which `with` wraps or
+the return type widens, so `#[dispatch(Controller, Spawn, value, with =
+Some)]` on `fn as_owned(&self) -> Option<&dyn Owned> { None }` is
+`Some(inner)` for the named variants. `via = route` reaches the target
+for this method alone, over the variant's own route. A `Self` argument is
+the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
 it is compiled out, the method takes its body. The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
@@ -443,6 +518,35 @@ in a [partial impl block](#methods-the-enum-implements-itself) over the
 declaration: `#[dispatch] impl whichever::foreign::Error for ClientError
 { fn source(&self) -> .. { None } }`.
 
+## Enums from other crates
+
+A trait of this crate may be forwarded over an enum another crate defines,
+as a hand-written `impl LocalTrait for other::Either<L, R>` may: restate
+the enum once, `remote` naming the real one, and dispatch the restatement.
+Nothing is emitted for the restatement but its carrier and the impls,
+written for the real path; a variant missing or misspelt fails against the
+real enum. A restated enum gets no conversions and no inherent impl, which
+the orphan rules and the language refuse; for a partial impl block, import
+the real enum under the restatement's name and write the block on it:
+
+```rust
+use either::Either;
+
+#[whichever::dispatch(remote = either::Either)]
+#[whichever::dispatch(Describe)]
+pub enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+#[whichever::dispatch]
+impl<L: Named, R: Named> Named for Either<L, R> {
+    fn kind() -> &'static str {
+        "either"
+    }
+}
+```
+
 ## Methods the enum implements itself
 
 A trait method without a receiver, such as a constructor, has no variant to
@@ -475,15 +579,57 @@ converts into it through `Into`, as for any override. A method written in
 the block replaces the forwarding for every variant, provided methods
 included, which is the way to leave a payload's method out on purpose; one
 written under `#[cfg]` replaces it where the `cfg` holds and is forwarded
-where it does not, as a hand writes the two arms. The block's own header,
+where it does not, as a hand writes the two arms. A method in the block
+may name the variants it forwards to, as an inherent method does, and its
+body is then the arm for every other variant, two different variants of a
+`Self` argument included; `*` with a bodiless method is the plain
+forwarding written out, and `#[dispatch(default)]` on a bodiless method
+leaves it to the trait's default, neither forwarded nor written:
+
+```rust
+#[whichever::dispatch]
+impl whichever::foreign::Display for Category {
+    /// Every other kind of category prints its own name.
+    #[dispatch(Wep, Wpa, Wpa2)]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("Others")
+    }
+}
+```
+
+That is how a trait reaches a unit variant, a variant whose payload has no
+impl, or a variant the enum answers differently: the method names the
+rest. The block's own header,
 generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
-them, so a block in another module needs them in scope there. Outer
+them, so a block in another module needs them in scope there; the converse
+holds too, so when the trait's signature types are not in scope where the
+enum is, an empty block in a module where they are is the place to write
+the impl. Outer
 attributes on the block are carried onto the impl: `#[typetag::serde(name =
 "..")]` goes there, with `#[whichever::dispatchable]` above
 `#[typetag::serde]` on the trait, so that typetag's own methods are the
-block's and never forwarded. Like inherent blocks, it has to be in the
-enum's crate.
+block's and never forwarded. A method written in the block that still
+needs the payloads' answer calls an inherent `#[dispatch(*, call = name)]`
+method beside it. Like inherent blocks, it has to be in the enum's crate.
+
+### The impl header
+
+The block's header is the impl's header, so an empty block is how the impl
+gets a header the enum's attribute cannot write: generics the enum does not
+have, bounds, or one instantiation. A trait generic over its own parameter
+is implemented for every `F`:
+
+```rust
+#[whichever::dispatch]
+impl<F: Format> Encoder<F> for AnyEncoder {}
+```
+
+A trait with a lifetime the enum lacks names it, `impl<'r> Renderable<'r>
+for Node {}`; a trait implemented for one instantiation of a generic enum
+names that, `impl ColNames for Lazy<Raw<'static>, Parsed> {}`; and a bound
+on a type parameter that the trait's own `Param: Trait` bound does not cover
+goes in the header, `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
 
 ## Forwarding from a struct field
 
@@ -520,6 +666,24 @@ pub struct Beacon {
 }
 ```
 
+A field may name the traits it is the target of, and the field marked bare
+takes every trait not named elsewhere; the struct's attribute still names
+every trait it dispatches:
+
+```rust
+#[whichever::dispatch(Rom)]
+#[whichever::dispatch(Interrupt)]
+#[whichever::dispatch(Named)]
+pub struct Mapper {
+    #[dispatch(Rom)]
+    rom: Cartridge,
+    #[dispatch(Interrupt)]
+    signals: Signals,
+    #[dispatch]
+    label: Label,       // `Named`, and any other trait
+}
+```
+
 `#[dispatch(deref)]` on the field reaches through a `Box` or another
 pointer. A method returning `Self` is rebuilt only around a struct with no
 other field; otherwise it is an error, and the method goes in a partial impl
@@ -545,23 +709,27 @@ unwrapped to it.
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
 | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
+| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
-| `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
+| `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
+| `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |
 | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 
 ## Limits
 
 - Every variant a trait is dispatched to holds exactly one unnamed field,
-  `Name(Payload)`, and every payload implements the trait. A variant of
-  another shape is reported under its own `#[cfg]`, so a variant compiled
-  out, such as a test-only mock, is no error; an enum that only forwards
-  inherent methods may hold such variants, which take the method's body.
+  `Name(Payload)`, or marks the field to forward to with `#[dispatch]`,
+  and every target implements the trait. A variant of another shape is
+  reported under its own `#[cfg]`, so a variant compiled out, such as a
+  test-only mock, is no error; an enum that only forwards inherent methods
+  may hold such variants, which take the method's body.
 - An enum cannot dispatch a return-position `impl Trait`, at any depth of
   the return type, except `impl Future<Output = T>`, which is awaited like
   an `async fn`; a struct forwards any.
-- A `deref` variant cannot take part in a method returning `Self`: there is
-  no way to put the result back behind the pointer.
+- A variant reached through a route, `deref` included, cannot take part in
+  a method returning `Self`: there is no way to put the result back behind
+  the pointer or around the other fields. A route ending in a method call
+  cannot serve a `&mut self` method.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`
@@ -592,6 +760,10 @@ unwrapped to it.
 - An associated const of a type other than an integer, `bool`, `char` or
   `&str`, or on a generic enum, is taken from the first variant without a
   check.
+- A trait whose items carry more than four distinct `#[cfg]` predicates
+  is reported on the fifth: the carrier macro is written once per
+  combination of them. Combine the predicates, or move the items under
+  the fifth to a trait of their own.
 - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
   when at least one token of the trait, its name or a method's, comes from
   the invocation. A trait written out in full in the macro's body gets the
@@ -601,7 +773,9 @@ unwrapped to it.
 
 Every unsupported shape is reported as one sentence on the offending trait
 item or variant; see `tests/ui` for all of them. A rejected enum is still
-emitted, so the derives, uses and impl blocks around it compile and that
+emitted, so the derives, uses and impl blocks around it compile, and a
+trait method that cannot be forwarded is still written, with its sentence
+as its body, so the impl is complete and the calls around it resolve: that
 one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
@@ -612,7 +786,8 @@ declaration or the `remote` restatement to use instead. "could not find
 `Trait` in `other`" on `#[dispatch(other::Trait)]` means the same for a
 trait of another crate: restate it with `remote`. The same words on a
 partial block over another crate's enum mean the enum has no
-`#[whichever::dispatch]`, which only its own crate can add.
+`#[whichever::dispatch]`, which only its own crate can add, or that the
+enum is another crate's and is restated with `remote`.
 
 One `macro_rules!` that emits the same `pub` trait, written out in full,
 at two places gets the same carrier macro name twice; `#[dispatchable(name =
@@ -623,14 +798,22 @@ tokio)]` names the macro explicitly and tells the two apart.
 `no_std`, with no dependencies beyond the proc-macro crate. The minimum
 supported Rust version is 1.88. Both the crate that owns the trait and the
 crate that owns the enum depend on `whichever`; renaming the dependency is
-fine.
+fine under the default feature `renamed-dependency`, which looks the name
+up through `proc-macro-crate`, and without it the macro crate's dependency
+tree is `proc-macro2`, `quote` and `syn` alone.
 
 `#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
 the carrier macro, to the crate root, named after the trait and the position
-of its tokens,
-which is how another crate's enum reaches the trait's signatures. A trait
+of its tokens, which is how another crate's enum reaches the trait's
+signatures. The macro holds the signatures and the attributes the generated
+items carry, and nothing else: no default body, no doc comment, no bound. A trait
 of any other visibility keeps its macro in its own module and adds nothing
-to the crate root.
+to the crate root. A trait with items under `#[cfg]` defines the macro once
+per combination of its predicates, each under that combination's `cfg`, so
+that one definition of the name is compiled. The name is a function of the
+trait's tokens and their positions, so an expansion is the same on every
+build and on every machine; `#[dispatchable(name = ..)]` replaces the hash
+when one `macro_rules!` emits the same trait twice.
 
 ## License
 

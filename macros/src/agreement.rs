@@ -68,7 +68,11 @@ pub(crate) fn associated_const_check(
             continue;
         };
         for variant in others(variants, first) {
-            let payload = variant.target_type_outside(self_type);
+            // A target reached through a field or a method has no type to
+            // name here; a disagreement shows in the method's arm instead.
+            let Some(payload) = variant.target_type_outside(self_type) else {
+                continue;
+            };
             let cfgs = &variant.cfgs;
             let message = format!(
                 "`{name}` of variant `{}` differs from the first variant's; set it on the enum with `{name} = value`",
@@ -160,10 +164,10 @@ pub(crate) fn associated_type_check(
         }
     }
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let checks = others(variants, first).map(|variant| {
-        let payload = variant.target_type_outside(self_type);
+    let checks = others(variants, first).filter_map(|variant| {
+        let payload = variant.target_type_outside(self_type)?;
         let cfgs = &variant.cfgs;
-        quote! { #(#cfgs)* Self::__same_as_first_variant::<#payload>(); }
+        Some(quote! { #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })
     });
     quote! {
         const _: () = {

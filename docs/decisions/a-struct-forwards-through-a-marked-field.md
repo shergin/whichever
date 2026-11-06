@@ -1,8 +1,10 @@
 # A struct forwards through a marked field
 
-Status: accepted, 2026-11-02 (0.4.0). Serves rule 3 of the
-[vision](../vision.md), what earns a shape. Reopen if a
-project needs different traits forwarded to different fields of one struct.
+Status: superseded on 2026-11-05 by
+[A struct's field may name its traits](a-structs-field-may-name-its-traits.md),
+after rsynko, sabicom, activityrust and russh met the reopening condition.
+Accepted 2026-11-02 (0.4.0). Served rule 3 of the [vision](../vision.md),
+what earns a shape.
 
 ## Context
 

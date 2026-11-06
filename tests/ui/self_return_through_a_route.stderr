@@ -1,0 +1,5 @@
+error: `grown` returns `Self`, which cannot be wrapped back through the route `.base` of `Module`, whose other fields are gone; drop `via` on it or implement the method by hand
+  --> tests/ui/self_return_through_a_route.rs:23:12
+   |
+23 |     Module(Account),
+   |            ^^^^^^^

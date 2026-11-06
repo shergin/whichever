@@ -1,4 +1,4 @@
-error: `from` and `try_from` are options of an enum; a struct gets no conversions
+error: `from`, `try_from` and `into` are options of an enum; a struct gets no conversions
   --> tests/ui/struct_from_option.rs:14:29
    |
 14 | #[whichever::dispatch(Area, try_from = true)]
