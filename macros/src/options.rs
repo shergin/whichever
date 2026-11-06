@@ -714,13 +714,17 @@ impl Parse for ForwardingOptions {
             ));
         }
         if !forwarding.all && forwarding.variants.is_empty() {
-            return Err(input.error("name the variants to forward to, or `*` for all of them"));
+            return Err(Error::new(
+                input.span(),
+                "name the variants to forward to, or `*` for all of them",
+            ));
         }
         let reads = match (&forwarding.field, forwarding.value) {
             (Some(_), true) => {
-                return Err(
-                    input.error("`field` reads a field and `value` is the target itself; give one")
-                )
+                return Err(Error::new(
+                    input.span(),
+                    "`field` reads a field and `value` is the target itself; give one",
+                ))
             }
             (Some(field), false) => Some(format!("`field = {}`", field.to_token_stream())),
             (None, true) => Some("`value`".to_owned()),
