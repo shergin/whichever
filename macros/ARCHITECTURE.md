@@ -571,8 +571,9 @@ case.
 
 ### Stage 16: the review of 2026-11-06
 
-Status: in progress on the branch `execute-review-2026-11-06`, one commit
-per item in the order of `notes/review-2026-11-06.md` section 8. Every
+Status: landed on 2026-11-06 on the branch `execute-review-2026-11-06`, one
+commit per item in the order of `notes/review-2026-11-06.md` section 8, and
+merged the same day. Every
 token the engine writes carries a user span through `at`, located at the
 subject's, the method's or the payload's token and resolved at the
 expansion's own site, and `spans.rs` holds it (snapshots:
