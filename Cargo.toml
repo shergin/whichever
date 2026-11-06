@@ -39,6 +39,9 @@ members = [
     "benchmarks",
     "benchmarks/subjects",
 ]
+# A workspace of its own: its enum crate uses the last published
+# `whichever`, which this workspace's members must not.
+exclude = ["smoke/mixed"]
 
 # The benchmarks run under the default `bench` profile, where each crate is
 # optimised on its own; this profile shows what link-time optimisation

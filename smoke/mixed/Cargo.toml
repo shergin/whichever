@@ -1,0 +1,8 @@
+# A dependency graph with two versions of `whichever`: the trait's crate on
+# this checkout, the enum's crate on the last published version. Cargo
+# allows it, since two minors of a 0.x crate are two majors to it, and the
+# older reader has to say so in one sentence; `check.py` asserts that it
+# does. A workspace of its own, since its `whichever` is not the root's.
+[workspace]
+resolver = "2"
+members = ["traits", "enums"]

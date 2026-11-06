@@ -4,8 +4,9 @@
 //!
 //! ```text
 //! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [remote { <path> }] [impl { <block> }]
-//! what the carrier puts in front  @v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }]
-//! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <options> } [impl { <block> }]
+//! what the carrier puts in front  @v2 trait { <signatures> } [remote { <path> }] [provided { <method>, .. }]
+//! what `implement!` reads         @v2 trait { <signatures> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <options> } [impl { <block> }]
+//!                                 @v1 trait { <trait> } [remote { <path> }] enum { .. } .., the prefix of the carriers 0.1 to 0.6 wrote
 //!
 //! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
 //! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> }
@@ -13,13 +14,21 @@
 //! ```
 //!
 //! A carrier macro takes `@v1 <facade>` off its request and calls the
-//! facade's implementation macro with its own prefix in front of the rest.
-//! A trait's carrier is compiled into the trait's crate and read by whatever
-//! version of this crate the subject's crate builds with, so the first group
-//! is a compatibility surface. Between two keywords the message is a run of
-//! segments, `tag` or `tag { .. }`; a segment is only ever added, and a
-//! reader skips a tag it does not know, so an older reader accepts a newer
-//! carrier. `v1` becomes `v2` when a segment changes meaning or order. A
+//! facade's implementation macro with its own prefix in front of the rest;
+//! a request of any other shape hits the carrier's last rule, one sentence
+//! saying the carrier is older than the `whichever` dispatching it. A
+//! trait's carrier is compiled into the trait's crate and read by whatever
+//! version of this crate the subject's crate builds with, so the request
+//! and the prefix are a compatibility surface frozen into every published
+//! trait crate: anything the request side may ever send must match an old
+//! carrier's rule or its last one. Between two keywords the message is a
+//! run of segments, `tag` or `tag { .. }`; a segment is only ever added,
+//! and a reader skips a tag it does not know, so an older reader accepts a
+//! newer prefix of the same version. The version changes when a segment
+//! changes meaning or order: `v1`'s `trait { .. }` held the whole trait,
+//! bodies included, and a method without a body was required; `v2`'s holds
+//! signatures only and names the provided methods in `provided`. A reader
+//! reads both; one too old for a prefix says so in one sentence. A
 //! subject's carrier never leaves its crate.
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
@@ -30,11 +39,22 @@ use syn::{braced, token, Error, Ident, ItemImpl, ItemTrait, Path, PathArguments,
 use crate::options::TraitSpec;
 use crate::subject::Subject;
 
-/// The version every message starts with.
-const VERSION: &str = "v1";
+/// The version of a request, which every carrier ever written matches.
+const REQUEST_VERSION: &str = "v1";
 
-fn version() -> Ident {
-    Ident::new(VERSION, Span::call_site())
+/// The version of the prefix a trait's carrier puts in front: `v2` since
+/// the carrier holds signatures only.
+const CARRIED_TRAIT_VERSION: &str = "v2";
+
+/// The version of the prefix a subject's carrier puts in front, which never
+/// leaves its crate.
+const CARRIED_SUBJECT_VERSION: &str = "v1";
+
+/// The prefix versions `implement!` reads.
+const READABLE_TRAIT_VERSIONS: &[&str] = &["v1", CARRIED_TRAIT_VERSION];
+
+fn version(name: &str) -> Ident {
+    Ident::new(name, Span::call_site())
 }
 
 /// The implementation macro a carrier calls, under `__private` of the
@@ -57,22 +77,31 @@ impl Implementation {
     }
 }
 
+/// The sentence a carrier's last rule writes for a request it does not
+/// match: one a newer `whichever` than the carrier's sent.
+pub(crate) const CARRIER_IS_OLDER: &str = "this trait's carrier macro was written by an older `whichever` than the one dispatching it; update the trait's crate, or build both crates with the same `whichever` minor";
+
 /// Writes a carrier macro named `name`: one rule that takes `@v1` and the
 /// facade's name off a request and calls the facade's `implementation`
-/// macro with `carried` in front of the rest.
+/// macro with `carried` in front of the rest, and a last rule that reports
+/// any other request as newer than the carrier.
 pub(crate) fn carrier_macro(
     name: &Ident,
     attributes: TokenStream2,
     implementation: Implementation,
     carried: impl ToTokens,
 ) -> TokenStream2 {
-    let version = version();
+    let version = version(REQUEST_VERSION);
     let implementation = implementation.ident();
+    let older = CARRIER_IS_OLDER;
     quote! {
         #attributes
         macro_rules! #name {
             (@#version $facade:ident $($rest:tt)*) => {
                 ::$facade::__private::#implementation! { #carried $($rest)* }
+            };
+            (@ $($rest:tt)*) => {
+                ::core::compile_error!(#older);
             };
         }
     }
@@ -109,7 +138,7 @@ impl ToTokens for TraitRequest<'_> {
             remote,
             partial,
         } = self;
-        let version = version();
+        let version = version(REQUEST_VERSION);
         let remote = remote.map(|path| quote!(remote { #path }));
         let partial = partial.map(|block| quote!(impl { #block }));
         tokens
@@ -135,7 +164,7 @@ impl ToTokens for CarriedTrait<'_> {
             remote,
             provided,
         } = self;
-        let version = version();
+        let version = version(CARRIED_TRAIT_VERSION);
         let remote = remote.map(|path| quote!(remote { #path }));
         let provided = (!provided.is_empty()).then(|| quote!(provided { #(#provided),* }));
         tokens.extend(quote! { @#version trait { #trait_tokens } #remote #provided });
@@ -149,8 +178,8 @@ pub(crate) struct ImplementInput {
     /// is written for.
     pub(crate) remote: Option<Path>,
     /// The methods the trait gives a default body, whose bodies the carrier
-    /// leaves behind; a carrier from before this segment carries the bodies
-    /// themselves.
+    /// leaves behind; a `v1` carrier, written before this segment, carries
+    /// the bodies themselves.
     pub(crate) provided: Vec<Ident>,
     pub(crate) subject: Subject,
     /// The real path of a subject restated with `remote = ..`, which the
@@ -164,7 +193,7 @@ pub(crate) struct ImplementInput {
 
 impl Parse for ImplementInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        parse_version(input)?;
+        parse_version(input, READABLE_TRAIT_VERSIONS)?;
         input.parse::<Token![trait]>()?;
         let item_trait = parse_braced(input)?;
         let mut remote = None;
@@ -234,7 +263,7 @@ impl ToTokens for BlockRequest<'_> {
             partial,
             block,
         } = self;
-        let version = version();
+        let version = version(REQUEST_VERSION);
         let partial = partial.map(|spec| quote!(partial { #spec }));
         tokens.extend(quote! { @#version #facade #partial impl { #block } });
     }
@@ -261,7 +290,7 @@ impl ToTokens for CarriedSubject<'_> {
             remote,
             subject,
         } = self;
-        let version = version();
+        let version = version(CARRIED_SUBJECT_VERSION);
         let rejected = rejected.then(|| quote!(rejected));
         let dispatched = (!dispatched.is_empty()).then(|| quote!(traits { #(#dispatched),* }));
         let remote = remote.map(|path| quote!(remote { #path }));
@@ -292,7 +321,7 @@ pub(crate) struct BlockInput {
 
 impl Parse for BlockInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        parse_version(input)?;
+        parse_version(input, &[CARRIED_SUBJECT_VERSION])?;
         let mut rejected = false;
         let mut facade = None;
         let mut dispatched = vec![];
@@ -342,13 +371,16 @@ impl Parse for BlockInput {
     }
 }
 
-fn parse_version(input: ParseStream) -> Result<()> {
+/// Reads the prefix's version and reports one this reader does not know,
+/// which a carrier written by a newer `whichever` than this one puts in
+/// front.
+fn parse_version(input: ParseStream, readable: &[&str]) -> Result<()> {
     input.parse::<Token![@]>()?;
     let version: Ident = input.parse()?;
-    if version != VERSION {
+    if !readable.iter().any(|known| version == known) {
         return Err(Error::new_spanned(
             version,
-            "unsupported `whichever` protocol version",
+            "this trait's carrier macro was written by a newer `whichever` than the one dispatching it; update `whichever` in this crate",
         ));
     }
     Ok(())
@@ -488,12 +520,38 @@ mod tests {
     fn unknown_segments_are_skipped_and_a_wrong_version_is_not() {
         let subject = subject();
         let newer = quote! {
-            @v1 trait { trait T { fn f(&self); } } later { 1 } enum { #subject } spec { T } someday
+            @v2 trait { trait T { fn f(&self); } } later { 1 } enum { #subject } spec { T } someday
         };
         assert!(syn::parse2::<ImplementInput>(newer).is_ok());
-        let other_version = quote!(@v2 trait { trait T {} } enum { #subject } spec { T });
-        assert!(syn::parse2::<ImplementInput>(other_version).is_err());
-        let without_spec = quote!(@v1 trait { trait T {} } enum { #subject });
+        let of_0_6 = quote!(@v1 trait { trait T { fn f(&self) {} } } enum { #subject } spec { T });
+        assert!(
+            syn::parse2::<ImplementInput>(of_0_6).is_ok(),
+            "the prefix of the carriers before this release is still read"
+        );
+        let later_version = quote!(@v3 trait { trait T {} } enum { #subject } spec { T });
+        let error = syn::parse2::<ImplementInput>(later_version)
+            .err()
+            .expect("an error")
+            .to_string();
+        assert!(
+            error.starts_with("this trait's carrier macro was written by a newer"),
+            "{error}"
+        );
+        let without_spec = quote!(@v2 trait { trait T {} } enum { #subject });
         assert!(syn::parse2::<ImplementInput>(without_spec).is_err());
+    }
+
+    #[test]
+    fn a_carrier_matches_the_request_and_reports_any_other() {
+        let name: Ident = parse_quote!(__whichever_T_1);
+        let carried = quote!(@v2 trait { trait T {} });
+        let carrier = carrier_macro(&name, quote!(), Implementation::Trait, carried).to_string();
+        assert!(
+            carrier.contains("@ v1 $ facade : ident $ ($ rest : tt) *"),
+            "{carrier}"
+        );
+        assert!(carrier.contains("(@ $ ($ rest : tt) *)"), "{carrier}");
+        assert!(carrier.contains(CARRIER_IS_OLDER), "{carrier}");
+        assert!(carrier.contains("@ v2 trait"), "{carrier}");
     }
 }

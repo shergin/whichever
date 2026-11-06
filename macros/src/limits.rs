@@ -14,7 +14,6 @@ use syn::{Expr, ExprCall, ExprMacro, ExprMethodCall, Lit, Macro};
 /// which no source can reach; a shape stable Rust cannot write; and the
 /// pieces of a sentence that are composed into one the snapshots pin.
 const NOT_LIMITS: &[&str] = &[
-    "unsupported `whichever` protocol version",
     "the request has no `",
     "expected an enum or a struct",
     "expected a trait impl",

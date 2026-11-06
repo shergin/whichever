@@ -46,6 +46,18 @@ changes are expected and listed without apology.
   was the trait's identity, and both were "named on two fields". One rule
   tells two traits apart wherever the macros compare them: the path as
   written, which is what a macro that cannot resolve names can say.
+- The prefix a trait's carrier macro puts in front of a request is `v2`:
+  0.6.0 changed what the `trait { .. }` segment holds, signatures without
+  bodies, under the `v1` of the releases that held the bodies, so an enum
+  crate on 0.5 reading a trait crate on 0.6 took a provided method without
+  a receiver for a required one and said "give it a default body". The
+  reader reads both versions; a reader too old for a prefix says the
+  carrier is newer than it, and every carrier now ends in a rule that says
+  the opposite for a request it does not match. `smoke/mixed` builds a
+  trait crate on this checkout against an enum crate on the last published
+  version and checks the older reader's sentence, in CI. Before 1.0 the
+  trait's crate and the enum's crate use the same `whichever` minor, which
+  the README says now.
 
 ## 0.6.0 - 2026-11-06
 

@@ -621,7 +621,10 @@
 //! Nothing is cached between expansions, so the two attributes work across
 //! crates,
 //! in any order, and under rust-analyzer. Both crates depend on
-//! `whichever`; a renamed dependency is fine.
+//! `whichever`, before 1.0 on the same minor, since the carrier is read by
+//! the enum crate's `whichever`: a newer one reads every older carrier, and
+//! an older one reports a newer carrier in one sentence. A renamed
+//! dependency is fine.
 //!
 //! The types named in the trait's signatures are written into the enum's
 //! module, so they must be in scope there, exactly as for a hand-written

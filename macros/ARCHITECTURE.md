@@ -240,11 +240,18 @@ The options travel typed: a `TraitRequest` carries a `TraitSpec`, a
 `BlockRequest` the partial block's options, parsed and checked at the
 attribute. The trait's carrier is compiled into the trait's crate and read
 by whatever version of this crate the subject's crate builds with, so the
-first two lines are a compatibility surface. Between two keywords a message
-is a run of segments, `tag` or `tag { .. }`; a segment is only ever added,
-and the readers skip a tag they do not know, so an older reader accepts a
-newer carrier, which a unit test and a behaviour test with a carrier of the
-0.4.0 shape pin. `v1` becomes `v2` when a segment changes meaning or order.
+first two lines are a compatibility surface frozen into every published
+trait crate. Between two keywords a message is a run of segments, `tag` or
+`tag { .. }`; a segment is only ever added, and the readers skip a tag they
+do not know, so an older reader accepts a newer prefix of the same version,
+which a unit test and a behaviour test with carriers of the 0.4.0 and 0.6.0
+shapes pin. The version changes when a segment changes meaning or order:
+the carried trait's prefix is `v2` since 2026-11-06, when the carrier came
+to hold signatures only, and `implement!` reads `v1` and `v2`; the request
+stays `v1`, which every carrier ever written matches, and every carrier's
+last rule reports any other request as newer than the carrier. A reader
+too old for a prefix says so in one sentence, which `smoke/mixed` holds
+against the last published version.
 The subject's carrier never leaves its crate and forwards the facade's
 name, so a partial impl needs no second lookup, and the traits the subject's
 own attributes dispatch, so a partial block of one of them is reported as
@@ -563,6 +570,10 @@ A `Self: Sized` method over a trait object payload is one sentence
 restatement needs no `provided` name).
 A defaulted trait parameter is filled from its default.
 One `trait_key`, the path as written, tells traits apart at every comparison.
+The carried trait's prefix is `v2`, the reader reads `v1` too, every
+carrier ends in a catch-all rule, and `smoke/mixed` builds the two-version
+graph (`carrier_newer_than_the_reader` and `carrier_older_than_the_request`
+are new; the older-release test gained the 0.6.0 shape).
 
 ## 5. Invariants every stage keeps
 
@@ -575,8 +586,9 @@ One `trait_key`, the path as written, tells traits apart at every comparison.
 - Every token the engine writes carries a user span, never the call site:
   `spans.rs` reads the engine's modules and names a bare `quote!`.
 - Nothing is kept between expansions.
-- `implement!` keeps its name and accepts every `@v1` message a 0.x carrier
-  emits; the facade and the macros crate move as one version.
+- `implement!` keeps its name and reads every prefix a 0.x carrier wrote,
+  `v1` and `v2`; the request stays `v1`; a carrier's last rule reports any
+  other request; the facade and the macros crate move as one version.
 - A rejected subject is still emitted, with its carrier, so the code around
   it compiles.
 - The facade stays `no_std` and dependency-free; the minimum Rust version

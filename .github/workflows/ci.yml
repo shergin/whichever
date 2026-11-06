@@ -48,6 +48,17 @@ jobs:
           targets: thumbv7em-none-eabi
       - run: cargo check -p smoke-no-std --target thumbv7em-none-eabi
 
+  mixed:
+    name: mixed whichever versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # The trait's crate on this checkout, the enum's on the last published
+      # version: the older reader has to report the newer carrier in one
+      # sentence, not misread it.
+      - run: python3 smoke/mixed/check.py
+
   benchmarks:
     name: benchmarks compile
     runs-on: ubuntu-latest

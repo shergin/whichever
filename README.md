@@ -824,7 +824,11 @@ tree is `proc-macro2`, `quote` and `syn` alone.
 `#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
 the carrier macro, to the crate root, named after the trait and the position
 of its tokens, which is how another crate's enum reaches the trait's
-signatures. The macro holds the signatures and the attributes the generated
+signatures. The carrier is read by whatever `whichever` the enum's crate
+builds with, so before 1.0 the two crates use the same minor: a newer
+`whichever` reads every older carrier, and an older one reports a newer
+carrier in one sentence, since to Cargo two minors of a 0.x crate are two
+crates and a graph may hold both. The macro holds the signatures and the attributes the generated
 items carry, and nothing else: no default body, no doc comment, no bound. A trait
 of any other visibility keeps its macro in its own module and adds nothing
 to the crate root. A trait with items under `#[cfg]` defines the macro once
