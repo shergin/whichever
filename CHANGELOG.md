@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The carrier macro holds the trait's signatures and nothing else: the
+  default bodies, doc comments, supertraits and associated-type bounds stay
+  in the trait, out of the exported macro and out of every expansion that
+  reads it. The names of the methods with a default travel beside the
+  signatures, since a method without a receiver is left to its default. A
+  carrier written by an earlier release is read as before.
 - The README and the crate docs say what was found by trial in the surveys:
   an empty partial impl block is how the impl gets a header the enum's
   attribute cannot write (the trait's own parameters, a lifetime the enum

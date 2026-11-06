@@ -30,7 +30,7 @@ as tokens through `macro_rules!` carriers. Four proc macros take part.
 
 | Step | Where | What happens |
 | --- | --- | --- |
-| `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's tokens is emitted next to it and re-exported under the trait's own name, in the macro namespace; a trait with items under `#[cfg]` gets one definition of the carrier per combination of its distinct predicates, each under that combination's `cfg` and holding the items that exist under it with their `cfg` attributes taken off, so that the predicate is decided in this crate. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
+| `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's signatures, with the attributes the generated items carry and the names of the methods that have a default, is emitted next to it and re-exported under the trait's own name, in the macro namespace; a trait with items under `#[cfg]` gets one definition of the carrier per combination of its distinct predicates, each under that combination's `cfg` and holding the items that exist under it with their `cfg` attributes taken off, so that the predicate is decided in this crate. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
 | `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } }` is emitted. |
 | The trait's carrier | expands in the subject's crate | Prepends `trait { tokens } [remote { path }]` and calls `::facade::__private::implement!`. |
 | `implement!` | | Parses the trait, the subject, the options and an optional partial impl block; writes the forwarding impl, the agreement checks and the shape errors. |
@@ -213,7 +213,7 @@ are written by, and the grammar in one place:
 
 ```
 @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]       sent by #[dispatch] to a trait's carrier
-@v1 trait { <trait> } [remote { <path> }] <the rest of the message above>   what the carrier hands implement!
+@v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }] <the rest of the message above>   what the carrier hands implement!
 @v1 <facade> [partial { <options> }] impl { <block> }                        sent by #[dispatch] to a subject's carrier
 @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } <the rest above>   what the carrier hands implement_block!
 ```

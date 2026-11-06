@@ -4,8 +4,8 @@
 //!
 //! ```text
 //! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]
-//! what the carrier puts in front  @v1 trait { <trait> } [remote { <path> }]
-//! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] enum { <subject> } spec { <options> } [impl { <block> }]
+//! what the carrier puts in front  @v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }]
+//! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <options> } [impl { <block> }]
 //!
 //! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
 //! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> }
@@ -113,11 +113,14 @@ impl ToTokens for TraitRequest<'_> {
 }
 
 /// What a trait's carrier macro puts in front of a request: the trait's
-/// tokens, and the real path of a restated trait. Both stay tokens, since
-/// `$crate` in them resolves only inside the carrier.
+/// signatures, the real path of a restated trait, and the names of the
+/// methods the trait gives a default body, which the carrier does not hold.
+/// The first two stay tokens, since `$crate` in them resolves only inside
+/// the carrier.
 pub(crate) struct CarriedTrait<'a> {
     pub(crate) tokens: &'a TokenStream2,
     pub(crate) remote: Option<&'a TokenStream2>,
+    pub(crate) provided: &'a [Ident],
 }
 
 impl ToTokens for CarriedTrait<'_> {
@@ -125,10 +128,12 @@ impl ToTokens for CarriedTrait<'_> {
         let CarriedTrait {
             tokens: trait_tokens,
             remote,
+            provided,
         } = self;
         let version = version();
         let remote = remote.map(|path| quote!(remote { #path }));
-        tokens.extend(quote! { @#version trait { #trait_tokens } #remote });
+        let provided = (!provided.is_empty()).then(|| quote!(provided { #(#provided),* }));
+        tokens.extend(quote! { @#version trait { #trait_tokens } #remote #provided });
     }
 }
 
@@ -138,6 +143,10 @@ pub(crate) struct ImplementInput {
     /// The real path of a trait restated with `remote = ..`, which the impl
     /// is written for.
     pub(crate) remote: Option<Path>,
+    /// The methods the trait gives a default body, whose bodies the carrier
+    /// leaves behind; a carrier from before this segment carries the bodies
+    /// themselves.
+    pub(crate) provided: Vec<Ident>,
     pub(crate) subject: Subject,
     pub(crate) spec: TraitSpec,
     /// The impl block the user wrote, holding the items the subject
@@ -151,12 +160,18 @@ impl Parse for ImplementInput {
         input.parse::<Token![trait]>()?;
         let item_trait = parse_braced(input)?;
         let mut remote = None;
+        let mut provided = vec![];
         segments(
             input,
             |input| input.peek(Token![enum]),
             |tag, content| {
-                if let ("remote", Some(tokens)) = (tag.to_string().as_str(), content) {
-                    remote = Some(syn::parse2(tokens)?);
+                match (tag.to_string().as_str(), content) {
+                    ("remote", Some(tokens)) => remote = Some(syn::parse2(tokens)?),
+                    ("provided", Some(tokens)) => {
+                        let names = Punctuated::<Ident, Token![,]>::parse_terminated;
+                        provided = names.parse2(tokens)?.into_iter().collect();
+                    }
+                    _ => {}
                 }
                 Ok(())
             },
@@ -184,6 +199,7 @@ impl Parse for ImplementInput {
         Ok(Self {
             item_trait,
             remote,
+            provided,
             subject,
             spec,
             partial,
@@ -396,9 +412,11 @@ mod tests {
             }
         );
         let remote = quote!(::other::Trait);
+        let provided: Vec<Ident> = vec![parse_quote!(make)];
         let carried = CarriedTrait {
             tokens: &trait_tokens,
             remote: Some(&remote),
+            provided: &provided,
         };
         let rest = rest_of(request);
         let input: ImplementInput = syn::parse2(quote!(#carried #rest)).unwrap();
@@ -408,6 +426,7 @@ mod tests {
             Some(remote.to_string())
         );
         assert_eq!(input.subject.ident(), "Any");
+        assert_eq!(input.provided, vec![parse_quote!(make)] as Vec<Ident>);
         assert!(input.spec.is_overridden(&parse_quote!(Error)));
         assert_eq!(input.partial.map(|block| block.items.len()), Some(1));
     }

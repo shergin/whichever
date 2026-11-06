@@ -120,7 +120,7 @@ Whichever you pick, the first trait with a `&Self` argument or an
 associated const sends you back to writing the `match` by hand.
 
 `whichever` keeps nothing between expansions. `#[dispatchable]` exports a
-carrier macro holding the trait's tokens, re-exported under the trait's own
+carrier macro holding the trait's signatures, re-exported under the trait's own
 name, and `#[dispatch]` calls it. The trait reaches the enum through
 ordinary name resolution, so it works across crates, in any order, and
 every span is the one you wrote.
@@ -673,8 +673,9 @@ fine.
 
 `#[dispatchable]` on a `pub` trait adds one `#[doc(hidden)]` exported macro,
 the carrier macro, to the crate root, named after the trait and the position
-of its tokens,
-which is how another crate's enum reaches the trait's signatures. A trait
+of its tokens, which is how another crate's enum reaches the trait's
+signatures. The macro holds the signatures and the attributes the generated
+items carry, and nothing else: no default body, no doc comment, no bound. A trait
 of any other visibility keeps its macro in its own module and adds nothing
 to the crate root. A trait with items under `#[cfg]` defines the macro once
 per combination of its predicates, each under that combination's `cfg`, so

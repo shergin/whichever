@@ -549,7 +549,7 @@
 //! # Across crates
 //!
 //! `#[dispatchable]` emits the trait unchanged plus its carrier macro, a
-//! `#[doc(hidden)]` `macro_rules!` holding the trait's tokens, re-exported
+//! `#[doc(hidden)]` `macro_rules!` holding the trait's signatures, re-exported
 //! under the trait's own name (macros live in their own namespace, so
 //! `use shapes::Shape;` imports both). For a `pub` trait the macro is
 //! exported at the crate root, which is the only way another crate can

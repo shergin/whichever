@@ -28,6 +28,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
         item_trait,
         remote,
+        provided,
         subject,
         mut spec,
         partial,
@@ -160,11 +161,14 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             ),
             (TraitItem::Fn(function), _) => expand_method(
                 function,
-                &entries,
-                &subject,
-                trait_path,
-                &spec,
-                &block_header,
+                &MethodContext {
+                    entries: &entries,
+                    subject: &subject,
+                    trait_path,
+                    spec: &spec,
+                    block_header: &block_header,
+                    provided: &provided,
+                },
                 &mut substitution,
             )
             .map(|forwarded| quote! { #complement #forwarded }),
@@ -584,25 +588,13 @@ fn associated_const<'a>(
 /// projection the substitution could not qualify, is an error of the impl.
 fn expand_method(
     function: &TraitItemFn,
-    entries: &[Entry],
-    subject: &Subject,
-    trait_path: &Path,
-    spec: &TraitSpec,
-    block_header: &str,
+    context: &MethodContext,
     substitution: &mut Substitution,
 ) -> Result<TokenStream2> {
     let mut signature = function.sig.clone();
     substitution.visit_signature_mut(&mut signature);
     substitution.check()?;
-    let forwarded = forward_trait_method(
-        function,
-        signature.clone(),
-        entries,
-        subject,
-        trait_path,
-        spec,
-        block_header,
-    );
+    let forwarded = forward_trait_method(function, signature.clone(), context);
     Ok(forwarded.unwrap_or_else(|error| {
         let carried = carried_attributes(&function.attrs);
         let error = error.to_compile_error();
@@ -610,21 +602,38 @@ fn expand_method(
     }))
 }
 
+/// What every method of one trait's impl is written against.
+struct MethodContext<'a> {
+    entries: &'a [Entry],
+    subject: &'a Subject,
+    trait_path: &'a Path,
+    spec: &'a TraitSpec,
+    /// The partial impl block a message points at, spelled out.
+    block_header: &'a str,
+    /// The methods the trait gives a default body, as the carrier names
+    /// them; a carrier from before that segment carries the bodies.
+    provided: &'a [Ident],
+}
+
 /// Writes the forwarding method for a trait method whose signature is
 /// written, or the sentence for the shape that stops it.
 fn forward_trait_method(
     function: &TraitItemFn,
     mut signature: Signature,
-    entries: &[Entry],
-    subject: &Subject,
-    trait_path: &Path,
-    spec: &TraitSpec,
-    block_header: &str,
+    context: &MethodContext,
 ) -> Result<TokenStream2> {
+    let MethodContext {
+        entries,
+        subject,
+        trait_path,
+        spec,
+        block_header,
+        provided,
+    } = *context;
     let subject_ident = subject.ident();
     let method = signature.ident.clone();
     if signature.receiver().is_none() {
-        if function.default.is_some() {
+        if function.default.is_some() || provided.contains(&method) {
             return Ok(TokenStream2::new());
         }
         return Err(Error::new_spanned(

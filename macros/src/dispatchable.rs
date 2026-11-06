@@ -1,14 +1,14 @@
 //! `#[dispatchable]`: the carrier macro a trait leaves next to itself.
 use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, ToTokens};
-use syn::{Error, ItemTrait, Result, TraitItem, TraitItemFn, Visibility};
+use syn::{Error, Ident, ItemTrait, Result, TraitItem, TraitItemFn, Visibility};
 
 use crate::combined;
 use crate::naming;
 use crate::options::{is_dispatch_attribute, method_mismatch, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
 use crate::shape::takes_self_argument;
-use crate::subject::cfg_attributes;
+use crate::subject::{carried_attributes, cfg_attributes};
 
 /// The most distinct `#[cfg]` predicates a trait's items may carry: each
 /// doubles the carriers, since one is emitted per combination.
@@ -104,11 +104,7 @@ pub(crate) fn expand_dispatchable(
                 Some(index) => holds(index),
                 None => true,
             });
-        for item in &mut selected.items {
-            if let Some(attrs) = item_attrs_mut(item) {
-                attrs.retain(|attribute| !attribute.path().is_ident("cfg"));
-            }
-        }
+        let provided = signatures_only(&mut selected);
         // The captured tokens expand inside the enum's crate, where
         // `crate::` would name the wrong crate; `$crate` resolves to this
         // crate instead.
@@ -120,6 +116,7 @@ pub(crate) fn expand_dispatchable(
             CarriedTrait {
                 tokens: &selected,
                 remote: remote.as_ref(),
+                provided: &provided,
             },
         )
     });
@@ -199,6 +196,66 @@ fn check_method_attributes(function: &TraitItemFn) -> Result<()> {
     Ok(())
 }
 
+/// Strips the trait to what the implementation macro reads: the header's
+/// generics, and each item's signature with the attributes the generated
+/// item carries, `#[inline]`, a hand-written `#[allow]` and the method's
+/// own `#[dispatch]`. Default bodies, doc comments, supertraits, bounds on
+/// associated types and the other attributes stay in the trait, where they
+/// belong, and out of the exported macro. Returns the methods that had a
+/// default, which the carrier names, since a method without a receiver is
+/// left to its default and is otherwise a limit. The `cfg` attributes are
+/// decided by the carrier's own `cfg` and are dropped here.
+fn signatures_only(item_trait: &mut ItemTrait) -> Vec<Ident> {
+    item_trait.attrs.clear();
+    item_trait.supertraits.clear();
+    let mut provided = vec![];
+    for item in &mut item_trait.items {
+        match item {
+            TraitItem::Fn(function) => {
+                if function.default.take().is_some() {
+                    provided.push(function.sig.ident.clone());
+                    function.semi_token = Some(Default::default());
+                }
+                function.attrs = kept_attributes(&function.attrs, true);
+            }
+            TraitItem::Type(assoc) => {
+                assoc.default = None;
+                assoc.bounds.clear();
+                assoc.colon_token = None;
+                assoc.attrs = kept_attributes(&assoc.attrs, false);
+            }
+            TraitItem::Const(constant) => {
+                constant.default = None;
+                constant.attrs = kept_attributes(&constant.attrs, false);
+            }
+            _ => {}
+        }
+    }
+    provided
+}
+
+/// Returns the attributes of a trait item the implementation macro reads:
+/// the hand-written `#[allow]`, and on a method its `#[inline]` and its
+/// `#[dispatch]`.
+fn kept_attributes(attrs: &[syn::Attribute], on_method: bool) -> Vec<syn::Attribute> {
+    // The `cfg` attributes were decided by the carrier's own `cfg`.
+    let mut kept: Vec<syn::Attribute> = carried_attributes(attrs)
+        .into_iter()
+        .filter(|attribute| !attribute.path().is_ident("cfg"))
+        .collect();
+    if on_method {
+        kept.extend(
+            attrs
+                .iter()
+                .filter(|attribute| {
+                    attribute.path().is_ident("inline") || is_dispatch_attribute(attribute)
+                })
+                .cloned(),
+        );
+    }
+    kept
+}
+
 /// One distinct `#[cfg]` predicate among a trait's items; several `cfg`
 /// attributes on one item are `all` of their predicates.
 struct Predicate {
@@ -265,15 +322,6 @@ fn item_attrs(item: &TraitItem) -> Option<&Vec<syn::Attribute>> {
     }
 }
 
-fn item_attrs_mut(item: &mut TraitItem) -> Option<&mut Vec<syn::Attribute>> {
-    match item {
-        TraitItem::Fn(function) => Some(&mut function.attrs),
-        TraitItem::Type(assoc) => Some(&mut assoc.attrs),
-        TraitItem::Const(constant) => Some(&mut constant.attrs),
-        _ => None,
-    }
-}
-
 /// Replaces every `crate::` path prefix in `tokens` with `$crate::`.
 fn rewrite_crate_paths(tokens: TokenStream2) -> TokenStream2 {
     let mut output = TokenStream2::new();
@@ -299,4 +347,53 @@ fn rewrite_crate_paths(tokens: TokenStream2) -> TokenStream2 {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    #[test]
+    fn the_carrier_holds_the_signatures_and_nothing_else() {
+        let item_trait: ItemTrait = parse_quote!(
+            /// The doc comment stays with the trait.
+            pub trait Counted: Clone {
+                /// So does this one.
+                type Tally: Default;
+                const START: u32 = 7;
+                #[inline(always)]
+                #[must_use]
+                fn count(&self) -> u32;
+                #[dispatch(mismatch = false)]
+                fn same(&self, other: &Self) -> bool {
+                    let secret = 41;
+                    secret + 1 == 42
+                }
+            }
+        );
+        let options: DispatchableOptions = syn::parse_str("name = unit").unwrap();
+        let expanded = expand_dispatchable(item_trait, options, 1, 1)
+            .unwrap()
+            .to_string();
+        let once = |needle: &str| expanded.matches(needle).count();
+        assert_eq!(
+            once("secret"),
+            2,
+            "the body is in the trait, not the carrier"
+        );
+        assert_eq!(once("doc comment"), 1);
+        assert_eq!(once("So does"), 1);
+        assert_eq!(once("must_use"), 1);
+        assert_eq!(once("Default"), 1, "the bound stays with the trait");
+        assert_eq!(once("Clone"), 1, "so does the supertrait");
+        assert_eq!(once("inline"), 2, "the method's own `#[inline]` travels");
+        assert_eq!(
+            once("mismatch"),
+            1,
+            "the trait's `#[dispatch]` is consumed; the carrier's stays"
+        );
+        assert!(expanded.contains("provided { same }"));
+    }
 }
