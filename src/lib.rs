@@ -166,7 +166,8 @@
 //! and calls the payload's method; for two different variants it returns the
 //! expression given by `#[dispatch(mismatch = false)]` on the trait method,
 //! or by `mismatch(congruent = false)` on the enum. Without one the expansion
-//! fails with an error naming the method. Only `Self`, `&Self` and
+//! fails with an error naming the method, unless the enum has one variant,
+//! which has no second variant to meet and gets no fallback arm. Only `Self`, `&Self` and
 //! `&mut Self` are accepted; a `Self` nested in another type
 //! (`Option<&Self>`) is an error. An expression on the trait method may use
 //! the method's parameters, a `Self` argument included; one on the enum can

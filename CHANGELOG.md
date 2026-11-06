@@ -5,6 +5,11 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A method taking `Self` arguments gets its fallback arm only when the
+  enum has two variants to meet, or a variant under `#[cfg]`; a one-variant
+  enum needs no `mismatch` and gets no arm, as a hand writes none. The
+  `#[allow(unreachable_patterns)]` that every such method carried is
+  written only when a `#[cfg]` variant can leave the arm unreachable.
 - The benchmarks time the random layout over 64 Ki elements instead of
   1024, a sequence short enough for the branch predictor to learn, and the
   scattered collections over a single variant, so the memory table shows

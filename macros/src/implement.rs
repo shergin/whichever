@@ -610,8 +610,22 @@ fn expand_method(
         }
     }
     // Two values of a struct always hold the same field, so only an enum
-    // needs the arm for two different variants.
-    let fallback = if plan.has_same_variant() && subject.can_mismatch() {
+    // needs the arm for two different variants, and an enum with one
+    // variant that is always compiled in has no second variant to meet: a
+    // hand writes no fallback arm there, and neither does the engine. The
+    // arm stays unreachable in some builds when a variant is under `cfg`,
+    // which is the one case the lint is allowed for.
+    let always_present = entries
+        .iter()
+        .filter(|entry| matches!(entry, Entry::Target(target) if target.cfgs.is_empty()))
+        .count();
+    let conditional = entries.iter().any(|entry| match entry {
+        Entry::Target(target) => !target.cfgs.is_empty(),
+        Entry::Unforwardable(_) => true,
+    });
+    let needs_fallback =
+        plan.has_same_variant() && subject.can_mismatch() && (always_present >= 2 || conditional);
+    let fallback = if needs_fallback {
         let Some(expr) = mismatch else {
             return Err(Error::new_spanned(
                 &function.sig,
@@ -622,8 +636,7 @@ fn expand_method(
     } else {
         None
     };
-    let allow_unreachable = fallback
-        .is_some()
+    let allow_unreachable = (fallback.is_some() && always_present < 2)
         .then(|| quote! { #[allow(unreachable_patterns)] });
     // The trait method's own `#[inline]`, or ours.
     let inline = function

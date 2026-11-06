@@ -1,7 +1,7 @@
 error[E0425]: cannot find value `other` in this scope
-  --> tests/ui/enum_mismatch_names_argument.rs:17:45
+  --> tests/ui/enum_mismatch_names_argument.rs:24:45
    |
-17 | #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
+24 | #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
    |                                             ^^^^^ not found in this scope
    |
 help: an identifier with the same name is defined here, but is not accessible due to macro hygiene
@@ -10,6 +10,6 @@ help: an identifier with the same name is defined here, but is not accessible du
  6 |     fn same(&self, other: &Self) -> bool;
    |                    ^^^^^
 ...
-17 | #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
+24 | #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
    |                       ---- in this macro invocation
    = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)

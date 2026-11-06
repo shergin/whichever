@@ -7,8 +7,15 @@ trait Same {
 }
 
 struct A;
+struct B;
 
 impl Same for A {
+    fn same(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Same for B {
     fn same(&self, _: &Self) -> bool {
         true
     }
@@ -17,6 +24,7 @@ impl Same for A {
 #[whichever::dispatch(Same, mismatch(same = other.is_a()))]
 enum Kind {
     A(A),
+    B(B),
 }
 
 impl Kind {

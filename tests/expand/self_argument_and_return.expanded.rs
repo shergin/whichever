@@ -47,7 +47,6 @@ pub(crate) use __whichever_dispatch_AnyShape_ecc323c5dd12c245_29_1 as AnyShape;
 #[automatically_derived]
 impl Shape for AnyShape {
     #[inline]
-    #[allow(unreachable_patterns)]
     fn congruent(&self, other: &Self) -> bool {
         match (self, other) {
             (AnyShape::Circle(__inner), AnyShape::Circle(__same0)) => {
