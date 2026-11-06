@@ -72,6 +72,7 @@ pub(crate) fn expand_dispatchable(
         options.name.as_ref(),
         line,
         column,
+        &naming::written_at,
     );
     // A restated trait exists elsewhere; only its macro is emitted here, and
     // the impl is written for the real path.
