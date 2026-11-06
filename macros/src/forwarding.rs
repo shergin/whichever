@@ -21,7 +21,7 @@ use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, S
 use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
+    argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
     ArgumentKind, Conversion, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Target, Unforwardable};
@@ -44,6 +44,32 @@ pub(crate) enum ArgumentNames {
     /// The identifiers written, and an error for any other pattern: an
     /// inherent method's parameters are the user's to rename.
     Written,
+}
+
+/// Returns whether the signature's `where` clause has `Self: Sized`, the
+/// bound a provided method takes to be left out of a trait object's
+/// vtable, which a `dyn` payload therefore cannot satisfy.
+fn requires_sized(signature: &Signature) -> bool {
+    let Some(where_clause) = &signature.generics.where_clause else {
+        return false;
+    };
+    where_clause.predicates.iter().any(|predicate| {
+        let syn::WherePredicate::Type(predicate) = predicate else {
+            return false;
+        };
+        is_self(&predicate.bounded_ty)
+            && predicate.bounds.iter().any(|bound| match bound {
+                syn::TypeParamBound::Trait(bound) => {
+                    matches!(bound.modifier, syn::TraitBoundModifier::None)
+                        && bound
+                            .path
+                            .segments
+                            .last()
+                            .is_some_and(|segment| segment.ident == "Sized")
+                }
+                _ => false,
+            })
+    })
 }
 
 /// Returns the pattern that binds `ident` and nothing else.
@@ -90,6 +116,9 @@ pub(crate) struct MethodPlan {
     pub(crate) future: bool,
     awaited: bool,
     unsafety: bool,
+    /// Whether the method's `where` clause requires `Self: Sized`, which a
+    /// trait object payload cannot satisfy.
+    requires_sized: bool,
 }
 
 impl MethodPlan {
@@ -176,6 +205,7 @@ impl MethodPlan {
             future,
             awaited: signature.asyncness.is_some() || future,
             unsafety: signature.unsafety.is_some(),
+            requires_sized: requires_sized(signature),
         })
     }
 
@@ -183,6 +213,12 @@ impl MethodPlan {
     /// two different variants need a fallback arm.
     pub(crate) fn has_same_variant(&self) -> bool {
         !self.same_variant.is_empty()
+    }
+
+    /// Returns whether the method requires `Self: Sized`, so that a trait
+    /// object payload cannot take it.
+    pub(crate) fn requires_sized(&self) -> bool {
+        self.requires_sized
     }
 
     /// Returns the expression the `match` looks at: the receiver, with the

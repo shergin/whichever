@@ -29,6 +29,14 @@ changes are expected and listed without apology.
   Before, an enum dispatching a trait with a deprecated method, or holding
   a deprecated variant, could not compile under `deny(deprecated)`, since
   no attribute of the enum's author reaches the generated code.
+- A method that requires `Self: Sized` forwarded to a `deref` variant
+  holding a trait object, `Box<dyn Trait>` or `&dyn Trait`, is one sentence
+  on the method, naming the partial block that leaves it to the trait's
+  default; rustc reported that the trait object has no size, twice. The
+  shape is how an enum holds an open set, and `foreign::Iterator`'s
+  `count`, `last` and `fold` have the bound, so the block over a
+  restatement accepts `#[dispatch(default)]` for a method the restatement
+  carries no body for, leaving it to the real trait's.
 
 ## 0.6.0 - 2026-11-06
 

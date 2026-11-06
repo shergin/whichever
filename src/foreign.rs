@@ -28,7 +28,11 @@
 //! The forwarded provided methods are the ones a `match` can forward and
 //! that are stable on the crate's minimum Rust version. Adapters that
 //! consume `Self` into a wrapper, such as `Iterator::map` or `Read::bytes`,
-//! keep their defaults, which call the forwarded methods. The `std`
+//! keep their defaults, which call the forwarded methods. `Iterator`'s
+//! `count`, `last` and `fold` require `Self: Sized`, as `core` declares them,
+//! so an enum holding a `Box<dyn Iterator>` in a `deref` variant leaves them
+//! to the default in a partial block, `#[dispatch(default)] fn count(self) ->
+//! usize;`, and dispatches the rest. The `std`
 //! declarations are plain tokens here and resolve in the dispatching crate,
 //! so this module needs no feature; a `no_std` crate uses the `core` ones.
 //!

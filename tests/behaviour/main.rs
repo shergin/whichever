@@ -56,6 +56,7 @@ mod same_named_traits_in_one_crate;
 mod self_arguments;
 mod self_returns;
 mod several_traits;
+mod trait_objects_in_deref_variants;
 mod tuple_const_override;
 mod tuple_returns;
 mod uninferred_generics;

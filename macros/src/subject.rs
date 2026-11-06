@@ -367,6 +367,24 @@ impl Target {
         self.route.is_deref()
             && last_segment(&self.payload).is_some_and(|segment| segment.ident == "Box")
     }
+
+    /// Returns whether the trait is called on a trait object: a `deref`
+    /// payload that is a reference to one, `&dyn Trait`, or a pointer with
+    /// one as its one type argument, `Box<dyn Trait>` or `Rc<dyn Trait>`.
+    /// Such a target cannot take a method that requires `Self: Sized`.
+    pub(crate) fn is_trait_object(&self) -> bool {
+        if !self.route.is_deref() {
+            return false;
+        }
+        let pointee = match &self.payload {
+            Type::Reference(reference) => Some(&*reference.elem),
+            other => match last_segment(other).map(generic_type_args) {
+                Some(arguments) if arguments.len() == 1 => Some(arguments[0]),
+                _ => None,
+            },
+        };
+        matches!(pointee, Some(Type::TraitObject(_)))
+    }
 }
 
 /// Replaces `Self` with the subject's type, for a payload type written

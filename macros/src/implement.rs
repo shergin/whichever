@@ -45,6 +45,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             "the trait to implement is missing",
         ));
     };
+    // A restatement names the methods it forwards and nothing else, so a
+    // method left to the default is left to the real trait's, which the
+    // restatement cannot see; rustc reports one the trait does not provide.
+    let restated = remote.is_some();
     let implemented = implemented_path(remote, &spec_path);
     let trait_path = &implemented;
     let trait_ident = &trait_path
@@ -199,7 +203,8 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         let block_method = name.and_then(|name| methods.get(&name.to_string()));
         let forwarded = match (item, block_method) {
             (TraitItem::Fn(function), Some(BlockMethod::Default(span))) => {
-                if function.default.is_some() || provided.contains(&function.sig.ident) {
+                if restated || function.default.is_some() || provided.contains(&function.sig.ident)
+                {
                     continue;
                 }
                 errors.push(Error::new(
@@ -925,6 +930,27 @@ fn forward_trait_method(
         }
         None => None,
     };
+    // A method that requires `Self: Sized` cannot be called on a trait
+    // object, and a hand leaves it to the trait's default; the partial
+    // block says so with `#[dispatch(default)]`.
+    if plan.requires_sized() {
+        let forwarded_to: Vec<&Target> = match &selection {
+            Some(selection) => selection.targets.iter().collect(),
+            None => entries
+                .iter()
+                .filter_map(|entry| match entry {
+                    Entry::Target(target) => Some(target),
+                    Entry::Unforwardable(_) => None,
+                })
+                .collect(),
+        };
+        if let Some(target) = forwarded_to.iter().find(|target| target.is_trait_object()) {
+            return Err(Error::new_spanned(
+                &function.sig,
+                format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident),
+            ));
+        }
+    }
     let mut arms = Vec::with_capacity(entries.len());
     match &selection {
         Some(selection) => {

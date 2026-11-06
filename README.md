@@ -404,6 +404,13 @@ other fields beside the payload gets no `From` or `TryFrom`, and a variant
 whose target has no nameable type takes no part in the agreement checks,
 where a disagreement shows in the arm instead.
 
+A `deref` variant holding a trait object, `Box<dyn Trait>` or `&dyn Trait`,
+is how an enum holds an open set beside its sized payloads. A method the
+trait declares with `where Self: Sized` cannot be called on it, and is
+reported in one sentence; a partial block leaves that method to the trait's
+default with `#[dispatch(default)]`, as a hand does, and the rest is
+forwarded.
+
 ## Inherent methods
 
 An enum often needs methods of its own that only some variants can answer.
@@ -584,7 +591,9 @@ may name the variants it forwards to, as an inherent method does, and its
 body is then the arm for every other variant, two different variants of a
 `Self` argument included; `*` with a bodiless method is the plain
 forwarding written out, and `#[dispatch(default)]` on a bodiless method
-leaves it to the trait's default, neither forwarded nor written:
+leaves it to the trait's default, neither forwarded nor written; over a
+restatement that is the real trait's default, which the restatement cannot
+see:
 
 ```rust
 #[whichever::dispatch]
@@ -732,6 +741,9 @@ unwrapped to it.
   a method returning `Self`: there is no way to put the result back behind
   the pointer or around the other fields. A route ending in a method call
   cannot serve a `&mut self` method.
+- A method that requires `Self: Sized` cannot be forwarded to a `deref`
+  variant holding a trait object; a partial block leaves it to the trait's
+  default with `#[dispatch(default)]`.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`

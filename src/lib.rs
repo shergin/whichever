@@ -266,7 +266,12 @@
 //! `self` methods, not `&mut self`; a method returning `Self` is reported
 //! on a routed variant, `deref` included; a variant with other fields
 //! beside the payload gets no `From` or `TryFrom`, and a target without a
-//! nameable type takes no part in the agreement checks.
+//! nameable type takes no part in the agreement checks. A `deref` variant
+//! holding a trait object, `Box<dyn Trait>` or `&dyn Trait`, is how an enum
+//! holds an open set beside its sized payloads; a method the trait declares
+//! with `where Self: Sized` cannot be called on it, and is reported in one
+//! sentence, so a partial block leaves that method to the trait's default
+//! with `#[dispatch(default)]`, as a hand does, and the rest is forwarded.
 //!
 //! A variant marked `#[dispatch(deref)]` holds its value behind a pointer or
 //! a reference. The trait is called on `<Payload as Deref>::Target`, with
@@ -521,7 +526,8 @@
 //! inherent method does, `#[dispatch(Wep, Wpa)] fn fmt(..) { .. }`, and
 //! its body is then the arm for every other variant, a unit variant or two
 //! different variants of a `Self` argument included; `#[dispatch(default)]`
-//! on a bodiless method leaves it to the trait's default. The
+//! on a bodiless method leaves it to the trait's default, which over a
+//! restatement is the real trait's. The
 //! block's own header, bounds included, becomes the impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
@@ -634,6 +640,9 @@
 //!   of the return type: every variant would return a different opaque
 //!   type. `impl Future<Output = T>` is the exception; it is awaited like an
 //!   `async fn`. A struct forwards any.
+//! - A method that requires `Self: Sized` cannot be forwarded to a `deref`
+//!   variant holding a trait object; a partial block leaves it to the trait's
+//!   default with `#[dispatch(default)]`.
 //! - A generic associated type is declared by the enum, in a partial impl
 //!   block; it cannot come from the first variant.
 //! - A projection through a trait parameter with several bounds,

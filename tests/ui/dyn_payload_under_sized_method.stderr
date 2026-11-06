@@ -1,0 +1,12 @@
+error: `doubled` requires `Self: Sized`, and `Boxed` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn doubled(..);` in a `#[whichever::dispatch] impl Shape for Any` block, or implement the method by hand
+  --> tests/ui/dyn_payload_under_sized_method.rs:6:5
+   |
+ 6 | /     fn doubled(&self) -> u32
+ 7 | |     where
+ 8 | |         Self: Sized,
+   | |____________________^
+...
+22 |   #[whichever::dispatch(Shape)]
+   |                         ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

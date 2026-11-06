@@ -557,6 +557,10 @@ the impl (goldens `carried_attributes` and `recursive` gained the
 A deprecated trait item or variant is forwarded under `#[allow(deprecated)]`
 (golden `deprecated` and the behaviour test `deprecated_items` are new;
 the carrier keeps `#[deprecated]` beside `#[inline]`).
+A `Self: Sized` method over a trait object payload is one sentence
+(`dyn_payload_under_sized_method` and the behaviour test
+`trait_objects_in_deref_variants` are new; `#[dispatch(default)]` over a
+restatement needs no `provided` name).
 
 ## 5. Invariants every stage keeps
 
