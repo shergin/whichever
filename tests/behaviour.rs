@@ -3616,14 +3616,14 @@ mod enum_side_mismatch_names_the_arguments {
 mod cfg_on_trait_items {
     #[whichever::dispatchable]
     pub trait Counted {
-        #[cfg(all())]
+        #[cfg(test)]
         const PRESENT: u32;
-        #[cfg(any())]
+        #[cfg(not(test))]
         const ABSENT: u32;
         fn plain(&self) -> u32;
-        #[cfg(all())]
+        #[cfg(test)]
         fn present(&self) -> u32;
-        #[cfg(any())]
+        #[cfg(not(test))]
         fn absent(&self) -> u32;
     }
 
