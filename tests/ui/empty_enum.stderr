@@ -1,0 +1,5 @@
+error: a dispatch enum needs at least one variant
+  --> tests/ui/empty_enum.rs:16:1
+   |
+16 | enum Kind {}
+   | ^^^^^^^^^^^^

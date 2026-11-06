@@ -100,7 +100,8 @@ wish.
    says what is wrong and, where one exists, the way around it. The enum is
    still emitted, so that one error stands alone.
    *Held by* `tests/ui`, one compile-fail case per limit, with the wording
-   pinned to stable's.
+   pinned to stable's, and by a unit test of the macro crate that reads
+   every sentence its sources write and fails when one has no snapshot.
 5. **Claims are measured against the hand.** Every number in these docs
    comes from the benchmark suite, with machine, toolchain and date, called
    from a crate other than the enum's, without link-time optimisation. The

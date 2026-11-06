@@ -1,0 +1,5 @@
+error: `unit` has no receiver, so there is no variant to forward to
+  --> tests/ui/inherent_without_receiver.rs:23:5
+   |
+23 |     fn unit() -> u32;
+   |     ^^^^^^^^^^^^^^^^

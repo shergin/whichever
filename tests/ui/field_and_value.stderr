@@ -1,0 +1,5 @@
+error: unexpected end of input, `field` reads a field and `value` is the target itself; give one
+  --> tests/ui/field_and_value.rs:22:35
+   |
+22 |     #[dispatch(*, field = 0, value)]
+   |                                   ^

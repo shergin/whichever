@@ -1,0 +1,5 @@
+error: a method on a route takes no arguments
+  --> tests/ui/route_method_with_arguments.rs:19:29
+   |
+19 |     #[dispatch(via = .0.get(1))]
+   |                             ^

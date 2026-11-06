@@ -1,0 +1,5 @@
+error: `Item` is an associated type; give it a type
+  --> tests/ui/type_override_given_a_value.rs:17:37
+   |
+17 | #[whichever::dispatch(Store, Item = 1 + 2)]
+   |                                     ^^^^^

@@ -37,6 +37,8 @@ mod dispatch;
 mod dispatchable;
 mod forwarding;
 mod implement;
+#[cfg(test)]
+mod limits;
 mod naming;
 mod options;
 mod protocol;

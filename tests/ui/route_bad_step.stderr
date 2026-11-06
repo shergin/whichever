@@ -1,0 +1,5 @@
+error: a route is `*` for what the payload dereferences to, `.name` or `.0` for a field, or `.name()` for what a method returns, in any sequence
+  --> tests/ui/route_bad_step.rs:17:22
+   |
+17 |     #[dispatch(via = base)]
+   |                      ^^^^

@@ -1,0 +1,10 @@
+error: macro invocations inside the trait are not supported
+  --> tests/ui/macro_in_trait.rs:10:5
+   |
+10 |     more!();
+   |     ^^^^^^^^
+...
+25 | #[whichever::dispatch(Shape)]
+   |                       ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

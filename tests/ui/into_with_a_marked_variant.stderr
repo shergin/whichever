@@ -1,0 +1,5 @@
+error: `into` converts every variant's payload, and `Tagged` has other fields beside its payload, or is left out with `from = false`
+  --> tests/ui/into_with_a_marked_variant.rs:24:30
+   |
+24 | #[whichever::dispatch(Shape, into = Printed)]
+   |                              ^^^^

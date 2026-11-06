@@ -1,0 +1,5 @@
+error: `deref` is the route `*`; give one route, `deref` or `via = ..`
+  --> tests/ui/deref_and_via.rs:17:23
+   |
+17 |     #[dispatch(deref, via = .0)]
+   |                       ^^^

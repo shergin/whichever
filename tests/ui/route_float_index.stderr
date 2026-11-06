@@ -1,0 +1,5 @@
+error: expected a field index
+  --> tests/ui/route_float_index.rs:17:23
+   |
+17 |     #[dispatch(via = .1e3)]
+   |                       ^^^

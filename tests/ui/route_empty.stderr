@@ -1,0 +1,5 @@
+error: a route needs at least one step: `*`, `.name`, `.0` or `.name()`
+  --> tests/ui/route_empty.rs:17:22
+   |
+17 |     #[dispatch(via = , from = false)]
+   |                      ^

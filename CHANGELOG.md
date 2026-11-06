@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Every sentence the macros write is pinned by a `tests/ui` snapshot, and
+  a unit test of the macro crate reads the sources and the snapshots and
+  fails when one is not; thirty sentences had none and have a case now,
+  among them the empty enum, the unit struct, the route grammar and the
+  block's `default` with a body. Two sentences lost a "unexpected end of
+  input" prefix.
 - A method returning a tuple that holds `Self`, or an overridden
   associated type, `(Self, u32)` or `(Self::Sender<T>, Self::Receiver<T>)`,
   is forwarded: the arm takes the tuple apart, converts each element and

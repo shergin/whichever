@@ -1,0 +1,5 @@
+error: expected `#[dispatch(Trait, ...)]`
+  --> tests/ui/dispatch_name_value.rs:16:1
+   |
+16 | #[dispatch = "Shape"]
+   | ^^^^^^^^^^^^^^^^^^^^^

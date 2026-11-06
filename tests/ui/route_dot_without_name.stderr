@@ -1,0 +1,5 @@
+error: expected a field, `.name` or `.0`, or a method, `.name()`
+  --> tests/ui/route_dot_without_name.rs:17:23
+   |
+17 |     #[dispatch(via = ., from = false)]
+   |                       ^

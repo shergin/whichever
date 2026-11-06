@@ -1,0 +1,5 @@
+error: `*` already names every variant
+  --> tests/ui/star_and_a_variant.rs:22:19
+   |
+22 |     #[dispatch(*, Circle)]
+   |                   ^^^^^^

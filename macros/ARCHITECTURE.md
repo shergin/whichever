@@ -545,6 +545,8 @@ case.
   stays 1.88.
 - Every change to a golden or a `.stderr` file is listed in the stage's
   status line.
+- Every sentence the macros write has a `tests/ui` snapshot: `limits.rs`
+  reads the sources and the snapshots and names the ones that do not.
 
 ## 6. Open decisions
 
