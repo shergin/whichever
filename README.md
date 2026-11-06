@@ -242,6 +242,7 @@ crate, goes back to a hand-written `match`.
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 | Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
 | A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
+| An enum another crate defines | yes, restated with `remote` | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
 | `self: Pin<&mut Self>`, `self: Box<Self>` | yes | - | - | - | - | - | - | - |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one
@@ -517,6 +518,35 @@ in a [partial impl block](#methods-the-enum-implements-itself) over the
 declaration: `#[dispatch] impl whichever::foreign::Error for ClientError
 { fn source(&self) -> .. { None } }`.
 
+## Enums from other crates
+
+A trait of this crate may be forwarded over an enum another crate defines,
+as a hand-written `impl LocalTrait for other::Either<L, R>` may: restate
+the enum once, `remote` naming the real one, and dispatch the restatement.
+Nothing is emitted for the restatement but its carrier and the impls,
+written for the real path; a variant missing or misspelt fails against the
+real enum. A restated enum gets no conversions and no inherent impl, which
+the orphan rules and the language refuse; for a partial impl block, import
+the real enum under the restatement's name and write the block on it:
+
+```rust
+use either::Either;
+
+#[whichever::dispatch(remote = either::Either)]
+#[whichever::dispatch(Describe)]
+pub enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+#[whichever::dispatch]
+impl<L: Named, R: Named> Named for Either<L, R> {
+    fn kind() -> &'static str {
+        "either"
+    }
+}
+```
+
 ## Methods the enum implements itself
 
 A trait method without a receiver, such as a constructor, has no variant to
@@ -756,7 +786,8 @@ declaration or the `remote` restatement to use instead. "could not find
 `Trait` in `other`" on `#[dispatch(other::Trait)]` means the same for a
 trait of another crate: restate it with `remote`. The same words on a
 partial block over another crate's enum mean the enum has no
-`#[whichever::dispatch]`, which only its own crate can add.
+`#[whichever::dispatch]`, which only its own crate can add, or that the
+enum is another crate's and is restated with `remote`.
 
 One `macro_rules!` that emits the same `pub` trait, written out in full,
 at two places gets the same carrier macro name twice; `#[dispatchable(name =

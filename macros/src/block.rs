@@ -27,6 +27,7 @@ pub(crate) fn expand_partial(
     rejected: bool,
     facade: &Ident,
     dispatched: &[Path],
+    remote: Option<&Path>,
     subject: Subject,
     mut spec: TraitSpec,
     item_impl: ItemImpl,
@@ -55,6 +56,7 @@ pub(crate) fn expand_partial(
         facade,
         subject: &subject,
         spec: &spec,
+        remote,
         partial: Some(&item_impl),
     };
     Ok(quote! { #macro_path! { #request } })
@@ -96,9 +98,19 @@ fn forwarding_options(attribute: &Attribute) -> Result<ForwardingOptions> {
 /// rejected nothing is reported here.
 pub(crate) fn expand_inherent(
     rejected: bool,
+    remote: Option<&Path>,
     subject: Subject,
     mut item_impl: ItemImpl,
 ) -> Result<TokenStream2> {
+    // An inherent impl of another crate's type is not this crate's to
+    // write, with or without forwarding.
+    if let Some(remote) = remote {
+        let spelled = remote.to_token_stream().to_string().replace(' ', "");
+        return Err(Error::new_spanned(
+            &item_impl.self_ty,
+            format!("`{spelled}` is another crate's enum, which gets no inherent impl here; forward through a trait of this crate, or write free functions"),
+        ));
+    }
     let variants = if rejected {
         None
     } else {

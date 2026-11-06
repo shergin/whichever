@@ -227,11 +227,17 @@ pub fn implement_block(input: TokenStream) -> TokenStream {
             input.rejected,
             &input.facade,
             &input.dispatched,
+            input.remote.as_ref(),
             input.subject,
             spec,
             input.item_impl,
         ),
-        None => expand_inherent(input.rejected, input.subject, input.item_impl),
+        None => expand_inherent(
+            input.rejected,
+            input.remote.as_ref(),
+            input.subject,
+            input.item_impl,
+        ),
     };
     expanded
         .unwrap_or_else(|error| error.to_compile_error())

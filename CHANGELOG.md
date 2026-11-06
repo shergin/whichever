@@ -5,6 +5,15 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- An enum another crate defines is restated once, `remote` naming the
+  real one, and a trait of this crate is forwarded over it, as a
+  hand-written `impl LocalTrait for other::Either<L, R>` is allowed by the
+  orphan rules; the impl is written for the real path and the restatement
+  emits nothing but its carrier. A restated enum gets no conversions and
+  no inherent impl. activitypub_federation and Lemmy write this over
+  `either::Either` by hand, and pixi over rattler's `ShellEnum`; the
+  vision's "What it will not be" had refused it for a reason the compiler
+  does not share, and its bullet is reworded.
 - A struct's field may name the traits it is the target of,
   `#[dispatch(Rom)] rom: Cartridge` beside `#[dispatch(Interrupt)]
   signals: Signals`, and the field marked bare takes every trait not named

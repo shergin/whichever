@@ -38,7 +38,7 @@ pub(crate) fn expand_subject(
     // The subject as the carriers hold it, variant and field options
     // included, and as it is emitted, without them.
     let captured = subject;
-    let emitted = captured.clone().without_inner_attributes();
+    let mut emitted = Some(captured.clone().without_inner_attributes());
     let readable = captured
         .entries()
         .and_then(|entries| Ok((entries, facade_ident()?)));
@@ -46,7 +46,7 @@ pub(crate) fn expand_subject(
         Ok(readable) => readable,
         Err(error) => {
             errors.push(error);
-            let carrier = subject_carrier(&captured, true, &[], line, column);
+            let carrier = subject_carrier(&captured, true, &[], None, line, column);
             let errors = combined(errors).map(|error| error.to_compile_error());
             return quote! { #emitted #carrier #errors };
         }
@@ -62,7 +62,40 @@ pub(crate) fn expand_subject(
             Err(error) => errors.push(error),
         }
     }
-    let conversions = conversions(&captured, &entries, &attributes, &mut errors);
+    // A restatement of another crate's enum: nothing is emitted for it but
+    // its carrier and the impls, written for the real path, and it gets no
+    // conversions, which would implement a foreign trait for a foreign
+    // type.
+    let mut remotes = attributes
+        .iter()
+        .filter_map(|attribute| attribute.switches.remote.as_ref());
+    let remote = remotes.next().map(|(_, path)| path.clone());
+    if let Some((second, _)) = remotes.next() {
+        errors.push(Error::new(second.span(), "`remote` is given twice"));
+    }
+    if remote.is_some() {
+        emitted = None;
+        let conversion = attributes.iter().find_map(|attribute| {
+            let switches = &attribute.switches;
+            switches
+                .from
+                .as_ref()
+                .map(|switch| switch.span())
+                .or(switches.try_from.as_ref().map(|switch| switch.span()))
+                .or(switches.into.first().map(|into| into.key.span()))
+        });
+        if let Some(span) = conversion {
+            errors.push(Error::new(
+                span,
+                "a restated enum gets no conversions: `From`, `TryFrom` and `into` would implement a foreign trait for another crate's type",
+            ));
+        }
+    }
+    let conversions = if remote.is_some() {
+        TokenStream2::new()
+    } else {
+        conversions(&captured, &entries, &attributes, &mut errors)
+    };
     let dispatched: Vec<&Path> = attributes
         .iter()
         .filter_map(|attribute| attribute.spec.path.as_ref())
@@ -104,6 +137,7 @@ pub(crate) fn expand_subject(
             facade: &facade,
             subject: &captured,
             spec: &attribute.spec,
+            remote: remote.as_ref(),
             partial: None,
         };
         // The invocation carries the span of its own attribute, so that an
@@ -112,7 +146,7 @@ pub(crate) fn expand_subject(
         let site = path.span();
         invocations.extend(quote_spanned! { site => #macro_path! { #request } });
     }
-    let carrier = subject_carrier(&captured, false, &dispatched, line, column);
+    let carrier = subject_carrier(&captured, false, &dispatched, remote.as_ref(), line, column);
     let errors = combined(errors).map(|error| error.to_compile_error());
     quote! {
         #emitted
@@ -205,6 +239,7 @@ fn subject_carrier(
     captured: &Subject,
     rejected: bool,
     dispatched: &[&Path],
+    remote: Option<&Path>,
     line: usize,
     column: usize,
 ) -> TokenStream2 {
@@ -217,6 +252,7 @@ fn subject_carrier(
         CarriedSubject {
             rejected,
             dispatched,
+            remote,
             subject: captured,
         },
     );

@@ -126,8 +126,9 @@ superseded. The rules may not.
 - Not a visitor or a type-level selector. A `match` that calls a method is
   what is written; mapping each variant to its payload's type as a generic
   argument is a different generator.
-- Not a way to dispatch over an enum another crate defines. The attribute
-  sits on the definition, as a hand-written impl would have to.
+- Not a way to read another crate's enum. A restatement names its variants
+  once, as it names a trait's signatures, and the impl is written for the
+  real path, as a hand writes `impl LocalTrait for other::Either<L, R>`.
 - No state between expansions, however convenient a case it would make
   work.
 - No code a careful hand would not write: no allocation, no refcount, no

@@ -31,7 +31,7 @@ as tokens through `macro_rules!` carriers. Four proc macros take part.
 | Step | Where | What happens |
 | --- | --- | --- |
 | `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's signatures, with the attributes the generated items carry and the names of the methods that have a default, is emitted next to it and re-exported under the trait's own name, in the macro namespace; a trait with items under `#[cfg]` gets one definition of the carrier per combination of its distinct predicates, each under that combination's `cfg` and holding the items that exist under it with their `cfg` attributes taken off, so that the predicate is decided in this crate. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
-| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } }` is emitted. |
+| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes, unless it restates another crate's enum with `remote = path`, in which case nothing is emitted for it. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } [remote { path }] }` is emitted. |
 | The trait's carrier | expands in the subject's crate | Prepends `trait { tokens } [remote { path }]` and calls `::facade::__private::implement!`. |
 | `implement!` | | Parses the trait, the subject, the options and an optional partial impl block; writes the forwarding impl, the agreement checks and the shape errors. |
 | `#[dispatch]` on an impl block | the subject's crate | Emits `Subject! { @v1 facade [partial { options }] impl { block } }`. |
@@ -500,7 +500,10 @@ inherent path and the trait path (`partial_block_methods`, three
 compile-fail cases); the by-reference `TryFrom` forms and `into = Target`
 (`conversions`, one compile-fail case); a struct's field naming its traits,
 with `Subject::entries_for` choosing the target per trait
-(`per_trait_fields`, two compile-fail cases).
+(`per_trait_fields`, two compile-fail cases); the restated subject, whose
+real path travels in a `remote` segment of the request and of the subject's
+carrier and is the impl's self type and the patterns' prefix
+(`restated_enum`, two compile-fail cases, the smoke crates' `Either`).
 
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 

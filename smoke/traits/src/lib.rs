@@ -151,3 +151,12 @@ impl Gated for Gate {
         self.0 + 2
     }
 }
+
+/// An enum with no attribute at all, which `smoke-enums` restates and
+/// forwards a trait of its own over.
+pub enum Either<L, R> {
+    /// The left one.
+    Left(L),
+    /// The right one.
+    Right(R),
+}

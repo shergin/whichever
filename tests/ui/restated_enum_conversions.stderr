@@ -1,0 +1,5 @@
+error: a restated enum gets no conversions: `From`, `TryFrom` and `into` would implement a foreign trait for another crate's type
+ --> tests/ui/restated_enum_conversions.rs:9:45
+  |
+9 | #[whichever::dispatch(remote = other::Pair, from = false)]
+  |                                             ^^^^

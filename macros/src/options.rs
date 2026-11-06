@@ -154,7 +154,7 @@ impl Parse for TraitSpec {
         if let Some(span) = switches.first_span() {
             return Err(Error::new(
                 span,
-                "`from`, `try_from` and `into` are options of the enum; put them on its `#[dispatch]` attribute",
+                "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
             ));
         }
         Ok(spec)
@@ -249,7 +249,7 @@ impl Parse for DispatchAttribute {
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
-                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true` and `into = Target`"),
+                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
                 ));
             }
             input.parse::<Token![=]>()?;
@@ -262,6 +262,8 @@ impl Parse for DispatchAttribute {
                     key,
                     target: input.parse()?,
                 }),
+                "remote" if switches.remote.is_some() => return Err(given_twice(&key)),
+                "remote" => switches.remote = Some((key, input.parse()?)),
                 _ if spec.is_overridden(&key) => return Err(given_twice(&key)),
                 _ => spec.overrides.push(Override::parse(key, input)?),
             }
@@ -295,6 +297,9 @@ pub(crate) struct Switches {
     /// The types the enum converts into, `into = Target`, each through
     /// every payload's own `Into<Target>`.
     pub(crate) into: Vec<IntoTarget>,
+    /// The real path of an enum restated on behalf of another crate,
+    /// `remote = path`, with where it was written.
+    pub(crate) remote: Option<(Ident, Path)>,
 }
 
 impl Switches {
@@ -306,6 +311,7 @@ impl Switches {
             .map(Switch::span)
             .or(self.try_from.as_ref().map(Switch::span))
             .or(self.into.first().map(|into| into.key.span()))
+            .or(self.remote.as_ref().map(|(key, _)| key.span()))
     }
 }
 

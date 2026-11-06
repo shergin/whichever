@@ -438,6 +438,19 @@
 //! error enum replaces the hand-written `match`, and a variant holding a
 //! `String` stays out of the `From` impls with `#[dispatch(from = false)]`.
 //!
+//! # Enums from other crates
+//!
+//! A trait of this crate may be forwarded over an enum another crate
+//! defines, as a hand-written `impl LocalTrait for other::Either<L, R>`
+//! may: restate the enum once, `remote` naming the real one, and dispatch
+//! the restatement, `#[whichever::dispatch(remote = either::Either)]
+//! #[whichever::dispatch(Describe)] enum Either<L, R> { Left(L), Right(R) }`.
+//! Nothing is emitted for the restatement but its carrier and the impls,
+//! written for the real path. A restated enum gets no conversions and no
+//! inherent impl, which the orphan rules and the language refuse; a
+//! partial impl block is written on the real enum, imported under the
+//! restatement's name.
+//!
 //! # Methods the enum implements itself
 //!
 //! A trait method without a receiver has no variant to dispatch on, and

@@ -33,6 +33,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         remote,
         provided,
         subject,
+        subject_remote,
         mut spec,
         partial,
     } = input;
@@ -49,7 +50,18 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         .last()
         .expect("a path has at least one segment")
         .ident;
-    let header = ImplHeader::new(partial.as_ref(), &subject, &item_trait, &mut spec)?;
+    let header = ImplHeader::new(
+        partial.as_ref(),
+        &subject,
+        subject_remote.as_ref(),
+        &item_trait,
+        &mut spec,
+    )?;
+    // Patterns and values name the subject by its real path when it is a
+    // restatement, and by its own name otherwise.
+    let subject_path = subject_remote
+        .clone()
+        .unwrap_or_else(|| Path::from(subject.ident().clone()));
     let ImplHeader {
         generics,
         self_ty,
@@ -64,8 +76,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // the subject names it and the subject's own generics.
     let block_header = {
         let (impl_generics, ty_generics, _) = subject.generics().split_for_impl();
-        let ident = subject.ident();
-        spelled(&quote!(impl #impl_generics #spec_path for #ident #ty_generics))
+        spelled(&quote!(impl #impl_generics #spec_path for #subject_path #ty_generics))
     };
     let mut entries = subject.entries_for(Some(&spec_path))?;
     // A partial block's header may name the subject's parameters as it
@@ -209,6 +220,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
                 &MethodContext {
                     entries: &entries,
                     subject: &subject,
+                    subject_path: &subject_path,
                     trait_path,
                     spec: &spec,
                     block_header: &block_header,
@@ -559,15 +571,18 @@ impl<'a> ImplHeader<'a> {
     fn new(
         partial: Option<&'a ItemImpl>,
         subject: &'a Subject,
+        remote: Option<&Path>,
         item_trait: &ItemTrait,
         spec: &mut TraitSpec,
     ) -> Result<Self> {
         let Some(block) = partial else {
-            let ident = subject.ident();
             let (_, ty_generics, _) = subject.generics().split_for_impl();
+            let path = remote
+                .cloned()
+                .unwrap_or_else(|| Path::from(subject.ident().clone()));
             return Ok(Self {
                 generics: subject.generics(),
-                self_ty: parse_quote!(#ident #ty_generics),
+                self_ty: parse_quote!(#path #ty_generics),
                 attrs: &[],
                 // An `unsafe trait` is implemented by an `unsafe impl`.
                 unsafety: item_trait.unsafety,
@@ -785,6 +800,9 @@ fn expand_method(
 struct MethodContext<'a> {
     entries: &'a [Entry],
     subject: &'a Subject,
+    /// The subject's real path, for patterns and values: its own name, or
+    /// the path a restatement names.
+    subject_path: &'a Path,
     trait_path: &'a Path,
     spec: &'a TraitSpec,
     /// The partial impl block a message points at, spelled out.
@@ -805,6 +823,7 @@ fn forward_trait_method(
     let MethodContext {
         entries,
         subject,
+        subject_path,
         trait_path,
         spec,
         block_header,
@@ -828,7 +847,7 @@ fn forward_trait_method(
         },
         method: &method,
         subject: subject_ident,
-        prefix: Path::from(subject_ident.clone()),
+        prefix: subject_path.clone(),
         lift: None,
         site: subject_ident.span(),
     };

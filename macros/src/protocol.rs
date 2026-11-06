@@ -3,12 +3,12 @@
 //! side by side.
 //!
 //! ```text
-//! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]
+//! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [remote { <path> }] [impl { <block> }]
 //! what the carrier puts in front  @v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }]
 //! what `implement!` reads         @v1 trait { <trait> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <options> } [impl { <block> }]
 //!
 //! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
-//! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> }
+//! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> }
 //! what `implement_block!` reads   @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } [partial { <options> }] impl { <block> }
 //! ```
 //!
@@ -95,6 +95,8 @@ pub(crate) struct TraitRequest<'a> {
     pub(crate) facade: &'a Ident,
     pub(crate) subject: &'a Subject,
     pub(crate) spec: &'a TraitSpec,
+    /// The real path of a restated subject, which the impl is written for.
+    pub(crate) remote: Option<&'a Path>,
     pub(crate) partial: Option<&'a ItemImpl>,
 }
 
@@ -104,11 +106,14 @@ impl ToTokens for TraitRequest<'_> {
             facade,
             subject,
             spec,
+            remote,
             partial,
         } = self;
         let version = version();
+        let remote = remote.map(|path| quote!(remote { #path }));
         let partial = partial.map(|block| quote!(impl { #block }));
-        tokens.extend(quote! { @#version #facade enum { #subject } spec { #spec } #partial });
+        tokens
+            .extend(quote! { @#version #facade enum { #subject } spec { #spec } #remote #partial });
     }
 }
 
@@ -148,6 +153,9 @@ pub(crate) struct ImplementInput {
     /// themselves.
     pub(crate) provided: Vec<Ident>,
     pub(crate) subject: Subject,
+    /// The real path of a subject restated with `remote = ..`, which the
+    /// impl is written for.
+    pub(crate) subject_remote: Option<Path>,
     pub(crate) spec: TraitSpec,
     /// The impl block the user wrote, holding the items the subject
     /// implements itself; the rest is generated around them.
@@ -179,12 +187,15 @@ impl Parse for ImplementInput {
         input.parse::<Token![enum]>()?;
         let subject = parse_braced(input)?;
         let mut spec = None;
+        let mut subject_remote = None;
         segments(
             input,
             |input| input.peek(Token![impl]),
             |tag, content| {
-                if let ("spec", Some(tokens)) = (tag.to_string().as_str(), content) {
-                    spec = Some(syn::parse2(tokens)?);
+                match (tag.to_string().as_str(), content) {
+                    ("spec", Some(tokens)) => spec = Some(syn::parse2(tokens)?),
+                    ("remote", Some(tokens)) => subject_remote = Some(syn::parse2(tokens)?),
+                    _ => {}
                 }
                 Ok(())
             },
@@ -201,6 +212,7 @@ impl Parse for ImplementInput {
             remote,
             provided,
             subject,
+            subject_remote,
             spec,
             partial,
         })
@@ -236,6 +248,8 @@ impl ToTokens for BlockRequest<'_> {
 pub(crate) struct CarriedSubject<'a> {
     pub(crate) rejected: bool,
     pub(crate) dispatched: &'a [&'a Path],
+    /// The real path of a restated subject.
+    pub(crate) remote: Option<&'a Path>,
     pub(crate) subject: &'a Subject,
 }
 
@@ -244,15 +258,17 @@ impl ToTokens for CarriedSubject<'_> {
         let CarriedSubject {
             rejected,
             dispatched,
+            remote,
             subject,
         } = self;
         let version = version();
         let rejected = rejected.then(|| quote!(rejected));
         let dispatched = (!dispatched.is_empty()).then(|| quote!(traits { #(#dispatched),* }));
+        let remote = remote.map(|path| quote!(remote { #path }));
         // `$facade` is the carrier rule's own variable, bound to the facade
         // the request named.
         tokens.extend(
-            quote! { @#version #rejected facade { $facade } #dispatched enum { #subject } },
+            quote! { @#version #rejected facade { $facade } #dispatched #remote enum { #subject } },
         );
     }
 }
@@ -266,6 +282,8 @@ pub(crate) struct BlockInput {
     pub(crate) facade: Ident,
     /// The traits the subject's own attributes dispatch, as written there.
     pub(crate) dispatched: Vec<Path>,
+    /// The real path of a restated subject.
+    pub(crate) remote: Option<Path>,
     pub(crate) subject: Subject,
     /// The trait's options when the block is a partial impl of that trait.
     pub(crate) partial: Option<TraitSpec>,
@@ -278,6 +296,7 @@ impl Parse for BlockInput {
         let mut rejected = false;
         let mut facade = None;
         let mut dispatched = vec![];
+        let mut remote = None;
         segments(
             input,
             |input| input.peek(Token![enum]),
@@ -289,6 +308,7 @@ impl Parse for BlockInput {
                         let paths = Punctuated::<Path, Token![,]>::parse_terminated;
                         dispatched = paths.parse2(tokens)?.into_iter().collect();
                     }
+                    ("remote", Some(tokens)) => remote = Some(syn::parse2(tokens)?),
                     _ => {}
                 }
                 Ok(())
@@ -314,6 +334,7 @@ impl Parse for BlockInput {
             rejected,
             facade,
             dispatched,
+            remote,
             subject,
             partial,
             item_impl,
@@ -399,10 +420,12 @@ mod tests {
                 }
             }
         );
+        let subject_remote: Path = parse_quote!(::other::Any);
         let request = TraitRequest {
             facade: &facade,
             subject: &subject,
             spec: &spec,
+            remote: Some(&subject_remote),
             partial: Some(&block),
         };
         let trait_tokens = quote!(
@@ -427,6 +450,7 @@ mod tests {
         );
         assert_eq!(input.subject.ident(), "Any");
         assert_eq!(input.provided, vec![parse_quote!(make)] as Vec<Ident>);
+        assert!(input.subject_remote.is_some());
         assert!(input.spec.is_overridden(&parse_quote!(Error)));
         assert_eq!(input.partial.map(|block| block.items.len()), Some(1));
     }
@@ -448,9 +472,10 @@ mod tests {
         let rest = rest_of(request);
         let subject = subject();
         // What `CarriedSubject` writes, with the carrier's `$facade` filled in.
-        let message = quote!(@v1 rejected facade { wh } traits { Shape, a::Encoder<X> } enum { #subject } #rest);
+        let message = quote!(@v1 rejected facade { wh } traits { Shape, a::Encoder<X> } remote { other::Any } enum { #subject } #rest);
         let input: BlockInput = syn::parse2(message).unwrap();
         assert!(input.rejected);
+        assert!(input.remote.is_some());
         assert_eq!(input.facade, "wh");
         assert_eq!(input.dispatched.len(), 2);
         assert!(input
