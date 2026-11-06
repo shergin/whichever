@@ -29,3 +29,4 @@ the planning notes, the note holds the long form and the record names it.
 - [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
 - [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)
 - [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
+- [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)

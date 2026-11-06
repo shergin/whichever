@@ -5,6 +5,16 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A method of a partial impl block may name the variants it forwards to,
+  `#[dispatch(Wep, Wpa)] fn fmt(..) { f.write_str("Others") }`, and its
+  body is the arm for every other variant: a unit variant, a payload
+  without an impl, a variant the enum answers differently, or two different
+  variants of a `Self` argument. `#[dispatch(default)]` on a bodiless
+  method leaves it to the trait's default, neither forwarded nor written.
+  Nine surveyed projects wrote an inherent bridge and a one-line impl for
+  this (libwifi, polars, forest, boreholeio, nostralink, derive-sql,
+  mlt-core, sourmash, Lemmy); auto_impl's `keep_default_for` is the
+  precedent for the second.
 - An arm reaches its target through a route: `*` for what the payload
   dereferences to, which `deref` spells, `.field` or `.0` for a field,
   `.method()` for what a method returns. A route goes on a variant or a

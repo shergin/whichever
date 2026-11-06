@@ -541,7 +541,27 @@ converts into it through `Into`, as for any override. A method written in
 the block replaces the forwarding for every variant, provided methods
 included, which is the way to leave a payload's method out on purpose; one
 written under `#[cfg]` replaces it where the `cfg` holds and is forwarded
-where it does not, as a hand writes the two arms. The block's own header,
+where it does not, as a hand writes the two arms. A method in the block
+may name the variants it forwards to, as an inherent method does, and its
+body is then the arm for every other variant, two different variants of a
+`Self` argument included; `*` with a bodiless method is the plain
+forwarding written out, and `#[dispatch(default)]` on a bodiless method
+leaves it to the trait's default, neither forwarded nor written:
+
+```rust
+#[whichever::dispatch]
+impl whichever::foreign::Display for Category {
+    /// Every other kind of category prints its own name.
+    #[dispatch(Wep, Wpa, Wpa2)]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("Others")
+    }
+}
+```
+
+That is how a trait reaches a unit variant, a variant whose payload has no
+impl, or a variant the enum answers differently: the method names the
+rest. The block's own header,
 generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
 them, so a block in another module needs them in scope there; the converse

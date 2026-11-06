@@ -494,7 +494,10 @@ trait's crate by one carrier per combination (`cfg_on_trait_items`,
 `too_many_cfg_predicates`, the smoke crates' `Gated`); the carrier
 holding signatures only, with the `provided` segment; the impl header
 documented (`impl_header`); routes (`routes`, four compile-fail cases,
-seven snapshots reworded for the new options and the marker).
+seven snapshots reworded for the new options and the marker); the partial
+block's method attributes, with the target selection shared between the
+inherent path and the trait path (`partial_block_methods`, three
+compile-fail cases).
 
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 

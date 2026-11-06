@@ -1,0 +1,5 @@
+error: `call` is an option of an inherent method; a trait method is called by its own name on every variant it names, and takes `via` only
+  --> tests/ui/block_method_with_call.rs:24:5
+   |
+24 |     #[dispatch(Book, call = cost)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -497,7 +497,12 @@
 //! in the block replaces the forwarding for every variant, provided methods
 //! included, which is also the way to leave a payload's method out on
 //! purpose; one written under `#[cfg]` replaces it where the `cfg` holds
-//! and is forwarded where it does not, as a hand writes the two arms. The
+//! and is forwarded where it does not, as a hand writes the two arms. A
+//! method in the block may name the variants it forwards to, as an
+//! inherent method does, `#[dispatch(Wep, Wpa)] fn fmt(..) { .. }`, and
+//! its body is then the arm for every other variant, a unit variant or two
+//! different variants of a `Self` argument included; `#[dispatch(default)]`
+//! on a bodiless method leaves it to the trait's default. The
 //! block's own header, bounds included, becomes the impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,

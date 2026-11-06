@@ -89,21 +89,6 @@ fn forwarding_options(attribute: &Attribute) -> Result<ForwardingOptions> {
     attribute.parse_args()
 }
 
-/// Parses the one `#[dispatch(..)]` of a method, `attribute`, taken off
-/// `rest`; a second one left in `rest` is reported on itself and taken off
-/// too, so that rustc does not report it as an unknown attribute on top.
-fn one_attribute(rest: &mut Vec<Attribute>, attribute: &Attribute) -> Result<ForwardingOptions> {
-    let Some(position) = rest.iter().position(is_dispatch_attribute) else {
-        return forwarding_options(attribute);
-    };
-    let second = rest.remove(position);
-    rest.retain(|attribute| !is_dispatch_attribute(attribute));
-    Err(Error::new_spanned(
-        second,
-        "one `#[dispatch(..)]` per method; name every variant it forwards to in that one",
-    ))
-}
-
 /// Rewrites every marked method of the block. A method that cannot be
 /// forwarded is reported and kept as written, without the attribute, or
 /// dropped when it has no body, so that the rest of the block still
@@ -193,6 +178,131 @@ pub(crate) fn expand_inherent(
     Ok(quote! { #item_impl #(#errors)* })
 }
 
+/// What a method's `#[dispatch(..)]` selects: the targets, with the
+/// method's own route when it gives one; the arms for the variants `*`
+/// cannot reach; and whether every variant is covered, so that a body
+/// would never run.
+pub(crate) struct Selection {
+    pub(crate) targets: Vec<Target>,
+    pub(crate) unforwardable_arms: Vec<Arm>,
+    pub(crate) covers_all: bool,
+}
+
+/// Selects the targets `forwarding` names among `entries`, or every target
+/// under `*`. Under `*`, a variant that holds no payload cannot be
+/// forwarded to and the method has no body to fall back on, so the arm for
+/// it is an error, which fires only when the variant is compiled in.
+pub(crate) fn select_targets(
+    forwarding: &ForwardingOptions,
+    entries: &[Entry],
+    prefix: &Path,
+    method: &Ident,
+    subject: &Subject,
+) -> Result<Selection> {
+    let subject_ident = subject.ident();
+    let noun = subject.target_noun();
+    let variants = targets(entries);
+    let mut unforwardable_arms = vec![];
+    let selected: Vec<&Target> = if forwarding.all {
+        for entry in entries {
+            if let Entry::Unforwardable(unforwardable) = entry {
+                let Unforwardable { ident, reason, .. } = unforwardable;
+                let message = format!("`{method}` is forwarded to every variant, but `{ident}` {reason}; name the variants with a payload and give the method a body for the rest");
+                unforwardable_arms.push(Arm::unforwardable(
+                    prefix,
+                    unforwardable,
+                    quote_spanned! { method.span() => ::core::compile_error!(#message) },
+                ));
+            }
+        }
+        variants.clone()
+    } else {
+        forwarding
+            .variants
+            .iter()
+            .map(|name| {
+                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
+                    return Ok(*target);
+                }
+                let unforwardable = entries.iter().find_map(|entry| match entry {
+                    Entry::Unforwardable(unforwardable) if &unforwardable.ident == name => {
+                        Some(unforwardable)
+                    }
+                    _ => None,
+                });
+                let message = match unforwardable {
+                    Some(unforwardable) => format!(
+                        "`{name}` {}, so nothing can be forwarded to it",
+                        unforwardable.reason
+                    ),
+                    None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                };
+                Err(Error::new(name.span(), message))
+            })
+            .collect::<Result<_>>()?
+    };
+    let covers_all = forwarding.all
+        || entries.iter().all(|entry| match entry {
+            Entry::Target(target) => forwarding.variants.contains(&target.ident),
+            Entry::Unforwardable(_) => false,
+        });
+    // The method's own route, when it gives one, over the variants'.
+    let targets = selected
+        .iter()
+        .map(|target| {
+            let mut target = (*target).clone();
+            if let Some(route) = &forwarding.via {
+                target.route = route.clone();
+            }
+            target
+        })
+        .collect();
+    Ok(Selection {
+        targets,
+        unforwardable_arms,
+        covers_all,
+    })
+}
+
+/// Checks that a method has a body exactly when some variant is left to it.
+pub(crate) fn check_body(
+    selection: &Selection,
+    body: Option<&Block>,
+    sig: &Signature,
+    noun: &str,
+) -> Result<()> {
+    let method = &sig.ident;
+    match (selection.covers_all, body) {
+        (true, Some(body)) => Err(Error::new_spanned(
+            body,
+            format!("`{method}` is forwarded to every {noun}, so its body would never run; end the signature with `;` instead"),
+        )),
+        (false, None) => Err(Error::new_spanned(
+            sig,
+            format!("`{method}` is forwarded to some variants only; give it a body, which is what the other variants return"),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Parses the one `#[dispatch(..)]` of a method, `attribute`, taken off
+/// `rest`; a second one left in `rest` is reported on itself and taken off
+/// too, so that rustc does not report it as an unknown attribute on top.
+pub(crate) fn one_attribute(
+    rest: &mut Vec<Attribute>,
+    attribute: &Attribute,
+) -> Result<ForwardingOptions> {
+    let Some(position) = rest.iter().position(is_dispatch_attribute) else {
+        return forwarding_options(attribute);
+    };
+    let second = rest.remove(position);
+    rest.retain(|attribute| !is_dispatch_attribute(attribute));
+    Err(Error::new_spanned(
+        second,
+        "one `#[dispatch(..)]` per method; name every variant it forwards to in that one",
+    ))
+}
+
 /// Writes one forwarded inherent method: a `match` with one arm per selected
 /// variant calling the payload's own method, and the body as the arm for
 /// every other variant.
@@ -267,85 +377,14 @@ pub(crate) fn forward_method(
         },
         None,
     )?;
-    let variants = targets(entries);
-    // Under `*`, a variant that holds no payload cannot be forwarded to and
-    // the method has no body to fall back on, so the arm for it is an
-    // error, which fires only when the variant is compiled in.
-    let mut unforwardable_arms = vec![];
-    let selected: Vec<&Target> = if forwarding.all {
-        for entry in entries {
-            if let Entry::Unforwardable(unforwardable) = entry {
-                let Unforwardable { ident, reason, .. } = unforwardable;
-                let message = format!("`{method}` is forwarded to every variant, but `{ident}` {reason}; name the variants with a payload and give the method a body for the rest");
-                unforwardable_arms.push(Arm::unforwardable(
-                    &context.prefix,
-                    unforwardable,
-                    quote_spanned! { method.span() => ::core::compile_error!(#message) },
-                ));
-            }
-        }
-        variants.clone()
-    } else {
-        forwarding
-            .variants
-            .iter()
-            .map(|name| {
-                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
-                    return Ok(*target);
-                }
-                let unforwardable = entries.iter().find_map(|entry| match entry {
-                    Entry::Unforwardable(unforwardable) if &unforwardable.ident == name => {
-                        Some(unforwardable)
-                    }
-                    _ => None,
-                });
-                let message = match unforwardable {
-                    Some(unforwardable) => format!(
-                        "`{name}` {}, so nothing can be forwarded to it",
-                        unforwardable.reason
-                    ),
-                    None => format!("`{subject_ident}` has no {noun} `{name}`"),
-                };
-                Err(Error::new(name.span(), message))
-            })
-            .collect::<Result<_>>()?
-    };
-    let covers_all = forwarding.all
-        || entries.iter().all(|entry| match entry {
-            Entry::Target(target) => forwarding.variants.contains(&target.ident),
-            Entry::Unforwardable(_) => false,
-        });
-    match (covers_all, body) {
-        (true, Some(body)) => {
-            return Err(Error::new_spanned(
-                body,
-                format!("`{method}` is forwarded to every {noun}, so its body would never run; end the signature with `;` instead"),
-            ))
-        }
-        (false, None) => {
-            return Err(Error::new_spanned(
-                sig,
-                format!("`{method}` is forwarded to some variants only; give it a body, which is what the other variants return"),
-            ))
-        }
-        _ => {}
-    }
-    // The method's own route, when it gives one, over the variants'.
-    let routed: Vec<Target> = selected
-        .iter()
-        .map(|target| {
-            let mut target = (*target).clone();
-            if let Some(route) = &forwarding.via {
-                target.route = route.clone();
-            }
-            target
-        })
-        .collect();
-    let mut arms = routed
+    let selection = select_targets(&forwarding, entries, &context.prefix, method, subject)?;
+    check_body(&selection, body, sig, noun)?;
+    let mut arms = selection
+        .targets
         .iter()
         .map(|target| plan.arm(target, &context))
         .collect::<Result<Vec<_>>>()?;
-    arms.extend(unforwardable_arms);
+    arms.extend(selection.unforwardable_arms);
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,
