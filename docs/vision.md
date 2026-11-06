@@ -108,10 +108,10 @@ wish.
    reference is the hand-written `match`, never a competitor. Benchmarks are
    runtime only.
    *Held by* `benchmarks/RESULTS.md`, which `benchmarks/scripts/report.py`
-   writes with its date, machine and toolchain, and by the `agree!` tests
-   that check every subject against the hand before anything is timed. The
-   numbers the README quotes are still copies of that file; a splice that
-   CI checks is owed.
+   writes with its date, machine and toolchain, by the `agree!` tests
+   that check every subject against the hand before anything is timed, and
+   by `benchmarks/scripts/check_numbers.py`, which CI runs so that every
+   number the README and the guide quote is one that file holds.
 
 ## Decisions
 

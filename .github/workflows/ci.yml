@@ -75,6 +75,8 @@ jobs:
       - run: cargo doc --no-deps -p whichever -p whichever-macros
         env:
           RUSTDOCFLAGS: -D warnings
+      # Every number the README and the guide quote is one RESULTS.md holds.
+      - run: python3 benchmarks/scripts/check_numbers.py
 
   semver:
     name: semver-checks

@@ -5,6 +5,10 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- CI checks that every number the README and the guide quote is one
+  `benchmarks/RESULTS.md` holds (`benchmarks/scripts/check_numbers.py`),
+  without running a benchmark; the vision had listed that check as owed.
+  The behaviour tests are one file per capability under `tests/behaviour/`.
 - `proc-macro-crate`, which lets a crate rename its `whichever`
   dependency, sits behind the default feature `renamed-dependency`;
   without it the macro crate's dependency tree is `proc-macro2`, `quote`
