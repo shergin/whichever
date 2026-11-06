@@ -144,7 +144,7 @@
 //! | Trait item | Enum impl |
 //! | --- | --- |
 //! | `type X;` | `type X = <FirstVariant as Trait>::X;`, or the `X = Type` option. Every other variant is checked to agree; a disagreement is reported on that variant. |
-//! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
+//! | `const N: T;` | `const N: T = <FirstVariant as Trait>::N;`, or the `N = value` option. For an integer, a float, `bool`, `char` or `&str` const on a non-generic enum, every other variant is checked to agree at compile time, with the error on that variant. |
 //! | method with a receiver | A `match` over the variants calling `<Payload as Trait>::method(payload, args..)`. |
 //! | generic method | Called with its type and const parameters spelled out when no argument fixes them. |
 //! | `self: Box<Self>` | The enum is moved out of its box and a `deref` variant's own `Box<Payload>` is handed over; a plain variant is an error. |
@@ -678,7 +678,7 @@
 //!   `self: Pin<&mut Self>` when every payload is `Unpin`. `Rc<Self>`,
 //!   `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
 //!   allocation, so they are not.
-//! - An associated const of a type other than an integer, `bool`, `char` or
+//! - An associated const of a type other than an integer, a float, `bool`, `char` or
 //!   `&str`, or on a generic enum, is taken from the first variant without
 //!   a check.
 //! - A trait whose items carry more than four distinct `#[cfg]` predicates

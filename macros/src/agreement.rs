@@ -10,17 +10,17 @@ use crate::shape::bare_ident;
 use crate::subject::{allow_deprecated, Target};
 
 /// How two values of an associated const's type are compared at compile
-/// time: with `==` for the primitives that allow it in a `const`, or byte
-/// by byte for `&str`.
+/// time: with `==` for the primitives that allow it in a `const`, the
+/// floats among them since Rust 1.82, or byte by byte for `&str`.
 pub(crate) enum ConstComparison {
     Primitive,
     Str,
 }
 
 pub(crate) fn const_comparison(ty: &Type) -> Option<ConstComparison> {
-    const PRIMITIVES: [&str; 15] = [
+    const PRIMITIVES: [&str; 17] = [
         "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
-        "bool", "char", "()",
+        "f32", "f64", "bool", "char", "()",
     ];
     match ty {
         Type::Tuple(tuple) if tuple.elems.is_empty() => Some(ConstComparison::Primitive),

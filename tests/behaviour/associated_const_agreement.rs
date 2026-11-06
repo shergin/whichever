@@ -2,6 +2,7 @@
 trait Proof {
     const KIND: &'static str;
     const ARITY: usize;
+    const RATIO: f64;
     const UNCHECKED: Option<u8>;
     fn check(&self) -> bool;
 }
@@ -12,6 +13,7 @@ struct Ordering;
 impl Proof for Encoding {
     const KIND: &'static str = "encoding";
     const ARITY: usize = 1;
+    const RATIO: f64 = 0.5;
     const UNCHECKED: Option<u8> = Some(1);
     fn check(&self) -> bool {
         true
@@ -21,6 +23,7 @@ impl Proof for Encoding {
 impl Proof for Ordering {
     const KIND: &'static str = "ordering";
     const ARITY: usize = 1;
+    const RATIO: f64 = 0.5;
     const UNCHECKED: Option<u8> = Some(2);
     fn check(&self) -> bool {
         false
@@ -29,8 +32,8 @@ impl Proof for Ordering {
 
 const ANY: &str = "any";
 
-// `KIND` differs per payload, so the enum sets its own; `ARITY` agrees
-// and is checked; `UNCHECKED` has a type the check cannot compare and
+// `KIND` differs per payload, so the enum sets its own; `ARITY` and
+// `RATIO` agree and are checked; `UNCHECKED` has a type the check cannot compare and
 // comes from the first variant.
 #[whichever::dispatch(Proof, KIND = ANY)]
 enum AnyProof {

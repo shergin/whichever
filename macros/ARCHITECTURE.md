@@ -586,6 +586,7 @@ A by-value move through a pointer that is not a `Box` is one sentence
 (`route_moves_through_a_shared_pointer` is new).
 A trait-side `mismatch` path resolving at the enum is documented
 (`mismatch_path_resolves_at_the_enum` is new).
+Floats joined the const check.
 
 ## 5. Invariants every stage keeps
 

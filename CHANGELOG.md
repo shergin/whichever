@@ -78,6 +78,9 @@ changes are expected and listed without apology.
   written on the trait method resolves where the enum is, as the signature
   types do, so a helper beside the trait is spelled from `crate::`; a
   compile-fail case pins rustc's error for a bare name.
+- An associated const of type `f32` or `f64` is checked to agree between
+  the variants, as the integers, `bool`, `char` and `&str` are; comparing
+  floats in a `const` is stable since Rust 1.82, within the crate's minimum.
 
 ## 0.6.0 - 2026-11-06
 
