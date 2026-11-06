@@ -51,10 +51,13 @@ pub(crate) fn conversion_impls(
     let site = enum_ident.span();
     let mut output = TokenStream2::new();
     for (target, conversions) in &converting {
-        let Target { payload, cfgs, .. } = target;
+        let Target { payload, .. } = target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
         }
+        // The variant's `cfg`, and `#[allow(deprecated)]` for a deprecated
+        // variant, which every impl naming it carries.
+        let cfgs = target.arm_attributes(site);
         let built = target.rebuild(&self_path, quote!(#value), site);
         let pattern = target.pattern(&prefix, &value, site);
         let parameter = type_parameter(subject, target);
@@ -153,7 +156,7 @@ pub(crate) fn conversion_impls(
             match entry {
                 Entry::Target(variant) if variant.conversions().is_some() => {
                     let pattern = variant.pattern(&prefix, &value, site);
-                    let cfgs = &variant.cfgs;
+                    let cfgs = variant.arm_attributes(site);
                     arms.push(
                         quote! { #(#cfgs)* #pattern => ::core::convert::Into::into(#value), },
                     );

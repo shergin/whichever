@@ -554,6 +554,9 @@ their labels from the trait's attribute to the enum, the block or the
 method; no golden changed). The agreement block asks the first variant for
 the impl (goldens `carried_attributes` and `recursive` gained the
 `__first_implements` line; `missing_impl_with_associated_type` is new).
+A deprecated trait item or variant is forwarded under `#[allow(deprecated)]`
+(golden `deprecated` and the behaviour test `deprecated_items` are new;
+the carrier keeps `#[deprecated]` beside `#[inline]`).
 
 ## 5. Invariants every stage keeps
 

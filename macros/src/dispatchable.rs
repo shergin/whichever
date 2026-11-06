@@ -236,24 +236,25 @@ fn signatures_only(item_trait: &mut ItemTrait) -> Vec<Ident> {
 }
 
 /// Returns the attributes of a trait item the implementation macro reads:
-/// the hand-written `#[allow]`, and on a method its `#[inline]` and its
-/// `#[dispatch]`.
+/// the hand-written `#[allow]`, the `#[deprecated]` the generated item
+/// allows, and on a method its `#[inline]` and its `#[dispatch]`.
 fn kept_attributes(attrs: &[syn::Attribute], on_method: bool) -> Vec<syn::Attribute> {
     // The `cfg` attributes were decided by the carrier's own `cfg`.
     let mut kept: Vec<syn::Attribute> = carried_attributes(attrs)
         .into_iter()
         .filter(|attribute| !attribute.path().is_ident("cfg"))
         .collect();
-    if on_method {
-        kept.extend(
-            attrs
-                .iter()
-                .filter(|attribute| {
-                    attribute.path().is_ident("inline") || is_dispatch_attribute(attribute)
-                })
-                .cloned(),
-        );
-    }
+    kept.extend(
+        attrs
+            .iter()
+            .filter(|attribute| {
+                attribute.path().is_ident("deprecated")
+                    || (on_method
+                        && (attribute.path().is_ident("inline")
+                            || is_dispatch_attribute(attribute)))
+            })
+            .cloned(),
+    );
     kept
 }
 

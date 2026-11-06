@@ -249,7 +249,6 @@ impl MethodPlan {
         let Target {
             ident: target_ident,
             payload,
-            cfgs,
             route,
             ..
         } = target;
@@ -341,7 +340,7 @@ impl MethodPlan {
             value = quote_spanned! { site => #lift(#value) };
         }
         Ok(Arm {
-            cfgs: cfgs.clone(),
+            cfgs: target.arm_attributes(site),
             pattern: self.pattern(target, prefix, &inner, site),
             value,
             site,
@@ -460,7 +459,7 @@ impl Arm {
     ) -> Self {
         let ident = &unforwardable.ident;
         Arm {
-            cfgs: unforwardable.cfgs.clone(),
+            cfgs: unforwardable.arm_attributes(site),
             pattern: quote_spanned!(site => #prefix::#ident { .. }),
             value,
             site,

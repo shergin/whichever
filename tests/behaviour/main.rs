@@ -15,6 +15,7 @@ mod cfg_on_variants_and_methods;
 mod conditional_methods_in_a_partial_block;
 mod conversions_by_reference_and_into;
 mod defaults_are_forwarded;
+mod deprecated_items;
 mod dereferenced_payloads;
 mod enum_side_mismatch_names_the_arguments;
 mod enums_inside_functions;

@@ -23,7 +23,8 @@ use crate::options::{
 use crate::protocol::ImplementInput;
 use crate::shape::{takes_self_argument, ReturnSite};
 use crate::subject::{
-    carried_attributes, cfg_attributes, shape_errors, targets, Entry, Subject, Target,
+    allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
+    Entry, Subject, Target,
 };
 use crate::substitution::Substitution;
 use crate::{at, combined};
@@ -164,9 +165,17 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let mut items = TokenStream2::new();
     let mut agreed_types: Vec<&Ident> = vec![];
     let mut agreed_consts: Vec<(&Ident, Type)> = vec![];
+    // The agreement checks name every associated item; a deprecated one
+    // puts them under `#[allow(deprecated)]`.
+    let mut deprecated_items = false;
     // Every item that cannot be forwarded is reported, not only the first.
     let mut errors: Vec<Error> = route_errors;
     for item in &item_trait.items {
+        match item {
+            TraitItem::Type(assoc) => deprecated_items |= is_deprecated(&assoc.attrs),
+            TraitItem::Const(constant) => deprecated_items |= is_deprecated(&constant.attrs),
+            _ => {}
+        }
         let name = match item {
             TraitItem::Type(assoc) => Some(&assoc.ident),
             TraitItem::Const(constant) => Some(&constant.ident),
@@ -322,6 +331,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             generics,
             self_type: self_ty,
             site,
+            deprecated: deprecated_items,
         };
         let types = agreement.types(&agreed_types);
         let consts = agreement.consts(&agreed_consts);
@@ -723,7 +733,10 @@ fn associated_type<'a>(
             format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
-    let carried = carried_attributes(&assoc.attrs);
+    let mut carried = carried_attributes(&assoc.attrs);
+    if is_deprecated(&assoc.attrs) {
+        carried.push(allow_deprecated(site));
+    }
     let cfgs = carried
         .iter()
         .filter(|attribute| attribute.path().is_ident("cfg"));
@@ -753,7 +766,10 @@ fn associated_const<'a>(
     site: Span,
 ) -> Result<TokenStream2> {
     let name = &constant.ident;
-    let carried = carried_attributes(&constant.attrs);
+    let mut carried = carried_attributes(&constant.attrs);
+    if is_deprecated(&constant.attrs) {
+        carried.push(allow_deprecated(site));
+    }
     let cfgs = carried
         .iter()
         .filter(|attribute| attribute.path().is_ident("cfg"));
@@ -991,7 +1007,7 @@ fn forward_trait_method(
         .find(|attribute| attribute.path().is_ident("inline"))
         .map(ToTokens::to_token_stream)
         .unwrap_or_else(|| quote_spanned! { site => #[inline] });
-    let carried: Vec<Attribute> = match forwarded {
+    let mut carried: Vec<Attribute> = match forwarded {
         Some(forwarded) => forwarded
             .attrs
             .iter()
@@ -1000,6 +1016,12 @@ fn forward_trait_method(
             .collect(),
         None => carried_attributes(&function.attrs),
     };
+    // A deprecated method is forwarded under `#[allow(deprecated)]`, as a
+    // hand writes it; the deprecation reaches the callers through the
+    // trait's item.
+    if is_deprecated(&function.attrs) {
+        carried.push(allow_deprecated(site));
+    }
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,

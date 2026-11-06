@@ -22,6 +22,13 @@ changes are expected and listed without apology.
   resolving the enum's own projection, twice, on the trait's attribute and
   the trait method. The block is written for a struct and a one-variant
   enum too, where it holds that one check.
+- A `#[deprecated]` trait method or associated item is forwarded under
+  `#[allow(deprecated)]`, and the arms and conversions of a `#[deprecated]`
+  variant are written under it, as a hand writes them; the deprecation
+  still reaches the callers through the trait's item and the variant.
+  Before, an enum dispatching a trait with a deprecated method, or holding
+  a deprecated variant, could not compile under `deny(deprecated)`, since
+  no attribute of the enum's author reaches the generated code.
 
 ## 0.6.0 - 2026-11-06
 

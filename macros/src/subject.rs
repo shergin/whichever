@@ -6,8 +6,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item, ItemEnum, ItemStruct,
-    Member, Path, Result, Type, Variant,
+    parse_quote_spanned, Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item,
+    ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
 use crate::at;
@@ -167,6 +167,10 @@ pub(crate) struct Target {
     pub(crate) place: Place,
     pub(crate) payload: Type,
     pub(crate) cfgs: Vec<Attribute>,
+    /// Whether the variant or field is `#[deprecated]`, so that the arms
+    /// and the conversions that name it are written under
+    /// `#[allow(deprecated)]`, as a hand writes them.
+    pub(crate) deprecated: bool,
     /// How an arm reaches the value the trait is called on from the
     /// payload: the payload itself, what it dereferences to, a field, or
     /// what a method returns.
@@ -201,6 +205,12 @@ pub(crate) struct Conversions {
 }
 
 impl Target {
+    /// Returns the attributes an arm or an impl naming the target carries:
+    /// its `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
+    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+        arm_attributes(&self.cfgs, self.deprecated, site)
+    }
+
     /// Returns the variant's part in the conversions; a field has none,
     /// and neither has a variant with other fields beside the payload.
     pub(crate) fn conversions(&self) -> Option<Conversions> {
@@ -379,6 +389,9 @@ impl VisitMut for SelfReplacer {
 pub(crate) struct Unforwardable {
     pub(crate) ident: Ident,
     pub(crate) cfgs: Vec<Attribute>,
+    /// Whether the variant is `#[deprecated]`, so that an arm naming it is
+    /// written under `#[allow(deprecated)]`.
+    pub(crate) deprecated: bool,
     /// What the variant holds instead of one payload, as a predicate of its
     /// name: "holds no payload", "holds 2 fields, not one payload".
     pub(crate) reason: String,
@@ -391,6 +404,36 @@ impl Unforwardable {
         let error = self.error.to_compile_error();
         quote_spanned! { self.ident.span() => #(#cfgs)* #error }
     }
+
+    /// Returns the attributes an arm naming the variant carries: its
+    /// `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
+    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+        arm_attributes(&self.cfgs, self.deprecated, site)
+    }
+}
+
+/// Returns `cfgs` with `#[allow(deprecated)]` added when `deprecated`: the
+/// attribute a hand writes on the arm of a deprecated variant, so that the
+/// deprecation reaches the code that names the variant and not the
+/// forwarding that has to.
+fn arm_attributes(cfgs: &[Attribute], deprecated: bool, site: Span) -> Vec<Attribute> {
+    let mut attributes = cfgs.to_vec();
+    if deprecated {
+        attributes.push(allow_deprecated(site));
+    }
+    attributes
+}
+
+/// Returns whether `attributes` deprecate their item.
+pub(crate) fn is_deprecated(attributes: &[Attribute]) -> bool {
+    attributes
+        .iter()
+        .any(|attribute| attribute.path().is_ident("deprecated"))
+}
+
+/// Returns `#[allow(deprecated)]`, written at `site`.
+pub(crate) fn allow_deprecated(site: Span) -> Attribute {
+    parse_quote_spanned!(site => #[allow(deprecated)])
 }
 
 // Short-lived and few; the size difference does not matter here.
@@ -436,6 +479,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
     } = TargetOptions::read(&variant.attrs, true)?;
     let ident = &variant.ident;
     let cfgs = cfg_attributes(&variant.attrs);
+    let deprecated = is_deprecated(&variant.attrs);
     let marked: Vec<(Member, &Field)> = variant
         .fields
         .iter()
@@ -475,6 +519,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
             return Ok(Entry::Unforwardable(Unforwardable {
                 ident: ident.clone(),
                 cfgs,
+                deprecated,
                 error: Error::new_spanned(
                     variant,
                     format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body answers for it"),
@@ -501,6 +546,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
         },
         payload: field.ty.clone(),
         cfgs,
+        deprecated,
         route,
     }))
 }
@@ -611,6 +657,7 @@ pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Res
         },
         payload: field.ty.clone(),
         cfgs: vec![],
+        deprecated: is_deprecated(&field.attrs),
         route: route.unwrap_or_default(),
     })
 }

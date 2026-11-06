@@ -7,7 +7,7 @@ use syn::{parse_quote_spanned, GenericArgument, Ident, Path, PathArguments, Type
 
 use crate::at;
 use crate::shape::bare_ident;
-use crate::subject::Target;
+use crate::subject::{allow_deprecated, Target};
 
 /// How two values of an associated const's type are compared at compile
 /// time: with `==` for the primitives that allow it in a `const`, or byte
@@ -51,9 +51,17 @@ pub(crate) struct Agreement<'a> {
     pub(crate) generics: &'a syn::Generics,
     pub(crate) self_type: &'a Type,
     pub(crate) site: Span,
+    /// Whether the trait deprecates an associated item, which the checks
+    /// name and so allow.
+    pub(crate) deprecated: bool,
 }
 
 impl Agreement<'_> {
+    /// Returns the `#[allow(deprecated)]` a check block carries when the
+    /// trait deprecates an associated item the block names.
+    fn allowance(&self) -> Option<syn::Attribute> {
+        self.deprecated.then(|| allow_deprecated(self.site))
+    }
     /// Returns every variant but the first, the one the items were taken
     /// from.
     fn others(&self) -> impl Iterator<Item = &&Target> {
@@ -136,7 +144,9 @@ impl Agreement<'_> {
                 }
             }
         });
+        let allowance = self.allowance();
         quote_spanned! { site =>
+            #allowance
             const _: () = {
                 #str_eq
                 #checks
@@ -199,7 +209,9 @@ impl Agreement<'_> {
             let span = at(variant.payload.span());
             Some(quote_spanned! { span => #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })
         });
+        let allowance = self.allowance();
         quote_spanned! { site =>
+            #allowance
             const _: () = {
                 #[allow(dead_code)]
                 struct __WhicheverAgreement #impl_generics (#self_type) #where_clause;
