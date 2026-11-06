@@ -42,8 +42,10 @@ python3 benchmarks/scripts/codegen.py
 python3 benchmarks/scripts/check_numbers.py
 ```
 
-The compile-fail snapshots are pinned to stable's wording; CI runs the other
-toolchains with `-- --skip compile_fail`.
+The compile-fail snapshots are pinned to stable's wording, so update the
+local `stable` first (`rustup update stable`): a stale one passes a snapshot
+that CI's current stable rejects. CI runs the other toolchains with
+`-- --skip compile_fail`.
 
 ## 3. Inspect the packages
 
