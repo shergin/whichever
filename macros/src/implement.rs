@@ -1248,7 +1248,7 @@ fn forward_trait_method(
         scrutinee: plan.scrutinee(context.site),
         arms,
         fallback,
-        future: plan.future,
+        future: plan.future.clone(),
     }
     .body(at(method.span()));
     Ok(quote_spanned! { site =>

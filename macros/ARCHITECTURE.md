@@ -214,8 +214,12 @@ classifier's: a conversion under a wrapper has to be a path, since
 `Option` is a limit with the one sentence, while a tuple holding a
 wrapper is fine. The recognition rules stay syntactic: `Option` and
 `Result` by the name a path ends in, `Self::X` as a two-segment path,
-`impl Future` by its `Output` binding, and any other `Self` in a return
-type is a limit. `Result<Self, Self::Error>` with `Error` overridden
+`impl Future` by its `Output` binding, a boxed future, `Pin<Box<dyn
+Future<Output = T> + ..>>`, by the same binding under `Pin` and `Box`
+(`FutureShape`), and any other `Self` in a return type is a limit. An
+opaque future is one `async move` block whatever the conversion; a boxed
+one is wrapped, and pinned again with the signature's own `Box`, only to
+convert its output. `Result<Self, Self::Error>` with `Error` overridden
 rewraps and converts (golden `overridden_results`); `(Self, u32)` and
 `(Self::Rest, Option<Self>)` take the tuple apart (golden
 `tuple_returns`).
@@ -615,6 +619,9 @@ other.
 `conversion_impls` (184) and `expand_subject` (124) are the next seams.
 `value` borrows a routed place as the return type asks, so it and `field`
 are one arm (behaviour test `routes` extended; no golden changed).
+A boxed future's output is converted inside a `Box::pin(async move { .. })`
+(golden `boxed_futures` and the `async_trait_above_dispatchable` case are
+new; `docs/decisions/a-boxed-future-is-rewrapped-by-boxing.md`).
 
 ## 5. Invariants every stage keeps
 

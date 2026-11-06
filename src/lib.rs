@@ -152,6 +152,7 @@
 //! | default body | Ignored: the method is forwarded like any other. |
 //! | `async fn` | Each arm is awaited. |
 //! | `-> impl Future<Output = T>` | The `match` sits in one `async move` block and each arm is awaited; the future's bounds, `Send` included, are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
+//! | `-> Pin<Box<dyn Future<Output = T> + ..>>`, as `#[async_trait]` writes it | Forwarded as it is, one type for every arm; when `T` is rewrapped or converted, every arm is awaited in one `async move` block that is boxed and pinned again with the `Box` the signature names, as the attribute itself writes. |
 //! | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | `unsafe trait` | An `unsafe impl`. |

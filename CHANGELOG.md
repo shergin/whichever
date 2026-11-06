@@ -98,6 +98,13 @@ changes are expected and listed without apology.
   that spelled short; before, `value` handed the place over by value and
   rustc reported the type. The target itself, without a route, is handed
   over as before.
+- A method returning `Pin<Box<dyn Future<Output = T> + ..>>`, as
+  `#[async_trait]` writes one, is forwarded as it is, and when `T` is an
+  overridden associated type, or a `Self` to rewrap, every arm is awaited
+  in one `async move` block that is boxed and pinned again with the `Box`
+  the signature names, as the attribute itself writes; before, the boxed
+  return was a plain type and the override gave rustc's mismatch at the
+  trait's attribute. The decision record says why the box is the hand's.
 
 ## 0.6.0 - 2026-11-06
 

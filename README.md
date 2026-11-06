@@ -727,6 +727,7 @@ unwrapped to it.
 | `async fn`, `unsafe fn` | Arms are awaited; calls are wrapped in `unsafe { }`. |
 | `unsafe trait` | An `unsafe impl`. |
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
+| `-> Pin<Box<dyn Future<Output = T> + ..>>`, as `#[async_trait]` writes it | Forwarded as it is, one type for every arm; when `T` is rewrapped or converted, every arm is awaited in one `async move` block that is boxed and pinned again with the `Box` the signature names, as the attribute itself writes. |
 | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure. |

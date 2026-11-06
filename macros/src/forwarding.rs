@@ -22,7 +22,7 @@ use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, ReceiverKind, ReturnSite,
+    ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -117,9 +117,9 @@ pub(crate) struct MethodPlan {
     /// The generic arguments a call spells out, when inference could not.
     turbofish: Option<TokenStream2>,
     return_model: Conversion,
-    /// Whether the method returns `impl Future`, so that the `match` sits in
-    /// one `async move` block and every arm is awaited inside it.
-    pub(crate) future: bool,
+    /// The future the method returns, when the `match` sits in one `async
+    /// move` block and every arm is awaited inside it.
+    pub(crate) future: Option<FutureShape>,
     awaited: bool,
     unsafety: bool,
     /// Whether the method's `where` clause requires `Self: Sized`, which a
@@ -201,6 +201,7 @@ impl MethodPlan {
             arguments.push(binding);
         }
         let (return_model, future) = classify_return(&signature.output, spec, site)?;
+        let awaited = signature.asyncness.is_some() || future.is_some();
         Ok(Self {
             receiver,
             self_token,
@@ -209,7 +210,7 @@ impl MethodPlan {
             turbofish: turbofish(signature),
             return_model,
             future,
-            awaited: signature.asyncness.is_some() || future,
+            awaited,
             unsafety: signature.unsafety.is_some(),
             requires_sized: requires_sized(signature),
         })
@@ -564,15 +565,18 @@ pub(crate) struct Forwarding {
     /// The arm for everything the others leave: the mismatch of a trait
     /// method, or the fallback body of an inherent one.
     pub(crate) fallback: Option<Arm>,
-    pub(crate) future: bool,
+    /// The future the method returns, when every arm is awaited inside one
+    /// `async move` block: an opaque one, or a boxed one pinned again with
+    /// the `Box` the signature names.
+    pub(crate) future: Option<FutureShape>,
 }
 
 impl Forwarding {
     /// Renders the body: the `match`, inside an `async move` block when the
-    /// method returns `impl Future` so that every arm is awaited where an
-    /// `async fn` would await it, in braces carrying the method's own span,
-    /// so that the item rustc points at as "defined here" is the method and
-    /// not the attribute that generated it.
+    /// method returns a future the arms are awaited in, so that every arm
+    /// is awaited where an `async fn` would await it, in braces carrying the
+    /// method's own span, so that the item rustc points at as "defined here"
+    /// is the method and not the attribute that generated it.
     pub(crate) fn body(&self, span: Span) -> TokenStream2 {
         let Forwarding {
             scrutinee,
@@ -581,8 +585,14 @@ impl Forwarding {
             future,
         } = self;
         let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
-        if *future {
-            body = quote_spanned! { span => async move { #body } };
+        match future {
+            None => {}
+            Some(FutureShape::Opaque) => {
+                body = quote_spanned! { span => async move { #body } };
+            }
+            Some(FutureShape::Boxed(path)) => {
+                body = quote_spanned! { span => #path::pin(async move { #body }) };
+            }
         }
         let mut group = Group::new(Delimiter::Brace, body);
         group.set_span(span);

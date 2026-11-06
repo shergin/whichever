@@ -250,7 +250,7 @@ pub(crate) fn forward_method(
         scrutinee: plan.scrutinee(context.site),
         arms,
         fallback: body.map(|body| Arm::rest(body.to_token_stream(), context.site)),
-        future: plan.future,
+        future: plan.future.clone(),
     }
     .body(site);
     Ok(quote_spanned! { site => #(#attrs)* #vis #signature #body })
