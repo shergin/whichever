@@ -5,6 +5,17 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.6.0 - 2026-11-06
+
+The shapes the surveys found written by hand: a route to the target,
+by-reference `TryFrom` and `into` conversions, an enum of another crate
+restated, a struct's fields naming their traits, a partial block's methods
+naming their variants, and tuple returns. Nothing that compiled before is
+read differently, except a trait item's `#[cfg]`, which is decided in the
+trait's crate now, and a trait with more than four distinct predicates on
+its items, which is reported. The generated code of the benchmarked shapes
+is unchanged, so the numbers stand.
+
 - CI checks that every number the README and the guide quote is one
   `benchmarks/RESULTS.md` holds (`benchmarks/scripts/check_numbers.py`),
   without running a benchmark; the vision had listed that check as owed.
