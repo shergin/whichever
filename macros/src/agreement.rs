@@ -144,9 +144,11 @@ impl Agreement<'_> {
         }
     }
 
-    /// Checks at compile time that every variant's associated types equal
-    /// the first variant's, so a disagreement is reported on the variant
-    /// instead of inside a generated method body.
+    /// Checks at compile time that the first variant implements the trait
+    /// and that every other variant's associated types equal its, so a
+    /// payload without the impl, or a disagreement, is reported on the
+    /// variant instead of on the projection the items are taken from or
+    /// inside a generated method body.
     ///
     /// The helpers are associated functions of a local struct wrapping the
     /// subject, inside the anonymous `const`. The struct's field gives its
@@ -158,18 +160,19 @@ impl Agreement<'_> {
     /// the `const`, so two traits dispatched on one subject never meet.
     pub(crate) fn types(&self, names: &[&Ident]) -> TokenStream2 {
         let Agreement {
-            variants,
             first,
             trait_path,
             first_payload,
             generics,
             self_type,
             site,
+            ..
         } = *self;
-        if names.is_empty() || variants.len() < 2 {
+        if names.is_empty() {
             return TokenStream2::new();
         }
         let first_span = at(first.payload.span());
+        let first_cfgs = &first.cfgs;
         let bindings: Vec<GenericArgument> = names
             .iter()
             .map(|name| {
@@ -202,8 +205,10 @@ impl Agreement<'_> {
                 struct __WhicheverAgreement #impl_generics (#self_type) #where_clause;
                 #[allow(dead_code, non_snake_case)]
                 impl #impl_generics __WhicheverAgreement #ty_generics #where_clause {
+                    fn __first_implements<__First: ?Sized + #trait_path>() {}
                     fn __same_as_first_variant<__Variant: ?Sized + #bound>() {}
                     fn __whichever_associated_types_agree() {
+                        #(#first_cfgs)* Self::__first_implements::<#first_payload>();
                         #(#checks)*
                     }
                 }

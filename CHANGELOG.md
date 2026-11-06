@@ -15,6 +15,13 @@ changes are expected and listed without apology.
   another crate's file when the trait is foreign. A unit test of the macro
   crate reads the engine's modules and names a token written at the call
   site, so the rule cannot rot.
+- The agreement block asks the first variant for the trait's impl before
+  it compares the others' associated types with its, so a first variant
+  whose payload lacks the impl is "the trait bound `Memory: Storage` is not
+  satisfied" on that variant; before, rustc reported a type mismatch
+  resolving the enum's own projection, twice, on the trait's attribute and
+  the trait method. The block is written for a struct and a one-variant
+  enum too, where it holds that one check.
 
 ## 0.6.0 - 2026-11-06
 

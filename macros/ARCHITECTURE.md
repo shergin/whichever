@@ -540,6 +540,21 @@ changed shape in `carried_attributes` and `recursive`;
 `associated_type_disagreement` moved with the helper's new home; one new
 case.
 
+### Stage 16: the review of 2026-11-06
+
+Status: in progress on the branch `execute-review-2026-11-06`, one commit
+per item in the order of `notes/review-2026-11-06.md` section 8. Every
+token the engine writes carries a user span through `at`, located at the
+subject's, the method's or the payload's token and resolved at the
+expansion's own site, and `spans.rs` holds it (snapshots:
+`associated_const_disagreement`, `associated_type_disagreement`,
+`gat_payload_without_into`, `gat_undeclared_in_block`, `missing_impl`,
+`partial_without_receiverless` and `private_inherent_method_span` moved
+their labels from the trait's attribute to the enum, the block or the
+method; no golden changed). The agreement block asks the first variant for
+the impl (goldens `carried_attributes` and `recursive` gained the
+`__first_implements` line; `missing_impl_with_associated_type` is new).
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
