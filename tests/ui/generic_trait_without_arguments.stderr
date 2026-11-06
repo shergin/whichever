@@ -1,4 +1,4 @@
-error: `Convert` takes 1 generic argument; name it, `Convert<X>`
+error: `Convert` takes 1 generic argument; name it, `Convert<X>`, or write the impl's header in an empty `#[whichever::dispatch] impl<X> Convert<X> for ..` block
   --> tests/ui/generic_trait_without_arguments.rs:21:23
    |
 21 | #[whichever::dispatch(Convert)]

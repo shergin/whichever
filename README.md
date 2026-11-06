@@ -73,6 +73,15 @@ That is the code a careful hand would write: no trait object, no closure,
 no conversion, and a variant's override of a default method is never hidden
 by the default.
 
+Three more things are in the expansion, and in `cargo expand`: the impl is
+marked `#[automatically_derived]`, which tells Clippy and coverage tools
+what it is; the bindings the arms use are named `__inner`, `__same0` and
+the like, with `macro_rules`-style hygiene, so they never collide with a
+name the trait wrote; and a `const _` block beside the impl holds the
+agreement checks for the associated types and consts, which compile to
+nothing. The enum keeps its definition in a crate-local carrier macro for
+its impl blocks, re-exported under the enum's name.
+
 ## Why another one
 
 An enum over the implementors of a trait is the cheapest way to hold "one
@@ -299,7 +308,10 @@ All options follow the trait path in `#[dispatch(..)]`.
   takes `&self`; `&mut self` and `self` are moved into the `match`.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
-  by two variants gets none either way.
+  by two variants gets none either way, and a payload whose `From` is
+  written by hand, or that a derive supplies, stays out with
+  `#[dispatch(from = false)]` on its variant, since a second impl of the
+  same `From` is a conflict.
 - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type,
   with the enum as the error, so a mismatch hands the value back; `.unwrap()`
   on the result therefore needs the enum to be `Debug`.
@@ -372,7 +384,10 @@ Each arm calls the payload's method by method-call syntax,
 resolution apply as in hand-written code. `with = path` wraps each forwarded
 result in a call to `path`, which may be a generic function, called
 separately in each arm, so payloads whose results differ can meet in one
-declared return type; `call = name` forwards to a method of another name;
+declared return type, and `with = Into::into` rebuilds the enum through its
+`From` impls, which is the way to return the enum at another lifetime,
+`fn into_static(self) -> PlayableId<'static>`; `call = name` forwards to a
+method of another name;
 `async` methods and methods returning `impl Future` are awaited; and
 methods without the attribute are left alone. A method returning `Self`,
 `Option<Self>` or `Result<Self, E>` wraps the payload's result back into
@@ -480,12 +495,34 @@ written under `#[cfg]` replaces it where the `cfg` holds and is forwarded
 where it does not, as a hand writes the two arms. The block's own header,
 generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
-them, so a block in another module needs them in scope there. Outer
+them, so a block in another module needs them in scope there; the converse
+holds too, so when the trait's signature types are not in scope where the
+enum is, an empty block in a module where they are is the place to write
+the impl. Outer
 attributes on the block are carried onto the impl: `#[typetag::serde(name =
 "..")]` goes there, with `#[whichever::dispatchable]` above
 `#[typetag::serde]` on the trait, so that typetag's own methods are the
-block's and never forwarded. Like inherent blocks, it has to be in the
-enum's crate.
+block's and never forwarded. A method written in the block that still
+needs the payloads' answer calls an inherent `#[dispatch(*, call = name)]`
+method beside it. Like inherent blocks, it has to be in the enum's crate.
+
+### The impl header
+
+The block's header is the impl's header, so an empty block is how the impl
+gets a header the enum's attribute cannot write: generics the enum does not
+have, bounds, or one instantiation. A trait generic over its own parameter
+is implemented for every `F`:
+
+```rust
+#[whichever::dispatch]
+impl<F: Format> Encoder<F> for AnyEncoder {}
+```
+
+A trait with a lifetime the enum lacks names it, `impl<'r> Renderable<'r>
+for Node {}`; a trait implemented for one instantiation of a generic enum
+names that, `impl ColNames for Lazy<Raw<'static>, Parsed> {}`; and a bound
+on a type parameter that the trait's own `Param: Trait` bound does not cover
+goes in the header, `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
 
 ## Forwarding from a struct field
 
@@ -641,7 +678,10 @@ which is how another crate's enum reaches the trait's signatures. A trait
 of any other visibility keeps its macro in its own module and adds nothing
 to the crate root. A trait with items under `#[cfg]` defines the macro once
 per combination of its predicates, each under that combination's `cfg`, so
-that one definition of the name is compiled.
+that one definition of the name is compiled. The name is a function of the
+trait's tokens and their positions, so an expansion is the same on every
+build and on every machine; `#[dispatchable(name = ..)]` replaces the hash
+when one `macro_rules!` emits the same trait twice.
 
 ## License
 

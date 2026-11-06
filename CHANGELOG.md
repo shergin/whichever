@@ -5,6 +5,17 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The README and the crate docs say what was found by trial in the surveys:
+  an empty partial impl block is how the impl gets a header the enum's
+  attribute cannot write (the trait's own parameters, a lifetime the enum
+  lacks, one instantiation, a bound), and the error for a generic trait
+  dispatched without its arguments offers that block; a block in a module
+  where the trait's types are in scope is the way around "the types must be
+  in scope at the enum"; `with = Into::into` returns the enum at another
+  lifetime; an override in a block reaches the payloads through an inherent
+  `call = name` method; a payload with a hand-written `From` stays out with
+  `from = false` on its variant; and what else an expansion holds, the
+  `#[automatically_derived]`, the hygienic bindings and the agreement block.
 - A `#[cfg]` on a trait method, associated type or const is decided in the
   trait's crate. The carrier macro is written once per combination of the
   trait's distinct predicates, each under that combination's `cfg`, with

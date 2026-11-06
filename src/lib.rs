@@ -80,7 +80,13 @@
 //! hidden by the trait's default at the enum level. The calls are fully
 //! qualified, so an inherent method on a payload with the same name as a
 //! trait method does not take over. There is no trait object, no closure
-//! and no conversion in the arms unless an option asks for one.
+//! and no conversion in the arms unless an option asks for one. Three more
+//! things are in the expansion: the impl is marked
+//! `#[automatically_derived]`, which tells Clippy and coverage tools what
+//! it is; the arms' bindings are named `__inner`, `__same0` and the like,
+//! with `macro_rules`-style hygiene, so they never collide with a name the
+//! trait wrote; and a `const _` block beside the impl holds the agreement
+//! checks, which compile to nothing.
 //!
 //! # Options
 //!
@@ -101,7 +107,9 @@
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
 //!   the method. See [`Self` arguments](#self-arguments).
 //! - `from = false` suppresses the `From<Payload>` impls. A payload type
-//!   held by two variants gets none either way.
+//!   held by two variants gets none either way, and a payload whose `From`
+//!   is written by hand, or that a derive supplies, stays out with
+//!   `#[dispatch(from = false)]` on its variant.
 //! - `try_from = true` adds `TryFrom<Enum> for Payload` for every payload
 //!   type, with the enum itself as the error, so a mismatch hands the value
 //!   back; `.unwrap()` on the result therefore needs the enum to be `Debug`.
@@ -339,7 +347,9 @@
 //! resolution apply as in hand-written code. `with = path` wraps each
 //! forwarded result in a call to `path` (`Some` above), which may be a
 //! generic function, called separately in each arm, so payloads whose
-//! results differ can meet in one declared return type; `call = name`
+//! results differ can meet in one declared return type, and `with =
+//! Into::into` rebuilds the enum through its `From` impls, which is the way
+//! to return the enum at another lifetime; `call = name`
 //! forwards to a payload method of another name; and methods without the
 //! attribute are left alone. `async` methods and methods returning
 //! `impl Future` are awaited. A method returning `Self`, `Option<Self>` or
@@ -468,11 +478,23 @@
 //! block's own header, bounds included, becomes the impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
-//! so a block in another module needs them in scope there. Outer attributes
+//! so a block in another module needs them in scope there; the converse
+//! holds too, so when the trait's signature types are not in scope where
+//! the enum is, an empty block in a module where they are is the place to
+//! write the impl. Outer attributes
 //! on the block are carried onto the impl: `#[typetag::serde(name = "..")]`
 //! goes there, with `#[whichever::dispatchable]` above `#[typetag::serde]`
 //! on the trait, so that typetag's own methods are the block's and never
-//! forwarded. Like inherent blocks, it has to be in the enum's crate.
+//! forwarded. A method written in the block that still needs the payloads'
+//! answer calls an inherent `#[dispatch(*, call = name)]` method beside it.
+//! Like inherent blocks, it has to be in the enum's crate.
+//!
+//! The block's header is the impl's header, so an empty block is how the
+//! impl gets a header the enum's attribute cannot write: generics the enum
+//! does not have, `impl<F: Format> Encoder<F> for AnyEncoder {}` for a
+//! trait generic over its own parameter or `impl<'r> Renderable<'r> for
+//! Node {}` for a lifetime; one instantiation of a generic enum; or a bound
+//! on a type parameter beyond the `Param: Trait` the impl gets on its own.
 //!
 //! # Forwarding from a struct field
 //!
