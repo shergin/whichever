@@ -120,3 +120,34 @@ pub trait Lend {
     /// Returns how many items there are.
     fn count(&self) -> usize;
 }
+
+/// A trait whose items are under this crate's features, which the enum's
+/// crate does not have.
+#[dispatchable]
+pub trait Gated {
+    /// Always there.
+    fn plain(&self) -> u32;
+    /// There under `extra`, a default feature.
+    #[cfg(feature = "extra")]
+    fn extra(&self) -> u32;
+    /// There under `more`, which is off.
+    #[cfg(feature = "more")]
+    fn more(&self) -> u32;
+}
+
+/// The one implementor of `Gated`.
+pub struct Gate(pub u32);
+
+impl Gated for Gate {
+    fn plain(&self) -> u32 {
+        self.0
+    }
+    #[cfg(feature = "extra")]
+    fn extra(&self) -> u32 {
+        self.0 + 1
+    }
+    #[cfg(feature = "more")]
+    fn more(&self) -> u32 {
+        self.0 + 2
+    }
+}

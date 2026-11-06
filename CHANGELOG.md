@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A `#[cfg]` on a trait method, associated type or const is decided in the
+  trait's crate. The carrier macro is written once per combination of the
+  trait's distinct predicates, each under that combination's `cfg`, with
+  the items that exist under it; before, the attribute was carried onto the
+  generated item and evaluated in the enum's crate, where a feature of the
+  trait's crate is an unknown `cfg` and the item was compiled out or in for
+  the wrong reason (fvm's `CryptoOps::verify_signature`). A trait with
+  more than four distinct predicates is reported on the fifth.
 - A trait method that cannot be forwarded is written with its signature
   and its sentence as its body, so the impl is complete and every call
   around it resolves; before, the whole impl was withheld and each call

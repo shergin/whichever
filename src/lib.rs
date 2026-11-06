@@ -144,7 +144,8 @@
 //! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
-//! | `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
+//! | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
+//! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |
 //! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
 //! | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 //!
@@ -585,6 +586,10 @@
 //! - An associated const of a type other than an integer, `bool`, `char` or
 //!   `&str`, or on a generic enum, is taken from the first variant without
 //!   a check.
+//! - A trait whose items carry more than four distinct `#[cfg]` predicates
+//!   is reported on the fifth: the carrier macro is written once per
+//!   combination of them. Combine the predicates, or move the items under
+//!   the fifth to a trait of their own.
 //! - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
 //!   when at least one token of the trait, its name or a method's, comes
 //!   from the invocation. A trait written out in full in the macro's body

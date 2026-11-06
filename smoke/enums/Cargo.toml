@@ -10,3 +10,7 @@ smoke-traits = { path = "../traits" }
 
 [dev-dependencies]
 pollster = "0.4"
+
+# A `cfg` of `smoke-traits` must never reach this crate.
+[lints.rust]
+unexpected_cfgs = "deny"

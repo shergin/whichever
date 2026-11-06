@@ -3,7 +3,7 @@
 //! through `Into`, a generic trait at a concrete instantiation, two traits
 //! on one enum, `async` methods and `-> Self`.
 #![allow(async_fn_in_trait)]
-use smoke_traits::{Description, Device, Encoder, Format, Lend, Shape, Storage};
+use smoke_traits::{Description, Device, Encoder, Format, Gate, Gated, Lend, Shape, Storage};
 use whichever::{dispatch, dispatchable};
 
 #[derive(Debug, Clone)]
@@ -306,5 +306,23 @@ mod tests {
         assert_eq!(*scanner.id(), 2);
         assert_eq!(scanner.kind(), "device");
         assert_eq!(<AnyDevice as Device>::kinds(), &["device"]);
+    }
+}
+
+/// The trait's `extra` is on and its `more` is off in `smoke-traits`; this
+/// crate has neither feature, and the impl follows the trait's crate.
+#[dispatch(Gated)]
+pub enum AnyGated {
+    Gate(Gate),
+}
+
+#[cfg(test)]
+mod gated {
+    use super::*;
+
+    #[test]
+    fn the_items_follow_the_traits_crate() {
+        let gated = AnyGated::Gate(Gate(1));
+        assert_eq!((gated.plain(), gated.extra()), (1, 2));
     }
 }

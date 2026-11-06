@@ -549,7 +549,8 @@ unwrapped to it.
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
 | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
-| `#[cfg]` on a method, an associated item or a variant | Carried onto the generated item or arm, and evaluated in the enum's crate. An associated type or const comes from the first variant without a `#[cfg]`. |
+| `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
+| `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |
 | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 
 ## Limits
@@ -594,6 +595,10 @@ unwrapped to it.
 - An associated const of a type other than an integer, `bool`, `char` or
   `&str`, or on a generic enum, is taken from the first variant without a
   check.
+- A trait whose items carry more than four distinct `#[cfg]` predicates
+  is reported on the fifth: the carrier macro is written once per
+  combination of them. Combine the predicates, or move the items under
+  the fifth to a trait of their own.
 - One `macro_rules!` may emit a `#[dispatchable]` trait in several modules
   when at least one token of the trait, its name or a method's, comes from
   the invocation. A trait written out in full in the macro's body gets the
@@ -634,7 +639,9 @@ the carrier macro, to the crate root, named after the trait and the position
 of its tokens,
 which is how another crate's enum reaches the trait's signatures. A trait
 of any other visibility keeps its macro in its own module and adds nothing
-to the crate root.
+to the crate root. A trait with items under `#[cfg]` defines the macro once
+per combination of its predicates, each under that combination's `cfg`, so
+that one definition of the name is compiled.
 
 ## License
 

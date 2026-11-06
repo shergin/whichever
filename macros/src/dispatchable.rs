@@ -8,6 +8,11 @@ use crate::naming;
 use crate::options::{is_dispatch_attribute, method_mismatch, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
 use crate::shape::takes_self_argument;
+use crate::subject::cfg_attributes;
+
+/// The most distinct `#[cfg]` predicates a trait's items may carry: each
+/// doubles the carriers, since one is emitted per combination.
+const MOST_PREDICATES: usize = 4;
 
 pub(crate) fn expand_dispatchable(
     item_trait: ItemTrait,
@@ -21,6 +26,13 @@ pub(crate) fn expand_dispatchable(
     if let Err(error) = check_attribute_order(&emitted) {
         errors.push(error);
     }
+    let predicates = match predicates(&captured) {
+        Ok(predicates) => predicates,
+        Err(error) => {
+            errors.push(error);
+            vec![]
+        }
+    };
     for item in &mut emitted.items {
         if let TraitItem::Fn(function) = item {
             if let Err(error) = check_method_attributes(function) {
@@ -53,30 +65,69 @@ pub(crate) fn expand_dispatchable(
     } else {
         quote!(#[allow(unused_macros)])
     };
-    let captured = captured.to_token_stream();
-    let name = naming::trait_carrier(&trait_ident, &captured, options.name.as_ref(), line, column);
-    // The captured tokens expand inside the enum's crate, where `crate::`
-    // would name the wrong crate; `$crate` resolves to this crate instead.
-    let captured = rewrite_crate_paths(captured);
+    let captured_tokens = captured.to_token_stream();
+    let name = naming::trait_carrier(
+        &trait_ident,
+        &captured_tokens,
+        options.name.as_ref(),
+        line,
+        column,
+    );
     // A restated trait exists elsewhere; only its macro is emitted here, and
     // the impl is written for the real path.
     let remote = options
         .remote
         .map(|path| rewrite_crate_paths(path.to_token_stream()));
     let emitted = remote.is_none().then_some(emitted);
-    let carrier = carrier_macro(
-        &name,
-        quote!(#[doc(hidden)] #export),
-        Implementation::Trait,
-        CarriedTrait {
-            tokens: &captured,
-            remote: remote.as_ref(),
-        },
-    );
+    // A `#[cfg]` on a trait item is decided here, where its predicate means
+    // what the author meant, and not in the enum's crate: the carrier is
+    // emitted once per combination of the distinct predicates, each under
+    // the `cfg` of its combination and holding the items that exist under
+    // it, with their `cfg` attributes taken off. rustc keeps exactly one.
+    let carriers = (0..1usize << predicates.len()).map(|combination| {
+        let holds = |index: usize| combination & (1 << index) != 0;
+        let condition = (!predicates.is_empty()).then(|| {
+            let terms = predicates.iter().enumerate().map(|(index, predicate)| {
+                let predicate = &predicate.tokens;
+                if holds(index) {
+                    quote!(#predicate)
+                } else {
+                    quote!(not(#predicate))
+                }
+            });
+            quote!(#[cfg(all(#(#terms),*))])
+        });
+        let mut selected = captured.clone();
+        selected
+            .items
+            .retain(|item| match predicate_of(item, &predicates) {
+                Some(index) => holds(index),
+                None => true,
+            });
+        for item in &mut selected.items {
+            if let Some(attrs) = item_attrs_mut(item) {
+                attrs.retain(|attribute| !attribute.path().is_ident("cfg"));
+            }
+        }
+        // The captured tokens expand inside the enum's crate, where
+        // `crate::` would name the wrong crate; `$crate` resolves to this
+        // crate instead.
+        let selected = rewrite_crate_paths(selected.to_token_stream());
+        carrier_macro(
+            &name,
+            quote!(#condition #[doc(hidden)] #export),
+            Implementation::Trait,
+            CarriedTrait {
+                tokens: &selected,
+                remote: remote.as_ref(),
+            },
+        )
+    });
+    let carriers: Vec<TokenStream2> = carriers.collect();
     Ok(quote! {
         #emitted
 
-        #carrier
+        #(#carriers)*
 
         #[doc(hidden)]
         #[allow(unused_imports)]
@@ -146,6 +197,81 @@ fn check_method_attributes(function: &TraitItemFn) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+/// One distinct `#[cfg]` predicate among a trait's items; several `cfg`
+/// attributes on one item are `all` of their predicates.
+struct Predicate {
+    key: String,
+    tokens: TokenStream2,
+}
+
+/// Returns the distinct predicates of the trait's items, in order of first
+/// appearance, or the error for a trait with more than the carriers can
+/// reasonably double for.
+fn predicates(item_trait: &ItemTrait) -> Result<Vec<Predicate>> {
+    let mut predicates: Vec<Predicate> = vec![];
+    for item in &item_trait.items {
+        let Some(tokens) = item_predicate(item) else {
+            continue;
+        };
+        let key = tokens.to_string();
+        if predicates.iter().any(|predicate| predicate.key == key) {
+            continue;
+        }
+        if predicates.len() == MOST_PREDICATES {
+            return Err(Error::new_spanned(
+                item,
+                format!("this is the {}th distinct `#[cfg]` predicate among the trait's items, and the trait's carrier macro is written once per combination of them; combine the predicates, or move the items under this one to a trait of their own", MOST_PREDICATES + 1),
+            ));
+        }
+        predicates.push(Predicate { key, tokens });
+    }
+    Ok(predicates)
+}
+
+/// Returns the index of the predicate `item` is under, when it is under one.
+fn predicate_of(item: &TraitItem, predicates: &[Predicate]) -> Option<usize> {
+    let key = item_predicate(item)?.to_string();
+    predicates.iter().position(|predicate| predicate.key == key)
+}
+
+/// Returns the one predicate `item`'s `cfg` attributes amount to.
+fn item_predicate(item: &TraitItem) -> Option<TokenStream2> {
+    let attrs = item_attrs(item)?;
+    let cfgs = cfg_attributes(attrs);
+    if cfgs.is_empty() {
+        return None;
+    }
+    let inner: Vec<TokenStream2> = cfgs
+        .iter()
+        .map(|attribute| match &attribute.meta {
+            syn::Meta::List(list) => list.tokens.clone(),
+            _ => TokenStream2::new(),
+        })
+        .collect();
+    Some(match inner.as_slice() {
+        [one] => one.clone(),
+        many => quote!(all(#(#many),*)),
+    })
+}
+
+fn item_attrs(item: &TraitItem) -> Option<&Vec<syn::Attribute>> {
+    match item {
+        TraitItem::Fn(function) => Some(&function.attrs),
+        TraitItem::Type(assoc) => Some(&assoc.attrs),
+        TraitItem::Const(constant) => Some(&constant.attrs),
+        _ => None,
+    }
+}
+
+fn item_attrs_mut(item: &mut TraitItem) -> Option<&mut Vec<syn::Attribute>> {
+    match item {
+        TraitItem::Fn(function) => Some(&mut function.attrs),
+        TraitItem::Type(assoc) => Some(&mut assoc.attrs),
+        TraitItem::Const(constant) => Some(&mut constant.attrs),
+        _ => None,
+    }
 }
 
 /// Replaces every `crate::` path prefix in `tokens` with `$crate::`.
