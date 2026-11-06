@@ -569,6 +569,10 @@
 //! }
 //! ```
 //!
+//! A field may name the traits it is the target of, `#[dispatch(Rom)] rom:
+//! Cartridge` beside `#[dispatch(Interrupt)] signals: Signals`, and the
+//! field marked bare takes every trait not named elsewhere; the struct's
+//! attribute still names every trait it dispatches.
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on

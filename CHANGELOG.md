@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A struct's field may name the traits it is the target of,
+  `#[dispatch(Rom)] rom: Cartridge` beside `#[dispatch(Interrupt)]
+  signals: Signals`, and the field marked bare takes every trait not named
+  elsewhere; the struct's attribute still names every trait. A trait named
+  on two fields, or on a field but not on the struct, is one sentence.
+  rsynko, sabicom, activityrust and russh forward different traits to
+  different fields by hand, which the struct decision had named as its
+  reopening condition.
 - `try_from = ref` adds `TryFrom<&Enum> for &Payload` and `try_from =
   ref_mut` adds `TryFrom<&mut Enum> for &mut Payload` too, each handing the
   reference back as the error, on the enum or on one variant; hugr writes

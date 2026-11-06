@@ -1,0 +1,6 @@
+error: `Rom` is named on two fields; one is its target
+  --> tests/ui/trait_named_on_two_fields.rs:19:5
+   |
+19 | /     #[dispatch(Rom)]
+20 | |     other: Cartridge,
+   | |____________________^

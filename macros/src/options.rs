@@ -531,6 +531,9 @@ pub(crate) struct TargetOptions {
     pub(crate) route: Option<Route>,
     pub(crate) from: bool,
     pub(crate) try_from: Option<TryFromForms>,
+    /// The traits a struct's field is the target of, `#[dispatch(Rom)]`,
+    /// over the field marked bare; a variant names none.
+    pub(crate) traits: Vec<Path>,
 }
 
 impl TargetOptions {
@@ -543,6 +546,7 @@ impl TargetOptions {
             route: None,
             from: true,
             try_from: None,
+            traits: vec![],
         };
         for attribute in attributes
             .iter()
@@ -553,6 +557,31 @@ impl TargetOptions {
             }
             attribute.parse_args_with(|input: ParseStream| {
                 parse_options(input, |key, input| {
+                    // A name that is no option and takes no value is a
+                    // trait the field is the target of.
+                    let is_option = key == "deref"
+                        || key == "via"
+                        || ((key == "from" || key == "try_from") && on_variant)
+                        || input.peek(Token![=]);
+                    if !is_option {
+                        if on_variant {
+                            return Err(Error::new(
+                                key.span(),
+                                format!("unknown option `{key}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                            ));
+                        }
+                        let mut path = Path::from(key);
+                        if input.peek(Token![<]) {
+                            let segment = path.segments.last_mut().expect("one segment");
+                            segment.arguments = syn::PathArguments::AngleBracketed(input.parse()?);
+                        }
+                        while input.peek(Token![::]) {
+                            input.parse::<Token![::]>()?;
+                            path.segments.push(input.parse()?);
+                        }
+                        options.traits.push(path);
+                        return Ok(());
+                    }
                     if key == "deref" || key == "via" {
                         let route = if key == "deref" {
                             Route::deref()
@@ -577,7 +606,7 @@ impl TargetOptions {
                         let known = if on_variant {
                             "the options are `deref`, `via = route`, `from = false` and `try_from = true`"
                         } else {
-                            "the options are `deref` and `via = route`"
+                            "the options are `deref` and `via = route`, and the traits the field is the target of"
                         };
                         return Err(Error::new(
                             key.span(),
@@ -880,6 +909,15 @@ mod tests {
         );
         let bare: Vec<Attribute> = vec![parse_quote!(#[dispatch])];
         assert!(TargetOptions::read(&bare, false).unwrap().from);
+        let named: Vec<Attribute> =
+            vec![parse_quote!(#[dispatch(Rom, io::Write, Encoder<Json>, deref)])];
+        let field = TargetOptions::read(&named, false).unwrap();
+        assert_eq!(field.traits.len(), 3);
+        assert!(field.route.is_some_and(|route| route.is_deref()));
+        assert!(
+            TargetOptions::read(&named, true).is_err(),
+            "a variant names no trait"
+        );
         let routed: Vec<Attribute> = vec![parse_quote!(#[dispatch(via = .base.get_ref())])];
         let route = TargetOptions::read(&routed, false).unwrap().route.unwrap();
         assert_eq!(route.spelled(), ".base.get_ref()");

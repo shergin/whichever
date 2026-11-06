@@ -67,6 +67,23 @@ pub(crate) fn expand_subject(
         .iter()
         .filter_map(|attribute| attribute.spec.path.as_ref())
         .collect();
+    // A trait a field names is one the struct's attribute dispatches; a
+    // field's mark for any other is dead, and says so.
+    for (field, path) in captured.field_traits() {
+        let last = |path: &Path| {
+            path.segments
+                .last()
+                .map(|segment| segment.ident.to_string())
+        };
+        if dispatched.iter().any(|known| last(known) == last(&path)) {
+            continue;
+        }
+        let spelled = path.to_token_stream().to_string().replace(' ', "");
+        errors.push(Error::new_spanned(
+            &path,
+            format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
+        ));
+    }
     // Every variant must be forwardable when the item dispatches a trait.
     // The error carries the variant's `cfg`, so a variant that is compiled
     // out is no error, and it is reported here once rather than per trait.

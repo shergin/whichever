@@ -497,7 +497,10 @@ documented (`impl_header`); routes (`routes`, four compile-fail cases,
 seven snapshots reworded for the new options and the marker); the partial
 block's method attributes, with the target selection shared between the
 inherent path and the trait path (`partial_block_methods`, three
-compile-fail cases).
+compile-fail cases); the by-reference `TryFrom` forms and `into = Target`
+(`conversions`, one compile-fail case); a struct's field naming its traits,
+with `Subject::entries_for` choosing the target per trait
+(`per_trait_fields`, two compile-fail cases).
 
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 

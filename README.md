@@ -636,6 +636,24 @@ pub struct Beacon {
 }
 ```
 
+A field may name the traits it is the target of, and the field marked bare
+takes every trait not named elsewhere; the struct's attribute still names
+every trait it dispatches:
+
+```rust
+#[whichever::dispatch(Rom)]
+#[whichever::dispatch(Interrupt)]
+#[whichever::dispatch(Named)]
+pub struct Mapper {
+    #[dispatch(Rom)]
+    rom: Cartridge,
+    #[dispatch(Interrupt)]
+    signals: Signals,
+    #[dispatch]
+    label: Label,       // `Named`, and any other trait
+}
+```
+
 `#[dispatch(deref)]` on the field reaches through a `Box` or another
 pointer. A method returning `Self` is rebuilt only around a struct with no
 other field; otherwise it is an error, and the method goes in a partial impl

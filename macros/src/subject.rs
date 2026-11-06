@@ -3,6 +3,7 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
     Attribute, Error, Field, Fields, GenericParam, Ident, Index, Item, ItemEnum, ItemStruct,
@@ -97,14 +98,43 @@ impl Subject {
         self
     }
 
-    /// Returns every variant of the enum, or the one field of the struct
-    /// that is forwarded to. A variant that is not `Name(Payload)` is an
-    /// entry too, so that the methods which do not forward to it can tell.
+    /// Returns every variant of the enum, or the field of the struct that
+    /// is forwarded to when no trait is asked for: its one field, the one
+    /// marked bare, or any marked one. A variant that is not
+    /// `Name(Payload)` is an entry too, so that the methods which do not
+    /// forward to it can tell.
     pub(crate) fn entries(&self) -> Result<Vec<Entry>> {
+        self.entries_for(None)
+    }
+
+    /// Returns the entries `trait_path` is forwarded to: every variant of
+    /// the enum, or the struct's field that names the trait, else the one
+    /// marked bare, else its one field.
+    pub(crate) fn entries_for(&self, trait_path: Option<&Path>) -> Result<Vec<Entry>> {
         match self {
             Subject::Enum(item) => item.variants.iter().map(variant_entry).collect(),
-            Subject::Struct(item) => Ok(vec![Entry::Target(struct_target(item)?)]),
+            Subject::Struct(item) => Ok(vec![Entry::Target(struct_target(item, trait_path)?)]),
         }
+    }
+
+    /// Returns the traits the struct's fields name, with the field each is
+    /// named on, so that one the struct does not dispatch can be reported.
+    pub(crate) fn field_traits(&self) -> Vec<(Ident, Path)> {
+        let Subject::Struct(item) = self else {
+            return vec![];
+        };
+        let mut named = vec![];
+        for (index, field) in item.fields.iter().enumerate() {
+            let Ok(options) = TargetOptions::read(&field.attrs, false) else {
+                continue;
+            };
+            let ident = match &field.ident {
+                Some(ident) => ident.clone(),
+                None => format_ident!("_{}", index, span = field.ty.span()),
+            };
+            named.extend(options.traits.into_iter().map(|path| (ident.clone(), path)));
+        }
+        named
     }
 }
 
@@ -388,6 +418,7 @@ pub(crate) fn variant_entry(variant: &Variant) -> Result<Entry> {
         route,
         from,
         try_from,
+        traits: _,
     } = TargetOptions::read(&variant.attrs, true)?;
     let ident = &variant.ident;
     let cfgs = cfg_attributes(&variant.attrs);
@@ -467,10 +498,13 @@ fn member_of(field: &Field, index: usize) -> Member {
     }
 }
 
-/// Returns the one field of a struct that is forwarded to: its only field,
-/// or the one marked `#[dispatch]`.
-pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
-    let fields: Vec<(Member, &Field)> = item
+/// Returns the field of a struct that `trait_path` is forwarded to: the
+/// field that names the trait, `#[dispatch(Rom)] rom: Rom`; else the one
+/// marked bare, `#[dispatch]`, which every trait not named elsewhere goes
+/// to; else the struct's one field. Without a trait, the bare field or any
+/// marked one stands for the struct.
+pub(crate) fn struct_target(item: &ItemStruct, trait_path: Option<&Path>) -> Result<Target> {
+    let fields: Vec<(Member, &Field, TargetOptions)> = item
         .fields
         .iter()
         .enumerate()
@@ -479,38 +513,78 @@ pub(crate) fn struct_target(item: &ItemStruct) -> Result<Target> {
                 Some(ident) => Member::Named(ident.clone()),
                 None => Member::Unnamed(Index::from(index)),
             };
-            (member, field)
+            Ok((member, field, TargetOptions::read(&field.attrs, false)?))
         })
-        .collect();
-    let marked: Vec<&(Member, &Field)> = fields
+        .collect::<Result<_>>()?;
+    let marked: Vec<&(Member, &Field, TargetOptions)> = fields
         .iter()
-        .filter(|(_, field)| field.attrs.iter().any(is_dispatch_attribute))
+        .filter(|(_, field, _)| field.attrs.iter().any(is_dispatch_attribute))
         .collect();
-    let (member, field) = match (fields.as_slice(), marked.as_slice()) {
-        ([], _) => {
+    let bare: Vec<&&(Member, &Field, TargetOptions)> = marked
+        .iter()
+        .filter(|(_, _, options)| options.traits.is_empty())
+        .collect();
+    let same_trait = |path: &Path| {
+        trait_path.is_some_and(|wanted| {
+            wanted.segments.last().map(|segment| &segment.ident)
+                == path.segments.last().map(|segment| &segment.ident)
+        })
+    };
+    let named: Vec<&&(Member, &Field, TargetOptions)> = marked
+        .iter()
+        .filter(|(_, _, options)| options.traits.iter().any(same_trait))
+        .collect();
+    if let [_, (_, second, _), ..] = bare.as_slice() {
+        return Err(Error::new_spanned(
+            second,
+            "only one field can be the target of every trait not named elsewhere; name the traits on the others",
+        ));
+    }
+    if let [_, (_, second, _), ..] = named.as_slice() {
+        let trait_ident = trait_path
+            .and_then(|path| path.segments.last())
+            .expect("named a trait");
+        return Err(Error::new_spanned(
+            second,
+            format!(
+                "`{}` is named on two fields; one is its target",
+                trait_ident.ident
+            ),
+        ));
+    }
+    let chosen = match (
+        fields.as_slice(),
+        named.first(),
+        bare.first(),
+        marked.first(),
+    ) {
+        ([], _, _, _) => {
             return Err(Error::new_spanned(
                 &item.ident,
                 "a dispatch struct needs a field to forward to",
             ))
         }
-        ([(member, field)], _) | (_, [(member, field)]) => (member.clone(), *field),
-        (_, []) => {
+        (_, Some(named), _, _) => **named,
+        (_, None, Some(bare), _) => **bare,
+        ([one], None, None, _) => one,
+        (_, None, None, Some(any)) if trait_path.is_none() => *any,
+        (_, None, None, _) => {
+            let about = match trait_path.and_then(|path| path.segments.last()) {
+                Some(segment) => format!(" `{}` to", segment.ident),
+                None => String::new(),
+            };
             return Err(Error::new_spanned(
                 &item.ident,
                 format!(
-                    "`{}` has several fields; mark the one to forward to with `#[dispatch]`",
+                    "`{}` has several fields; mark the one to forward{about} with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`",
                     item.ident
                 ),
-            ))
-        }
-        (_, [_, (_, second), ..]) => {
-            return Err(Error::new_spanned(
-                second,
-                "only one field can be forwarded to",
-            ))
+            ));
         }
     };
-    let TargetOptions { route, .. } = TargetOptions::read(&field.attrs, false)?;
+    let (member, field, options) = chosen;
+    let member = member.clone();
+    let route = options.route.clone();
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),

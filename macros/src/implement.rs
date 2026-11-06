@@ -67,7 +67,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         let ident = subject.ident();
         spelled(&quote!(impl #impl_generics #spec_path for #ident #ty_generics))
     };
-    let mut entries = subject.entries()?;
+    let mut entries = subject.entries_for(Some(&spec_path))?;
     // A partial block's header may name the subject's parameters as it
     // likes, `impl<U> Trait for Kind<U>` over `enum Kind<T>`; the payloads
     // are spelled with the names the subject declared, and follow.
