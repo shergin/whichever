@@ -179,21 +179,31 @@ that could keep their names, goes in stage 6.
 ### 3.3 The return model
 
 ```rust
-struct ReturnModel { wrapper: Wrapper, value: Value }  // `future` travels beside it in the plan
-
-enum Wrapper { None, Option, Result { error: Conversion } }
-enum Value { Plain, Rewrap, Into }    // `Rewrap`: `Self`; `Into`: `Self::X` with `X` overridden
-enum Conversion { Keep, Into }        // `Into` when the error is an overridden `Self::X`
+enum Conversion {                 // `future` travels beside it in the plan
+    Keep,                         // the payload's result as it is
+    Rewrap,                       // `Self`: the variant's constructor around it
+    Into,                         // `Self::X` with `X` overridden: `Into::into`
+    Map(Box<Conversion>),         // `Option<T>`, `io::Result<T>`: `.map(path)`
+    MapErr(Box<Conversion>, Box<Conversion>),  // `Result<T, E>`: `.map(path).map_err(path)`
+    Tuple(Vec<Conversion>),       // `(A, B)`: taken apart, converted, built again
+}
 ```
 
-Rendering composes: the inner conversion is the rewrap constructor or
-`Into::into`, applied directly under `Wrapper::None` and through `.map(..)`
-otherwise; `ErrorConversion::Into` adds `.map_err(Into::into)`. The
-recognition rules stay syntactic and unchanged: `Option` and `Result` by
-the name a path ends in, `Self::X` as a two-segment path, `impl Future` by
-its `Output` binding, and any other `Self` in a return type is a limit.
-`Result<Self, Self::Error>` with `Error` overridden then rewraps and
-converts, and gets a behaviour test and an expansion golden.
+Since 2026-11-05 the model is a tree over the return type, where it was a
+wrapper around a value. Rendering is one recursive function: a rewrap is
+the constructor and an `Into` is `Into::into`, each applied directly or as
+the path a `.map(..)` or a `.map_err(..)` takes, and a tuple is `{ let (a,
+b) = call; (Variant(a), b) }`. The rule that keeps rule 1 is the
+classifier's: a conversion under a wrapper has to be a path, since
+`.map(|x| ..)` is a closure the vision forbids, so a tuple under an
+`Option` is a limit with the one sentence, while a tuple holding a
+wrapper is fine. The recognition rules stay syntactic: `Option` and
+`Result` by the name a path ends in, `Self::X` as a two-segment path,
+`impl Future` by its `Output` binding, and any other `Self` in a return
+type is a limit. `Result<Self, Self::Error>` with `Error` overridden
+rewraps and converts (golden `overridden_results`); `(Self, u32)` and
+`(Self::Rest, Option<Self>)` take the tuple apart (golden
+`tuple_returns`).
 
 ### 3.4 The subject
 

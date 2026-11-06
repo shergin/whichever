@@ -268,9 +268,9 @@ All options follow the trait path in `#[dispatch(..)]`.
 - `Name = Type` fixes the associated type `Name` instead of taking it from
   the first variant. A method returning `Self::Name` is converted with
   `Into`, one returning `Result<_, Self::Name>` with `map_err(Into::into)`,
-  and `Option<Self::Name>`, `Result<Self::Name, E>` and `Result<Self,
-  Self::Name>` are mapped the same way, so variants with their own error
-  types can share one enum:
+  and `Option<Self::Name>`, `Result<Self::Name, E>`, `Result<Self,
+  Self::Name>` and a tuple holding `Self::Name` are mapped the same way, so
+  variants with their own error types can share one enum:
 
   ```rust
   #[whichever::dispatch(Storage, Error = StorageError)]
@@ -709,7 +709,7 @@ unwrapped to it.
 | `-> impl Future<Output = T>` | The `match` is written in one `async move` block and every arm is awaited, as for `async fn`; `Send` and any other bound are checked against that block. On a struct the one arm returns the field's future as it is, unless its output is rewrapped or converted. |
 | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included. `Self` anywhere else in a return type is an error. |
+| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
 | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |

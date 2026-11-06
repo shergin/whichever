@@ -3,8 +3,8 @@
 pub struct U(u64);
 
 impl U {
-    pub fn mul_u64(self, b: u64) -> (Self, bool) {
-        (U(self.0 * b), false)
+    pub fn repeated(self, times: usize) -> Vec<Self> {
+        (0..times).map(|_| U(self.0)).collect()
     }
 }
 
@@ -14,7 +14,7 @@ pub struct A(U);
 #[whichever::dispatch]
 impl A {
     #[dispatch(*)]
-    pub fn mul_u64(self, b: u64) -> (Self, bool);
+    pub fn repeated(self, times: usize) -> Vec<Self>;
 }
 
 fn main() {}

@@ -20,7 +20,7 @@ use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, ReceiverKind, ReturnModel, ReturnSite, Value, Wrapper,
+    ArgumentKind, Conversion, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Target, Unforwardable};
 
@@ -82,7 +82,7 @@ pub(crate) struct MethodPlan {
     same_variant: Vec<(usize, Access)>,
     /// The generic arguments a call spells out, when inference could not.
     turbofish: Option<TokenStream2>,
-    return_model: ReturnModel,
+    return_model: Conversion,
     /// Whether the method returns `impl Future`, so that the `match` sits in
     /// one `async move` block and every arm is awaited inside it.
     pub(crate) future: bool,
@@ -253,16 +253,12 @@ impl MethodPlan {
         } = target;
         // Under a lift the payload returns the plain value and the lift
         // wraps the rebuilt variant into the declared `Option` or `Result`.
-        let ReturnModel {
-            wrapper,
-            value: needs,
-        } = self.return_model;
-        let wrapper = if lift.is_some() {
-            Wrapper::None
+        let conversion = if lift.is_some() {
+            self.return_model.clone().unwrapped()
         } else {
-            wrapper
+            self.return_model.clone()
         };
-        if !route.is_direct() && matches!(needs, Value::Rewrap) {
+        if !route.is_direct() && conversion.rewraps() {
             let message = if route.is_deref() {
                 format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand())
             } else {
@@ -338,28 +334,7 @@ impl MethodPlan {
                 format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", callee.rebuild_hint()),
             )
         };
-        value = match (wrapper, needs) {
-            (_, Value::Plain) => value,
-            (Wrapper::None, Value::Rewrap) => {
-                target.rebuild(prefix, value).ok_or_else(rebuild_error)?
-            }
-            (Wrapper::None, Value::Into) => {
-                quote_spanned! { site => ::core::convert::Into::into(#value) }
-            }
-            (_, Value::Rewrap) => {
-                let constructor = target.constructor(prefix).ok_or_else(rebuild_error)?;
-                quote_spanned! { site => #value.map(#constructor) }
-            }
-            (_, Value::Into) => {
-                quote_spanned! { site => #value.map(::core::convert::Into::into) }
-            }
-        };
-        if let Wrapper::Result {
-            error: Conversion::Into,
-        } = wrapper
-        {
-            value = quote_spanned! { site => #value.map_err(::core::convert::Into::into) };
-        }
+        value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
         if let Some(lift) = lift {
             value = quote_spanned! { site => #lift(#value) };
         }
@@ -540,6 +515,65 @@ impl Forwarding {
         group.set_span(span);
         TokenTree::Group(group).into()
     }
+}
+
+/// Applies `conversion` to `value`, the payload's result, as a hand writes
+/// it: the variant's constructor around a `Self`, `Into::into` around an
+/// overridden associated type, each as the path a `.map(..)` or a
+/// `.map_err(..)` takes, and a tuple taken apart and built again around
+/// its converted elements.
+fn convert(
+    value: TokenStream2,
+    conversion: &Conversion,
+    target: &Target,
+    prefix: &Path,
+    site: Span,
+    rebuild_error: &dyn Fn() -> Error,
+) -> Result<TokenStream2> {
+    // The path a `.map(..)` takes for a conversion of one value.
+    let path = |conversion: &Conversion| -> Result<Option<TokenStream2>> {
+        Ok(match conversion {
+            Conversion::Keep => None,
+            Conversion::Rewrap => Some(target.constructor(prefix).ok_or_else(rebuild_error)?),
+            Conversion::Into => Some(quote_spanned! { site => ::core::convert::Into::into }),
+            _ => unreachable!("a conversion under a wrapper is a path"),
+        })
+    };
+    Ok(match conversion {
+        Conversion::Keep => value,
+        Conversion::Rewrap => target.rebuild(prefix, value).ok_or_else(rebuild_error)?,
+        Conversion::Into => quote_spanned! { site => ::core::convert::Into::into(#value) },
+        Conversion::Map(inner) => match path(inner)? {
+            Some(path) => quote_spanned! { site => #value.map(#path) },
+            None => value,
+        },
+        Conversion::MapErr(inner, error) => {
+            let mut value = match path(inner)? {
+                Some(path) => quote_spanned! { site => #value.map(#path) },
+                None => value,
+            };
+            if let Some(path) = path(error)? {
+                value = quote_spanned! { site => #value.map_err(#path) };
+            }
+            value
+        }
+        Conversion::Tuple(items) => {
+            let bindings: Vec<Ident> = (0..items.len())
+                .map(|index| hygienic(&format!("__element{index}")))
+                .collect();
+            let converted = items
+                .iter()
+                .zip(&bindings)
+                .map(|(item, binding)| {
+                    convert(quote!(#binding), item, target, prefix, site, rebuild_error)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            quote_spanned! { site => {
+                let (#(#bindings,)*) = #value;
+                (#(#converted,)*)
+            } }
+        }
+    })
 }
 
 /// Returns the expression the generated `match` looks at for a receiver:

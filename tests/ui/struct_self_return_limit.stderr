@@ -1,5 +1,5 @@
-error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `A`; return `Self`, `Option<Self>` or `Result<Self, E>`, spelled with those names, or give it a body
-  --> tests/ui/struct_self_return_limit.rs:17:37
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `A`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or give it a body
+  --> tests/ui/struct_self_return_limit.rs:17:44
    |
-17 |     pub fn mul_u64(self, b: u64) -> (Self, bool);
-   |                                     ^^^^^^^^^^^^
+17 |     pub fn repeated(self, times: usize) -> Vec<Self>;
+   |                                            ^^^^^^^^^

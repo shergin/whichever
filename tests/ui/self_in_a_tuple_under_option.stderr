@@ -1,0 +1,10 @@
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Number`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or implement the method by hand
+  --> tests/ui/self_in_a_tuple_under_option.rs:5:24
+   |
+ 5 |     fn split(&self) -> Option<(Self, u32)>
+   |                        ^^^^^^^^^^^^^^^^^^^
+...
+18 | #[whichever::dispatch(Split)]
+   |                       ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Split` (in Nightly builds, run with -Z macro-backtrace for more info)

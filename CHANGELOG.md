@@ -5,6 +5,13 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A method returning a tuple that holds `Self`, or an overridden
+  associated type, `(Self, u32)` or `(Self::Sender<T>, Self::Receiver<T>)`,
+  is forwarded: the arm takes the tuple apart, converts each element and
+  builds it again, as a hand writes it. The return model is a tree of
+  conversions now, where it was a wrapper around a value; the shapes that
+  compiled before expand as before. A tuple under an `Option` or a `Result`
+  stays a limit, since its rewrap would need a closure.
 - An enum another crate defines is restated once, `remote` naming the
   real one, and a trait of this crate is forwarded over it, as a
   hand-written `impl LocalTrait for other::Either<L, R>` is allowed by the
