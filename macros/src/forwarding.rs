@@ -372,11 +372,22 @@ impl MethodPlan {
                     !matches!(self.receiver, ReceiverKind::Value(Access::Owned)),
                     site,
                 );
-                match (field, borrow) {
-                    (None, _) => reached,
-                    (Some(field), None) => quote_spanned! { site => #reached.#field },
-                    (Some(field), Some(None)) => quote_spanned! { site => &#reached.#field },
-                    (Some(field), Some(Some(_))) => quote_spanned! { site => &mut #reached.#field },
+                let place = match field {
+                    Some(field) => quote_spanned! { site => #reached.#field },
+                    None => reached,
+                };
+                // The binding itself is borrowed as the receiver is; a
+                // place reached through a field or a route is borrowed as
+                // the return type asks, so `via = .name, value` and `field
+                // = name` are one arm.
+                if field.is_none() && route.is_direct() {
+                    place
+                } else {
+                    match borrow {
+                        None => place,
+                        Some(None) => quote_spanned! { site => &#place },
+                        Some(Some(_)) => quote_spanned! { site => &mut #place },
+                    }
                 }
             }
         };

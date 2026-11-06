@@ -395,7 +395,9 @@
 //! a `Circle`. `field = name` makes the arm read that field of the target,
 //! by reference when the method returns one and by value otherwise; `value`
 //! makes the arm the target itself, for `with` to wrap or the return type
-//! to widen, `Some(inner)` as an `Option<&dyn Trait>`; and `via = route`
+//! to widen, `Some(inner)` as an `Option<&dyn Trait>`, and a target reached
+//! through a route is borrowed as the return type asks, as a field is, so
+//! `via = .name, value` is `field = name` spelled out; and `via = route`
 //! reaches the target for this method alone. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its

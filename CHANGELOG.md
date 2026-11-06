@@ -92,6 +92,12 @@ changes are expected and listed without apology.
   and its selection of targets lives in a module of its own, shared with
   the inherent path; `macros/ARCHITECTURE.md` describes the shape. Nothing
   generated changed.
+- `value` on an inherent method borrows a target reached through a route
+  as the return type asks, as `field` does, so `via = .name, value` on a
+  method returning `&str` is the arm `&inner.name`, and `field = name` is
+  that spelled short; before, `value` handed the place over by value and
+  rustc reported the type. The target itself, without a route, is handed
+  over as before.
 
 ## 0.6.0 - 2026-11-06
 

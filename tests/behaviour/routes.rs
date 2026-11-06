@@ -114,6 +114,13 @@ impl Any {
     pub fn base_name(&self) -> &'static str {
         "none"
     }
+
+    /// A place reached through a route, borrowed as the return type asks:
+    /// the arm `side_ref` writes for `Module` with `field = 0`.
+    #[dispatch(Module, via = .base.0, value)]
+    pub fn side_by_route(&self) -> &u32 {
+        &0
+    }
 }
 
 impl Display for Any {
@@ -154,6 +161,8 @@ fn the_arms_follow_the_routes() {
     assert!(shapes[1].as_named().is_none());
     assert_eq!(shapes[0].base_name(), "square");
     assert_eq!(shapes[1].base_name(), "none");
+    let sides: Vec<u32> = shapes.iter().map(|shape| *shape.side_by_route()).collect();
+    assert_eq!(sides, [3, 0, 0, 0, 0]);
     let owned: Vec<u32> = shapes.into_iter().map(Area::into_area).collect();
     assert_eq!(owned, [9, 16, 25, 36, 49]);
     let viewed = Viewed::Module(Account {

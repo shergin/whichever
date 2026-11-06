@@ -462,7 +462,9 @@ line_no)]` on `fn line_no(&self) -> usize;` is `inner.line_no` in every
 arm; and `value` makes the arm the target itself, which `with` wraps or
 the return type widens, so `#[dispatch(Controller, Spawn, value, with =
 Some)]` on `fn as_owned(&self) -> Option<&dyn Owned> { None }` is
-`Some(inner)` for the named variants. `via = route` reaches the target
+`Some(inner)` for the named variants. A target reached through a route is
+borrowed as the return type asks, as a field is, so `via = .name, value`
+is `field = name` spelled out. `via = route` reaches the target
 for this method alone, over the variant's own route. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where

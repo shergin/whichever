@@ -613,6 +613,8 @@ other.
 `check_trait_objects`; no golden or snapshot changed. `expand_implement` is
 207 lines where it was 311 and `forward_trait_method` 163 where it was 184;
 `conversion_impls` (184) and `expand_subject` (124) are the next seams.
+`value` borrows a routed place as the return type asks, so it and `field`
+are one arm (behaviour test `routes` extended; no golden changed).
 
 ## 5. Invariants every stage keeps
 
