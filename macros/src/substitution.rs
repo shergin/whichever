@@ -40,7 +40,7 @@ impl Substitution {
             .segments
             .last()
             .expect("a path has at least one segment");
-        let mut args: Vec<&GenericArgument> = vec![];
+        let mut args: Vec<GenericArgument> = vec![];
         if let PathArguments::AngleBracketed(arguments) = &last.arguments {
             for argument in &arguments.args {
                 if let GenericArgument::AssocType(_)
@@ -52,7 +52,23 @@ impl Substitution {
                         "an associated type or const is fixed with an option after the path, `Name = ..`, not inside it",
                     ));
                 }
-                args.push(argument);
+                args.push(argument.clone());
+            }
+        }
+        // A parameter with a default may be left out, as `impl Enc for A`
+        // leaves out the `F = Json` of `trait Enc<F = Json>`; only trailing
+        // parameters have one.
+        for param in params.iter().skip(args.len()) {
+            match param {
+                GenericParam::Type(param) if param.default.is_some() => {
+                    let default = param.default.clone().expect("checked above");
+                    args.push(GenericArgument::Type(default));
+                }
+                GenericParam::Const(param) if param.default.is_some() => {
+                    let default = param.default.clone().expect("checked above");
+                    args.push(GenericArgument::Const(default));
+                }
+                _ => break,
             }
         }
         if args.len() != params.len() {
@@ -75,7 +91,7 @@ impl Substitution {
                 ),
             ));
         }
-        Self::of_pairs(params.into_iter().zip(args), scope)
+        Self::of_pairs(params.into_iter().zip(args.iter()), scope)
     }
 
     /// The subject's parameters replaced by the arguments a partial block's
@@ -332,6 +348,33 @@ mod tests {
         substitution.visit_type_mut(&mut ty);
         assert!(substitution.check().is_ok());
         assert_eq!(spelled(&ty), "T::Value");
+    }
+
+    #[test]
+    fn a_parameter_with_a_default_may_be_left_out() {
+        let item_trait: ItemTrait = parse_quote!(
+            trait Encoder<F = Json, const N: usize = 4> {
+                fn encode(&self, value: F) -> [u8; N];
+            }
+        );
+        let bare: Path = parse_quote!(Encoder);
+        let mut substitution =
+            Substitution::of_trait(&item_trait, &bare, &Generics::default()).unwrap();
+        let mut ty: Type = parse_quote!((F, [u8; N]));
+        substitution.visit_type_mut(&mut ty);
+        assert_eq!(spelled(&ty), "(Json,[u8;4])");
+        let first_only: Path = parse_quote!(Encoder<Xml>);
+        let mut substitution =
+            Substitution::of_trait(&item_trait, &first_only, &Generics::default()).unwrap();
+        let mut ty: Type = parse_quote!((F, [u8; N]));
+        substitution.visit_type_mut(&mut ty);
+        assert_eq!(spelled(&ty), "(Xml,[u8;4])");
+        let without_default: ItemTrait = parse_quote!(
+            trait Encoder<F> {
+                fn encode(&self, value: F);
+            }
+        );
+        assert!(Substitution::of_trait(&without_default, &bare, &Generics::default()).is_err());
     }
 
     #[test]

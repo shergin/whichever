@@ -363,7 +363,9 @@ pub enum AnyShape { /* .. */ }
 
 A generic trait is dispatched at an instantiation named on the enum: a
 concrete one, `#[whichever::dispatch(Encoder<Json>)]`, or the enum's own
-parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`. Type,
+parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`; a
+parameter with a default may be left out, `#[whichever::dispatch(Enc)]`
+for `trait Enc<F = Json>`, as `impl Enc for A` leaves it out. Type,
 lifetime and const parameters are substituted in every signature, and a
 projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
 bound; with several bounds the trait has to spell `<F as Format>::Value`

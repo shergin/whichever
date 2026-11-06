@@ -37,6 +37,9 @@ changes are expected and listed without apology.
   `count`, `last` and `fold` have the bound, so the block over a
   restatement accepts `#[dispatch(default)]` for a method the restatement
   carries no body for, leaving it to the real trait's.
+- A trait parameter with a default may be left out of the trait's path on
+  the enum, `#[dispatch(Enc)]` for `trait Enc<F = Json>`, as `impl Enc for
+  A` leaves it out; before, the count of arguments was reported as a limit.
 
 ## 0.6.0 - 2026-11-06
 

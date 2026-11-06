@@ -561,6 +561,7 @@ A `Self: Sized` method over a trait object payload is one sentence
 (`dyn_payload_under_sized_method` and the behaviour test
 `trait_objects_in_deref_variants` are new; `#[dispatch(default)]` over a
 restatement needs no `provided` name).
+A defaulted trait parameter is filled from its default.
 
 ## 5. Invariants every stage keeps
 
