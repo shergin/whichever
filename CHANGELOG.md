@@ -5,6 +5,11 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A trait method that cannot be forwarded is written with its signature
+  and its sentence as its body, so the impl is complete and every call
+  around it resolves; before, the whole impl was withheld and each call
+  site failed too. A signature that cannot be written, a projection
+  through a parameter with several bounds, still withholds the impl.
 - A `mismatch` expression written on the enum may use the method's
   parameters and, for a `&self` method, `self`, as one on the trait method
   could. The two are written in different hygiene contexts, and the

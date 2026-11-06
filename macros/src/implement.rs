@@ -8,7 +8,7 @@ use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
     parse_quote, Attribute, Error, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Result,
-    Token, TraitItem, TraitItemConst, TraitItemFn, TraitItemType, Type,
+    Signature, Token, TraitItem, TraitItemConst, TraitItemFn, TraitItemType, Type,
 };
 
 use crate::agreement::{associated_const_check, associated_type_check};
@@ -577,7 +577,11 @@ fn associated_const<'a>(
 /// Writes the forwarding method for one trait method: a `match` over every
 /// variant with a fully qualified call per arm, and the mismatch expression
 /// for two different variants when the method takes `Self` arguments. A
-/// method without a receiver is left to its default body.
+/// method without a receiver is left to its default body. A method that
+/// cannot be forwarded is still written, with its sentence as its body, so
+/// that the impl stays complete, the calls around it resolve, and the one
+/// error stands alone; only a signature that cannot be written at all, a
+/// projection the substitution could not qualify, is an error of the impl.
 fn expand_method(
     function: &TraitItemFn,
     entries: &[Entry],
@@ -587,10 +591,37 @@ fn expand_method(
     block_header: &str,
     substitution: &mut Substitution,
 ) -> Result<TokenStream2> {
-    let subject_ident = subject.ident();
     let mut signature = function.sig.clone();
     substitution.visit_signature_mut(&mut signature);
     substitution.check()?;
+    let forwarded = forward_trait_method(
+        function,
+        signature.clone(),
+        entries,
+        subject,
+        trait_path,
+        spec,
+        block_header,
+    );
+    Ok(forwarded.unwrap_or_else(|error| {
+        let carried = carried_attributes(&function.attrs);
+        let error = error.to_compile_error();
+        quote! { #(#carried)* #signature { #error } }
+    }))
+}
+
+/// Writes the forwarding method for a trait method whose signature is
+/// written, or the sentence for the shape that stops it.
+fn forward_trait_method(
+    function: &TraitItemFn,
+    mut signature: Signature,
+    entries: &[Entry],
+    subject: &Subject,
+    trait_path: &Path,
+    spec: &TraitSpec,
+    block_header: &str,
+) -> Result<TokenStream2> {
+    let subject_ident = subject.ident();
     let method = signature.ident.clone();
     if signature.receiver().is_none() {
         if function.default.is_some() {

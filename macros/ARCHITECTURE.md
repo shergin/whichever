@@ -260,11 +260,16 @@ with them the 1.88 minimum.
 ### 3.8 Diagnostics policy
 
 Every generator collects errors with `syn::Error::combine` and reports all
-of them. The two paths then differ on purpose: the trait path withholds
-the impl, since an impl missing items would draw a second error from rustc
-and the user is about to fix the trait or the enum anyway; the inherent
-path keeps the block and the methods it could forward, since they stand on
-their own. At the subject the unit of rejection is the attribute: the
+of them, and every generator emits the item. A trait method that cannot be
+forwarded is written with its signature and its sentence as its body, a
+`compile_error!` rustc treats as an error expression and type-checks no
+further, so the impl is complete, the calls around it resolve, and the
+sentence stands alone; only a signature the substitution could not write,
+a projection it could not qualify, withholds the impl, as does an
+associated item that cannot be supplied, since neither has a body to hold
+an error. The inherent path keeps the block and the methods it could
+forward, for the same reason. At the subject the unit of rejection is the
+attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors
 follow; "rejected", the flag the carrier hands the subject's impl blocks, is
@@ -516,7 +521,7 @@ case.
   "the body would never run" and then the arm's. Reading `*` as "every
   forwardable variant" with the body for the rest would be one; a design
   call for later.
-- The trait path withholds the impl on an error where the inherent path
-  keeps the block. Emitting the impl with the failing methods left out
-  would trade the cascade at call sites for one E0046 from rustc; the
-  present choice keeps every compile-fail output to the whichever errors.
+- Settled on 2026-11-05: the trait path emits the impl with a failing
+  method's sentence as that method's body (3.8). Withholding the impl had
+  traded a cascade at every call site for a tidy compile-fail output;
+  emitting the method with its error as its body keeps both.

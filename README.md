@@ -603,7 +603,9 @@ unwrapped to it.
 
 Every unsupported shape is reported as one sentence on the offending trait
 item or variant; see `tests/ui` for all of them. A rejected enum is still
-emitted, so the derives, uses and impl blocks around it compile and that
+emitted, so the derives, uses and impl blocks around it compile, and a
+trait method that cannot be forwarded is still written, with its sentence
+as its body, so the impl is complete and the calls around it resolve: that
 one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
