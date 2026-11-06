@@ -493,7 +493,8 @@ cases.
 
 ### Stage 15: the review of 2026-11-05
 
-Status: landing, one commit per item. The fallback arm and its lint
+Status: landed on 2026-11-06, one commit per item, on the branch
+`execute-review-2026-11-05`. The fallback arm and its lint
 allowance only when a mismatch can happen (golden
 `self_argument_and_return`); the bound a hand writes for a type-parameter
 payload (golden `generic_payloads`); the enum-side `mismatch` resolved at
@@ -513,7 +514,13 @@ with `Subject::entries_for` choosing the target per trait
 (`per_trait_fields`, two compile-fail cases); the restated subject, whose
 real path travels in a `remote` segment of the request and of the subject's
 carrier and is the impl's self type and the patterns' prefix
-(`restated_enum`, two compile-fail cases, the smoke crates' `Either`).
+(`restated_enum`, two compile-fail cases, the smoke crates' `Either`);
+the return model as a tree with tuple returns (`tuple_returns`, one
+compile-fail case, `struct_self_return_limit` re-pinned on `Vec<Self>`);
+every sentence pinned by a snapshot (`limits.rs`, thirty cases);
+`proc-macro-crate` behind the `renamed-dependency` feature and a
+semver-checks job; the carrier names under unit test; the quoted numbers
+checked in CI; the behaviour tests split by capability.
 
 ### Stage 14: the enum_dispatch page-1 surveys' bugs
 

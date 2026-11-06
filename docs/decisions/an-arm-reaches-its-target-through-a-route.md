@@ -49,7 +49,7 @@ a nameable type is left out of the agreement checks.
   field; ambassador's issue #12 (2019) asked for the per-trait form.
 - A probe: `<_ as Trait>::method(&inner.field)` compiles, infers the type
   from the receiver, and does not pick an inherent method of the name.
-- `tests/expand/routes.rs`; `tests/behaviour.rs`, `routes`;
+- `tests/expand/routes.rs`; `tests/behaviour/routes.rs`;
   `tests/ui/route_method_on_mut_self.rs`, `two_marked_fields.rs`,
   `route_through_unknown_variant.rs`, `self_return_through_a_route.rs`.
 

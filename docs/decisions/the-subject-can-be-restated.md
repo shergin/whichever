@@ -37,7 +37,7 @@ read another crate's enum; a restatement names its variants once.
 ## Evidence
 
 - The review of 2026-11-05, section 4.7, and the sweep's item 29.
-- `tests/expand/restated_enum.rs`; `tests/behaviour.rs`, `restated_enum`,
+- `tests/expand/restated_enum.rs`; `tests/behaviour/restated_enum.rs`,
   with a partial block; `smoke/enums`' `Either` over `smoke_traits::Either`,
   a plain enum of another crate; `tests/ui/restated_enum_conversions.rs`,
   `restated_enum_inherent_block.rs`.

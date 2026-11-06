@@ -38,7 +38,7 @@ unit or multi-field variant the block's methods never name is no error.
 
 - The planning note `notes/archive/foreign-traits.md`, question 3, and
   the review of 2026-11-05, section 4.5.
-- `tests/expand/partial_block_methods.rs`; `tests/behaviour.rs`,
+- `tests/expand/partial_block_methods.rs`; `tests/behaviour/`,
   `partial_block_methods`, with a foreign `Display` over a unit variant;
   `tests/ui/block_default_without_a_default.rs`,
   `block_method_with_call.rs`, `block_bodiless_without_attribute.rs`.

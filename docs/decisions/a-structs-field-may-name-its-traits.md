@@ -31,7 +31,7 @@ field and not on the struct, since the mark would otherwise be dead.
 
 - The sweep of the ambassador surveys in the review of 2026-11-05 (item 1
   of its list of shapes) and section 4.4.
-- `tests/expand/per_trait_fields.rs`; `tests/behaviour.rs`,
+- `tests/expand/per_trait_fields.rs`; `tests/behaviour/`,
   `per_trait_fields`; `tests/ui/trait_named_on_two_fields.rs`,
   `field_names_an_undispatched_trait.rs`.
 

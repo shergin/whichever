@@ -46,7 +46,7 @@ in its own crate.
   absolute path to it, which rustc refuses whenever the trait and the enum
   share a crate. ambassador's gates are reached through a module named
   after its macro, which a carrier named after the trait cannot have.
-- `tests/behaviour.rs`, `cfg_on_trait_items`; `smoke/traits`' `Gated`,
+- `tests/behaviour/cfg_on_trait_items.rs`; `smoke/traits`' `Gated`,
   dispatched from `smoke/enums` under `unexpected_cfgs = "deny"`;
   `tests/expand/cfg_on_trait_items.rs`; `tests/ui/too_many_cfg_predicates.rs`.
 
