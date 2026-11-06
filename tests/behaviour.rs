@@ -3589,10 +3589,7 @@ mod enum_side_mismatch_names_the_arguments {
 
     #[whichever::dispatch(Shape, mismatch(
         congruent = other.area() == self.area(),
-        absorb = {
-            let small = other.area() < 9;
-            small
-        },
+        absorb = other.area() < 9,
     ))]
     pub enum AnyShape {
         Circle(Circle),
