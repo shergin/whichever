@@ -100,8 +100,9 @@ impl MethodPlan {
         self_arguments: SelfArguments,
         spec: Option<&TraitSpec>,
         site: &ReturnSite,
+        resolution: Option<Span>,
     ) -> Result<Self> {
-        let (receiver, self_token) = match signature.receiver() {
+        let (receiver, mut self_token) = match signature.receiver() {
             Some(receiver) => (classify_receiver(receiver)?, receiver.self_token),
             None => {
                 return Err(Error::new_spanned(
@@ -110,6 +111,21 @@ impl MethodPlan {
                 ))
             }
         };
+        // The receiver and the written arguments resolve where the
+        // `mismatch` expression was written, so that an expression on the
+        // enum sees names that came through the trait's carrier.
+        let resolve = |mut ident: Ident| {
+            if let Some(resolution) = resolution {
+                ident.set_span(ident.span().resolved_at(resolution));
+            }
+            ident
+        };
+        if let Some(resolution) = resolution {
+            self_token.span = self_token.span.resolved_at(resolution);
+            if let Some(FnArg::Receiver(receiver)) = signature.inputs.first_mut() {
+                receiver.self_token = self_token;
+            }
+        }
         let mut arguments = vec![];
         let mut same_variant = vec![];
         for (index, input) in signature.inputs.iter_mut().skip(1).enumerate() {
@@ -123,7 +139,7 @@ impl MethodPlan {
                 (Pat::Ident(pattern), ArgumentNames::WrittenOrGenerated)
                     if pattern.by_ref.is_none() && pattern.subpat.is_none() =>
                 {
-                    let ident = pattern.ident.clone();
+                    let ident = resolve(pattern.ident.clone());
                     *pat_type.pat = plain(ident.clone());
                     ident
                 }

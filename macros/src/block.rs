@@ -247,6 +247,7 @@ pub(crate) fn forward_method(
             one_target: subject.has_one_target(),
             by_hand: context.callee.by_hand(),
         },
+        None,
     )?;
     let variants = targets(entries);
     // Under `*`, a variant that holds no payload cannot be forwarded to and

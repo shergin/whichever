@@ -275,13 +275,14 @@ trait's impl is labelled on that attribute and not on the first of the
 stack. A trait method's parameter keeps its own name when its
 pattern is a plain identifier and gets `__argument<n>` otherwise, so
 expansions read like the trait, and a `mismatch` expression written on the
-trait method may name the arguments, a moved `Self` argument included,
-which the fallback arm binds again. One written on the enum cannot: the
-trait's tokens reach the enum through a `macro_rules!` body and carry its
-hygiene, while the enum's attribute carries the enum's, which is also why
-the generated `match` reuses the receiver's own `self` token. Errors rustc
-finds in generated code land on the enum or on the trait method, never on
-the trait's attribute.
+trait method or on the enum may name the arguments, a moved `Self` argument
+included, which the fallback arm binds again, and a `&self` receiver. The
+two live in different hygiene contexts, the trait's tokens having come
+through a `macro_rules!` body, so the engine resolves the receiver's `self`
+token and the written argument bindings at the chosen expression's span
+with `Span::resolved_at` (stable since 1.45); the arms use that same `self`
+token. Errors rustc finds in generated code land on the enum or on the
+trait method, never on the trait's attribute.
 
 ## 4. Plan
 
@@ -420,7 +421,7 @@ to the enum or the method.
 Status: landed. Kept parameter names under every name the engine uses, a
 carrier of the 0.4.0 shape read by the new reader, an inherent block on a
 struct, a partial block over a `foreign` declaration, the enum-side
-`mismatch` hygiene boundary, and unit tests for `protocol.rs`,
+`mismatch` hygiene boundary (lifted since, 3.8), and unit tests for `protocol.rs`,
 `options.rs` and `shape.rs`.
 
 ### Stage 12: record

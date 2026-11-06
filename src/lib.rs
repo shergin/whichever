@@ -172,10 +172,10 @@
 //! fails with an error naming the method, unless the enum has one variant,
 //! which has no second variant to meet and gets no fallback arm. Only `Self`, `&Self` and
 //! `&mut Self` are accepted; a `Self` nested in another type
-//! (`Option<&Self>`) is an error. An expression on the trait method may use
-//! the method's parameters, a `Self` argument included; one on the enum can
-//! use neither them nor `self`, since the trait's tokens reach the enum
-//! through a `macro_rules!` body and carry its hygiene.
+//! (`Option<&Self>`) is an error. An expression on the trait method or on
+//! the enum may use the method's parameters, a `Self` argument included,
+//! and `self` when the method takes `&self`; `&mut self` and `self` are
+//! moved into the `match`.
 //!
 //! # Associated types
 //!

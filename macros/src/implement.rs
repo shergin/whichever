@@ -612,6 +612,12 @@ fn expand_method(
         lift: None,
         site: subject_ident.span(),
     };
+    // The enum's `mismatch` wins over the trait method's, and the names the
+    // fallback arm binds resolve where the chosen expression was written.
+    let (mismatch, resolution) = match spec.mismatch_for(&method) {
+        Some(expr) => (Some(expr.clone()), Some(expr.span())),
+        None => (method_mismatch(function)?, None),
+    };
     let plan = MethodPlan::new(
         &mut signature,
         ArgumentNames::WrittenOrGenerated,
@@ -622,11 +628,8 @@ fn expand_method(
             one_target: subject.has_one_target(),
             by_hand: context.callee.by_hand(),
         },
+        resolution,
     )?;
-    let mismatch = match spec.mismatch_for(&method) {
-        Some(expr) => Some(expr.clone()),
-        None => method_mismatch(function)?,
-    };
     let mut arms = Vec::with_capacity(entries.len());
     for entry in entries {
         match entry {

@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A `mismatch` expression written on the enum may use the method's
+  parameters and, for a `&self` method, `self`, as one on the trait method
+  could. The two are written in different hygiene contexts, and the
+  fallback arm now binds the names where the expression was written. The
+  README had listed this as a limit of the carrier;
+  `tests/ui/enum_mismatch_names_argument` is a behaviour test now.
 - A payload that is a type parameter of the enum, or of the struct, gives
   the impl the bound a hand writes, `Raw: Trait` for `Raw(Raw)` and
   `T: Trait` for a `deref` payload `Box<T>`, `Rc<T>` or `&T`. Before, rustc
