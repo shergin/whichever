@@ -20,6 +20,8 @@ impl Square {
 pub enum AnyShape {
     Circle(Circle),
     Square(Square),
+    #[dispatch(deref)]
+    Boxed(Box<Square>),
 }
 
 #[whichever::dispatch]
@@ -32,6 +34,9 @@ impl AnyShape {
 
     #[dispatch(*)]
     pub fn describe(&self) -> String;
+
+    #[dispatch(*, field = 0)]
+    pub fn size(&self) -> &u32;
 }
 
 fn main() {}

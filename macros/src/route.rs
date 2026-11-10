@@ -66,6 +66,12 @@ impl Route {
         matches!(self.steps.last(), Some(Step::Method(_)))
     }
 
+    /// Returns whether the last step dereferences, so that the expression
+    /// `reach` writes ends in a prefix `*`.
+    pub(crate) fn ends_in_a_deref(&self) -> bool {
+        matches!(self.steps.last(), Some(Step::Deref))
+    }
+
     /// Returns the expression reaching the target from `binding`, which is
     /// a reference to the payload when `through_reference` and the payload
     /// itself otherwise. Field and method steps go through the reference by
@@ -108,6 +114,24 @@ impl Route {
                     derefs = 0;
                 }
             }
+        }
+        expression
+    }
+
+    /// Returns the expression `reach` writes, ready for a field or a method
+    /// call to follow it. A prefix `*` binds looser than both, so a route
+    /// ending in a deref is parenthesised: `(**inner).radius` reads the
+    /// field of the target, where `**inner.radius` would dereference the
+    /// field.
+    pub(crate) fn reach_for_postfix(
+        &self,
+        binding: &Ident,
+        through_reference: bool,
+        site: Span,
+    ) -> TokenStream2 {
+        let expression = self.reach(binding, through_reference, site);
+        if self.ends_in_a_deref() {
+            return quote_spanned!(site => (#expression));
         }
         expression
     }
@@ -244,5 +268,35 @@ mod tests {
         assert_eq!(reach("*.inner", true), "(**inner).inner");
         assert_eq!(reach("*.inner", false), "(*inner).inner");
         assert_eq!(reach(".a*", true), "*inner.a");
+    }
+
+    #[test]
+    fn a_route_ends_in_a_deref_when_its_last_step_is_one() {
+        for text in ["*", ".boxed*", "*.a*", ".get_ref()*"] {
+            assert!(route(text).ends_in_a_deref(), "{text}");
+        }
+        for text in [".base", "*.inner", ".a.b()", ".0.1"] {
+            assert!(!route(text).ends_in_a_deref(), "{text}");
+        }
+        assert!(!Route::default().ends_in_a_deref());
+    }
+
+    #[test]
+    fn a_route_ending_in_a_deref_is_parenthesised_for_a_postfix() {
+        let binding = Ident::new("inner", Span::call_site());
+        let reach = |text: &str, through_reference: bool| {
+            spelled(route(text).reach_for_postfix(&binding, through_reference, Span::call_site()))
+        };
+        assert_eq!(reach("*", true), "(**inner)");
+        assert_eq!(reach("*", false), "(*inner)");
+        assert_eq!(reach(".boxed*", true), "(*inner.boxed)");
+        assert_eq!(reach(".boxed*", false), "(*inner.boxed)");
+        assert_eq!(reach("*.a*", true), "(*(**inner).a)");
+        assert_eq!(reach(".get_ref()*", true), "(*inner.get_ref())");
+        // A route ending in a field or a method is already a postfix
+        // expression, and is written as `reach` writes it.
+        assert_eq!(reach(".base", true), "inner.base");
+        assert_eq!(reach("*.inner", true), "(**inner).inner");
+        assert_eq!(reach(".a.b()", false), "inner.a.b()");
     }
 }

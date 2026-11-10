@@ -31,6 +31,7 @@ mod inherent_block_on_a_struct;
 mod inherent_list_naming_a_conditional_variant;
 mod inherent_methods;
 mod inherent_methods_do_not_shadow;
+mod inherent_methods_on_dereferenced_payloads;
 mod kept_parameter_names;
 mod lifetimes_and_generic_enums;
 mod method_attribute_spelled_with_the_crate_path;

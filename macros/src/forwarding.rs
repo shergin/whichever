@@ -341,9 +341,14 @@ impl MethodPlan {
         }
         let inner = hygienic("__inner");
         let receiver = match (callee, self.receiver) {
-            // Method-call syntax reaches through a pointer by itself, so
-            // the route is followed from the binding as it is.
-            (Callee::Method { .. }, ReceiverKind::Value(_)) => route.reach(&inner, false, site),
+            // The route is followed through the binding's reference, as for
+            // a qualified call, so that `deref` calls the method on what the
+            // payload points at and never on the pointer, whose own method
+            // of the same name would otherwise win; method-call syntax then
+            // borrows the target as the method's receiver asks.
+            (Callee::Method { .. }, ReceiverKind::Value(access)) => {
+                route.reach_for_postfix(&inner, !matches!(access, Access::Owned), site)
+            }
             (Callee::Place { .. }, _) => quote_spanned!(site => #inner),
             _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
@@ -368,14 +373,14 @@ impl MethodPlan {
             // The arm is the target itself, or a field of it: a place,
             // borrowed as the declared return type asks.
             Callee::Place { field, borrow } => {
-                let reached = route.reach(
-                    &inner,
-                    !matches!(self.receiver, ReceiverKind::Value(Access::Owned)),
-                    site,
-                );
+                let through_reference =
+                    !matches!(self.receiver, ReceiverKind::Value(Access::Owned));
                 let place = match field {
-                    Some(field) => quote_spanned! { site => #reached.#field },
-                    None => reached,
+                    Some(field) => {
+                        let reached = route.reach_for_postfix(&inner, through_reference, site);
+                        quote_spanned! { site => #reached.#field }
+                    }
+                    None => route.reach(&inner, through_reference, site),
                 };
                 // The binding itself is borrowed as the receiver is; a
                 // place reached through a field or a route is borrowed as

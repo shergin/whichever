@@ -442,7 +442,10 @@ impl AnyShape {
 
 Each arm calls the payload's method by method-call syntax,
 `inner.describe()`, so autoref, autoderef and inherent-before-trait
-resolution apply as in hand-written code. `with = path` wraps each forwarded
+resolution apply as in hand-written code. On a `deref` variant the call
+goes to what the payload points at, `(**inner).describe()`, so a method the
+pointer has of the same name, such as `Box`'s `as_ref`, never takes over.
+`with = path` wraps each forwarded
 result in a call to `path`, which may be a generic function, called
 separately in each arm, so payloads whose results differ can meet in one
 declared return type, and `with = Into::into` rebuilds the enum through its

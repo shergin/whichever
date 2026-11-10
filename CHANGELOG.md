@@ -5,6 +5,24 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+A fix for inherent methods on `deref` variants, found by the survey of
+Expo's Exact, whose GPU device enum forwards three methods to `Box`ed
+backends by hand.
+
+- An inherent `#[dispatch]` method on an enum with a `#[dispatch(deref)]`
+  variant compiles, and the arm calls the method on what the payload points
+  at: `(**inner).present(texture)`. Before, the arm was written
+  `*inner.present(texture)`, which dereferences the method's result, so
+  rustc reported E0614 or E0308 at the enum; `field = name` read
+  `&**inner.name` and failed the same way. The method of the pointer itself,
+  `Box`'s `as_ref` for one, never takes over from the payload's.
+- An inherent method's route that starts with `*` reaches what the payload
+  points at, as a trait's does, so `via = *.clone()` on a `Box` payload
+  clones the target and no longer the `Box`. An enum whose every variant
+  is `deref` and whose payloads return a reference to a `Copy` value where
+  the method declares the value compiled before by dereferencing that
+  result; its arms are now a type error, as they are on a plain variant.
+
 ## 0.7.0 - 2026-11-06
 
 The review of 2026-11-06, executed. rustc's errors inside generated code

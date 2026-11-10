@@ -20,6 +20,7 @@ impl Square {
 pub enum AnyShape {
     Circle(Circle),
     Square(Square),
+    Boxed(Box<Square>),
 }
 #[automatically_derived]
 impl ::core::convert::From<Circle> for AnyShape {
@@ -59,9 +60,28 @@ impl ::core::convert::TryFrom<AnyShape> for Square {
         }
     }
 }
+#[automatically_derived]
+impl ::core::convert::From<Box<Square>> for AnyShape {
+    #[inline]
+    fn from(__value: Box<Square>) -> Self {
+        Self::Boxed(__value)
+    }
+}
+#[automatically_derived]
+impl ::core::convert::TryFrom<AnyShape> for Box<Square> {
+    type Error = AnyShape;
+    #[inline]
+    #[allow(unreachable_patterns)]
+    fn try_from(__value: AnyShape) -> ::core::result::Result<Self, Self::Error> {
+        match __value {
+            AnyShape::Boxed(__value) => ::core::result::Result::Ok(__value),
+            __other => ::core::result::Result::Err(__other),
+        }
+    }
+}
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_AnyShape_ecc323c5dd12c245_19_1 as AnyShape;
+pub(crate) use __whichever_dispatch_AnyShape_a66ca09eff783d04_19_1 as AnyShape;
 impl AnyShape {
     /// Only circles have a radius.
     pub fn radius(&self) -> Option<u32> {
@@ -74,6 +94,14 @@ impl AnyShape {
         match self {
             Self::Circle(__inner) => __inner.describe(),
             Self::Square(__inner) => __inner.describe(),
+            Self::Boxed(__inner) => (**__inner).describe(),
+        }
+    }
+    pub fn size(&self) -> &u32 {
+        match self {
+            Self::Circle(__inner) => &__inner.0,
+            Self::Square(__inner) => &__inner.0,
+            Self::Boxed(__inner) => &(**__inner).0,
         }
     }
 }
