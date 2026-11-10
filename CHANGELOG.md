@@ -5,6 +5,8 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.7.1 - 2026-11-09
+
 A fix for inherent methods on `deref` variants, found by the survey of
 Expo's Exact, whose GPU device enum forwards three methods to `Box`ed
 backends by hand.
