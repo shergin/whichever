@@ -52,7 +52,10 @@ PROBE = re.compile(
 # on macOS and `.L` on Linux.
 LABEL = re.compile(r"^([^\s.][^\s:]*|\.L[^\s:]*):$")
 LOCAL = re.compile(r"^\.?L[A-Za-z0-9_$.]+$")
+# LLVM writes a merged function's other names as `name = target`; the LLVM of
+# Rust 1.88 writes `.set name, target`.
 ALIAS = re.compile(r"^(\S+)\s*=\s*(\S+)$")
+SET_ALIAS = re.compile(r"^\.set\s+(\S+),\s*(\S+)$")
 TOKEN = re.compile(r"[A-Za-z_.$][A-Za-z0-9_.$@]*")
 MANGLED = re.compile(r"^_*(RNv|ZN)")
 # A tail call straight into a `payloads::V*` method is no dispatch at all: the
@@ -69,20 +72,30 @@ CONDITIONAL = re.compile(r"^(b\.[a-z]+|cbn?z|tbn?z|j(?!mp)[a-z]+)\b")
 JUMP_TABLE = re.compile(r"JTI")
 
 
+def target_directory():
+    """Returns the target directory cargo builds into, `CARGO_TARGET_DIR` included."""
+    command = ["cargo", "metadata", "-q", "--no-deps", "--format-version", "1"]
+    output = subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True).stdout
+    return Path(json.loads(output)["target_directory"])
+
+
 def emit_assembly():
     """Compiles the probe example to one assembly file and returns its path."""
+    # The assembly goes to a path of our own: where cargo keeps an unnamed
+    # `--emit` output changed in 1.100, from `release/examples/codegen-<hash>.s`
+    # to a per-unit build directory. Cargo hashes these arguments into the
+    # example's fingerprint, so when it finds the example fresh, the file was
+    # written by this same command from the same sources.
+    path = target_directory() / "codegen-asm" / "codegen.s"
+    path.parent.mkdir(parents=True, exist_ok=True)
     command = [
         "cargo", "rustc", "-q", "-p", "whichever-benchmarks", "--release", "--example", "codegen",
-        "--", "--emit=asm", "-C", "codegen-units=1", "-C", "debuginfo=0",
+        "--", f"--emit=asm={path}", "-C", "codegen-units=1", "-C", "debuginfo=0",
     ]
     subprocess.run(command, cwd=ROOT, check=True)
-    candidates = sorted(
-        (ROOT / "target/release/examples").glob("codegen-*.s"),
-        key=lambda path: path.stat().st_mtime,
-    )
-    if not candidates:
-        sys.exit("no codegen-*.s under target/release/examples")
-    return candidates[-1]
+    if not path.is_file():
+        sys.exit(f"no {path}; run `cargo clean -p whichever-benchmarks --release` and retry")
+    return path
 
 
 def parse(asm_text):
@@ -92,8 +105,8 @@ def parse(asm_text):
     current = None
     for raw in asm_text.splitlines():
         line = raw.strip()
-        alias = ALIAS.match(line)
-        if alias and not line.startswith("."):
+        alias = SET_ALIAS.match(line) or (None if line.startswith(".") else ALIAS.match(line))
+        if alias:
             aliases[alias.group(1)] = alias.group(2)
             continue
         label = LABEL.match(line)
