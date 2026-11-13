@@ -633,7 +633,9 @@ ways out (snapshot `provided_self_wrapping_combinator` is new; no other
 snapshot or golden changed; the behaviour test
 `combinators_left_to_the_default` is new). `whichever::foreign` gained
 `DoubleEndedIterator` and `ExactSizeIterator` (the behaviour test
-`double_ended_and_exact_size_iterators` is new).
+`double_ended_and_exact_size_iterators` is new). The behaviour test
+`pinned_writers_with_provided_methods` is new and pins what a restatement
+forwards, with and without its provided methods.
 
 ## 5. Invariants every stage keeps
 

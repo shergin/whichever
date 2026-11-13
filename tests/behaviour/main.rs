@@ -50,6 +50,7 @@ mod partial_block_renaming_the_parameters;
 mod partial_impl_blocks;
 mod per_trait_fields;
 mod pinned_and_boxed_receivers;
+mod pinned_writers_with_provided_methods;
 mod qualified_self_returns;
 mod recursive_payloads_and_conversions;
 mod restated_enum;

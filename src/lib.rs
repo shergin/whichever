@@ -451,6 +451,14 @@
 //! `#[async_trait]` above `#[dispatchable(remote = ..)]`, as the trait
 //! itself does.
 //!
+//! A provided method the restatement leaves out keeps the trait's default
+//! on the enum, whatever the payload overrides, so a provided method a
+//! payload may override belongs in the restatement. A restatement of
+//! `tokio::io::AsyncWrite` lists `poll_write_vectored` and
+//! `is_write_vectored` beside the three required methods: left out, the
+//! enum reports `false` whatever its payload answers, and a caller such as
+//! hyper copies every buffer into one before writing it.
+//!
 //! The restatements an enum most often needs ship in [`foreign`]:
 //! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
 //! `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead`

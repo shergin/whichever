@@ -540,6 +540,54 @@ in a [partial impl block](#methods-the-enum-implements-itself) over the
 declaration: `#[dispatch] impl whichever::foreign::Error for ClientError
 { fn source(&self) -> .. { None } }`.
 
+A restatement forwards only the methods it lists, so a provided method a
+payload overrides belongs in it; left out, the enum answers with the
+trait's default whatever its payload would. tokio's `AsyncWrite` is the
+common case. Its streams answer `true` to `is_write_vectored` and take
+every buffer in one `poll_write_vectored`, but a restatement of the three
+required methods alone, as a minimal example writes it, has the enum
+report `false`, and a caller such as hyper then copies every buffer into
+one. Restate the two provided methods with the rest:
+
+```rust
+#[whichever::dispatchable(remote = tokio::io::AsyncWrite)]
+trait AsyncWrite {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>>;
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>>;
+    fn is_write_vectored(&self) -> bool;
+}
+
+#[whichever::dispatch(from = false)]
+pub enum CombinedStream<A, B> {
+    A(A),
+    B(B),
+}
+
+#[whichever::dispatch]
+impl<A, B> AsyncWrite for CombinedStream<A, B>
+where
+    A: tokio::io::AsyncWrite + Unpin,
+    B: tokio::io::AsyncWrite + Unpin,
+{
+}
+```
+
+A `self: Pin<&mut Self>` receiver needs every payload to be `Unpin`, and
+the empty partial block gives the impl a header that says so, as
+[the impl header](#the-impl-header) describes. Payloads that are type
+parameters would get overlapping `From<A>` and `From<B>`, hence
+`from = false`. An enum over concrete streams, `Tcp(TcpStream)` and
+`Tls(TlsStream<TcpStream>)`, needs neither: the attribute
+`#[whichever::dispatch(AsyncWrite)]` on the enum is enough. The same holds
+for any trait with provided methods a payload overrides, such as the
+`futures` crate's `AsyncRead` and its `poll_read_vectored`.
+
 ## Enums from other crates
 
 A trait of this crate may be forwarded over an enum another crate defines,

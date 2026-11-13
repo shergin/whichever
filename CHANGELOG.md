@@ -14,6 +14,12 @@ both payloads are; sonic-rs 0.5.10's `IterInner` implements
 rodio 0.23.0's `Source` has 7 required methods and about 29 provided
 combinators such as `fn buffered(self) -> Buffered<Self>`, and its
 `DecoderImpl` forwards the required ones by hand over 5 `#[cfg]` variants.
+poem 3.1.12's `CombinedStream`, pgwire 0.42.2's `MaybeTls`,
+tokio-postgres 0.7.18's socket and `MaybeTlsStream` and suppaftp 12.2.1's
+`DataStream` implement tokio's `AsyncWrite` with the three required
+methods alone, so each reports `is_write_vectored` as `false` over streams
+that answer `true`, and hyper 1.12.0, which serves poem's, then copies
+every buffer it writes.
 
 - `whichever::foreign` ships `DoubleEndedIterator`, which implements
   `core::iter::DoubleEndedIterator` and forwards `next_back`, `nth_back`,
@@ -41,6 +47,14 @@ combinators such as `fn buffered(self) -> Buffered<Self>`, and its
   `Option<Self>`, `Result<Self, E>` or a tuple of those, or implementing
   the method by hand; a required method, a method a restatement lists
   without a body and an inherent method keep that sentence.
+- The README's "Traits from `std` and other crates" gains a recipe for
+  tokio's `AsyncWrite` over an enum of `Unpin` streams, and the crate docs
+  a warning: a restatement forwards only the methods it lists, so one that
+  restates the required methods alone leaves the enum on the trait's
+  defaults, and `poll_write_vectored` and `is_write_vectored` belong in it.
+  Nothing changed in the macro. tokio is not a dependency, so the shape is
+  held by a behaviour test with a local stand-in for tokio's trait, with
+  and without the provided methods.
 
 ## 0.7.1 - 2026-11-09
 
