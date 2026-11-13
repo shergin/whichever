@@ -11,6 +11,9 @@ that implements `Iterator` with `next` alone, so its `size_hint` is
 `(0, None)` and the enum is neither double-ended nor exact-size although
 both payloads are; sonic-rs 0.5.10's `IterInner` implements
 `ExactSizeIterator::len` exactly while its `size_hint` reports `(0, None)`.
+rodio 0.23.0's `Source` has 7 required methods and about 29 provided
+combinators such as `fn buffered(self) -> Buffered<Self>`, and its
+`DecoderImpl` forwards the required ones by hand over 5 `#[cfg]` variants.
 
 - `whichever::foreign` ships `DoubleEndedIterator`, which implements
   `core::iter::DoubleEndedIterator` and forwards `next_back`, `nth_back`,
@@ -26,6 +29,18 @@ both payloads are; sonic-rs 0.5.10's `IterInner` implements
   `fold`. `FusedIterator` has no methods, so a restatement would declare
   the enum fused whatever its payloads are; it stays a hand-written marker
   impl.
+- A provided method whose return type mentions `Self` where the payload's
+  result cannot be wrapped back into the enum, such as a combinator
+  `fn buffered(self) -> Buffered<Self>`, is reported with a sentence that
+  first names the way a hand takes: leave it to the trait's default with
+  `#[dispatch(default)] fn buffered(..);` in a
+  `#[whichever::dispatch] impl Source for Any` block, written out for the
+  trait and the enum. The default wraps the enum itself and calls the
+  forwarded methods, so each of rodio's combinators takes one such line.
+  Before, the sentence offered only spelling the return as `Self`,
+  `Option<Self>`, `Result<Self, E>` or a tuple of those, or implementing
+  the method by hand; a required method, a method a restatement lists
+  without a body and an inherent method keep that sentence.
 
 ## 0.7.1 - 2026-11-09
 

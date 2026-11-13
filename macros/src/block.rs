@@ -235,6 +235,7 @@ pub(crate) fn forward_method(
             subject: subject_ident,
             one_target: subject.has_one_target(),
             by_hand: context.callee.by_hand(),
+            default: None,
         },
         None,
     )?;

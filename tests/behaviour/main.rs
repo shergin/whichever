@@ -12,6 +12,7 @@ mod bounds_for_type_parameter_payloads;
 mod carried_items;
 mod cfg_on_trait_items;
 mod cfg_on_variants_and_methods;
+mod combinators_left_to_the_default;
 mod conditional_methods_in_a_partial_block;
 mod conversions_by_reference_and_into;
 mod defaults_are_forwarded;

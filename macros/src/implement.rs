@@ -1112,8 +1112,11 @@ fn forward_trait_method(
     } = *context;
     let subject_ident = subject.ident();
     let method = signature.ident.clone();
+    // A method the trait gives a body can be left to it; a restatement
+    // lists its methods without one, and they count as required.
+    let has_default = function.default.is_some() || provided.contains(&method);
     if signature.receiver().is_none() {
-        if function.default.is_some() || provided.contains(&method) {
+        if has_default {
             return Ok(TokenStream2::new());
         }
         return Err(Error::new_spanned(
@@ -1153,6 +1156,7 @@ fn forward_trait_method(
             subject: subject_ident,
             one_target: subject.has_one_target(),
             by_hand: context.callee.by_hand(),
+            default: has_default.then_some((&method, block_header)),
         },
         resolution,
     )?;

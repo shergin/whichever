@@ -221,6 +221,10 @@ pub(crate) struct ReturnSite<'a> {
     /// The way out a message offers: an impl by hand on the trait path, a
     /// body on the inherent path.
     pub(crate) by_hand: &'a str,
+    /// The trait's default a provided method can be left to: the method's
+    /// name and the partial impl block that says so, spelled out. A
+    /// required method has none, and neither has an inherent method.
+    pub(crate) default: Option<(&'a Ident, &'a str)>,
 }
 
 /// Classifies what the arms of a method must do with the payload's result,
@@ -369,15 +373,22 @@ fn classify(
     Ok(Conversion::Keep)
 }
 
-/// The sentence for a `Self` the arms cannot wrap back into the subject.
+/// The sentence for a `Self` the arms cannot wrap back into the subject. A
+/// provided method is offered the trait's default first, which is what a
+/// hand leaves a combinator such as `fn buffered(self) -> Buffered<Self>`
+/// to: the payload's `Buffered<Payload>` is not the subject's.
 fn self_limit(whole: &Type, site: &ReturnSite) -> Error {
     let ReturnSite {
-        subject, by_hand, ..
+        subject,
+        by_hand,
+        default,
+        ..
     } = site;
-    Error::new_spanned(
-        whole,
-        format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
-    )
+    let message = match default {
+        Some((method, block_header)) => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; leave the method to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
+        None => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
+    };
+    Error::new_spanned(whole, message)
 }
 
 /// Checks that the arms can apply `conversion` without a closure, which a
@@ -582,6 +593,7 @@ mod tests {
             subject,
             one_target,
             by_hand: "implement the method by hand",
+            default: None,
         }
     }
 
@@ -803,6 +815,33 @@ mod tests {
             error.ends_with("or implement the method by hand"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn the_self_limit_offers_a_provided_method_the_default() {
+        let kind = kind();
+        let method = Ident::new("buffered", proc_macro2::Span::call_site());
+        let output: Type = parse_quote!(Buffered<Self>);
+        let provided = ReturnSite {
+            default: Some((&method, "impl Source for Kind")),
+            ..site(&kind, false)
+        };
+        let error = return_model(&output, None, &provided)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("`#[dispatch(default)] fn buffered(..);`"),
+            "{error}"
+        );
+        assert!(
+            error.contains("`#[whichever::dispatch] impl Source for Kind` block"),
+            "{error}"
+        );
+        let error = return_model(&output, None, &site(&kind, false))
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains("#[dispatch(default)]"), "{error}");
+        assert!(!error.contains("impl Source for Kind"), "{error}");
     }
 
     #[test]

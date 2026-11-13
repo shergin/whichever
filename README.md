@@ -737,7 +737,7 @@ unwrapped to it.
 | `-> Pin<Box<dyn Future<Output = T> + ..>>`, as `#[async_trait]` writes it | Forwarded as it is, one type for every arm; when `T` is rewrapped or converted, every arm is awaited in one `async move` block that is boxed and pinned again with the `Box` the signature names, as the attribute itself writes. |
 | other `-> impl Trait` | An error on an enum, whose arms would each return a different opaque type; forwarded as it is on a struct, whose one arm returns one. |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure. |
+| return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error, since the rewrap would need a closure; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
 | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
 | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. |
@@ -763,6 +763,12 @@ unwrapped to it.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
   default with `#[dispatch(default)]`.
+- A method whose return type wraps `Self` in anything but `Option`,
+  `Result` or a tuple, such as a combinator
+  `fn buffered(self) -> Buffered<Self>`, cannot be forwarded: the payload's
+  `Buffered<Payload>` is not the enum's. A provided one is left to the
+  trait's default in a partial block with `#[dispatch(default)]`, and the
+  default then wraps the enum.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`

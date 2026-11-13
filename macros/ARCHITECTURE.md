@@ -216,7 +216,8 @@ wrapper is fine. The recognition rules stay syntactic: `Option` and
 `Result` by the name a path ends in, `Self::X` as a two-segment path,
 `impl Future` by its `Output` binding, a boxed future, `Pin<Box<dyn
 Future<Output = T> + ..>>`, by the same binding under `Pin` and `Box`
-(`FutureShape`), and any other `Self` in a return type is a limit. An
+(`FutureShape`), and any other `Self` in a return type is a limit, whose
+sentence offers a provided method the trait's default first. An
 opaque future is one `async move` block whatever the conversion; a boxed
 one is wrapped, and pinned again with the signature's own `Box`, only to
 convert its output. `Result<Self, Self::Error>` with `Error` overridden
@@ -623,6 +624,16 @@ are one arm (behaviour test `routes` extended; no golden changed).
 A boxed future's output is converted inside a `Box::pin(async move { .. })`
 (golden `boxed_futures` and the `async_trait_above_dispatchable` case are
 new; `docs/decisions/a-boxed-future-is-rewrapped-by-boxing.md`).
+
+### Stage 17: the search of 2026-11-12
+
+Status: landed on 2026-11-12. `ReturnSite` carries the trait's default a
+provided method can be left to, and `self_limit` names it before the other
+ways out (snapshot `provided_self_wrapping_combinator` is new; no other
+snapshot or golden changed; the behaviour test
+`combinators_left_to_the_default` is new). `whichever::foreign` gained
+`DoubleEndedIterator` and `ExactSizeIterator` (the behaviour test
+`double_ended_and_exact_size_iterators` is new).
 
 ## 5. Invariants every stage keeps
 

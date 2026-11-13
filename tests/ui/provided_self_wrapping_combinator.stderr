@@ -1,0 +1,10 @@
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Any`; leave the method to the trait's default with `#[dispatch(default)] fn buffered(..);` in a `#[whichever::dispatch] impl Source for Any` block, return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or implement the method by hand
+  --> tests/ui/provided_self_wrapping_combinator.rs:10:26
+   |
+10 |     fn buffered(self) -> Buffered<Self>
+   |                          ^^^^^^^^^^^^^^
+...
+33 | #[whichever::dispatch(Source)]
+   |                       ------ in this macro invocation
+   |
+   = note: this error originates in the macro `Source` (in Nightly builds, run with -Z macro-backtrace for more info)
