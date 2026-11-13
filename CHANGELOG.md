@@ -9,7 +9,7 @@ What the search of 2026-11-12 over about 200 crates found. darling_core
 0.24.1's error iterator is an enum over `iter::Once` and `vec::IntoIter`
 that implements `Iterator` with `next` alone, so its `size_hint` is
 `(0, None)` and the enum is neither double-ended nor exact-size although
-both payloads are; sonic-rs 0.5.10's `IterInner` implements
+both payloads are. sonic-rs 0.5.10's `IterInner` implements
 `ExactSizeIterator::len` exactly while its `size_hint` reports `(0, None)`.
 rodio 0.23.0's `Source` has 7 required methods and about 29 provided
 combinators such as `fn buffered(self) -> Buffered<Self>`, and its
@@ -18,8 +18,11 @@ poem 3.1.12's `CombinedStream`, pgwire 0.42.2's `MaybeTls`,
 tokio-postgres 0.7.18's socket and `MaybeTlsStream` and suppaftp 12.2.1's
 `DataStream` implement tokio's `AsyncWrite` with the three required
 methods alone, so each reports `is_write_vectored` as `false` over streams
-that answer `true`, and hyper 1.12.0, which serves poem's, then copies
-every buffer it writes.
+that answer `true`. hyper 1.12.0, which serves poem's, then copies every
+buffer it writes. toml_edit 0.25's `Value` forwards `decor`, `span` and
+`despan` by hand over 7 variants, and cannot take `whichever` with its
+default feature, which reaches back to toml_edit through
+`proc-macro-crate`.
 
 - `whichever::foreign` ships `DoubleEndedIterator`, which implements
   `core::iter::DoubleEndedIterator` and forwards `next_back`, `nth_back`,
@@ -55,6 +58,10 @@ every buffer it writes.
   Nothing changed in the macro. tokio is not a dependency, so the shape is
   held by a behaviour test with a local stand-in for tokio's trait, with
   and without the provided methods.
+- The README's "Compatibility" says that a crate in `proc-macro-crate`'s
+  own dependency tree takes `whichever` with `default-features = false`,
+  since with the default feature it would depend on itself, a cycle Cargo
+  rejects. toml_edit 0.25's `Value` raised it. No code changed.
 
 ## 0.7.1 - 2026-11-09
 
