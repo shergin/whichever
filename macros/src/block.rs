@@ -5,7 +5,7 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{
     parse_quote_spanned, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, Result,
-    ReturnType, Signature, Type, Visibility,
+    Signature, Visibility,
 };
 
 use crate::at;
@@ -15,7 +15,7 @@ use crate::forwarding::{
 use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitSpec};
 use crate::protocol::{carrier_path, TraitRequest};
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
-use crate::shape::ReturnSite;
+use crate::shape::{place_borrow, ReturnSite};
 use crate::subject::{Entry, Subject};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
@@ -188,14 +188,10 @@ pub(crate) fn forward_method(
     }
     // `field` and `value` make the arm a place instead of a call, borrowed
     // as the declared return type asks: `&inner.f` for `-> &T`, `inner.f`
-    // for a value.
-    let borrow = match &sig.output {
-        ReturnType::Type(_, ty) => match &**ty {
-            Type::Reference(reference) => Some(reference.mutability),
-            _ => None,
-        },
-        ReturnType::Default => None,
-    };
+    // for a value, and under `with = Some` or `with = Ok` as what the
+    // constructor is handed has to be, `Some(&inner.f)` for
+    // `-> Option<&T>`.
+    let borrow = place_borrow(&sig.output, forwarding.with.as_ref());
     let callee = if forwarding.value || forwarding.field.is_some() {
         Callee::Place {
             field: forwarding.field.as_ref(),

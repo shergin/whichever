@@ -245,7 +245,9 @@ method is a step, and `Place::Variant` holds the marked field of a variant
 with several. `Target::target_type` is `None` where the route leaves the
 type unnameable, and the engine then qualifies the call by the trait
 alone, `<_ as Trait>::method`. The inherent path's `Callee::Place` is the
-arm that calls nothing: the target itself, or a field of it.
+arm that calls nothing: the target itself, or a field of it, borrowed as
+`place_borrow` reads the return type, inside the `Option` or the `Result`
+under `with = Some` or `with = Ok`.
 
 ### 3.5 The protocol
 
@@ -652,7 +654,12 @@ build and a second mark of one name no longer replaces the first. Golden
 `conditional_partial_mark` and compile-fail case
 `block_default_without_a_default_under_cfg` are new; no other golden or
 snapshot changed; the behaviour test `conditional_methods_in_a_partial_block`
-is extended, a struct's block included.
+is extended, a struct's block included. `place_borrow` reads the borrow of
+an inherent method's place through `with = Some` and `with = Ok`, from
+the return type's first type argument, and any other lift keeps the place
+by value; it has unit tests of its own. Golden `place_under_a_lift` is
+new; the behaviour test `routes` is extended; no other golden or snapshot
+changed.
 
 ## 5. Invariants every stage keeps
 

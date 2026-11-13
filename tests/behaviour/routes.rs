@@ -123,6 +123,93 @@ impl Any {
     }
 }
 
+pub struct Card {
+    pub id: String,
+    pub n: u32,
+    pub r: &'static u32,
+}
+
+// A place under a lift: `with = Some` hands the lift what the arm reaches,
+// borrowed as the return type's first argument asks.
+#[whichever::dispatch(from = false)]
+pub enum Held {
+    Boxed(Box<dyn Named>),
+    Plain(Card),
+    Other(Square),
+}
+
+/// What a bare `-> &String` returns for the variants it does not select.
+static NO_ID: String = String::new();
+
+#[whichever::dispatch]
+impl Held {
+    /// A field borrowed for `Some`, since the lift is handed a `&String`.
+    #[dispatch(Plain, field = id, with = Some)]
+    pub fn id_if_plain(&self) -> Option<&String> {
+        None
+    }
+
+    /// The target a route reaches, borrowed for `Some` and widened to the
+    /// trait object.
+    #[dispatch(Boxed, via = *, value, with = Some)]
+    pub fn as_named(&self) -> Option<&dyn Named> {
+        None
+    }
+
+    /// The exclusive form: `Some(&mut inner.id)`.
+    #[dispatch(Plain, field = id, with = Some)]
+    pub fn id_if_plain_mut(&mut self) -> Option<&mut String> {
+        None
+    }
+
+    /// A lift other than `Some`, borrowing for the `Ok` side.
+    #[dispatch(Plain, field = id, with = Ok)]
+    pub fn id_or_reason(&self) -> Result<&String, &'static str> {
+        Err("not plain")
+    }
+
+    /// The field by reference without a lift.
+    #[dispatch(Plain, field = id)]
+    pub fn id(&self) -> &String {
+        &NO_ID
+    }
+
+    /// A `Copy` field by value under a lift: the first argument is not a
+    /// reference, so nothing is borrowed.
+    #[dispatch(Plain, field = n, with = Some)]
+    pub fn n_if_plain(&self) -> Option<u32> {
+        None
+    }
+
+    /// The payload itself under a lift: the binding is already a
+    /// reference and is not borrowed twice.
+    #[dispatch(Plain, value, with = Some)]
+    pub fn card(&self) -> Option<&Card> {
+        None
+    }
+
+    /// A field that is itself a reference, under a lift through a trait:
+    /// the place is handed over as it is, `Option::from(inner.r)`, since
+    /// the trait would refuse a `&&u32`.
+    #[dispatch(Plain, field = r, with = Option::from)]
+    pub fn r_from(&self) -> Option<&u32> {
+        None
+    }
+
+    /// The same field under `Some`, which borrows it: rustc takes the
+    /// `&&u32` the arm hands `Some` as the `&u32` the return type asks for.
+    #[dispatch(Plain, field = r, with = Some)]
+    pub fn r_if_plain(&self) -> Option<&u32> {
+        None
+    }
+
+    /// A call under a lift, which is never borrowed.
+    #[dispatch(Boxed, call = as_ref, with = Some)]
+    pub fn as_named_by_call(&self) -> Option<&dyn Named> {
+        None
+    }
+}
+
 impl Display for Any {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.area())
@@ -170,4 +257,74 @@ fn the_arms_follow_the_routes() {
         id: 0,
     });
     assert_eq!(viewed.name(), "square");
+}
+
+fn held() -> [Held; 3] {
+    [
+        Held::Boxed(Box::new(Label("boxed"))),
+        Held::Plain(Card {
+            id: "card".to_owned(),
+            n: 3,
+            r: &5,
+        }),
+        Held::Other(Square(2)),
+    ]
+}
+
+#[test]
+fn a_place_under_a_lift_is_borrowed_as_the_lift_is_handed() {
+    let [boxed, plain, other] = held();
+    assert_eq!(plain.id_if_plain().map(String::as_str), Some("card"));
+    assert!(core::ptr::eq(
+        plain.id_if_plain().unwrap(),
+        match &plain {
+            Held::Plain(card) => &card.id,
+            _ => unreachable!(),
+        }
+    ));
+    assert!(boxed.id_if_plain().is_none());
+    assert!(other.id_if_plain().is_none());
+    assert_eq!(boxed.as_named().map(Named::name), Some("boxed"));
+    assert!(plain.as_named().is_none());
+    assert!(other.as_named().is_none());
+    assert_eq!(plain.id_or_reason().map(String::as_str), Ok("card"));
+    assert_eq!(boxed.id_or_reason(), Err("not plain"));
+    assert_eq!(other.id_or_reason(), Err("not plain"));
+}
+
+#[test]
+fn an_exclusive_place_under_a_lift_is_mutated_through_the_result() {
+    let [mut boxed, mut plain, mut other] = held();
+    plain
+        .id_if_plain_mut()
+        .expect("the selected variant")
+        .push_str("ed");
+    assert_eq!(plain.id(), "carded");
+    assert!(boxed.id_if_plain_mut().is_none());
+    assert!(other.id_if_plain_mut().is_none());
+}
+
+#[test]
+fn the_places_that_need_no_borrow_through_a_lift_are_unchanged() {
+    let [boxed, plain, other] = held();
+    assert_eq!(plain.id(), "card");
+    assert_eq!(boxed.id(), "");
+    assert_eq!(other.id(), "");
+    assert_eq!(plain.n_if_plain(), Some(3));
+    assert_eq!(other.n_if_plain(), None);
+    assert_eq!(plain.card().map(|card| card.n), Some(3));
+    assert!(boxed.card().is_none());
+    assert_eq!(boxed.as_named_by_call().map(Named::name), Some("boxed"));
+    assert!(plain.as_named_by_call().is_none());
+}
+
+#[test]
+fn a_field_that_is_a_reference_is_handed_to_any_lift() {
+    let [boxed, plain, other] = held();
+    assert_eq!(plain.r_from(), Some(&5));
+    assert_eq!(boxed.r_from(), None);
+    assert_eq!(other.r_from(), None);
+    assert_eq!(plain.r_if_plain(), Some(&5));
+    assert_eq!(boxed.r_if_plain(), None);
+    assert_eq!(other.r_if_plain(), None);
 }

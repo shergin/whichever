@@ -401,8 +401,11 @@
 //! makes the arm the target itself, for `with` to wrap or the return type
 //! to widen, `Some(inner)` as an `Option<&dyn Trait>`, and a target reached
 //! through a route is borrowed as the return type asks, as a field is, so
-//! `via = .name, value` is `field = name` spelled out; and `via = route`
-//! reaches the target for this method alone. A `Self` argument is the enum itself and is handed to the
+//! `via = .name, value` is `field = name` spelled out; under `with = Some`
+//! or `with = Ok` the borrow is read inside the `Option` or the `Result`,
+//! `Some(&inner.name)` for `-> Option<&T>`, and any other lift is handed the
+//! place by value; and `via = route` reaches the target for this method
+//! alone. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be

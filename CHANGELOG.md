@@ -80,6 +80,18 @@ one from pingora-core 0.9.1.
   `#[cfg]`, or else to every variant. A required method marked
   `#[dispatch(default)]` under a `cfg` keeps its sentence where the `cfg`
   holds and is forwarded where it does not.
+- Before, an inherent method whose arm is a place, `field = name` or
+  `value`, handed the place to `with = Some` by value, so `Some(inner.name)`
+  on `-> Option<&String>` was rustc's E0308, expected `&String`, found
+  `String`, and `via = *, value, with = Some` on `-> Option<&dyn Trait>`
+  failed the same way. Under `with = Some` or `with = Ok` the borrow is now
+  read from the return type's first type argument: `-> Option<&T>` gives
+  `Some(&inner.name)`, `-> Option<&mut T>` on `&mut self` gives
+  `Some(&mut inner.name)` and `-> Result<&T, E>` gives `Ok(&inner.name)`,
+  and a `String` field on `-> Option<&str>` compiles too. Any other lift,
+  a function or `Option::from` or `Into::into`, is handed the place by
+  value as before, so a field that is itself a reference still passes
+  through as it is. Nothing that compiled before stops compiling.
 
 ## 0.7.1 - 2026-11-09
 

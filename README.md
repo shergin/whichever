@@ -468,7 +468,10 @@ the return type widens, so `#[dispatch(Controller, Spawn, value, with =
 Some)]` on `fn as_owned(&self) -> Option<&dyn Owned> { None }` is
 `Some(inner)` for the named variants. A target reached through a route is
 borrowed as the return type asks, as a field is, so `via = .name, value`
-is `field = name` spelled out. `via = route` reaches the target
+is `field = name` spelled out. Under `with = Some` or `with = Ok` the
+borrow is read inside the `Option` or the `Result`, so `-> Option<&T>`
+gives `Some(&inner.name)`; any other lift is handed the place by value.
+`via = route` reaches the target
 for this method alone, over the variant's own route. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where

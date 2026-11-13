@@ -6,7 +6,7 @@ use quote::quote_spanned;
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
-    Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
+    Result, ReturnType, Signature, Token, Type, TypeParamBound, TypePath,
 };
 
 use crate::options::TraitSpec;
@@ -371,6 +371,39 @@ fn classify(
         return Err(self_limit(whole, site));
     }
     Ok(Conversion::Keep)
+}
+
+/// Returns how an arm that is a place, the target itself or a field of it,
+/// is borrowed: `None` by value, `Some(None)` by `&` and `Some(Some(_))` by
+/// `&mut`. The declared return type says: a reference borrows the place.
+/// Under `with = Some` or `with = Ok` the place is what the constructor is
+/// handed, whose type is the return type's first type argument, read the
+/// way the `Self` under an `Option` is, so `-> Option<&T>` borrows the
+/// place for `Some`. The two are recognised by the name the lift's path
+/// ends in, like `Option` and `Result` in a return type. Any other lift
+/// keeps the place by value: a function's parameter cannot be read off the
+/// return type, and a lift through a trait, `Option::from` or `Into::into`,
+/// takes a field that is itself a reference as it is and would refuse a
+/// reference to it.
+pub(crate) fn place_borrow(
+    output: &ReturnType,
+    lift: Option<&Path>,
+) -> Option<Option<Token![mut]>> {
+    let ReturnType::Type(_, ty) = output else {
+        return None;
+    };
+    let reference = |ty: &Type| match ty {
+        Type::Reference(reference) => Some(reference.mutability),
+        _ => None,
+    };
+    reference(ty).or_else(|| {
+        let constructor = lift?.segments.last()?;
+        if constructor.ident != "Some" && constructor.ident != "Ok" {
+            return None;
+        }
+        let first = generic_type_args(last_segment(ty)?).into_iter().next()?;
+        reference(first)
+    })
 }
 
 /// The sentence for a `Self` the arms cannot wrap back into the subject. A
@@ -842,6 +875,95 @@ mod tests {
             .to_string();
         assert!(!error.contains("#[dispatch(default)]"), "{error}");
         assert!(!error.contains("impl Source for Kind"), "{error}");
+    }
+
+    /// The borrow a place takes under `lift`, spelled `"by value"`, `"&"` or
+    /// `"&mut"`.
+    fn borrow(output: ReturnType, lift: Option<&Path>) -> &'static str {
+        match place_borrow(&output, lift) {
+            None => "by value",
+            Some(None) => "&",
+            Some(Some(_)) => "&mut",
+        }
+    }
+
+    /// The lifts that read the return type's first argument: `Some` and
+    /// `Ok`, however their path is spelled.
+    fn constructors() -> [Path; 4] {
+        [
+            parse_quote!(Some),
+            parse_quote!(Ok),
+            parse_quote!(Option::Some),
+            parse_quote!(::core::result::Result::Ok),
+        ]
+    }
+
+    /// Lifts that do not: a trait's function, a tuple struct's constructor
+    /// and the variant for the other side.
+    fn other_lifts() -> [Path; 4] {
+        [
+            parse_quote!(Option::from),
+            parse_quote!(Into::into),
+            parse_quote!(Wrapper),
+            parse_quote!(Err),
+        ]
+    }
+
+    /// No lift, then every lift above.
+    fn every_lift() -> Vec<Option<Path>> {
+        let lifts = constructors().into_iter().chain(other_lifts());
+        core::iter::once(None).chain(lifts.map(Some)).collect()
+    }
+
+    #[test]
+    fn a_reference_return_borrows_the_place_under_any_lift_or_none() {
+        for lift in every_lift() {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(parse_quote!(-> &T), lift), "&");
+            assert_eq!(borrow(parse_quote!(-> &'a T), lift), "&");
+            assert_eq!(borrow(parse_quote!(-> &mut T), lift), "&mut");
+        }
+    }
+
+    #[test]
+    fn a_reference_as_the_first_argument_borrows_under_some_or_ok() {
+        for lift in constructors() {
+            let lift = Some(&lift);
+            assert_eq!(borrow(parse_quote!(-> Option<&T>), lift), "&");
+            assert_eq!(borrow(parse_quote!(-> Option<&mut T>), lift), "&mut");
+            assert_eq!(
+                borrow(parse_quote!(-> ::core::option::Option<&dyn Named>), lift),
+                "&"
+            );
+            assert_eq!(borrow(parse_quote!(-> Result<&T, E>), lift), "&");
+        }
+    }
+
+    #[test]
+    fn any_other_lift_or_none_keeps_the_place_by_value() {
+        let lifts = other_lifts().map(Some);
+        for lift in core::iter::once(None).chain(lifts) {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(parse_quote!(-> Option<&T>), lift), "by value");
+            assert_eq!(borrow(parse_quote!(-> Option<&mut T>), lift), "by value");
+            assert_eq!(borrow(parse_quote!(-> Result<&T, E>), lift), "by value");
+            assert_eq!(borrow(parse_quote!(-> Wrapper<&T>), lift), "by value");
+        }
+    }
+
+    #[test]
+    fn a_return_with_no_reference_in_place_takes_the_place_by_value() {
+        for lift in every_lift() {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(parse_quote!(-> T), lift), "by value");
+            assert_eq!(borrow(parse_quote!(-> Option<T>), lift), "by value");
+            assert_eq!(
+                borrow(parse_quote!(-> Result<T, &E>), lift),
+                "by value",
+                "only the first argument is what the lift is handed"
+            );
+            assert_eq!(borrow(ReturnType::Default, lift), "by value");
+        }
     }
 
     #[test]
