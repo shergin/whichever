@@ -135,6 +135,7 @@ struct MethodPlan {              // read off the signature once
     turbofish: Option<TokenStream>,     // the generics a call spells out when inference could not
     return_model: ReturnModel,
     future: bool, awaited: bool, unsafety: bool,
+    by_place: bool,              // `match *self` with `ref` bindings, over an enum that may be empty
 }
 
 struct ArmContext<'a> {          // what every arm of one method shares
@@ -148,7 +149,7 @@ struct ArmContext<'a> {          // what every arm of one method shares
 struct Arm { cfgs: Vec<Attribute>, pattern: TokenStream, value: TokenStream }
 
 struct Forwarding {
-    scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, or a tuple with the Self arguments
+    scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, one of them behind `*`, or a tuple with the Self arguments
     arms: Vec<Arm>,              // one per selected target, plus the unforwardable ones
     fallback: Option<Arm>,       // the mismatch arm, or the inherent fallback body
     future: bool,                // wrap in `async move { .. }`
@@ -158,6 +159,13 @@ struct Forwarding {
 Both entry points do the same three things: read the signature into a
 `MethodPlan`, build an `Arm` per selected target with `MethodPlan::arm`
 and the shared `ArmContext`, and hand the `Forwarding` to the one renderer.
+Between the first two, `MethodPlan::over` reads the entries the `match` is
+over: where every one is under `#[cfg]`, so that some build may leave none,
+and the receiver is a reference with no `Self` argument beside it,
+`by_place` makes the `match` look at the subject itself, `match *self`
+with `ref` or `ref mut` bindings, which a reference to an empty enum needs
+to be exhaustive; every other method keeps `match self` with default
+binding modes.
 What differs between a trait method and an inherent method becomes data:
 the `Callee`, which also tells the two paths apart and so supplies the way
 out each error message offers, which targets are selected, the fallback,
@@ -659,7 +667,12 @@ an inherent method's place through `with = Some` and `with = Ok`, from
 the return type's first type argument, and any other lift keeps the place
 by value; it has unit tests of its own. Golden `place_under_a_lift` is
 new; the behaviour test `routes` is extended; no other golden or snapshot
-changed.
+changed. `MethodPlan::over` matches an enum whose every variant is under
+`#[cfg]` by place where the receiver is a reference, so a build that
+leaves no variant is exhaustive, and every other enum expands as before.
+Golden `every_variant_under_cfg` and the behaviour test
+`enums_with_every_variant_under_cfg` are new; no other golden or snapshot
+changed (`docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md`).
 
 ## 5. Invariants every stage keeps
 

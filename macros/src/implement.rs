@@ -1238,7 +1238,8 @@ fn forward_trait_method(
             default: has_default.then_some((&method, block_header)),
         },
         resolution,
-    )?;
+    )?
+    .over(entries);
     // A block method selects its variants and gives the body for the rest;
     // the trait's attribute forwards to every variant.
     let selection = match forwarded {

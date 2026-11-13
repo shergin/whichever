@@ -33,3 +33,4 @@ the planning notes, the note holds the long form and the record names it.
 - [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)
 - [The subject can be restated](the-subject-can-be-restated.md)
 - [A boxed future is rewrapped by boxing](a-boxed-future-is-rewrapped-by-boxing.md)
+- [An enum that may be empty is matched by place](an-enum-that-may-be-empty-is-matched-by-place.md)

@@ -241,7 +241,12 @@ impl Target {
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
     /// which is the subject's name or `Self`; the pattern's own tokens
     /// carry `site`.
-    pub(crate) fn pattern(&self, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
+    pub(crate) fn pattern(
+        &self,
+        prefix: &Path,
+        binding: &impl ToTokens,
+        site: Span,
+    ) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
             Place::Variant { field: None, .. } => {

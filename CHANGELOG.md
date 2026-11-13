@@ -92,6 +92,19 @@ one from pingora-core 0.9.1.
   a function or `Option::from` or `Into::into`, is handed the place by
   value as before, so a field that is itself a reference still passes
   through as it is. Nothing that compiled before stops compiling.
+- Before, every `&self` and `&mut self` method of an enum whose variants
+  are all under `#[cfg]` was rustc's E0004, `type &AnyShape is non-empty`,
+  in a build that compiles none of them, as martin-core's `BackendSource`
+  does under its `_tiles` feature alone: a reference always counts as
+  inhabited, so `match self {}` is not exhaustive. Over such an enum a
+  reference receiver's `match` now looks at the enum itself and the arms
+  borrow the payload, `match *self { AnyShape::Circle(ref __inner) => ..
+  }`, with `ref mut` for an exclusive receiver and `*Pin::get_mut(self)`
+  for a pinned one, which is what a hand writes and is exhaustive with no
+  arm left. An enum with a variant that is always compiled in expands
+  exactly as before, and so do by-value and `Box<Self>` receivers and a
+  method with a `Self` argument. The decision record says why the two
+  spellings stand side by side.
 
 ## 0.7.1 - 2026-11-09
 

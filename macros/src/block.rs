@@ -234,7 +234,8 @@ pub(crate) fn forward_method(
             default: None,
         },
         None,
-    )?;
+    )?
+    .over(entries);
     let selection = select_targets(&forwarding, entries, &context.prefix, method, subject)?;
     check_body(&selection, body, sig, noun)?;
     let mut arms = selection

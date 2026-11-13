@@ -24,7 +24,7 @@ use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
     ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
 };
-use crate::subject::{Target, Unforwardable};
+use crate::subject::{Entry, Target, Unforwardable};
 
 /// Returns an identifier with `macro_rules`-style hygiene, which can never
 /// collide with one the user wrote.
@@ -125,6 +125,9 @@ pub(crate) struct MethodPlan {
     /// Whether the method's `where` clause requires `Self: Sized`, which a
     /// trait object payload cannot satisfy.
     requires_sized: bool,
+    /// Whether the `match` looks at the subject itself where the receiver
+    /// is a reference, `match *self` with `ref` bindings.
+    by_place: bool,
 }
 
 impl MethodPlan {
@@ -213,7 +216,29 @@ impl MethodPlan {
             awaited,
             unsafety: signature.unsafety.is_some(),
             requires_sized: requires_sized(signature),
+            by_place: false,
         })
+    }
+
+    /// Says which entries the `match` is over. An enum whose every variant
+    /// is under `#[cfg]` holds no variant at all in some build, and a
+    /// reference to it still counts as inhabited there, so `match self {}`
+    /// is not exhaustive while `match *self {}` is. A hand writes the
+    /// second over such an enum, `match *self { Variant(ref inner) => .. }`,
+    /// and so does the engine, for a reference receiver. A `Self` argument
+    /// is matched beside the receiver in a tuple, which has the fallback
+    /// arm in every build and stays as it is.
+    pub(crate) fn over(mut self, entries: &[Entry]) -> Self {
+        let by_reference = matches!(
+            self.receiver,
+            ReceiverKind::Value(Access::Shared | Access::Exclusive) | ReceiverKind::Pinned(_)
+        );
+        let always_present = entries.iter().any(|entry| match entry {
+            Entry::Target(target) => target.cfgs.is_empty(),
+            Entry::Unforwardable(unforwardable) => unforwardable.cfgs.is_empty(),
+        });
+        self.by_place = by_reference && self.same_variant.is_empty() && !always_present;
+        self
     }
 
     /// Returns whether a `Self` argument takes part in the `match`, so that
@@ -232,6 +257,9 @@ impl MethodPlan {
     /// same-variant arguments beside it in a tuple.
     pub(crate) fn scrutinee(&self, site: Span) -> TokenStream2 {
         let receiver = receiver_scrutinee(self.receiver, &self.self_token, site);
+        if self.by_place {
+            return quote_spanned! { site => *#receiver };
+        }
         if self.same_variant.is_empty() {
             return receiver;
         }
@@ -247,8 +275,23 @@ impl MethodPlan {
     }
 
     /// Returns the pattern binding `target`'s payload to `binding`, with the
-    /// same-variant arguments' payloads bound beside it.
+    /// same-variant arguments' payloads bound beside it. Where the `match`
+    /// looks at the subject itself, the binding borrows the payload as the
+    /// receiver borrows the subject, so it is the reference it is anywhere
+    /// else.
     fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
+        if self.by_place {
+            let exclusive = matches!(
+                self.receiver,
+                ReceiverKind::Value(Access::Exclusive) | ReceiverKind::Pinned(Access::Exclusive)
+            );
+            let borrowed = if exclusive {
+                quote_spanned! { site => ref mut #binding }
+            } else {
+                quote_spanned! { site => ref #binding }
+            };
+            return target.pattern(prefix, &borrowed, site);
+        }
         let own = target.pattern(prefix, binding, site);
         if self.same_variant.is_empty() {
             return own;

@@ -21,6 +21,7 @@ mod dereferenced_payloads;
 mod double_ended_and_exact_size_iterators;
 mod enum_side_mismatch_names_the_arguments;
 mod enums_inside_functions;
+mod enums_with_every_variant_under_cfg;
 mod explicit_receivers;
 mod foreign_traits;
 mod from_impls;
