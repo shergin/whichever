@@ -304,12 +304,14 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
     };
     let macro_path = carrier_path(&self_type.path);
     let facade = facade_ident()?;
-    match &item_impl.trait_ {
-        Some((Some(bang), _, _)) => Err(Error::new_spanned(
+    if let Some(bang) = &item_impl.modifiers.polarity {
+        return Err(Error::new_spanned(
             bang,
             "a negative impl has nothing to dispatch",
-        )),
-        Some((None, _, _)) => {
+        ));
+    }
+    match &item_impl.trait_ {
+        Some(_) => {
             // The trait's options; the trait itself is the one the block
             // implements.
             let spec: TraitSpec = syn::parse2(attr)?;

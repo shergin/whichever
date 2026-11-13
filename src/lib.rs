@@ -733,7 +733,9 @@
 //! reported.
 //!
 //! The crate is `no_std`: the generated code names only `core` items. The
-//! minimum supported Rust version is 1.88.
+//! minimum supported Rust version is 1.88. The macros parse with `syn` 3,
+//! and without the default feature `renamed-dependency` they build
+//! `proc-macro2`, `quote` and `syn` alone.
 #![no_std]
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

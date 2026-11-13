@@ -34,3 +34,4 @@ the planning notes, the note holds the long form and the record names it.
 - [The subject can be restated](the-subject-can-be-restated.md)
 - [A boxed future is rewrapped by boxing](a-boxed-future-is-rewrapped-by-boxing.md)
 - [An enum that may be empty is matched by place](an-enum-that-may-be-empty-is-matched-by-place.md)
+- [The macro crate parses with `syn` 3](the-macro-crate-parses-with-syn-3.md)

@@ -37,7 +37,7 @@ pub(crate) fn expand_partial(
     if rejected {
         return Ok(item_impl.to_token_stream());
     }
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
     let trait_name = trait_key(trait_path);

@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote_spanned;
+use quote::{quote_spanned, ToTokens};
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
@@ -96,9 +96,9 @@ impl Conversion {
 
 pub(crate) fn single_segment(ty: &Type) -> Option<&PathSegment> {
     match ty {
-        Type::Path(TypePath { qself: None, path }) if path.segments.len() == 1 => {
-            Some(&path.segments[0])
-        }
+        Type::Path(TypePath {
+            qself: None, path, ..
+        }) if path.segments.len() == 1 => Some(&path.segments[0]),
         _ => None,
     }
 }
@@ -110,9 +110,9 @@ pub(crate) fn is_self(ty: &Type) -> bool {
 /// Returns the name of the associated type in a `Self::Name` type.
 pub(crate) fn self_assoc(ty: &Type) -> Option<&Ident> {
     match ty {
-        Type::Path(TypePath { qself: None, path })
-            if path.segments.len() == 2 && path.segments[0].ident == "Self" =>
-        {
+        Type::Path(TypePath {
+            qself: None, path, ..
+        }) if path.segments.len() == 2 && path.segments[0].ident == "Self" => {
             Some(&path.segments[1].ident)
         }
         _ => None,
@@ -138,7 +138,9 @@ pub(crate) fn generic_type_args(segment: &PathSegment) -> Vec<&Type> {
 /// are all seen by the name they end in.
 pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
     match ty {
-        Type::Path(TypePath { qself: None, path }) => path.segments.last(),
+        Type::Path(TypePath {
+            qself: None, path, ..
+        }) => path.segments.last(),
         _ => None,
     }
 }
@@ -506,35 +508,57 @@ pub(crate) fn reference_access(reference: &syn::TypeReference) -> Access {
     }
 }
 
-/// Classifies a receiver by its type; any other type is an error.
+/// Classifies a receiver: the shorthands by their spelling, and a receiver
+/// with a type by that type; any other type is an error.
 pub(crate) fn classify_receiver(receiver: &Receiver) -> Result<ReceiverKind> {
-    let ty = &*receiver.ty;
+    let unsupported: &dyn ToTokens = match &receiver.kind {
+        syn::ReceiverKind::Value => return Ok(ReceiverKind::Value(Access::Owned)),
+        syn::ReceiverKind::Reference(_, _, None) => {
+            return Ok(ReceiverKind::Value(Access::Shared));
+        }
+        syn::ReceiverKind::Reference(_, _, Some(_)) => {
+            return Ok(ReceiverKind::Value(Access::Exclusive));
+        }
+        syn::ReceiverKind::Typed(_, ty) => match typed_receiver(ty) {
+            Some(kind) => return Ok(kind),
+            None => &**ty,
+        },
+        // `syn` leaves room for shorthands the language may gain.
+        _ => receiver,
+    };
+    Err(Error::new_spanned(
+        unsupported,
+        "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
+    ))
+}
+
+/// Classifies a receiver written with a type, `self: Box<Self>`, by that
+/// type; nothing for a type no arm can be written for.
+fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
     if is_self(ty) {
-        return Ok(ReceiverKind::Value(Access::Owned));
+        return Some(ReceiverKind::Value(Access::Owned));
     }
     if let Type::Reference(reference) = ty {
         if is_self(&reference.elem) {
-            return Ok(ReceiverKind::Value(reference_access(reference)));
+            return Some(ReceiverKind::Value(reference_access(reference)));
         }
     }
-    if let Some(segment) = last_segment(ty) {
-        if let [argument] = generic_type_args(segment).as_slice() {
-            if segment.ident == "Box" && is_self(argument) {
-                return Ok(ReceiverKind::Boxed);
-            }
-            if segment.ident == "Pin" {
-                if let Type::Reference(reference) = argument {
-                    if is_self(&reference.elem) {
-                        return Ok(ReceiverKind::Pinned(reference_access(reference)));
-                    }
-                }
+    let segment = last_segment(ty)?;
+    let arguments = generic_type_args(segment);
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    if segment.ident == "Box" && is_self(argument) {
+        return Some(ReceiverKind::Boxed);
+    }
+    if segment.ident == "Pin" {
+        if let Type::Reference(reference) = argument {
+            if is_self(&reference.elem) {
+                return Some(ReceiverKind::Pinned(reference_access(reference)));
             }
         }
     }
-    Err(Error::new_spanned(
-        ty,
-        "this receiver type is not supported; a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`",
-    ))
+    None
 }
 
 /// Returns the generic arguments a call of the method has to spell out:
@@ -716,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn receivers_are_classified_by_their_type() {
+    fn receivers_are_classified_by_their_spelling_or_type() {
         let receiver = |receiver: Receiver| classify_receiver(&receiver);
         assert!(matches!(
             receiver(parse_quote!(&self)),
@@ -731,7 +755,39 @@ mod tests {
             Ok(ReceiverKind::Value(Access::Owned))
         ));
         assert!(matches!(
+            receiver(parse_quote!(mut self)),
+            Ok(ReceiverKind::Value(Access::Owned))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(&'a self)),
+            Ok(ReceiverKind::Value(Access::Shared))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(&'a mut self)),
+            Ok(ReceiverKind::Value(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: Self)),
+            Ok(ReceiverKind::Value(Access::Owned))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: &Self)),
+            Ok(ReceiverKind::Value(Access::Shared))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: &mut Self)),
+            Ok(ReceiverKind::Value(Access::Exclusive))
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(self: &'a mut Self)),
+            Ok(ReceiverKind::Value(Access::Exclusive))
+        ));
+        assert!(matches!(
             receiver(parse_quote!(self: Box<Self>)),
+            Ok(ReceiverKind::Boxed)
+        ));
+        assert!(matches!(
+            receiver(parse_quote!(mut self: Box<Self>)),
             Ok(ReceiverKind::Boxed)
         ));
         assert!(matches!(
@@ -743,6 +799,8 @@ mod tests {
             Ok(ReceiverKind::Pinned(Access::Shared))
         ));
         assert!(receiver(parse_quote!(self: Rc<Self>)).is_err());
+        assert!(receiver(parse_quote!(self: Arc<Self>)).is_err());
+        assert!(receiver(parse_quote!(self: &Rc<Self>)).is_err());
     }
 
     #[test]

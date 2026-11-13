@@ -708,6 +708,9 @@ changed (`docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md`).
 - Settled on 2026-11-05: `proc-macro-crate` sits behind the default
   feature `renamed-dependency`; without it the facade is `whichever` and
   the macro crate's tree is `proc-macro2`, `quote` and `syn`.
+- Settled on 2026-11-12: the `syn` is `syn` 3, with `full`, `visit` and
+  `visit-mut`, and no expansion changed with it
+  ([the record](../docs/decisions/the-macro-crate-parses-with-syn-3.md)).
 - An enum with two partial impl blocks, or a dispatched trait and a partial
   block, reports an unforwardable variant once per block. Nothing stateless
   can tell the blocks apart; the duplicate is left.

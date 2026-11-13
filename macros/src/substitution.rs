@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use quote::ToTokens;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Error, Expr, GenericArgument, GenericParam, Generics, Ident, ItemTrait, Lifetime, Path,
-    PathArguments, PathSegment, QSelf, Result, Type, TypeParamBound, TypePath,
+    ConstParam, Error, Expr, GenericArgument, GenericParam, Generics, Ident, ItemTrait, Lifetime,
+    Path, PathArguments, PathSegment, QSelf, Result, Type, TypeParam, TypeParamBound, TypePath,
 };
 
 use crate::combined;
@@ -60,14 +60,14 @@ impl Substitution {
         // parameters have one.
         for param in params.iter().skip(args.len()) {
             match param {
-                GenericParam::Type(param) if param.default.is_some() => {
-                    let default = param.default.clone().expect("checked above");
-                    args.push(GenericArgument::Type(default));
-                }
-                GenericParam::Const(param) if param.default.is_some() => {
-                    let default = param.default.clone().expect("checked above");
-                    args.push(GenericArgument::Const(default));
-                }
+                GenericParam::Type(TypeParam {
+                    default: Some((_, default)),
+                    ..
+                }) => args.push(GenericArgument::Type(default.clone())),
+                GenericParam::Const(ConstParam {
+                    default: Some((_, default)),
+                    ..
+                }) => args.push(GenericArgument::Const(default.clone())),
                 _ => break,
             }
         }
@@ -99,7 +99,10 @@ impl Substitution {
     /// header names them otherwise than the subject declares them, which
     /// rustc reports on the header.
     pub(crate) fn of_subject(generics: &Generics, self_ty: &Type) -> Option<Self> {
-        let Type::Path(TypePath { qself: None, path }) = self_ty else {
+        let Type::Path(TypePath {
+            qself: None, path, ..
+        }) = self_ty
+        else {
             return None;
         };
         let PathArguments::AngleBracketed(arguments) = &path.segments.last()?.arguments else {
@@ -201,6 +204,7 @@ impl Substitution {
             let position = path.segments.len();
             path.segments.extend(rest);
             *type_path = TypePath {
+                attrs: std::mem::take(&mut type_path.attrs),
                 qself: Some(QSelf {
                     lt_token: Default::default(),
                     ty: Box::new(replacement.clone()),

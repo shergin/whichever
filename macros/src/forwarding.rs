@@ -60,7 +60,7 @@ fn requires_sized(signature: &Signature) -> bool {
         is_self(&predicate.bounded_ty)
             && predicate.bounds.iter().any(|bound| match bound {
                 syn::TypeParamBound::Trait(bound) => {
-                    matches!(bound.modifier, syn::TraitBoundModifier::None)
+                    bound.maybe.is_none()
                         && bound
                             .path
                             .segments
@@ -214,7 +214,7 @@ impl MethodPlan {
             return_model,
             future,
             awaited,
-            unsafety: signature.unsafety.is_some(),
+            unsafety: matches!(signature.safety, syn::Safety::Unsafe(_)),
             requires_sized: requires_sized(signature),
             by_place: false,
         })

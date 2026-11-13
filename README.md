@@ -895,7 +895,9 @@ supported Rust version is 1.88. Both the crate that owns the trait and the
 crate that owns the enum depend on `whichever`; renaming the dependency is
 fine under the default feature `renamed-dependency`, which looks the name
 up through `proc-macro-crate`, and without it the macro crate's dependency
-tree is `proc-macro2`, `quote` and `syn` alone. A crate that
+tree is `proc-macro2`, `quote` and `syn` alone. The `syn` is `syn` 3, the
+one `serde_derive` and `thiserror` build, so a tree that has moved to it
+gains no second `syn`. A crate that
 `proc-macro-crate` itself depends on, such as toml_edit, takes `whichever`
 with `default-features = false`, since with the feature on it would depend
 on itself through `proc-macro-crate`, which Cargo rejects.

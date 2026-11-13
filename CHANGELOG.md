@@ -5,6 +5,15 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The macro crate parses with `syn` 3, where it used `syn` 2. coreutils,
+  purecrypto, toasty and lofty build `syn` 3 only, as `serde_derive` and
+  `thiserror` 2 do, and `whichever` would have put `syn` 2 back into those
+  builds; coreutils' `deny.toml` denies the duplicate. No expansion and no
+  sentence changed: the 32 expansion goldens and the 120 `tests/ui`
+  snapshots are the ones 0.7.2 had. The minimum supported Rust version
+  stays 1.88. A tree still wholly on `syn` 2 gains `syn` 3 instead; the
+  decision record weighs the two.
+
 ## 0.7.2 - 2026-11-12
 
 What the search of 2026-11-12 over about 200 crates found. darling_core
