@@ -1,0 +1,5 @@
+error: `price` has no default body in `Priced` to be left to; give it a body, or forward it
+  --> tests/ui/block_default_without_a_default_under_cfg.rs:25:5
+   |
+25 |     #[dispatch(default)]
+   |     ^

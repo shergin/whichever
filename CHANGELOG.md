@@ -24,6 +24,10 @@ buffer it writes. toml_edit 0.25's `Value` forwards `decor`, `span` and
 default feature, which reaches back to toml_edit through
 `proc-macro-crate`.
 
+Three fixes follow the additions, from the surveys of 2026-11-12 of the
+four projects that search ranked highest: two from martin-core 0.17.0 and
+one from pingora-core 0.9.1.
+
 - `whichever::foreign` ships `DoubleEndedIterator`, which implements
   `core::iter::DoubleEndedIterator` and forwards `next_back`, `nth_back`,
   `rfold` and `rfind`, and `ExactSizeIterator`, which implements
@@ -62,6 +66,20 @@ default feature, which reaches back to toml_edit through
   own dependency tree takes `whichever` with `default-features = false`,
   since with the default feature it would depend on itself, a cycle Cargo
   rejects. toml_edit 0.25's `Value` raised it. No code changed.
+- Before, a method a partial impl block marks with `#[dispatch(..)]` under
+  `#[cfg]` did not follow the `cfg`, and silently, with a wrong answer and
+  no error. `#[cfg(feature = "x")] #[dispatch(default)] fn name(&self) ->
+  &'static str;` left `name` to the trait's default in every build, so
+  with the feature off a payload's override was never called; a forwarded
+  mark under `#[cfg]` wrote nothing for its method where the `cfg` did not
+  hold, so a provided method took the trait's default there; and of two
+  marks of one name under opposite `cfg`s the second replaced the first,
+  so where only the first one's held nothing was written. A mark under
+  `#[cfg]` now holds where the `cfg` does, as a method the block writes
+  does, and the other builds go to a mark of the same name without a
+  `#[cfg]`, or else to every variant. A required method marked
+  `#[dispatch(default)]` under a `cfg` keeps its sentence where the `cfg`
+  holds and is forwarded where it does not.
 
 ## 0.7.1 - 2026-11-09
 

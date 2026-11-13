@@ -177,12 +177,16 @@ and are generated; an inherent method's are the user's, and are kept. The
 one difference that is not deliberate, the trait path renaming parameters
 that could keep their names, goes in stage 6.
 
-Above the engine, `implement.rs` plans before it writes: `ItemPlan` says
-what each trait item becomes, skipped, rejected with its sentence as its
-body, an associated type or const from the override or the first variant,
-a method forwarded as the block's attribute names under the complement of
-the block's `cfg`, or a limit, and `ItemWriter` renders the plan while
-keeping what the agreement checks and the shape errors need afterwards.
+Above the engine, `implement.rs` plans before it writes: an item of the
+trait has zero or more `ItemPlan`s, none when the block writes it in every
+build or leaves it to the trait's default, and one per way it is written
+when the block writes or marks a method under `#[cfg]`. A plan is a method
+rejected with its sentence as its body, an associated type or const from
+the override or the first variant, a method forwarded to every variant or
+as a mark names, or a limit; the plain forwarding, or a mark without a
+`#[cfg]`, takes the builds the block's conditional items leave, under the
+complement of their `cfg`s. `ItemWriter` renders the plans while keeping
+what the agreement checks and the shape errors need afterwards.
 `forward_trait_method` asks `fallback_for` for the arm the targets' arms
 leave and whether the lint about an unreachable pattern is allowed, and
 `check_trait_objects` for the one shape a target refuses. The routes a
@@ -636,6 +640,19 @@ snapshot or golden changed; the behaviour test
 `double_ended_and_exact_size_iterators` is new). The behaviour test
 `pinned_writers_with_provided_methods` is new and pins what a restatement
 forwards, with and without its provided methods.
+
+### Stage 18: the top-four surveys' bugs
+
+Status: landed on 2026-11-12. A mark in a partial block under `#[cfg]` is
+planned as a method the block writes under one: `ItemWriter::plans` gives
+it the builds its `cfg` holds in and the plain forwarding, or a mark
+without a `#[cfg]`, the builds the block's conditional items leave, so
+`#[dispatch(default)]` under a `cfg` is no longer the default in every
+build and a second mark of one name no longer replaces the first. Golden
+`conditional_partial_mark` and compile-fail case
+`block_default_without_a_default_under_cfg` are new; no other golden or
+snapshot changed; the behaviour test `conditional_methods_in_a_partial_block`
+is extended, a struct's block included.
 
 ## 5. Invariants every stage keeps
 

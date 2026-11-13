@@ -548,8 +548,11 @@
 //! its body is then the arm for every other variant, a unit variant or two
 //! different variants of a `Self` argument included; `#[dispatch(default)]`
 //! on a bodiless method leaves it to the trait's default, which over a
-//! restatement is the real trait's. The
-//! block's own header, bounds included, becomes the impl's,
+//! restatement is the real trait's. A mark under `#[cfg]`, that one
+//! included, holds where the `cfg` does, as a written method does, and the
+//! other builds go to a mark of the same name without a `#[cfg]`, or else
+//! to every variant. The block's own header, bounds included, becomes the
+//! impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
 //! so a block in another module needs them in scope there; the converse

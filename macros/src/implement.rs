@@ -321,22 +321,27 @@ fn unknown_names(
     errors
 }
 
-/// What one item of the trait becomes in the impl, decided before anything
-/// is written.
+/// One thing an item of the trait becomes in the impl, decided before
+/// anything is written. An item the partial block writes in every build,
+/// or leaves to the trait's default, has no plan; a method the block
+/// writes or marks under `#[cfg]` has one per way it is written.
 enum ItemPlan<'a> {
-    /// The partial block writes it in every build, or leaves it to the
-    /// trait's default: nothing to write.
-    Skip,
     /// A method marked `#[dispatch(default)]` on a trait that gives it no
-    /// default: written with the sentence as its body.
-    Rejected(&'a TraitItemFn, Error),
+    /// default: written with the sentence as its body, under the `#[cfg]`
+    /// of the builds the mark is for.
+    Rejected {
+        function: &'a TraitItemFn,
+        error: Error,
+        builds: Option<TokenStream2>,
+    },
     /// An associated type, from the override or the first variant.
     Type(&'a TraitItemType),
     /// An associated const, from the override or the first variant.
     Const(&'a TraitItemConst),
     /// A method, forwarded to every variant or as the block's attribute
     /// names, under the complement of the block's `cfg` when the block
-    /// writes it in some builds.
+    /// writes or marks it in some builds only. A marked method under its
+    /// own `#[cfg]` carries that attribute itself.
     Method {
         function: &'a TraitItemFn,
         forwarded: Option<&'a Forwarded>,
@@ -355,7 +360,7 @@ struct ItemWriter<'a> {
     /// The items the partial block writes, by name, and in which builds.
     written: &'a HashMap<String, Written>,
     /// The methods the partial block marks with `#[dispatch(..)]`, by name.
-    methods: &'a HashMap<String, BlockMethod>,
+    methods: &'a HashMap<String, Vec<BlockMethod>>,
     trait_ident: &'a Ident,
     /// Whether the trait is a restatement, whose provided methods it cannot
     /// see.
@@ -387,42 +392,47 @@ impl<'a> ItemWriter<'a> {
             TraitItem::Const(constant) => self.deprecated_items |= is_deprecated(&constant.attrs),
             _ => {}
         }
-        let generated = match self.plan(item) {
-            ItemPlan::Skip => Ok(TokenStream2::new()),
-            ItemPlan::Rejected(function, error) => {
-                rejected_method(function, &mut self.substitution, error)
+        for plan in self.plans(item) {
+            let site = self.site;
+            let generated = match plan {
+                ItemPlan::Rejected {
+                    function,
+                    error,
+                    builds,
+                } => rejected_method(function, &mut self.substitution, error)
+                    .map(|rejected| quote_spanned! { site => #builds #rejected }),
+                ItemPlan::Type(assoc) => associated_type(
+                    assoc,
+                    self.context.spec,
+                    self.supplier,
+                    self.context.block_header,
+                    &mut self.agreed_types,
+                    self.site,
+                ),
+                ItemPlan::Const(constant) => associated_const(
+                    constant,
+                    self.context.spec,
+                    self.supplier,
+                    &mut self.substitution,
+                    &mut self.agreed_consts,
+                    self.site,
+                ),
+                ItemPlan::Method {
+                    function,
+                    forwarded,
+                    complement,
+                } => {
+                    self.plain_forwarding |=
+                        forwarded.is_none() && function.sig.receiver().is_some();
+                    expand_method(function, &self.context, &mut self.substitution, forwarded)
+                        .map(|forwarded| quote_spanned! { site => #complement #forwarded })
+                }
+                ItemPlan::Limit(error) => Err(error),
+            };
+            match generated {
+                Ok(tokens) => self.items.extend(tokens),
+                Err(error) => self.errors.push(error),
             }
-            ItemPlan::Type(assoc) => associated_type(
-                assoc,
-                self.context.spec,
-                self.supplier,
-                self.context.block_header,
-                &mut self.agreed_types,
-                self.site,
-            ),
-            ItemPlan::Const(constant) => associated_const(
-                constant,
-                self.context.spec,
-                self.supplier,
-                &mut self.substitution,
-                &mut self.agreed_consts,
-                self.site,
-            ),
-            ItemPlan::Method {
-                function,
-                forwarded,
-                complement,
-            } => {
-                self.plain_forwarding |= forwarded.is_none() && function.sig.receiver().is_some();
-                let site = self.site;
-                expand_method(function, &self.context, &mut self.substitution, forwarded)
-                    .map(|forwarded| quote_spanned! { site => #complement #forwarded })
-            }
-            ItemPlan::Limit(error) => Err(error),
-        };
-        match generated {
-            Ok(tokens) => self.items.extend(tokens),
-            Err(error) => self.errors.push(error),
         }
     }
 
@@ -431,67 +441,105 @@ impl<'a> ItemWriter<'a> {
     /// where its `cfg` holds when it is written under one, in which case
     /// the forwarded item takes the builds where it does not, as a hand
     /// writes the two arms. A method the block marks is forwarded to the
-    /// variants it names around its body, or left to the trait's default.
-    fn plan(&self, item: &'a TraitItem) -> ItemPlan<'a> {
+    /// variants it names around its body, or left to the trait's default,
+    /// and a mark under `#[cfg]` is the block's in the same way: it holds
+    /// where the `cfg` does, and the builds it leaves go to a mark without
+    /// a `#[cfg]`, or to the plain forwarding, so that a payload's override
+    /// of a provided method is never lost to the trait's default.
+    fn plans(&self, item: &'a TraitItem) -> Vec<ItemPlan<'a>> {
         let name = match item {
-            TraitItem::Type(assoc) => Some(&assoc.ident),
-            TraitItem::Const(constant) => Some(&constant.ident),
-            TraitItem::Fn(function) => Some(&function.sig.ident),
+            TraitItem::Type(assoc) => &assoc.ident,
+            TraitItem::Const(constant) => &constant.ident,
+            TraitItem::Fn(function) => &function.sig.ident,
             TraitItem::Macro(item) => {
-                return ItemPlan::Limit(Error::new_spanned(
+                return vec![ItemPlan::Limit(Error::new_spanned(
                     item,
                     "macro invocations inside the trait are not supported",
-                ))
+                ))]
             }
-            _ => return ItemPlan::Skip,
+            _ => return vec![],
         };
-        let written = name.and_then(|name| self.written.get(&name.to_string()));
-        let (complement, written_at) = match written {
-            Some(Written::Always) => return ItemPlan::Skip,
-            Some(Written::Under { conditions, span }) => {
-                (Some(not_all_of(conditions, at(*span))), Some(*span))
-            }
-            None => (None, None),
+        let name = name.to_string();
+        // The builds in which the block writes the item itself.
+        let (mut conditions, mut conditional_at) = match self.written.get(&name) {
+            Some(Written::Always) => return vec![],
+            Some(Written::Under { conditions, span }) => (conditions.clone(), Some(*span)),
+            None => (vec![], None),
         };
-        let block_method = name.and_then(|name| self.methods.get(&name.to_string()));
-        match (item, written_at, block_method) {
-            (TraitItem::Type(assoc), Some(span), _) => ItemPlan::Limit(Error::new(
+        let function = match (item, conditional_at) {
+            (TraitItem::Type(assoc), Some(span)) => return vec![ItemPlan::Limit(Error::new(
                 span,
                 format!("`{}` is declared under `#[cfg]`, and an associated type is declared in every build, since the forwarded methods convert into it; put the whole block under the `cfg`, with a second block for the other builds", assoc.ident),
-            )),
-            (TraitItem::Const(constant), Some(span), _) => ItemPlan::Limit(Error::new(
+            ))],
+            (TraitItem::Const(constant), Some(span)) => return vec![ItemPlan::Limit(Error::new(
                 span,
                 format!("`{}` is given under `#[cfg]`, and an associated const is given in every build; put the whole block under the `cfg`, with a second block for the other builds", constant.ident),
-            )),
-            (TraitItem::Type(assoc), None, _) => ItemPlan::Type(assoc),
-            (TraitItem::Const(constant), None, _) => ItemPlan::Const(constant),
-            (TraitItem::Fn(function), _, Some(BlockMethod::Default(span))) => {
-                let provided = self.restated
-                    || function.default.is_some()
-                    || self.context.provided.contains(&function.sig.ident);
-                if provided {
-                    return ItemPlan::Skip;
-                }
-                // Written with the sentence as its body, as a method that
-                // cannot be forwarded is, so that the impl stays complete.
-                ItemPlan::Rejected(
-                    function,
-                    Error::new(
-                        *span,
-                        format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
-                    ),
-                )
+            ))],
+            (TraitItem::Type(assoc), None) => return vec![ItemPlan::Type(assoc)],
+            (TraitItem::Const(constant), None) => return vec![ItemPlan::Const(constant)],
+            (TraitItem::Fn(function), _) => function,
+            _ => return vec![],
+        };
+        let marked = self
+            .methods
+            .get(&name)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        for method in marked {
+            let cfgs = method.cfgs();
+            if !cfgs.is_empty() {
+                conditional_at.get_or_insert(method.span());
+                conditions.push(cfgs);
             }
-            (TraitItem::Fn(function), _, block_method) => ItemPlan::Method {
-                function,
-                forwarded: match block_method {
-                    Some(BlockMethod::Forwarded(forwarded)) => Some(forwarded),
-                    _ => None,
-                },
-                complement,
-            },
-            _ => ItemPlan::Skip,
         }
+        // The builds the block's conditional items leave.
+        let rest = conditional_at.map(|span| not_all_of(&conditions, at(span)));
+        let site = self.site;
+        let mut plans = vec![];
+        // Whether a mark without a `#[cfg]` takes those builds.
+        let mut taken = false;
+        for method in marked {
+            let cfgs = method.cfgs();
+            taken |= cfgs.is_empty();
+            match method {
+                BlockMethod::Default { span, .. } => {
+                    let provided = self.restated
+                        || function.default.is_some()
+                        || self.context.provided.contains(&function.sig.ident);
+                    if provided {
+                        continue;
+                    }
+                    // Written with the sentence as its body, as a method
+                    // that cannot be forwarded is, so that the impl stays
+                    // complete.
+                    plans.push(ItemPlan::Rejected {
+                        function,
+                        error: Error::new(
+                            *span,
+                            format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
+                        ),
+                        builds: if cfgs.is_empty() {
+                            rest.clone()
+                        } else {
+                            Some(quote_spanned! { site => #(#cfgs)* })
+                        },
+                    });
+                }
+                BlockMethod::Forwarded(forwarded) => plans.push(ItemPlan::Method {
+                    function,
+                    forwarded: Some(forwarded),
+                    complement: if cfgs.is_empty() { rest.clone() } else { None },
+                }),
+            }
+        }
+        if !taken {
+            plans.push(ItemPlan::Method {
+                function,
+                forwarded: None,
+                complement: rest,
+            });
+        }
+        plans
     }
 }
 
@@ -603,8 +651,9 @@ struct ImplHeader<'a> {
     unsafety: Option<Token![unsafe]>,
     /// The items the block writes, by name, and in which builds.
     written: HashMap<String, Written>,
-    /// The methods the block marks with `#[dispatch(..)]`, by name.
-    methods: HashMap<String, BlockMethod>,
+    /// The methods the block marks with `#[dispatch(..)]`, by name; one
+    /// name may be marked once per `#[cfg]`.
+    methods: HashMap<String, Vec<BlockMethod>>,
     user_items: Vec<&'a ImplItem>,
 }
 
@@ -613,11 +662,32 @@ struct ImplHeader<'a> {
 #[allow(clippy::large_enum_variant)]
 enum BlockMethod {
     /// `#[dispatch(default)]`: not forwarded and not written, so the
-    /// trait's default body stands.
-    Default(Span),
+    /// trait's default body stands, in the builds the method's own `#[cfg]`
+    /// attributes name.
+    Default { span: Span, cfgs: Vec<Attribute> },
     /// `#[dispatch(Variant, ..)]` or `#[dispatch(*)]`: forwarded to the
     /// named variants, with the body for the rest.
     Forwarded(Forwarded),
+}
+
+impl BlockMethod {
+    /// Returns the `#[cfg]` attributes the method is written under. Like an
+    /// item the block writes, it is the block's where they hold, and the
+    /// trait's method is forwarded to every variant where they do not.
+    fn cfgs(&self) -> Vec<Attribute> {
+        match self {
+            BlockMethod::Default { cfgs, .. } => cfgs.clone(),
+            BlockMethod::Forwarded(forwarded) => cfg_attributes(&forwarded.attrs),
+        }
+    }
+
+    /// Returns the span a message about the method's builds carries.
+    fn span(&self) -> Span {
+        match self {
+            BlockMethod::Default { span, .. } => *span,
+            BlockMethod::Forwarded(forwarded) => forwarded.sig.ident.span(),
+        }
+    }
 }
 
 /// What a forwarded block method is written from: the user's own
@@ -648,7 +718,10 @@ impl Forwarded {
                         format!("`{}` is left to the trait's default, so it takes no body; end the signature with `;`", sig.ident),
                     ));
                 }
-                return Ok(BlockMethod::Default(attribute.span()));
+                return Ok(BlockMethod::Default {
+                    span: attribute.span(),
+                    cfgs: cfg_attributes(&attrs),
+                });
             }
         }
         let forwarding = one_attribute(&mut attrs, &attribute)?;
@@ -750,7 +823,7 @@ impl<'a> ImplHeader<'a> {
             });
         };
         let mut written: HashMap<String, Written> = HashMap::new();
-        let mut methods: HashMap<String, BlockMethod> = HashMap::new();
+        let mut methods: HashMap<String, Vec<BlockMethod>> = HashMap::new();
         let mut user_items = vec![];
         for item in &block.items {
             let (name, attrs) = match item {
@@ -768,7 +841,10 @@ impl<'a> ImplHeader<'a> {
                         function.sig.clone(),
                         Some(function.block.clone()),
                     )?;
-                    methods.insert(function.sig.ident.to_string(), method);
+                    methods
+                        .entry(function.sig.ident.to_string())
+                        .or_default()
+                        .push(method);
                     continue;
                 }
                 // A method without a body is verbatim to `syn`; it is only
@@ -791,7 +867,10 @@ impl<'a> ImplHeader<'a> {
                     };
                     let attribute = attrs.remove(position);
                     let name = sig.ident.to_string();
-                    methods.insert(name, Forwarded::read(attribute, attrs, sig, None)?);
+                    methods
+                        .entry(name)
+                        .or_default()
+                        .push(Forwarded::read(attribute, attrs, sig, None)?);
                     continue;
                 }
                 ImplItem::Fn(function) => (&function.sig.ident, &function.attrs),
