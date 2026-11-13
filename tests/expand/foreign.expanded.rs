@@ -100,10 +100,10 @@ impl ::core::fmt::Debug for ClientError {
     #[inline]
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         match self {
-            ClientError::Io(__self_0) => {
+            Self::Io(__self_0) => {
                 ::core::fmt::Formatter::debug_tuple_field1_finish(f, "Io", &__self_0)
             }
-            ClientError::Message(__self_0) => {
+            Self::Message(__self_0) => {
                 ::core::fmt::Formatter::debug_tuple_field1_finish(
                     f,
                     "Message",

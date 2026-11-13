@@ -6,5 +6,3 @@ error: this trait's carrier macro was written by an older `whichever` than the o
 ...
 8 | Size! { @v9 facade { ::whichever } enum { pub enum Any { Fixed(Fixed) } } spec { Size } }
   | ----------------------------------------------------------------------------------------- in this macro invocation
-  |
-  = note: this error originates in the macro `Size` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -151,7 +151,6 @@ note: required by a bound in `__WhicheverAgreement::__first_implements`
 20 | #[whichever::dispatch(Storage)]
    |                       ^^^^^^^ required by this bound in `__WhicheverAgreement::__first_implements`
 21 | enum Kind {
-   |      ---- required by a bound in this associated function
    = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Storage` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `Memory: Storage` is not satisfied

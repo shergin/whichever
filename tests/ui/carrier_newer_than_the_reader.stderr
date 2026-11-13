@@ -1,10 +1,10 @@
 error: this trait's carrier macro was written by a newer `whichever` than the one dispatching it; update `whichever` in this crate
   --> tests/ui/carrier_newer_than_the_reader.rs:11:14
    |
+ 8 | macro_rules! __whichever_Size_of_a_later_release {
+...
 11 |             @v9 trait { pub trait Size { fn size(&self) -> usize; } } $($rest)*
    |              ^^
 ...
 27 | #[whichever::dispatch(Size)]
    |                       ---- in this macro invocation
-   |
-   = note: this error originates in the macro `Size` (in Nightly builds, run with -Z macro-backtrace for more info)
