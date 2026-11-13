@@ -17,6 +17,7 @@ mod conversions_by_reference_and_into;
 mod defaults_are_forwarded;
 mod deprecated_items;
 mod dereferenced_payloads;
+mod double_ended_and_exact_size_iterators;
 mod enum_side_mismatch_names_the_arguments;
 mod enums_inside_functions;
 mod explicit_receivers;

@@ -136,8 +136,9 @@ several of them in no other crate of the family:
   fallback for mismatched variants, and `-> Self`, `-> Option<Self>`,
   `-> Result<Self, E>` wrapped back into the variant.
 - **Traits you do not own.** `Display`, `Debug`, `Error`, `PartialEq`,
-  `Iterator`, `Read`, `Write`, `BufRead` and `Seek` ship ready to dispatch;
-  any other trait is restated once.
+  `Iterator`, `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`,
+  `BufRead` and `Seek` ship ready to dispatch; any other trait is restated
+  once.
 - **Some methods by hand, the rest forwarded**: constructors, methods
   without a receiver, or a method the enum answers differently from every
   payload.
@@ -512,9 +513,12 @@ on a restated associated type may be left out. A restatement of an
 `#[async_trait]` trait carries `#[async_trait]` above
 `#[dispatchable(remote = ..)]`, as the trait itself does. The restatements an enum most often needs ship in
 [`whichever::foreign`](https://docs.rs/whichever/latest/whichever/foreign/):
-`Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
-`BufRead` and `Seek`, each forwarding every provided method a `match` can
-forward. `#[dispatch(whichever::foreign::Display)]` on an error enum
+`Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
+`DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead` and
+`Seek`, each forwarding every provided method a `match` can forward. The
+two iterator traits are dispatched beside `Iterator`, one attribute each,
+so that `len`, `rev` and `next_back` are the payload's.
+`#[dispatch(whichever::foreign::Display)]` on an error enum
 replaces the usual hand-written `match`, and the variant that holds a
 `String` keeps `From` away with `#[dispatch(from = false)]`:
 

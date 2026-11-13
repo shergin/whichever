@@ -452,10 +452,11 @@
 //! itself does.
 //!
 //! The restatements an enum most often needs ship in [`foreign`]:
-//! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`, `Read`, `Write`,
-//! `BufRead` and `Seek`. `#[dispatch(whichever::foreign::Display)]` on an
-//! error enum replaces the hand-written `match`, and a variant holding a
-//! `String` stays out of the `From` impls with `#[dispatch(from = false)]`.
+//! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
+//! `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead`
+//! and `Seek`. `#[dispatch(whichever::foreign::Display)]` on an error enum
+//! replaces the hand-written `match`, and a variant holding a `String`
+//! stays out of the `From` impls with `#[dispatch(from = false)]`.
 //!
 //! # Enums from other crates
 //!

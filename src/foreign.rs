@@ -30,11 +30,14 @@
 //! consume `Self` into a wrapper, such as `Iterator::map` or `Read::bytes`,
 //! keep their defaults, which call the forwarded methods. `Iterator`'s
 //! `count`, `last` and `fold` require `Self: Sized`, as `core` declares them,
-//! so an enum holding a `Box<dyn Iterator>` in a `deref` variant leaves them
-//! to the default in a partial block, `#[dispatch(default)] fn count(self) ->
-//! usize;`, and dispatches the rest. The `std`
-//! declarations are plain tokens here and resolve in the dispatching crate,
-//! so this module needs no feature; a `no_std` crate uses the `core` ones.
+//! and so do `DoubleEndedIterator`'s `rfold` and `rfind`, so an enum holding
+//! a `Box<dyn Iterator>` in a `deref` variant leaves them to the default in
+//! a partial block, `#[dispatch(default)] fn count(self) -> usize;`, and
+//! dispatches the rest. `DoubleEndedIterator` and `ExactSizeIterator` are
+//! dispatched beside `Iterator`, their supertrait, one attribute each. The
+//! `std` declarations are plain tokens here and resolve in the dispatching
+//! crate, so this module needs no feature; a `no_std` crate uses the `core`
+//! ones.
 //!
 //! | Declaration | Implements | Forwarded |
 //! | --- | --- | --- |
@@ -43,6 +46,8 @@
 //! | `Error` | `core::error::Error` | `source` |
 //! | `PartialEq` | `core::cmp::PartialEq` | `eq` and `ne`; two different variants are never equal |
 //! | `Iterator` | `core::iter::Iterator` | `type Item`, `next`, `size_hint`, `count`, `last`, `nth`, `fold` |
+//! | `DoubleEndedIterator` | `core::iter::DoubleEndedIterator` | `next_back`, `nth_back`, `rfold`, `rfind` |
+//! | `ExactSizeIterator` | `core::iter::ExactSizeIterator` | `len` |
 //! | `Read` | `std::io::Read` | `read`, `read_vectored`, `read_to_end`, `read_to_string`, `read_exact` |
 //! | `Write` | `std::io::Write` | `write`, `write_vectored`, `flush`, `write_all`, `write_fmt` |
 //! | `BufRead` | `std::io::BufRead` | `fill_buf`, `consume`, `read_until`, `skip_until`, `read_line` |
@@ -93,6 +98,25 @@ pub trait Iterator {
     where
         Self: Sized,
         F: ::core::ops::FnMut(B, Self::Item) -> B;
+}
+
+#[dispatchable(remote = ::core::iter::DoubleEndedIterator)]
+pub trait DoubleEndedIterator: ::core::iter::Iterator {
+    fn next_back(&mut self) -> ::core::option::Option<Self::Item>;
+    fn nth_back(&mut self, n: usize) -> ::core::option::Option<Self::Item>;
+    fn rfold<B, F>(self, init: B, f: F) -> B
+    where
+        Self: Sized,
+        F: ::core::ops::FnMut(B, Self::Item) -> B;
+    fn rfind<P>(&mut self, predicate: P) -> ::core::option::Option<Self::Item>
+    where
+        Self: Sized,
+        P: ::core::ops::FnMut(&Self::Item) -> bool;
+}
+
+#[dispatchable(remote = ::core::iter::ExactSizeIterator)]
+pub trait ExactSizeIterator: ::core::iter::Iterator {
+    fn len(&self) -> usize;
 }
 
 #[dispatchable(remote = ::std::io::Read)]

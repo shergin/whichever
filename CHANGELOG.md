@@ -5,6 +5,28 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+What the search of 2026-11-12 over about 200 crates found. darling_core
+0.24.1's error iterator is an enum over `iter::Once` and `vec::IntoIter`
+that implements `Iterator` with `next` alone, so its `size_hint` is
+`(0, None)` and the enum is neither double-ended nor exact-size although
+both payloads are; sonic-rs 0.5.10's `IterInner` implements
+`ExactSizeIterator::len` exactly while its `size_hint` reports `(0, None)`.
+
+- `whichever::foreign` ships `DoubleEndedIterator`, which implements
+  `core::iter::DoubleEndedIterator` and forwards `next_back`, `nth_back`,
+  `rfold` and `rfind`, and `ExactSizeIterator`, which implements
+  `core::iter::ExactSizeIterator` and forwards `len`. `advance_back_by`,
+  `try_rfold` and `is_empty` keep their defaults: the first and the last
+  are unstable, and `try_rfold` needs the unstable `Try`. Each is
+  dispatched beside `Iterator`, its supertrait, with one
+  `#[whichever::dispatch(..)]` attribute per trait. `rfold` and `rfind`
+  require `Self: Sized`, so an enum with a `deref` variant holding a
+  `Box<dyn DoubleEndedIterator>` leaves them to the default in a partial
+  block with `#[dispatch(default)]`, as `Iterator`'s `count`, `last` and
+  `fold`. `FusedIterator` has no methods, so a restatement would declare
+  the enum fused whatever its payloads are; it stays a hand-written marker
+  impl.
+
 ## 0.7.1 - 2026-11-09
 
 A fix for inherent methods on `deref` variants, found by the survey of
