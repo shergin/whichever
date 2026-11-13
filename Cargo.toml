@@ -1,6 +1,6 @@
 [package]
 name = "whichever"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.88"
 description = "Implements a trait for an enum by forwarding to whichever variant it holds"
@@ -21,7 +21,7 @@ renamed-dependency = ["whichever-macros/renamed-dependency"]
 [dependencies]
 # Pinned exactly: the facade's `__private` module and the macros' generated
 # code are one interface, and the two crates are released together.
-whichever-macros = { version = "=0.7.1", path = "macros" }
+whichever-macros = { version = "=0.7.2", path = "macros" }
 
 [dev-dependencies]
 async-trait = "0.1"

@@ -5,6 +5,8 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.7.2 - 2026-11-12
+
 What the search of 2026-11-12 over about 200 crates found. darling_core
 0.24.1's error iterator is an enum over `iter::Once` and `vec::IntoIter`
 that implements `Iterator` with `next` alone, so its `size_hint` is
