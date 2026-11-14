@@ -18,12 +18,12 @@ suite pairs
 
 suite arguments
   pass 2566
-  limit 4708
+  limit 2386
   rejected 232
-  malformed 17
-  never 613 non-canonical
-  never 984 unmodelled: a mismatch expression for a return type that needs a payload to make
-  never 600 unmodelled: a reference return that borrows from the `Self` argument
+  malformed 8
+  never 352 non-canonical
+  never 696 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 240 unmodelled: a reference return that borrows from the `Self` argument
 
 suite boxed
   pass 1114
@@ -38,12 +38,12 @@ suite boxed
 
 suite qualifiers
   pass 1233
-  limit 2657
+  limit 1427
   rejected 130
-  malformed 22
-  never 638 non-canonical
-  never 590 unmodelled: a default body that would need a payload to make its answer
-  never 130 unmodelled: an `async fn` that returns a future
+  malformed 10
+  never 290 non-canonical
+  never 410 unmodelled: a default body that would need a payload to make its answer
+  never 100 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
   pass 12
@@ -142,6 +142,14 @@ suite struct-paths
   never 8 unmodelled: a block body for a return type that needs a payload to make
   never 134 unmodelled: a default body that would need a payload to make its answer
 
+suite cfg
+  pass 1644
+  limit 1314
+  rejected 0
+  malformed 10
+  never 170 non-canonical
+  never 102 unmodelled: an enum with no variant in this build
+
 suite pinned
   pass 10
   limit 1
@@ -149,34 +157,34 @@ suite pinned
   malformed 0
 
 suite array
-  pass 3343
+  pass 4103
   limit 0
   rejected 0
   malformed 0
-  rows 3343
-  covered 37567
-  unreached 35700
+  rows 4103
+  covered 49489
+  unreached 40783
 
 suite array-limits
   pass 0
-  limit 251
+  limit 260
   rejected 0
   malformed 0
-  rows 251
-  covered 2777
-  unreached 624
+  rows 260
+  covered 3171
+  unreached 675
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 387
+  rejected 432
   malformed 0
-  rows 387
-  covered 2284
-  unreached 1117
+  rows 432
+  covered 2645
+  unreached 1201
 
 suite known
-  pass 12
+  pass 15
   limit 1
   rejected 1
   malformed 0

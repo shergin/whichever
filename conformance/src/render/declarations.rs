@@ -56,8 +56,13 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
     } else {
         writer.anchor(Anchor::Enum.name());
         writer.open(format!("pub enum E{} {{", context.generics()));
-        for slot in &context.slots {
+        for slot in &context.declared {
             let (attribute, declaration) = variant(slot, true);
+            if let Some(predicate) = slot.cfg {
+                // A sentence on the whole variant spans its attributes.
+                writer.anchor(format!("{}-cfg", Anchor::Variant(slot.index).name()));
+                writer.line(format!("#[cfg({predicate})]"));
+            }
             if let Some(attribute) = attribute {
                 writer.line(attribute);
             }

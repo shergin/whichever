@@ -325,7 +325,11 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                     expected.limit.entry().key == key
                         && match expected.anchor {
                             Anchor::Anywhere => true,
-                            anchor => *place == anchor.name() || lines.get(place) == Some(&anchor),
+                            anchor => {
+                                *place == anchor.name()
+                                    || *place == format!("{}-cfg", anchor.name())
+                                    || lines.get(place) == Some(&anchor)
+                            }
                         }
                 })
             };

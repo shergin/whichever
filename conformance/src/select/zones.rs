@@ -51,6 +51,10 @@ const SOME_TARGETS: &[&str] = &[
     "marked-tuple",
 ];
 
+/// The receivers that forward; the three a sentence rejects meet the
+/// other axes in `shapes`, `pairs`, `boxed` and the arrays.
+const FORWARDED: &[&str] = &["ref", "mut", "value", "box", "pin-ref", "pin-mut"];
+
 /// Every zone, in the order a run reports them.
 pub const ZONES: &[Zone] = &[
     Zone {
@@ -72,7 +76,7 @@ pub const ZONES: &[Zone] = &[
             ("arg", &[]),
             ("s0", SOME_TARGETS),
             ("s1", &["plain", "none", "deref-box"]),
-            ("recv", &[]),
+            ("recv", FORWARDED),
             ("ret", SOME_RETURNS),
         ],
         fixed: &[],
@@ -91,7 +95,7 @@ pub const ZONES: &[Zone] = &[
     Zone {
         name: "qualifiers",
         summary: "every qualifier under every receiver and return type, over a few target kinds",
-        vary: &[("qual", &[]), ("s0", SOME_TARGETS), ("recv", &[]), ("ret", &[])],
+        vary: &[("qual", &[]), ("s0", SOME_TARGETS), ("recv", FORWARDED), ("ret", &[])],
         fixed: &[],
     },
     Zone {
@@ -200,5 +204,17 @@ pub const ZONES: &[Zone] = &[
             ("qual", &["plain", "provided"]),
         ],
         fixed: &[("s1", "none")],
+    },
+    Zone {
+        name: "cfg",
+        summary: "variants under `#[cfg]`, present and compiled out, over the second variants, receivers and returns they meet",
+        vary: &[
+            ("cfg", &[]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box", "via-field"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref", "pin-mut"]),
+            ("ret", &["u64", "self", "assoc", "out", "ref", "future"]),
+            ("path", &["attribute", "block", "block-star"]),
+        ],
+        fixed: &[],
     },
 ];

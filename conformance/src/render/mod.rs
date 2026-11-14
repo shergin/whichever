@@ -89,10 +89,24 @@ pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
     // keeps only the methods it could forward (macros/ARCHITECTURE.md
     // 3.8), so what its signature alone names is not imported.
     let dropped = matches!(context.verdict, Verdict::Limit(_));
+    // A variant compiled out is never resolved, so its types use no import.
+    let lines: Vec<&str> = draft.source.lines().collect();
+    let compiled_out = |index: usize| {
+        let attributes = lines[..index]
+            .iter()
+            .rev()
+            .take_while(|line| line.trim_start().starts_with("#["));
+        let mut under = false;
+        for line in attributes {
+            under |= line.trim() == "#[cfg(any())]";
+        }
+        under
+    };
     let body: Vec<&str> = draft
         .source
         .lines()
         .enumerate()
+        .filter(|(index, _)| !compiled_out(*index))
         .filter(|(index, _)| !(dropped && draft.part_of(index + 1) == Some(Part::Inherent)))
         .map(|(_, line)| line)
         .filter(|line| !line.starts_with("use "))

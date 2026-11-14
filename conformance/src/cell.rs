@@ -7,7 +7,9 @@
 //! cell's module and file.
 
 use crate::axis::Axis;
-use crate::model::{Argument, Callee, Lift, Path, Qualifier, Receiver, Return, Second, Target};
+use crate::model::{
+    Argument, Callee, Cfg, Lift, Path, Qualifier, Receiver, Return, Second, Target,
+};
 
 /// The id of the neutral cell.
 pub const BASE: &str = "base";
@@ -169,6 +171,8 @@ cell! {
     callee: Callee,
     /// What an inherent method's `with` wraps the result in.
     lift: Lift,
+    /// The `#[cfg]` on the subject's variants.
+    cfg: Cfg,
 }
 
 impl Cell {

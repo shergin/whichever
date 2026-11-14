@@ -35,7 +35,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.close("}");
         writer.blank();
     }
-    for slot in &context.slots {
+    for slot in &context.declared {
         let index = slot.index;
         let payload = slot.payload();
         match slot.variant {

@@ -15,7 +15,7 @@ pub mod returns;
 pub mod target;
 mod verdict;
 
-pub use axes::{Argument, Callee, Lift, Path, Qualifier, Receiver, Return, Second, Target};
+pub use axes::{Argument, Callee, Cfg, Lift, Path, Qualifier, Receiver, Return, Second, Target};
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
 
@@ -117,6 +117,8 @@ pub struct Slot {
     pub index: usize,
     /// What the variant is.
     pub variant: SlotVariant,
+    /// The predicate of the `#[cfg]` the variant is under, if any.
+    pub cfg: Option<&'static str>,
 }
 
 impl Slot {
@@ -147,9 +149,19 @@ impl Slot {
 impl Cell {
     /// Returns the subject's variants, in order.
     pub fn slots(&self) -> Vec<Slot> {
+        self.declared_slots()
+            .into_iter()
+            .filter(|slot| slot.cfg != Some("any()"))
+            .collect()
+    }
+
+    /// Returns every variant the subject declares, those compiled out in
+    /// this build included.
+    pub fn declared_slots(&self) -> Vec<Slot> {
         let mut slots = vec![Slot {
             index: 0,
             variant: SlotVariant::Live(self.s0),
+            cfg: self.cfg.of(0),
         }];
         let second = match self.s1.slot() {
             SecondSlot::Absent => return slots,
@@ -160,8 +172,24 @@ impl Cell {
         slots.push(Slot {
             index: 1,
             variant: second,
+            cfg: self.cfg.of(1),
         });
         slots
+    }
+
+    /// Returns whether every variant is under `#[cfg]`, so that the enum
+    /// may be empty in some build and is matched by place where the
+    /// receiver is a reference (what-is-generated.md).
+    pub fn every_under_cfg(&self) -> bool {
+        self.declared_slots().iter().all(|slot| slot.cfg.is_some())
+    }
+
+    /// Returns the slot an associated type is taken from: the first
+    /// variant without a `#[cfg]` (what-is-generated.md).
+    pub fn supplier(&self) -> Option<Slot> {
+        self.declared_slots()
+            .into_iter()
+            .find(|slot| slot.cfg.is_none())
     }
 
     /// Returns the slots whose variant forwards to a payload.

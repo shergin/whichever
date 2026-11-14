@@ -45,8 +45,10 @@ pub struct Context {
     pub argument: ArgumentDescriptor,
     /// Its qualifier.
     pub qualifier: QualifierDescriptor,
-    /// The subject's variants.
+    /// The subject's variants in this build.
     pub slots: Vec<Slot>,
+    /// Every variant the subject declares, those compiled out included.
+    pub declared: Vec<Slot>,
     /// How the method reaches the subject.
     pub path: PathDescriptor,
 }
@@ -82,6 +84,7 @@ impl Context {
             argument: cell.arg.descriptor(),
             qualifier: cell.qual.descriptor(),
             slots: cell.slots(),
+            declared: cell.declared_slots(),
             path: cell.path.descriptor(),
         }
     }

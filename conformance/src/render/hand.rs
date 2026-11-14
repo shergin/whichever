@@ -166,6 +166,9 @@ struct Method {
     lift: Lift,
     /// The type an inherent arm's target answers before the lift.
     target: Node,
+    /// Whether the `match` reads the enum by place, every variant being
+    /// under `#[cfg]`, so a reference receiver's arms bind with `ref`.
+    by_place: bool,
 }
 
 /// Writes `mod hand`.
@@ -179,8 +182,11 @@ pub fn write(writer: &mut Writer, context: &Context) {
         write_struct(writer, &context.slots[0], generics, false, false);
     } else {
         writer.open(format!("pub enum E{generics} {{"));
-        for slot in &context.slots {
+        for slot in &context.declared {
             let (_, declaration) = variant(slot, false);
+            if let Some(predicate) = slot.cfg {
+                writer.line(format!("#[cfg({predicate})]"));
+            }
             writer.line(declaration);
         }
         writer.close("}");
@@ -191,7 +197,13 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let name = associated.name();
         let ty = match (associated, overridden) {
             (Associated::Out | Associated::Error, true) => String::from("support::Wide"),
-            (Associated::Out | Associated::Error, false) => format!("<P0 as {TRAIT}>::{name}"),
+            (Associated::Out | Associated::Error, false) => {
+                let supplier = context
+                    .cell
+                    .supplier()
+                    .map_or_else(|| String::from("P0"), |slot| slot.payload());
+                format!("<{supplier} as {TRAIT}>::{name}")
+            }
         };
         writer.line(format!("type {name} = {ty};"));
     }
@@ -213,6 +225,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         callee: Callee::Method,
         lift: Lift::Bare,
         target: Node::Tag,
+        by_place: context.cell.every_under_cfg() && context.base_receiver() != Receiver::Owned,
     };
     write_method(writer, context, &base);
     let fallback = match context.path.form {
@@ -246,6 +259,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         callee: context.cell.callee,
         lift: context.cell.lift,
         target: context.cell.target_node(),
+        by_place: context.cell.every_under_cfg() && context.cell.recv != Receiver::Owned,
     };
     if method.inherent {
         writer.close("}");
@@ -340,9 +354,14 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
         Wrapping::AsyncBlock => writer.open("async move {"),
         Wrapping::BoxedBlock => writer.open("Box::pin(async move {"),
     }
-    let scrutinee = match method.argument {
-        Some(_) => format!("({}, other)", unwrap.scrutinee),
-        None => String::from(unwrap.scrutinee),
+    // An enum whose every variant is under `#[cfg]` may be empty, and is
+    // matched by place, with `ref` bindings, where the receiver binds by
+    // reference (golden `every_variant_under_cfg`).
+    let by_place = method.by_place && unwrap.binding != Binding::Owned;
+    let scrutinee = match (method.argument, by_place) {
+        (Some(_), _) => format!("({}, other)", unwrap.scrutinee),
+        (None, true) => format!("*{}", unwrap.scrutinee),
+        (None, false) => String::from(unwrap.scrutinee),
     };
     writer.open(format!("match {scrutinee} {{"));
     for (slot, _, target) in context.live() {
@@ -382,7 +401,16 @@ fn arm(
     conversion: &Conversion,
 ) -> String {
     let own = Place::of("inner", binding, target.route);
-    let mut pattern_text = pattern("E", slot, target, "inner");
+    let by_place = method.by_place;
+    let bound = match (by_place, binding) {
+        (true, Binding::Shared) => "ref inner",
+        (true, Binding::Exclusive) => "ref mut inner",
+        (true, Binding::Owned) | (false, _) => "inner",
+    };
+    let mut pattern_text = pattern("E", slot, target, bound);
+    if let Some(predicate) = slot.cfg {
+        pattern_text = format!("#[cfg({predicate})] {pattern_text}");
+    }
     if method.inherent {
         let value = inherent_value(&own, method, awaited, conversion, slot);
         return format!("{pattern_text} => {value},");

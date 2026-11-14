@@ -254,3 +254,32 @@ axis! {
         Into = "into",
     }
 }
+
+axis! {
+    /// The `#[cfg]` on the subject's variants.
+    pub enum Cfg {
+        /// No variant under `#[cfg]`.
+        Absent = "none",
+        /// The second variant under `#[cfg(all())]`, present.
+        SecondOn = "second-on",
+        /// The second variant under `#[cfg(any())]`, compiled out.
+        SecondOff = "second-off",
+        /// The first variant under `#[cfg(any())]`, compiled out.
+        FirstOff = "first-off",
+        /// Every variant under `#[cfg(all())]`, so the enum may be empty in
+        /// some build and is matched by place.
+        EveryOn = "every-on",
+    }
+}
+
+impl Cfg {
+    /// Returns the predicate the variant of a slot is under, if any.
+    pub fn of(self, slot: usize) -> Option<&'static str> {
+        match (self, slot) {
+            (Cfg::Absent, _) => None,
+            (Cfg::SecondOn, 1) | (Cfg::EveryOn, _) => Some("all()"),
+            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) => Some("any()"),
+            (Cfg::SecondOn | Cfg::SecondOff | Cfg::FirstOff, _) => None,
+        }
+    }
+}

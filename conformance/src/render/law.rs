@@ -61,6 +61,13 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
 fn write_seen(writer: &mut Writer, context: &Context) {
     writer.line("/// Returns the variant a subject holds, by slot, and its payload's state.");
     writer.open("fn seen(subject: &S) -> String {");
+    if context.slots.is_empty() {
+        // Every variant is compiled out: the enum is empty.
+        writer.line("match *subject {}");
+        writer.close("}");
+        writer.blank();
+        return;
+    }
     writer.open("match subject {");
     for slot in &context.slots {
         let index = slot.index;

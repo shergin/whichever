@@ -23,7 +23,9 @@ use super::qualifier::Generic;
 use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
-use super::{Argument, Callee, Lift, Qualifier, Receiver, Return, Second, Target, Verdict};
+use super::{
+    Argument, Callee, Cfg, Lift, Qualifier, Receiver, Return, Second, Slot, Target, Verdict,
+};
 use crate::cell::Cell;
 
 /// Returns the cell's verdict.
@@ -35,7 +37,7 @@ pub fn verdict(cell: &Cell) -> Verdict {
     }
     // A struct subject has its one field and no second variant.
     let is_struct = cell.s0.descriptor().is_struct();
-    if is_struct && cell.s1 != Second::Absent {
+    if is_struct && (cell.s1 != Second::Absent || cell.cfg != Cfg::Absent) {
         return Verdict::NonCanonical;
     }
     if let Some(reason) = malformed(cell) {
@@ -139,6 +141,24 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         return Some("a reference return that borrows from the `Self` argument");
     }
     let path = cell.path.descriptor();
+    if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
+        // Open question: in a build that leaves no variant, a hand's
+        // `match *self {}` leaves the arguments unused, as the expansion
+        // does; whether that warning is the macro's to silence is not
+        // documented.
+        return Some("an enum with no variant in this build");
+    }
+    if cell.cfg != Cfg::Absent {
+        // Open question: whether a fallback arm is written beside a variant
+        // compiled out, and how a `Self` argument is matched by place, is
+        // not documented.
+        if argument.kind.is_some() {
+            return Some("a `Self` argument on an enum with variants under `#[cfg]`");
+        }
+        if path.site == PathSite::Inherent || path.form == PathForm::First {
+            return Some("an inherent or partial method naming variants under `#[cfg]`");
+        }
+    }
     if cell.s0.descriptor().is_struct() {
         // "Two values of the struct always hold the same field, and the
         // argument is unwrapped to it" (structs.md): no mismatch to give.
@@ -239,7 +259,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if node.holds_future() {
             return Some("a block body for a future return");
         }
-        let nameable = cell.s0.descriptor().storage == Storage::Payload;
+        let nameable =
+            cell.s0.descriptor().storage == Storage::Payload && cell.cfg.of(0) != Some("any()");
         if !node.has_constant(nameable) {
             return Some("a block body for a return type that needs a payload to make");
         }
@@ -353,7 +374,6 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let receiver = cell.recv.descriptor();
     let argument = cell.arg.descriptor();
     let slots = cell.slots();
-    let live = cell.live_slots();
     let path = cell.path.descriptor();
     // The variant-specific rules of `m` concern the variants it is
     // forwarded to, and the method-wide ones apply when it is forwarded at
@@ -518,9 +538,14 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // type takes no part (routes.md): with no variant whose target is
     // named, the sentence of `all_variants_conditional` is on the enum.
     let taken = node.associated().iter().any(|(_, overridden)| !overridden);
-    let named = live
+    // "An associated type or const comes from the first variant without a
+    // `#[cfg]`", so only those can supply it.
+    let named = cell
+        .declared_slots()
         .iter()
-        .any(|(_, _, target)| target.route.iter().all(|step| *step == Step::Deref));
+        .filter(|slot| slot.cfg.is_none())
+        .filter_map(Slot::target)
+        .any(|(_, target)| target.route.iter().all(|step| *step == Step::Deref));
     if taken && !named {
         expect(Limit::UnsuppliedType, Anchor::Enum);
     }
