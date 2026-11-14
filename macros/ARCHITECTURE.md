@@ -716,6 +716,16 @@ tests gain the pointer, opaque and grouped cases; no other golden or
 snapshot changed
 (`docs/decisions/a-place-is-handed-over-as-the-return-type-asks.md`).
 
+### Stage 21: a place under `self: Box<Self>`
+
+Status: landed on 2026-11-13. The place branch of `MethodPlan::arm`
+follows a route through the binding's reference where
+`MethodPlan::binds_references` says the pattern binds one, where it asked
+for any receiver but `self`, so under `self: Box<Self>`, whose `match
+*self` binds by value, `value` on a `deref` variant is `*inner` where it
+was `**inner`, and `field = name` is `(*inner).name`. The behaviour test
+`pinned_and_boxed_receivers` is extended; no golden or snapshot changed.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully

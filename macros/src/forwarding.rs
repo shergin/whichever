@@ -422,8 +422,11 @@ impl MethodPlan {
             // The arm is the target itself, or a field of it: a place,
             // borrowed as the declared return type asks.
             Callee::Place { field, borrow } => {
-                let through_reference =
-                    !matches!(self.receiver, ReceiverKind::Value(Access::Owned));
+                // The route starts at the binding, which is a reference to
+                // the payload only where the pattern binds one: `self` and
+                // `self: Box<Self>` are matched by value, and the route
+                // starts at the payload itself.
+                let through_reference = self.binds_references();
                 let place = match field {
                     Some(field) => {
                         let reached = route.reach_for_postfix(&inner, through_reference, site);
@@ -443,9 +446,8 @@ impl MethodPlan {
                 // awaits it, since the return type then speaks of the
                 // future's output.
                 if field.is_none() && route.is_direct() {
-                    let read = self.binds_references()
-                        && !self.awaited
-                        && matches!(borrow, PlaceBorrow::Value);
+                    let read =
+                        through_reference && !self.awaited && matches!(borrow, PlaceBorrow::Value);
                     if read {
                         quote_spanned! { site => *#place }
                     } else {

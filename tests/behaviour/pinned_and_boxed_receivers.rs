@@ -86,3 +86,90 @@ fn a_boxed_receiver_hands_over_the_payloads_own_box() {
     let finishable = Box::new(Finishable::Boxed(Box::new(Ready(3))));
     assert_eq!(finishable.finish(), 30);
 }
+
+/// A small `Copy` target, read by value and by field.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxedHandle(pub u64);
+
+/// A boxed handle behind a field, which a route reaches with `.boxed*`.
+pub struct BoxedHandleHolder {
+    pub boxed: Box<BoxedHandle>,
+}
+
+// Under `self: Box<Self>` the enum's `match *self` binds each payload by
+// value, so a `deref` variant's target is one dereference away from the
+// binding, as under `self`. The other receivers of the same enum sit beside
+// it, so every reading of the place is pinned together.
+#[whichever::dispatch]
+pub enum HandleSource {
+    #[dispatch(deref)]
+    Boxed(Box<BoxedHandle>),
+    #[dispatch(via = .boxed*)]
+    Held(BoxedHandleHolder),
+    Plain(BoxedHandle),
+}
+
+// The boxed methods take the box only so that the arms written under it are
+// tested; clippy's `boxed_local` is right that nothing else needs it.
+#[whichever::dispatch]
+#[allow(clippy::boxed_local)]
+impl HandleSource {
+    #[dispatch(*, value)]
+    pub fn into_handle(self: Box<Self>) -> BoxedHandle;
+
+    #[dispatch(*, field = 0)]
+    pub fn into_raw(self: Box<Self>) -> u64;
+
+    #[dispatch(*, value)]
+    pub fn handle_owned(self) -> BoxedHandle;
+
+    #[dispatch(*, field = 0)]
+    pub fn raw_owned(self) -> u64;
+
+    #[dispatch(*, value)]
+    pub fn handle(&self) -> BoxedHandle;
+
+    #[dispatch(*, value)]
+    pub fn handle_ref(&self) -> &BoxedHandle;
+
+    #[dispatch(*, field = 0)]
+    pub fn raw(&self) -> u64;
+
+    #[dispatch(*, value)]
+    pub fn handle_mut(&mut self) -> &mut BoxedHandle;
+}
+
+fn handle_sources() -> [HandleSource; 3] {
+    [
+        HandleSource::Boxed(Box::new(BoxedHandle(1))),
+        HandleSource::Held(BoxedHandleHolder {
+            boxed: Box::new(BoxedHandle(2)),
+        }),
+        HandleSource::Plain(BoxedHandle(3)),
+    ]
+}
+
+#[test]
+fn a_boxed_receiver_reads_a_dereferenced_place_by_value() {
+    let expected = [BoxedHandle(1), BoxedHandle(2), BoxedHandle(3)];
+    let handles = handle_sources().map(|source| Box::new(source).into_handle());
+    assert_eq!(handles, expected);
+    let raws = handle_sources().map(|source| Box::new(source).into_raw());
+    assert_eq!(raws, [1, 2, 3]);
+    let handles = handle_sources().map(HandleSource::handle_owned);
+    assert_eq!(handles, expected);
+    let raws = handle_sources().map(HandleSource::raw_owned);
+    assert_eq!(raws, [1, 2, 3]);
+    let mut sources = handle_sources();
+    let handles = sources.each_ref().map(HandleSource::handle);
+    assert_eq!(handles, expected);
+    let handles = sources.each_ref().map(|source| *source.handle_ref());
+    assert_eq!(handles, expected);
+    let raws = sources.each_ref().map(HandleSource::raw);
+    assert_eq!(raws, [1, 2, 3]);
+    for source in &mut sources {
+        source.handle_mut().0 *= 10;
+    }
+    let handles = sources.each_ref().map(HandleSource::handle);
+    assert_eq!(handles, [BoxedHandle(10), BoxedHandle(20), BoxedHandle(30)]);
+}

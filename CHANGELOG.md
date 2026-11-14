@@ -5,7 +5,8 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
-A fix from the survey of 2026-11-13 of acadrust 0.6.8.
+Two fixes from the survey of 2026-11-13 of acadrust 0.6.8: the first
+found by the survey, the second while probing the first.
 
 - Before, an inherent method with `value` made the arm the pattern's
   binding as it is, a `&Handle` under `&self`, even where the method
@@ -37,6 +38,15 @@ A fix from the survey of 2026-11-13 of acadrust 0.6.8.
   expansion goldens `marked_field_by_value` and `payload_and_field_by_value`
   are new and show the arms; no other golden and no `tests/ui` snapshot
   changed.
+- Before, `value` or `field = name` on a `deref` variant under `self:
+  Box<Self>` dereferenced the payload once too often: `#[dispatch(*,
+  value)]` on `fn into_handle(self: Box<Self>) -> Handle` over
+  `#[dispatch(deref)] Boxed(Box<Handle>)` did not compile, rustc's E0614,
+  type `Handle` cannot be dereferenced. The enum is matched by value
+  there, so the arm is now `*inner` for `value` and `(*inner).name` for
+  `field = name`, as with `self` by value. Every other receiver is
+  unchanged, and a variant without a route was already right. No golden
+  and no `tests/ui` snapshot changed.
 
 ## 0.7.3 - 2026-11-13
 
