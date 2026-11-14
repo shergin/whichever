@@ -404,8 +404,14 @@
 //! `via = .name, value` is `field = name` spelled out; under `with = Some`
 //! or `with = Ok` the borrow is read inside the `Option` or the `Result`,
 //! `Some(&inner.name)` for `-> Option<&T>`, and any other lift is handed the
-//! place by value; and `via = route` reaches the target for this method
-//! alone. A `Self` argument is the enum itself and is handed to the
+//! place by value; the marked field of a variant with several is such a
+//! target, so `value` on `Unknown { name: String, #[dispatch] handle:
+//! Handle }` is `*inner` for `fn handle(&self) -> Handle`, `Some(*inner)`
+//! under `with = Some` for `-> Option<Handle>` and `inner` for `-> &Handle`,
+//! and a lift other than `Some` or `Ok` is handed it as the pattern binds
+//! it, a reference under `&self`, where a place reached through `via` or
+//! `field` is handed by value; and `via = route` reaches the target for this
+//! method alone. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be

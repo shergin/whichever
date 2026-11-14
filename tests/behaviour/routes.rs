@@ -3,6 +3,7 @@
 //! variant, per trait, or per inherent method.
 
 use std::fmt::{self, Display, Formatter};
+use std::pin::Pin;
 
 #[whichever::dispatchable]
 pub trait Area {
@@ -327,4 +328,189 @@ fn a_field_that_is_a_reference_is_handed_to_any_lift() {
     assert_eq!(plain.r_if_plain(), Some(&5));
     assert_eq!(boxed.r_if_plain(), None);
     assert_eq!(other.r_if_plain(), None);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Handle(pub u64);
+
+pub struct Dictionary {
+    pub handle: Handle,
+}
+
+// The marked field of a variant with several, beside a routed tuple
+// variant: `value` reads the field through the binding where the return
+// type asks for a value, and hands the binding over where it asks for a
+// reference, so each arm has the type the routed arm has.
+#[whichever::dispatch(from = false)]
+pub enum Object {
+    #[dispatch(via = .handle)]
+    Dictionary(Dictionary),
+    Tagged(#[dispatch] Handle, u32),
+    Unknown {
+        name: String,
+        #[dispatch]
+        handle: Handle,
+    },
+}
+
+/// A lift other than `Some` or `Ok`, whose parameter is the reference the
+/// pattern binds.
+fn raw(handle: &Handle) -> u64 {
+    handle.0
+}
+
+#[whichever::dispatch]
+impl Object {
+    /// The handle by value: `inner.handle` and `*inner`.
+    #[dispatch(*, value)]
+    pub fn handle(&self) -> Handle;
+
+    /// The handle by reference: `&inner.handle` and `inner`.
+    #[dispatch(*, value)]
+    pub fn handle_ref(&self) -> &Handle;
+
+    /// The exclusive form: `&mut inner.handle` and `inner`.
+    #[dispatch(*, value)]
+    pub fn handle_mut(&mut self) -> &mut Handle;
+
+    /// By value under an exclusive receiver.
+    #[dispatch(*, value)]
+    pub fn handle_through_mut(&mut self) -> Handle;
+
+    /// By value under `Some`, whose first argument is not a reference.
+    #[dispatch(*, value, with = Some)]
+    pub fn some_handle(&self) -> Option<Handle>;
+
+    /// By reference under `Some`, whose first argument is one.
+    #[dispatch(*, value, with = Some)]
+    pub fn some_handle_ref(&self) -> Option<&Handle>;
+
+    /// By value under `Ok`.
+    #[dispatch(*, value, with = Ok)]
+    pub fn ok_handle(&self) -> Result<Handle, ()>;
+
+    /// A receiver by value, under which the binding is the field itself.
+    #[dispatch(*, value)]
+    pub fn into_handle(self) -> Handle;
+
+    /// Any other lift is handed the binding as it stands.
+    #[dispatch(Tagged, Unknown, value, with = raw)]
+    pub fn raw_of_marked(&self) -> u64 {
+        0
+    }
+
+    /// By value under a pinned receiver, which binds references too.
+    #[dispatch(*, value)]
+    pub fn pinned_handle(self: Pin<&mut Self>) -> Handle;
+}
+
+// An awaited marked field: the return type speaks of the future's output,
+// so the binding is awaited as it stands.
+#[whichever::dispatch(from = false)]
+pub enum Lookup {
+    Pending {
+        id: u32,
+        #[dispatch]
+        ready: core::future::Ready<u64>,
+    },
+    Queued(u8, #[dispatch] core::future::Ready<u64>),
+}
+
+#[whichever::dispatch]
+impl Lookup {
+    #[dispatch(*, value)]
+    pub async fn ready(&mut self) -> u64;
+}
+
+fn objects() -> [Object; 3] {
+    [
+        Object::Dictionary(Dictionary { handle: Handle(1) }),
+        Object::Tagged(Handle(2), 20),
+        Object::Unknown {
+            name: "unknown".to_owned(),
+            handle: Handle(3),
+        },
+    ]
+}
+
+#[test]
+fn a_marked_field_is_read_by_value_and_borrowed_by_reference() {
+    let mut objects = objects();
+    let handles = objects.each_ref().map(Object::handle);
+    assert_eq!(handles, [Handle(1), Handle(2), Handle(3)]);
+    let handles = objects.each_ref().map(|object| *object.handle_ref());
+    assert_eq!(handles, [Handle(1), Handle(2), Handle(3)]);
+    let [dictionary, tagged, unknown] = &objects;
+    let Object::Dictionary(inner) = dictionary else {
+        unreachable!()
+    };
+    assert!(std::ptr::eq(dictionary.handle_ref(), &inner.handle));
+    let Object::Tagged(field, _) = tagged else {
+        unreachable!()
+    };
+    assert!(std::ptr::eq(tagged.handle_ref(), field));
+    let Object::Unknown { handle: field, .. } = unknown else {
+        unreachable!()
+    };
+    assert!(std::ptr::eq(unknown.handle_ref(), field));
+    for object in &mut objects {
+        object.handle_mut().0 += 10;
+    }
+    assert_eq!(
+        objects.each_ref().map(Object::handle),
+        [Handle(11), Handle(12), Handle(13)]
+    );
+    assert_eq!(
+        objects.each_mut().map(Object::handle_through_mut),
+        [Handle(11), Handle(12), Handle(13)]
+    );
+    assert_eq!(
+        objects
+            .each_mut()
+            .map(|object| Pin::new(object).pinned_handle()),
+        [Handle(11), Handle(12), Handle(13)]
+    );
+    assert!(matches!(objects[1], Object::Tagged(Handle(12), 20)));
+    assert_eq!(
+        objects.map(Object::into_handle),
+        [Handle(11), Handle(12), Handle(13)]
+    );
+}
+
+#[test]
+fn a_marked_field_under_some_or_ok_is_read_as_the_first_argument_asks() {
+    let objects = objects();
+    assert_eq!(
+        objects.each_ref().map(Object::some_handle),
+        [Some(Handle(1)), Some(Handle(2)), Some(Handle(3))]
+    );
+    assert_eq!(
+        objects.each_ref().map(Object::some_handle_ref),
+        [Some(&Handle(1)), Some(&Handle(2)), Some(&Handle(3))]
+    );
+    let Object::Tagged(field, _) = &objects[1] else {
+        unreachable!()
+    };
+    assert!(std::ptr::eq(objects[1].some_handle_ref().unwrap(), field));
+    assert_eq!(
+        objects.each_ref().map(Object::ok_handle),
+        [Ok(Handle(1)), Ok(Handle(2)), Ok(Handle(3))]
+    );
+}
+
+#[test]
+fn any_other_lift_is_handed_the_marked_field_as_the_pattern_binds_it() {
+    let objects = objects();
+    assert_eq!(objects.each_ref().map(Object::raw_of_marked), [0, 2, 3]);
+}
+
+#[test]
+fn an_awaited_marked_field_is_awaited_as_it_stands() {
+    let mut pending = Lookup::Pending {
+        id: 1,
+        ready: core::future::ready(5),
+    };
+    assert_eq!(pollster::block_on(pending.ready()), 5);
+    let mut queued = Lookup::Queued(2, core::future::ready(6));
+    assert_eq!(pollster::block_on(queued.ready()), 6);
 }

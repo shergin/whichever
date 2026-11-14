@@ -52,6 +52,12 @@ borrowed as the return type asks, as a field is, so `via = .name, value`
 is `field = name` spelled out. Under `with = Some` or `with = Ok` the
 borrow is read inside the `Option` or the `Result`, so `-> Option<&T>`
 gives `Some(&inner.name)`; any other lift is handed the place by value.
+The marked field of a variant with several is such a target, so `value`
+on `Unknown { name: String, #[dispatch] handle: Handle }` is `*inner` for
+`fn handle(&self) -> Handle`, `Some(*inner)` under `with = Some` for
+`-> Option<Handle>` and `inner` for `-> &Handle`; a lift other than `Some`
+or `Ok` is handed it as the pattern binds it, a reference under `&self`,
+where a place reached through `via` or `field` is handed by value.
 `via = route` reaches the target
 for this method alone, over the variant's own route. A `Self` argument is
 the enum itself and is handed to

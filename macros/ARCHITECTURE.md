@@ -253,9 +253,16 @@ method is a step, and `Place::Variant` holds the marked field of a variant
 with several. `Target::target_type` is `None` where the route leaves the
 type unnameable, and the engine then qualifies the call by the trait
 alone, `<_ as Trait>::method`. The inherent path's `Callee::Place` is the
-arm that calls nothing: the target itself, or a field of it, borrowed as
-`place_borrow` reads the return type, inside the `Option` or the `Result`
-under `with = Some` or `with = Ok`.
+arm that calls nothing: the target itself, or a field of it, handed over
+as `place_borrow` reads the return type, inside the `Option` or the
+`Result` under `with = Some` or `with = Ok`. Its `PlaceBorrow` is
+`Reference`, borrowed by `&` or `&mut`; `Value`, taken by value; or
+`Unread`, left as it stands, for any other lift or for one of the two over
+a return type that shows no first type argument. A marked field
+(`Target::is_marked_field`) is already a reference where the receiver
+binds references (`MethodPlan::binds_references`), so it is read through
+the binding, `*inner`, on a `Value` answer in an arm that is not awaited,
+and is the binding on the other two.
 
 ### 3.5 The protocol
 
@@ -673,6 +680,19 @@ leaves no variant is exhaustive, and every other enum expands as before.
 Golden `every_variant_under_cfg` and the behaviour test
 `enums_with_every_variant_under_cfg` are new; no other golden or snapshot
 changed (`docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md`).
+
+### Stage 19: the acadrust survey's bug
+
+Status: landed on 2026-11-13. `place_borrow` answers three ways through
+`PlaceBorrow`, which `Callee::Place` carries in place of a nested
+`Option`, and the place branch writes `*` for a marked field of a variant
+with several on a `Value` answer under a receiver that binds references,
+in an arm that is not awaited, so `value` on acadrust 0.6.8's `Unknown {
+handle, .. }` reads the `Handle` its `-> Handle` asks for. Golden
+`marked_field_by_value` is new; the behaviour tests `routes` and
+`enums_with_every_variant_under_cfg` are extended; `place_borrow`'s unit
+tests are rewritten for the three answers; no other golden or snapshot
+changed.
 
 ## 5. Invariants every stage keeps
 

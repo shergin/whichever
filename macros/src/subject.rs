@@ -238,6 +238,12 @@ impl Target {
         }
     }
 
+    /// Returns whether the target is the marked field of a variant with
+    /// several, which the pattern binds beside the fields that ride along.
+    pub(crate) fn is_marked_field(&self) -> bool {
+        matches!(self.place, Place::Variant { field: Some(_), .. })
+    }
+
     /// Returns the pattern binding the payload to `binding`, on `prefix`,
     /// which is the subject's name or `Self`; the pattern's own tokens
     /// carry `site`.

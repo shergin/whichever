@@ -173,6 +173,35 @@ pub enum Marked {
     Module(Module),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Handle(pub u64);
+
+/// A holder whose handle is reached through a field, the variant's route.
+pub struct Holder {
+    pub handle: Handle,
+}
+
+/// A marked field of a struct-like variant beside a routed one, read by
+/// value through the binding the `match *self` makes, `ref inner`.
+#[whichever::dispatch(from = false)]
+pub enum Handled {
+    #[cfg(test)]
+    Row {
+        id: u32,
+        #[dispatch]
+        handle: Handle,
+    },
+    #[cfg(test)]
+    #[dispatch(via = .handle)]
+    Held(Holder),
+}
+
+#[whichever::dispatch]
+impl Handled {
+    #[dispatch(*, value)]
+    pub fn handle(&self) -> Handle;
+}
+
 #[whichever::dispatchable]
 pub trait Measure {
     fn surface(&self) -> u32;
@@ -411,6 +440,17 @@ fn marked_fields_and_routes_are_the_target() {
             cell: Square { side: 4, .. }
         }
     ));
+}
+
+#[test]
+fn a_marked_field_is_read_by_value_through_the_binding() {
+    let row = Handled::Row {
+        id: 1,
+        handle: Handle(4),
+    };
+    let held = Handled::Held(Holder { handle: Handle(5) });
+    assert_eq!(row.handle(), Handle(4));
+    assert_eq!(held.handle(), Handle(5));
 }
 
 #[test]

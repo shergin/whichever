@@ -22,7 +22,7 @@ use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
+    ArgumentKind, Conversion, FutureShape, PlaceBorrow, ReceiverKind, ReturnSite,
 };
 use crate::subject::{Entry, Target, Unforwardable};
 
@@ -229,16 +229,22 @@ impl MethodPlan {
     /// is matched beside the receiver in a tuple, which has the fallback
     /// arm in every build and stays as it is.
     pub(crate) fn over(mut self, entries: &[Entry]) -> Self {
-        let by_reference = matches!(
-            self.receiver,
-            ReceiverKind::Value(Access::Shared | Access::Exclusive) | ReceiverKind::Pinned(_)
-        );
         let always_present = entries.iter().any(|entry| match entry {
             Entry::Target(target) => target.cfgs.is_empty(),
             Entry::Unforwardable(unforwardable) => unforwardable.cfgs.is_empty(),
         });
-        self.by_place = by_reference && self.same_variant.is_empty() && !always_present;
+        self.by_place = self.binds_references() && self.same_variant.is_empty() && !always_present;
         self
+    }
+
+    /// Returns whether a pattern over the receiver binds references: the
+    /// receiver is one, plain or pinned, where `self` and `self: Box<Self>`
+    /// are matched by value and bind the payload itself.
+    fn binds_references(&self) -> bool {
+        matches!(
+            self.receiver,
+            ReceiverKind::Value(Access::Shared | Access::Exclusive) | ReceiverKind::Pinned(_)
+        )
     }
 
     /// Returns whether a `Self` argument takes part in the `match`, so that
@@ -430,12 +436,31 @@ impl MethodPlan {
                 // the return type asks, so `via = .name, value` and `field
                 // = name` are one arm.
                 if field.is_none() && route.is_direct() {
-                    place
+                    // The marked field of a variant with several is a
+                    // place a route reaches, and its binding a reference
+                    // to it under a reference receiver: where the return
+                    // type asks for a value the place is read through the
+                    // binding, `*inner`, and where it asks for a reference
+                    // the binding is that reference. A lift whose parameter
+                    // is unread takes the binding as it stands, and an
+                    // awaited arm awaits it, since the return type then
+                    // speaks of the future's output.
+                    let read = target.is_marked_field()
+                        && self.binds_references()
+                        && !self.awaited
+                        && matches!(borrow, PlaceBorrow::Value);
+                    if read {
+                        quote_spanned! { site => *#place }
+                    } else {
+                        place
+                    }
                 } else {
                     match borrow {
-                        None => place,
-                        Some(None) => quote_spanned! { site => &#place },
-                        Some(Some(_)) => quote_spanned! { site => &mut #place },
+                        PlaceBorrow::Value | PlaceBorrow::Unread => place,
+                        PlaceBorrow::Reference(None) => quote_spanned! { site => &#place },
+                        PlaceBorrow::Reference(Some(_)) => {
+                            quote_spanned! { site => &mut #place }
+                        }
                     }
                 }
             }
@@ -527,11 +552,11 @@ pub(crate) enum Callee<'a> {
     /// that name.
     Method { name: &'a Ident },
     /// No call: the arm is the target itself, or with `field` a field of
-    /// it, borrowed as `borrow` says, `None` by value, `Some(None)` by `&`
-    /// and `Some(Some(mut))` by `&mut`.
+    /// it, handed over as `borrow` says: by `&` or `&mut`, by value, or as
+    /// it stands where what takes it is unread.
     Place {
         field: Option<&'a Member>,
-        borrow: Option<Option<Token![mut]>>,
+        borrow: PlaceBorrow,
     },
 }
 

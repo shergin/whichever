@@ -5,6 +5,30 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+A fix from the survey of 2026-11-13 of acadrust 0.6.8.
+
+- Before, an inherent method with `value` on the marked field of a variant
+  with several, `Unknown { name: String, #[dispatch] handle: Handle }`,
+  made the arm the pattern's binding as it is, a `&Handle` under `&self`,
+  even where the method returns `Handle`, so beside a routed tuple variant
+  the arms did not agree: rustc's E0308, expected `Handle`, found
+  `&Handle`. acadrust's `ObjectType::intrinsic_handle` reads a `handle`
+  over 35 tuple variants and such a struct variant. The marked field is now
+  read as any target a route reaches: under a `&self`, `&mut self` or
+  pinned receiver the arm is `*inner` for `fn handle(&self) -> Handle`,
+  `Some(*inner)` under `with = Some` for `-> Option<Handle>` and
+  `Ok(*inner)` under `with = Ok` for `-> Result<Handle, E>`. A method that
+  returns a reference, `-> &Handle`, `-> &mut Handle` or `-> Option<&Handle>`
+  under `with = Some`, still gets `inner`; a lift other than `Some` or `Ok`
+  is still handed the binding, a reference under `&self`, where a place
+  reached through `via` or `field` is handed by value; `self` by value and
+  an `async` method are as before. `value` on a plain payload or on a
+  dispatch struct's field is unchanged. Nothing that compiled before
+  expands differently, short of a return type that hides a reference
+  behind a type alias, which `field` and routes already read as a value.
+  The expansion golden `marked_field_by_value` shows the arms; no other
+  golden and no `tests/ui` snapshot changed.
+
 ## 0.7.3 - 2026-11-13
 
 The macro crate moves to `syn` 3, so a build that has left `syn` 2 gains
