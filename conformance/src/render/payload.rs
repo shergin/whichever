@@ -120,6 +120,7 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
     writer.blank();
     write_impl(writer, context, index);
     writer.blank();
+    super::conversions::write_payload_into(writer, context, index);
     if matches!(context.cell.lift, Lift::ByRef | Lift::ByValue) {
         writer.open(format!("impl support::Counted for {payload} {{"));
         writer.open("fn count(&self) -> u64 {");

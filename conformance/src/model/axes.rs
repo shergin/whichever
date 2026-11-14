@@ -327,6 +327,32 @@ axis! {
     }
 }
 
+axis! {
+    /// The conversions the subject's attribute writes, and which the law
+    /// checks (options.md).
+    pub enum Conversion {
+        /// The default `From` per payload, unchecked.
+        Unchecked = "none",
+        /// The default `From` per payload, checked, and its absence where
+        /// the docs say none is written, proven by a hand-written impl.
+        From = "from",
+        /// `from = false`, its absence proven.
+        FromOff = "from-off",
+        /// `try_from = true`.
+        Try = "try",
+        /// `try_from = ref`.
+        TryRef = "try-ref",
+        /// `try_from = ref_mut`.
+        TryMut = "try-mut",
+        /// `into = support::Sink`.
+        Into = "into",
+        /// `#[dispatch(from = false)]` on the first variant.
+        VariantFromOff = "variant-from-off",
+        /// `#[dispatch(try_from = true)]` on the first variant.
+        VariantTry = "variant-try",
+    }
+}
+
 impl Cfg {
     /// Returns the predicate the variant of a slot is under, if any.
     pub fn of(self, slot: usize) -> Option<&'static str> {

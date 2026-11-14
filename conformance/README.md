@@ -116,6 +116,16 @@ a const dispatched at the enum's own parameter, and a defaulted parameter
 left out. The law names a generic subject by an alias at the argument it
 takes it at, `type S = E<P0>;`.
 
+The `conv` axis checks the conversions the subject's attribute writes:
+`From` per payload, `from = false`, the three `try_from` forms, `into =
+support::Sink`, and the variant's own `from = false` and `try_from = true`.
+The law builds the enum through each `From` and takes each payload back
+through `TryFrom`, its own variant answering the payload and another
+handing the enum back. An impl the docs say is not written, beside a
+variant with other fields, on a struct or under `from = false`, is written
+by hand beside the subject, which compiles only if the attribute wrote
+none.
+
 ## Running it
 
 ```sh

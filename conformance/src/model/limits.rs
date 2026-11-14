@@ -40,6 +40,12 @@ pub enum Limit {
     BodyNeverRuns,
     /// `#[dispatch(*)]` over a variant that holds no payload.
     StarOverUnforwardable,
+    /// A conversion option on a struct.
+    StructConversion,
+    /// `into` beside a variant with other fields.
+    IntoOtherFields,
+    /// `into` beside a variant that holds no payload.
+    IntoWithoutPayload,
 }
 
 /// A catalogue entry.
@@ -78,6 +84,9 @@ impl Limit {
         Limit::DefaultWithoutDefault,
         Limit::BodyNeverRuns,
         Limit::StarOverUnforwardable,
+        Limit::StructConversion,
+        Limit::IntoOtherFields,
+        Limit::IntoWithoutPayload,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -164,6 +173,21 @@ impl Limit {
                 "is forwarded to every variant, but",
                 "inherent_all_with_unforwardable",
             ),
+            Limit::StructConversion => entry(
+                "struct-conversion",
+                "are options of an enum; a struct gets no conversions",
+                "struct_from_option",
+            ),
+            Limit::IntoOtherFields => entry(
+                "into-other-fields",
+                "has other fields beside its payload, or is left out",
+                "into_with_a_marked_variant",
+            ),
+            Limit::IntoWithoutPayload => entry(
+                "into-without-payload",
+                "`into` converts every variant's payload",
+                "into_with_a_unit_variant",
+            ),
             Limit::UnsuppliedType => Entry {
                 keeps_impl: false,
                 ..entry(
@@ -180,7 +204,12 @@ impl Limit {
     /// that leaves the method's other arms written.
     pub fn is_of_method(self) -> bool {
         match self {
-            Limit::UnitVariant | Limit::TwoFields | Limit::UnsuppliedType => false,
+            Limit::UnitVariant
+            | Limit::TwoFields
+            | Limit::UnsuppliedType
+            | Limit::StructConversion
+            | Limit::IntoOtherFields
+            | Limit::IntoWithoutPayload => false,
             Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
             | Limit::OpaqueReturn

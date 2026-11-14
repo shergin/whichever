@@ -7,6 +7,7 @@
 
 pub mod argument;
 pub mod axes;
+pub mod conversion;
 pub mod generics;
 pub mod home;
 pub mod item;
@@ -19,8 +20,8 @@ pub mod target;
 mod verdict;
 
 pub use axes::{
-    Argument, Callee, Cfg, Generics, Home, Item, Lift, Path, Qualifier, Receiver, Return, Second,
-    Target,
+    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier, Receiver,
+    Return, Second, Target,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -224,6 +225,39 @@ impl Cell {
             };
         }
         argument
+    }
+
+    /// Returns the slots whose stored type the subject's attribute writes
+    /// `From` for: the variants of one unnamed field, each type held once,
+    /// none on a struct (options.md, routes.md, structs.md).
+    pub fn from_slots(&self) -> Vec<Slot> {
+        let conversion = self.conv.descriptor();
+        if !conversion.from || self.s0.descriptor().is_struct() {
+            return Vec::new();
+        }
+        self.slots()
+            .into_iter()
+            .filter(|slot| !(conversion.first_left_out && slot.index == 0))
+            .filter(|slot| {
+                slot.target()
+                    .is_some_and(|(_, target)| target.form == target::Form::Single)
+            })
+            .collect()
+    }
+
+    /// Returns the slots whose payload the subject's attribute writes
+    /// `TryFrom<Enum>` for.
+    pub fn try_slots(&self) -> Vec<Slot> {
+        let conversion = self.conv.descriptor();
+        self.live_slots()
+            .into_iter()
+            .map(|(slot, _, _)| slot)
+            .filter(|slot| match (conversion.try_from, conversion.first_try) {
+                (Some(_), _) => !(conversion.first_left_out && slot.index == 0),
+                (None, true) => slot.index == 0,
+                (None, false) => false,
+            })
+            .collect()
     }
 
     /// Returns whether `with = Into::into` rebuilds the enum from what a

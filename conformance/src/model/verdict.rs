@@ -24,8 +24,8 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
 use super::{
-    Argument, Callee, Cfg, Generics, Home, Item, Lift, Qualifier, Receiver, Return, Second, Slot,
-    Target, Verdict,
+    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver, Return,
+    Second, Slot, Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -52,6 +52,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // The generics are the trait's and its impl's, which an inherent
     // method's arms do not name.
     if inherent && cell.generic != Generics::Bare {
+        return Verdict::NonCanonical;
+    }
+    // The conversions are options of the enum's own attribute; the model
+    // checks them where it names the trait, on a subject of no generics.
+    let converted = cell.conv != Conversion::Unchecked;
+    if converted && (cell.path != super::Path::Attribute || cell.generic != Generics::Bare) {
         return Verdict::NonCanonical;
     }
     // A struct subject has its one field and no second variant.
@@ -158,6 +164,7 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.item == Item::Bare
         && cell.home == Home::Local
         && cell.generic == Generics::Bare
+        && cell.conv == Conversion::Unchecked
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -179,6 +186,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     let path = cell.path.descriptor();
     if let Some(reason) = unpredicted_generics(cell) {
+        return Some(reason);
+    }
+    if let Some(reason) = unpredicted_conversions(cell) {
         return Some(reason);
     }
     if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
@@ -358,6 +368,55 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     if qualifier.provided && !node.has_default() {
         return Some("a default body that would need a payload to make its answer");
+    }
+    None
+}
+
+/// The conversions the model checks: over payloads it builds by value,
+/// in a build that holds every variant.
+fn unpredicted_conversions(cell: &Cell) -> Option<&'static str> {
+    let conversion = cell.conv.descriptor();
+    if !conversion.checked {
+        return None;
+    }
+    let live = cell.live_slots();
+    if live.iter().any(|(_, _, target)| target.borrows()) {
+        return Some(
+            "conversions of a subject that borrows, whose payloads the law cannot hand over",
+        );
+    }
+    if cell.cfg != Cfg::Absent {
+        return Some("conversions beside variants under `#[cfg]`");
+    }
+    let is_struct = cell.s0.descriptor().is_struct();
+    if is_struct && conversion.variant_option.is_some() {
+        return Some("a variant's conversion option on a struct, which has no variant");
+    }
+    // Open question: the docs name `TryFrom` "for every payload type", and
+    // `into` converts "each payload"; for a variant that stores a pointer,
+    // a wrapper or a pair, whether that is the stored type or the target is
+    // not said.
+    let plain = live.iter().all(|(_, target, _)| *target == Target::Plain);
+    let tries = conversion.try_from.is_some() || conversion.first_try;
+    if tries && !plain && !is_struct {
+        return Some("`TryFrom` over a variant that stores more than its payload");
+    }
+    if conversion.variant_option.is_some() && cell.s0 != Target::Plain {
+        return Some("a variant's conversion option beside a variant option of its own");
+    }
+    if conversion.into && !is_struct {
+        let reached = live.iter().all(|(_, target, descriptor)| {
+            *target == Target::Plain || (descriptor.has_other_fields() && !descriptor.is_routed())
+        });
+        let pair = cell
+            .slots()
+            .iter()
+            .any(|slot| slot.variant == super::SlotVariant::Pair);
+        if !reached || pair {
+            return Some(
+                "`into` over a variant that stores more than its payload, or several fields",
+            );
+        }
     }
     None
 }
@@ -676,6 +735,28 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         for (slot, _, target) in &method_live {
             if target.ends_in_method() {
                 expect(Limit::MethodRouteOnMutSelf, Anchor::Variant(slot.index));
+            }
+        }
+    }
+
+    // "`from`, `try_from` and `into` are options of an enum; a struct gets
+    // no conversions" (struct_from_option), and `into` "converts every
+    // variant's payload" (options.md), which a variant with other fields or
+    // none does not hold alone.
+    let conversion = cell.conv.descriptor();
+    if one_arm && conversion.option.is_some() {
+        expect(Limit::StructConversion, Anchor::Attribute);
+    }
+    if conversion.into && !one_arm {
+        for slot in &slots {
+            match slot.variant {
+                super::SlotVariant::Unit => expect(Limit::IntoWithoutPayload, Anchor::Attribute),
+                super::SlotVariant::Pair => {}
+                super::SlotVariant::Live(target) => {
+                    if target.descriptor().has_other_fields() {
+                        expect(Limit::IntoOtherFields, Anchor::Attribute);
+                    }
+                }
             }
         }
     }

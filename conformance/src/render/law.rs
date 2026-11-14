@@ -50,6 +50,7 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     if present {
         write_mismatch(writer, context);
     }
+    super::conversions::write_law(writer, context);
     writer.close("};");
     writer.close("}");
     for test in tests {

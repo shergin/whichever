@@ -202,6 +202,17 @@ suite generics
   never 384 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 560 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
+suite conversions
+  pass 152
+  limit 102
+  rejected 0
+  malformed 0
+  never 90 non-canonical
+  never 208 unmodelled: `TryFrom` over a variant that stores more than its payload
+  never 44 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 48 unmodelled: a variant's conversion option beside a variant option of its own
+  never 4 unmodelled: a variant's conversion option on a struct, which has no variant
+
 suite items
   pass 470
   limit 418
@@ -212,37 +223,37 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite pinned
-  pass 39
+  pass 45
   limit 1
   rejected 2
   malformed 0
 
 suite array
-  pass 4275
+  pass 4366
   limit 0
   rejected 0
   malformed 0
-  rows 4275
-  covered 48797
-  unreached 26792
+  rows 4366
+  covered 49459
+  unreached 27102
 
 suite array-limits
   pass 0
-  limit 278
+  limit 386
   rejected 0
   malformed 0
-  rows 278
-  covered 4422
-  unreached 803
+  rows 386
+  covered 5067
+  unreached 1130
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 536
+  rejected 593
   malformed 0
-  rows 536
-  covered 4109
-  unreached 1116
+  rows 593
+  covered 4583
+  unreached 1614
 
 suite known
   pass 18

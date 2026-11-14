@@ -101,3 +101,14 @@ qual=provided generic=concrete
 ret=self generic=own
 qual=provided path=block-default generic=defaulted
 home=crate generic=concrete
+
+# Conversions: `From` checked and its absence proven by a hand-written impl
+# beside a marked variant and on a struct, the by-reference `TryFrom` forms
+# and `into` (conversions), with the trait in another crate, and a
+# variant's own `try_from`.
+s0=marked-tuple conv=from
+s0=struct s1=none conv=from
+conv=try-mut
+home=crate conv=into
+conv=variant-try
+conv=variant-from-off

@@ -281,6 +281,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "conversions",
+        summary: "the `From`, `TryFrom` and `into` impls over the variants that take part and those that do not, with the trait at home and in another crate",
+        vary: &[
+            ("conv", &[]),
+            ("s0", &["plain", "deref-box", "deref-rc", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box", "marked-struct"]),
+            ("home", &["local", "crate"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "items",
         summary: "the attributes on the trait's method through every path, over the qualifiers, second variants and receivers a block's mark or a carried attribute meets",
         vary: &[

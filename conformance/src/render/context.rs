@@ -473,6 +473,9 @@ impl Context {
         if self.generics.payload && live > 1 {
             options.push(String::from("from = false"));
         }
+        if let Some(option) = self.cell.conv.descriptor().option {
+            options.push(String::from(option));
+        }
         let forwarded = self.path.form == PathForm::Forwarded && !self.inherent();
         if forwarded && self.argument.kind.is_some() && self.argument.mismatch == MismatchSite::Enum
         {

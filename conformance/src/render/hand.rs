@@ -201,6 +201,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.close("}");
     }
     writer.blank();
+    super::conversions::write_hand(writer, context);
     // `with = Into::into` rebuilds the enum through the `From` impls the
     // subject's attribute writes, which the hand writes for its own enum.
     let rebuilds = context.inherent()

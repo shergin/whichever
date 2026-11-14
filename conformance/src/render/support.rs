@@ -34,6 +34,11 @@ impl Format for Json {
     type Value = u64;
 }
 
+/// What `into = support::Sink` converts the enum into: the slot of the
+/// payload it came from, and its state.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Sink(pub u64, pub u64);
+
 /// The error a payload answers with.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Fault(pub u64);

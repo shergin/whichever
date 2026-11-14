@@ -6,6 +6,7 @@
 //! verdict, rather than with `quote!`.
 
 pub mod context;
+mod conversions;
 mod declarations;
 mod hand;
 mod law;

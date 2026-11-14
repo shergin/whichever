@@ -91,11 +91,17 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
             if let Some(attribute) = attribute {
                 writer.line(attribute);
             }
+            let conversion = context.cell.conv.descriptor().variant_option;
+            if let (0, Some(option)) = (slot.index, conversion) {
+                writer.line(format!("#[dispatch({option})]"));
+            }
             writer.anchor(Anchor::Variant(slot.index).name());
             writer.line(declaration);
         }
         writer.close("}");
     }
+    writer.blank();
+    super::conversions::write_proofs(writer, context);
     if block {
         writer.blank();
         write_block(writer, context, &arguments[1..]);
