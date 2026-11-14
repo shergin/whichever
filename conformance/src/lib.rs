@@ -46,7 +46,9 @@
 //!    failure says which of the two is wrong.
 //! 3. **The shape.** The expansion performs the operations the hand
 //!    performs, arm by arm and in the same order, and nothing else: no
-//!    closure, no call the hand does not make ([`shape`]).
+//!    closure, no call the hand does not make ([`shape`]). Its methods
+//!    carry the attributes the hand's carry, and the impl the subject's
+//!    attribute writes is `#[automatically_derived]`.
 //! 4. **The census.** The number of cells each suite holds, by verdict, is
 //!    pinned in `census.txt`, so a constraint that silently empties a suite
 //!    shows as a diff ([`ledger`]).

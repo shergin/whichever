@@ -71,7 +71,21 @@ trait and the payloads.
 
 The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
-target or a field of it, and what `with` wraps the result in.
+target or a field of it, and what `with` wraps the result in. An inherent
+method's `Self` argument is the enum, handed over as it is, which the
+payload's method takes as any implementor of the trait; on a struct it is
+the other value's field. Under `value` the two variants hold one payload
+type, each reaching it as its target kind does. `with = Into::into` names
+the enum in the return type and rebuilds it through the `From` impls the
+attribute writes, which the hand writes for its own enum.
+
+The `item` axis is the attributes on the trait's method: a `#[cfg]` that
+holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature
+trips, and its own `#[inline(..)]`. Every impl that repeats the signature,
+a block's mark on `m` included, carries the method's `#[cfg]` and its
+`#[allow]`, as a hand writes them. A method under a `#[cfg]` that does not
+hold exists in no build: its sentences and rejections are dropped, the
+hand writes none of it, and the law checks the control method alone.
 
 Two values of `s0`, `struct` and `struct-marked`, make the subject a
 struct: one field, or a field marked `#[dispatch]` beside a label. A struct
@@ -104,7 +118,10 @@ checked again rendered with its hand alone, so that its hand's law still
 runs and the divergence is known to be the macro's, and the check repeats
 until the passing shards are clean; then `cargo test` runs their laws.
 `--shape` expands every passing shard with `cargo expand` and compares the
-operations of each forwarded method with its hand's; `--random N --seed S`
+operations of each forwarded method with its hand's, and its attributes:
+`#[inline]` or the trait method's own, what the trait method passes on, and
+nothing on an inherent method the user did not write; and that the impl
+the subject's attribute writes is `#[automatically_derived]`; `--random N --seed S`
 adds N random cells of the three classes for a soak run, outside the
 census. `--whichever PATH` judges another checkout, an older release
 exported with `git archive` or a mutated copy, with the same model. `--jobs
@@ -141,8 +158,10 @@ An outcome is `pass` or a list of findings:
 - `warning:LINT@PART`, a warning;
 - `law:subject` or `law:hand`, a failed test of the law; the message is the
   panic's first line;
-- `shape:METHOD`, a forwarded method whose operations differ from the
-  hand's under `--shape`; the message lists the differences.
+- `shape:METHOD`, a forwarded method whose operations or attributes
+  differ from the hand's under `--shape`, or `shape:impl`, an impl the
+  subject's attribute writes without `#[automatically_derived]`; the
+  message lists the differences.
 
 An error whose span covers an attribute line of the cell is in the part
 `attribute`, whatever part the line is in.

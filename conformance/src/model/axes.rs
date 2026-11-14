@@ -2,8 +2,8 @@
 //!
 //! Each axis is declared here with its values and words; what a value
 //! means is its descriptor, in the module of its kind: [`super::target`],
-//! [`super::receiver`], [`super::shape`], [`super::argument`] and
-//! [`super::qualifier`].
+//! [`super::receiver`], [`super::returns`], [`super::argument`],
+//! [`super::qualifier`], [`super::path`] and [`super::item`].
 
 use crate::axis;
 
@@ -269,6 +269,27 @@ axis! {
         /// Every variant under `#[cfg(all())]`, so the enum may be empty in
         /// some build and is matched by place.
         EveryOn = "every-on",
+    }
+}
+
+axis! {
+    /// The attributes on the trait's method under test.
+    pub enum Item {
+        /// No attribute.
+        Bare = "none",
+        /// `#[cfg(all())]`: the method exists in this build.
+        CfgOn = "cfg-on",
+        /// `#[cfg(any())]`: the method exists in no build, and only the
+        /// rest of the trait is forwarded.
+        CfgOff = "cfg-off",
+        /// `#[deprecated]`.
+        Deprecated = "deprecated",
+        /// `#[allow(non_snake_case)]`, beside an argument the lint would
+        /// otherwise warn of.
+        Allow = "allow",
+        /// `#[inline(always)]`, which the forwarding takes instead of
+        /// `#[inline]`.
+        Inline = "inline-always",
     }
 }
 

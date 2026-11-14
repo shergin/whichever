@@ -56,39 +56,37 @@ suite value-method-route
   never 8 unmodelled: a reference return that borrows from the `Self` argument
 
 suite paths
-  pass 869
-  limit 1670
+  pass 1084
+  limit 1541
   rejected 0
   malformed 9
-  never 567 non-canonical
+  never 1295 non-canonical
   never 256 unmodelled: a block body for a future return
   never 192 unmodelled: a block body for a return type that needs a payload to make
   never 1512 unmodelled: a default body that would need a payload to make its answer
-  never 9 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
-  never 184 unmodelled: an inherent body for a return type that needs a payload to make
-  never 348 unmodelled: an inherent method that is generic, unsafe or provided
-  never 576 unmodelled: an inherent method with a receiver other than `&self`, `&mut self` or `self`
-  never 208 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+  never 15 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 152 unmodelled: an inherent body for a return type that needs a payload to make
+  never 344 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite path-arguments
-  pass 657
-  limit 594
+  pass 822
+  limit 618
   rejected 0
   malformed 0
+  never 144 non-canonical
   never 108 unmodelled: a mismatch expression for a return type that needs a payload to make
-  never 9 unmodelled: an inherent body for a return type that needs a payload to make
-  never 360 unmodelled: an inherent method with a `Self` argument, which is the enum itself
+  never 36 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent
-  pass 920
+  pass 980
   limit 706
   rejected 114
   malformed 0
   never 1224 non-canonical
   never 18 unmodelled: a limit beside a rejection the limit does not replace
-  never 168 unmodelled: a struct's inherent block or a block method naming its fields, not modelled yet
-  never 112 unmodelled: an `async fn` that returns a future
-  never 1458 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 84 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 118 unmodelled: an `async fn` that returns a future
+  never 1476 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
   never 728 unmodelled: an inherent body for a return type that needs a payload to make
   never 208 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
   never 56 unmodelled: an inherent method through a route whose method yields its target
@@ -104,16 +102,42 @@ suite inherent-places
   never 80 unmodelled: a function lift handed a place reached through a route
 
 suite inherent-calls
-  pass 594
-  limit 226
+  pass 726
+  limit 266
   rejected 0
   malformed 0
   never 192 non-canonical
-  never 736 unmodelled: a function lift over an answer of another type
   never 192 unmodelled: a lift over a future
-  never 352 unmodelled: a lift through `Into::into`, not modelled yet
+  never 916 unmodelled: a lift over an answer the lift does not take
   never 396 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
   never 192 unmodelled: an inherent body for a return type that needs a payload to make
+
+suite inherent-scope
+  pass 1156
+  limit 484
+  rejected 0
+  malformed 0
+  never 320 non-canonical
+  never 80 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 360 unmodelled: an inherent turbofish beside a `Self` argument the payload takes as a type parameter
+
+suite inherent-into
+  pass 326
+  limit 222
+  rejected 32
+  malformed 0
+  never 420 non-canonical
+  never 282 unmodelled: a lift over an answer the lift does not take
+  never 30 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 128 unmodelled: an inherent body for a return type that needs a payload to make
+
+suite inherent-shared
+  pass 417
+  limit 39
+  rejected 0
+  malformed 0
+  never 96 non-canonical
+  never 24 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
 
 suite structs
   pass 699
@@ -150,42 +174,52 @@ suite cfg
   never 170 non-canonical
   never 102 unmodelled: an enum with no variant in this build
 
-suite pinned
-  pass 10
-  limit 1
+suite items
+  pass 470
+  limit 418
   rejected 0
+  malformed 0
+  never 288 non-canonical
+  never 108 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
+  never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
+
+suite pinned
+  pass 28
+  limit 1
+  rejected 2
   malformed 0
 
 suite array
-  pass 4103
+  pass 4236
   limit 0
   rejected 0
   malformed 0
-  rows 4103
-  covered 49489
-  unreached 40783
+  rows 4236
+  covered 48041
+  unreached 26733
 
 suite array-limits
   pass 0
-  limit 260
+  limit 276
   rejected 0
   malformed 0
-  rows 260
-  covered 3171
-  unreached 675
+  rows 276
+  covered 3721
+  unreached 689
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 432
+  rejected 511
   malformed 0
-  rows 432
-  covered 2645
-  unreached 1201
+  rows 511
+  covered 3437
+  unreached 973
 
 suite known
-  pass 15
-  limit 1
+  pass 18
+  limit 3
   rejected 1
   malformed 0
   never 2 non-canonical
+  never 2 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait

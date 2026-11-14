@@ -7,6 +7,7 @@
 
 pub mod argument;
 pub mod axes;
+pub mod item;
 pub mod limits;
 pub mod path;
 pub mod qualifier;
@@ -15,7 +16,9 @@ pub mod returns;
 pub mod target;
 mod verdict;
 
-pub use axes::{Argument, Callee, Cfg, Lift, Path, Qualifier, Receiver, Return, Second, Target};
+pub use axes::{
+    Argument, Callee, Cfg, Item, Lift, Path, Qualifier, Receiver, Return, Second, Target,
+};
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
 
@@ -119,6 +122,9 @@ pub struct Slot {
     pub variant: SlotVariant,
     /// The predicate of the `#[cfg]` the variant is under, if any.
     pub cfg: Option<&'static str>,
+    /// The slot whose payload type the variant holds: its own, or the
+    /// first slot's where two variants hold one type.
+    pub holds: usize,
 }
 
 impl Slot {
@@ -129,7 +135,13 @@ impl Slot {
 
     /// Returns the name of the slot's payload type.
     pub fn payload(&self) -> String {
-        format!("P{}", self.index)
+        format!("P{}", self.holds)
+    }
+
+    /// Returns whether the slot holds the payload type of another, which
+    /// is then declared once, with that slot.
+    pub fn holds_another(&self) -> bool {
+        self.holds != self.index
     }
 
     /// Returns the name of the slot's wrapper type.
@@ -162,6 +174,7 @@ impl Cell {
             index: 0,
             variant: SlotVariant::Live(self.s0),
             cfg: self.cfg.of(0),
+            holds: 0,
         }];
         let second = match self.s1.slot() {
             SecondSlot::Absent => return slots,
@@ -169,12 +182,57 @@ impl Cell {
             SecondSlot::Unit => SlotVariant::Unit,
             SecondSlot::Pair => SlotVariant::Pair,
         };
+        let holds = match (second, self.shares_payload()) {
+            (SlotVariant::Live(_), true) => 0,
+            (SlotVariant::Live(_) | SlotVariant::Unit | SlotVariant::Pair, _) => 1,
+        };
         slots.push(Slot {
             index: 1,
             variant: second,
             cfg: self.cfg.of(1),
+            holds,
         });
         slots
+    }
+
+    /// Returns the `Self` argument as the forwarding reaches into it: an
+    /// inherent method over an enum hands the enum over as it is
+    /// (inherent-methods.md), so no variant's target is reached through it.
+    pub fn reached_argument(&self) -> argument::ArgumentDescriptor {
+        let argument = self.arg.descriptor();
+        let inherent = self.path.descriptor().site == path::Site::Inherent;
+        if inherent && !self.s0.descriptor().is_struct() {
+            return argument::ArgumentDescriptor {
+                kind: None,
+                ..argument
+            };
+        }
+        argument
+    }
+
+    /// Returns whether `with = Into::into` rebuilds the enum from what a
+    /// payload's method returning `Self` answers: every variant the method
+    /// reaches holds its payload as it is, so the enum's attribute writes a
+    /// `From` impl for it, and the enum takes no lifetime the return type
+    /// would have to name (options.md, structs.md).
+    pub fn into_rebuilds(&self) -> bool {
+        let converts = self
+            .method_slots()
+            .iter()
+            .all(|(_, target, _)| *target == Target::Plain);
+        let borrows = self
+            .live_slots()
+            .iter()
+            .any(|(_, _, target)| target.borrows());
+        converts && !borrows && !self.s0.descriptor().is_struct()
+    }
+
+    /// Returns whether the two variants hold one payload type: an inherent
+    /// method that answers the target itself, `value`, declares one type
+    /// for every arm, so the targets of different variants have to be one
+    /// type, reached as each variant reaches it (inherent-methods.md).
+    pub fn shares_payload(&self) -> bool {
+        self.path.descriptor().site == path::Site::Inherent && self.callee == Callee::Value
     }
 
     /// Returns whether every variant is under `#[cfg]`, so that the enum
@@ -203,8 +261,12 @@ impl Cell {
             .collect()
     }
 
-    /// Returns the live slots the method under test is forwarded to.
+    /// Returns the live slots the method under test is forwarded to: none
+    /// where the method does not exist in this build.
     pub fn method_slots(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
+        if !self.method_present() {
+            return Vec::new();
+        }
         let form = self.path.descriptor().form;
         self.live_slots()
             .into_iter()
@@ -218,12 +280,21 @@ impl Cell {
 
     /// Returns whether the control method is forwarded to every variant;
     /// otherwise it names the first, `#[dispatch(A)]` with a body for the
-    /// rest, which is how a block reaches a variant holding no payload.
+    /// rest, which is how a block reaches a variant holding no payload
+    /// (partial-impl-blocks.md), so that only the method under test meets
+    /// that variant. A block always does so where some variant holds no
+    /// payload, so that a mark on the method under test is the one thing
+    /// that meets the variant.
     pub fn base_reaches_all(&self) -> bool {
-        let path = self.path.descriptor();
-        let first = path.form == path::Form::First && path.site == path::Site::Block;
+        let block = self.path.descriptor().site == path::Site::Block;
         let unreachable = self.slots().iter().any(|slot| slot.target().is_none());
-        !(first && unreachable)
+        !(block && unreachable)
+    }
+
+    /// Returns whether the method under test exists in this build: the
+    /// trait declares it under no `#[cfg]` or under one that holds.
+    pub fn method_present(&self) -> bool {
+        self.item.descriptor().present
     }
 
     /// Returns the live slots the control method is forwarded to.

@@ -32,3 +32,50 @@ s1=none ret=ref path=inherent callee=field lift=some
 # An inherent arm on a `deref` variant dereferenced the result, not the
 # payload (inherent-arm-on-a-deref-variant, the exact survey).
 s0=deref-box path=inherent
+
+# A route ending in a method that lends its target, under `self` by value,
+# on either variant: rustc's E0277 lands on a span from the trait to the
+# enum, the attribute included, where the method is generic and returns an
+# associated type.
+s0=via-method recv=value ret=assoc qual=turbofish
+s1=via-method recv=value ret=assoc qual=turbofish
+# A sentence about the second variant, compiled out, under `self:
+# Box<Self>`, where the first variant holds a `Box` and takes no sentence.
+s0=deref-box recv=box cfg=second-off
+
+# An `#[allow]` on the trait method reaches the generated method
+# (lint-attributes-do-not-reach-generated-code, the forest-filecoin survey).
+item=allow
+path=block-star item=allow
+# The trait method's own `#[inline(..)]` on the forwarding
+# (carried_attributes), through a mark.
+qual=provided path=block-star item=inline-always
+qual=provided path=block-some item=inline-always
+# A `#[dispatch(default)]` mark, or a method the block writes, under
+# `#[cfg]` (cfg-on-partial-block-default-is-ignored, the martin-core
+# survey; cfg-disabled-partial-block-method-hides-the-payload, the lsm-tree
+# survey), here under the trait method's own `#[cfg]` beside a variant
+# holding no single payload (the mp4-atom survey).
+s1=unit qual=provided path=block-default item=cfg-on
+s1=pair path=block-some item=cfg-on
+s1=unit path=block-written cfg=second-on item=cfg-on
+s1=pair path=block-written cfg=second-on item=cfg-on
+# A `mismatch` option for a method the trait declares under a `#[cfg]`
+# that does not hold.
+arg=ref-enum item=cfg-off
+arg=value item=cfg-off
+arg=ref-enum path=block item=cfg-off
+arg=value path=block item=cfg-off
+
+# `value` over two variants that hold one type, one reached through a
+# route and one a marked field (marked-field-value-not-borrowed, the
+# acadrust survey).
+s0=via-field s1=marked-struct path=inherent callee=value
+s0=deref-box s1=marked-tuple recv=mut ret=ref path=inherent callee=value
+# A `Self` argument of an inherent method on a struct is unwrapped to the
+# other value's field (inherent-struct-dispatch-passes-self-arguments-through,
+# the dash-num survey); on an enum it is the enum, handed over as it is.
+s0=struct s1=none recv=value ret=self arg=value path=inherent
+arg=ref-bare path=inherent
+# `with = Into::into` rebuilds the enum through its `From` impls.
+ret=self path=inherent lift=into

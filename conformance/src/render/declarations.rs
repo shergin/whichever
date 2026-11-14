@@ -18,7 +18,8 @@ pub fn write_trait(writer: &mut Writer, context: &Context) {
     }
     writer.line("/// The control method, which every subject forwards.");
     writer.line(format!("{};", context.base_signature()));
-    if context.argument.kind.is_some() && context.argument.mismatch == MismatchSite::Trait {
+    let mismatched = context.argument.kind.is_some() && !context.inherent();
+    if mismatched && context.argument.mismatch == MismatchSite::Trait {
         writer.line(format!(
             "#[dispatch(mismatch = {})]",
             context.mismatch("Self")
@@ -27,6 +28,9 @@ pub fn write_trait(writer: &mut Writer, context: &Context) {
     if context.inherent() {
         writer.close("}");
         return;
+    }
+    if let Some(attribute) = context.item.attribute {
+        writer.line(format!("#[{attribute}]"));
     }
     writer.anchor(Anchor::Method.name());
     let signature = context.signature(Site::Trait);
@@ -96,7 +100,7 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
     match context.path.form {
         PathForm::First => {
             writer.open(format!("{signature} {{"));
-            writer.line(context.unused(false));
+            writer.line(context.unused(Site::Inherent, true));
             writer.line(context.declared_constant());
             writer.close("}");
         }
@@ -109,6 +113,7 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
 
 /// Writes the partial impl block a block path holds.
 fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
+    writer.anchor(Anchor::BlockAttribute.name());
     match options.is_empty() {
         true => writer.line("#[whichever::dispatch]"),
         false => writer.line(format!("#[whichever::dispatch({})]", options.join(", "))),
@@ -122,9 +127,20 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         writer.close("}");
     }
     if context.path.in_block {
+        // A mark, or a method the block writes, is under the trait method's
+        // own `#[cfg]`, as a hand writes the item (partial-impl-blocks.md).
+        if let Some(predicate) = context.item.cfg {
+            writer.line(format!("#[cfg({predicate})]"));
+        }
         writer.anchor(Anchor::BlockMethod.name());
         if let Some(mark) = context.path.mark {
             writer.line(format!("#[dispatch({mark})]"));
+        }
+        // A body the block writes repeats the signature the trait allows a
+        // lint on, so it allows the lint too.
+        let bodied = matches!(context.path.form, PathForm::First | PathForm::Written);
+        if let (true, Some(lint)) = (bodied, context.item.allowed) {
+            writer.line(format!("#[allow({lint})]"));
         }
         let signature = context.signature(Site::Impl);
         writer.anchor(Anchor::BlockSignature.name());
@@ -132,7 +148,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
             PathForm::Forwarded | PathForm::Default => writer.line(format!("{signature};")),
             PathForm::First | PathForm::Written => {
                 writer.open(format!("{signature} {{"));
-                writer.line(context.unused(context.path.form == PathForm::Written));
+                writer.line(context.unused(Site::Impl, context.path.form == PathForm::Written));
                 writer.line(context.mismatch("E"));
                 writer.close("}");
             }

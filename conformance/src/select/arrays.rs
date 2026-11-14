@@ -56,28 +56,64 @@ pub struct Array {
     pub name: &'static str,
     /// The class of its cells.
     pub class: Class,
-    /// How many axes meet in every combination.
-    pub strength: usize,
+    /// What it covers: the axes, by name, and how many of them meet in
+    /// every combination; no axis named is every axis.
+    pub demands: &'static [(&'static [&'static str], usize)],
 }
+
+/// The axes whose triples the passing cells cover: how a variant reaches
+/// its target, how the method is unwrapped, answered and reached, and the
+/// variants' `#[cfg]`. Every axis meets every other in pairs; strength 3
+/// over every axis grows with the product of the axes added, and the
+/// meetings of three the zones do not hold are these axes'.
+const STRONG: &[&str] = &[
+    "path", "callee", "lift", "s0", "s1", "recv", "ret", "arg", "cfg",
+];
 
 /// Every array suite.
 pub const ARRAYS: &[Array] = &[
     Array {
         name: "array",
         class: Class::Pass,
-        strength: 3,
+        demands: &[(STRONG, 3), (&[], 2)],
     },
     Array {
         name: "array-limits",
         class: Class::SingleLimit,
-        strength: 2,
+        demands: &[(&[], 2)],
     },
     Array {
         name: "array-rejected",
         class: Class::Rejected,
-        strength: 2,
+        demands: &[(&[], 2)],
     },
 ];
+
+/// Returns an array's demands, the axes named by index.
+fn demands(array: &Array) -> Vec<Demand> {
+    array
+        .demands
+        .iter()
+        .map(|(names, strength)| {
+            let axes = match names.is_empty() {
+                true => (0..Cell::AXES.len()).collect(),
+                false => names
+                    .iter()
+                    .map(|name| {
+                        Cell::AXES
+                            .iter()
+                            .position(|axis| axis.name == *name)
+                            .expect("an array names the cells' axes")
+                    })
+                    .collect(),
+            };
+            Demand {
+                axes,
+                strength: *strength,
+            }
+        })
+        .collect()
+}
 
 /// What an array's covering found, for the census.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -137,10 +173,7 @@ pub fn build(array: &Array, held: &[Cell]) -> (Selection, Coverage) {
         base: &base_row,
         valid: &valid,
     };
-    let demands = [Demand {
-        axes: (0..domains.len()).collect(),
-        strength: array.strength,
-    }];
+    let demands = demands(array);
     let held_rows: Vec<Vec<usize>> = held.iter().map(Cell::row).collect();
     let covering = covering::cover(&space, &demands, &held_rows, SEED, Effort::default());
     let cells: Vec<Cell> = covering
@@ -159,6 +192,15 @@ pub fn build(array: &Array, held: &[Cell]) -> (Selection, Coverage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_array_names_axes_that_exist() {
+        for array in ARRAYS {
+            for demand in demands(array) {
+                assert!(!demand.axes.is_empty() && demand.strength <= demand.axes.len());
+            }
+        }
+    }
 
     #[test]
     fn every_class_has_a_base_cell() {

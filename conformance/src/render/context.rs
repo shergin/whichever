@@ -3,6 +3,7 @@
 
 use crate::cell::Cell;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
+use crate::model::item::ItemDescriptor;
 use crate::model::path::{Form as PathForm, PathDescriptor};
 use crate::model::qualifier::{Generic, QualifierDescriptor};
 use crate::model::receiver::{Lends, ReceiverDescriptor};
@@ -51,6 +52,8 @@ pub struct Context {
     pub declared: Vec<Slot>,
     /// How the method reaches the subject.
     pub path: PathDescriptor,
+    /// The attributes on the trait's method under test.
+    pub item: ItemDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -69,8 +72,12 @@ pub enum Site {
     Trait,
     /// An impl of the trait.
     Impl,
-    /// A payload's inherent impl.
+    /// The subject's inherent impl.
     Inherent,
+    /// A payload's inherent impl. On an inherent path over an enum, its
+    /// `Self` argument is the enum, handed over as it is, which the payload
+    /// takes as any implementor of the trait.
+    Payload,
 }
 
 impl Context {
@@ -86,7 +93,28 @@ impl Context {
             slots: cell.slots(),
             declared: cell.declared_slots(),
             path: cell.path.descriptor(),
+            item: cell.item.descriptor(),
         }
+    }
+
+    /// Returns the name the method's `u64` argument has where the trait's
+    /// signature is repeated: in the trait and in its impls.
+    pub fn parameter(&self) -> &'static str {
+        self.item.parameter
+    }
+
+    /// Returns the attributes an item that repeats the trait method's
+    /// signature carries: its `#[cfg]`, and the lint the trait allows on
+    /// it.
+    pub fn repeated_attributes(&self) -> Vec<String> {
+        let mut attributes = Vec::new();
+        if let Some(predicate) = self.item.cfg {
+            attributes.push(format!("#[cfg({predicate})]"));
+        }
+        if let Some(lint) = self.item.allowed {
+            attributes.push(format!("#[allow({lint})]"));
+        }
+        attributes
     }
 
     /// Returns the live slots with their target descriptions.
@@ -188,8 +216,36 @@ impl Context {
     pub fn declared_signature(&self) -> String {
         format!(
             "pub {}",
-            self.signature_with(Site::Inherent, self.cell.declared_node(), "m")
+            self.signature_as(
+                Site::Inherent,
+                self.cell.declared_node(),
+                "m",
+                self.declared_this()
+            )
         )
+    }
+
+    /// Returns how the subject's inherent method spells `Self` in its return
+    /// type: by the enum's name where `with = Into::into` rebuilds the enum
+    /// from the payload's own type, as `fn into_static(self) ->
+    /// PlayableId<'static>` does (inherent-methods.md), and `Self`
+    /// otherwise.
+    ///
+    /// Open question: under `-> Self` the rule that "`with` lifts the
+    /// wrapped variant" would rewrap the payload's answer before converting
+    /// it, which is no rebuild; the docs' example names the enum, and so
+    /// does the model.
+    pub fn declared_this(&self) -> &'static str {
+        match self.cell.lift {
+            Lift::Into => "E",
+            Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => "Self",
+        }
+    }
+
+    /// Returns whether the method's `Self` argument is the enum handed over
+    /// as it is: an inherent method's over an enum (inherent-methods.md).
+    pub fn hands_the_enum(&self) -> bool {
+        self.inherent() && self.argument.kind.is_some() && !is_struct(&self.slots)
     }
 
     /// Returns the constant of the declared type an inherent method's body
@@ -221,9 +277,15 @@ impl Context {
     /// Returns a signature of the method under test, named `name` and
     /// returning `node`.
     pub fn signature_with(&self, site: Site, node: Node, name: &str) -> String {
+        self.signature_as(site, node, name, "Self")
+    }
+
+    /// Returns a signature of the method under test, named `name` and
+    /// returning `node`, with `Self` in the return type spelled `this`.
+    pub fn signature_as(&self, site: Site, node: Node, name: &str, this: &str) -> String {
         let associates = match site {
             Site::Trait | Site::Impl => Associates::Projection,
-            Site::Inherent => Associates::Qualified,
+            Site::Inherent | Site::Payload => Associates::Qualified,
         };
         let mut text = String::new();
         if self.qualifier.asyncness {
@@ -234,36 +296,53 @@ impl Context {
         }
         text.push_str("fn ");
         text.push_str(name);
+        let mut parameters: Vec<&str> = Vec::new();
         match self.qualifier.generic {
-            Some(Generic::Fixed) => text.push_str("<X: Into<u64>>"),
-            Some(Generic::Turbofish) => text.push_str("<W: support::Weight>"),
+            Some(Generic::Fixed) => parameters.push("X: Into<u64>"),
+            Some(Generic::Turbofish) => parameters.push("W: support::Weight"),
             None => {}
+        }
+        let enum_argument = site == Site::Payload && self.hands_the_enum();
+        if enum_argument {
+            parameters.push("O: Probe");
+        }
+        if !parameters.is_empty() {
+            text.push_str(&format!("<{}>", parameters.join(", ")));
         }
         text.push('(');
         text.push_str(self.receiver.spelling);
         if let Some(kind) = self.argument.kind {
             text.push_str(", other: ");
-            text.push_str(kind.spelling());
+            match enum_argument {
+                true => text.push_str(&kind.spelling().replace("Self", "O")),
+                false => text.push_str(kind.spelling()),
+            }
         }
         if self.takes_x() {
+            let name = match site {
+                Site::Trait | Site::Impl => self.parameter(),
+                Site::Inherent | Site::Payload => "x",
+            };
             match self.qualifier.generic {
-                Some(Generic::Fixed) => text.push_str(", x: X"),
-                Some(Generic::Turbofish) | None => text.push_str(", x: u64"),
+                Some(Generic::Fixed) => text.push_str(&format!(", {name}: X")),
+                Some(Generic::Turbofish) | None => text.push_str(&format!(", {name}: u64")),
             }
         }
         text.push(')');
         if node != Node::Unit {
             text.push_str(" -> ");
-            text.push_str(&spell(&node, "Self", associates));
+            text.push_str(&spell(&node, this, associates));
             // An inherent method's opaque return captures no lifetime it
             // does not name, so a borrowing receiver's is named, as the
             // golden `async_returns` writes it.
             let opaque = matches!(node.future(), Some((FutureKind::Opaque, _)));
-            if site == Site::Inherent && opaque && self.receiver.lends != Lends::Nothing {
+            let inherent = matches!(site, Site::Inherent | Site::Payload);
+            if inherent && opaque && self.receiver.lends != Lends::Nothing {
                 text.push_str(" + '_");
             }
         }
-        if self.needs_sized() && site != Site::Inherent {
+        let declared = matches!(site, Site::Trait | Site::Impl);
+        if self.needs_sized() && declared {
             text.push_str(" where Self: Sized");
         }
         text
@@ -283,7 +362,9 @@ impl Context {
                 options.push(format!("{} = support::Wide", associated.name()));
             }
         }
-        let forwarded = self.path.form == PathForm::Forwarded;
+        // An inherent method has no mismatch: its `Self` argument is the
+        // enum, handed over as it is.
+        let forwarded = self.path.form == PathForm::Forwarded && !self.inherent();
         if forwarded && self.argument.kind.is_some() && self.argument.mismatch == MismatchSite::Enum
         {
             options.push(format!("mismatch(m = {})", self.mismatch("E")));
@@ -298,16 +379,20 @@ impl Context {
     }
 
     /// Returns the statement a written body opens with, so that the
-    /// arguments it ignores are used: `x`, and the `Self` argument when
-    /// `with_other`, which a fallback arm cannot name since the `match`
-    /// takes it.
-    pub fn unused(&self, with_other: bool) -> &'static str {
+    /// arguments it ignores are used: `x`, by the name `site` gives it,
+    /// and the `Self` argument when `with_other`, which a fallback arm
+    /// cannot name since the `match` takes it.
+    pub fn unused(&self, site: Site, with_other: bool) -> String {
         if !self.takes_x() {
-            return "";
+            return String::new();
         }
+        let name = match site {
+            Site::Trait | Site::Impl => self.parameter(),
+            Site::Inherent | Site::Payload => "x",
+        };
         match self.argument.kind.is_some() && with_other {
-            true => "let _ = (other, x);",
-            false => "let _ = x;",
+            true => format!("let _ = (other, {name});"),
+            false => format!("let _ = {name};"),
         }
     }
 

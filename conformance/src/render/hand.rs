@@ -169,6 +169,15 @@ struct Method {
     /// Whether the `match` reads the enum by place, every variant being
     /// under `#[cfg]`, so a reference receiver's arms bind with `ref`.
     by_place: bool,
+    /// The attributes the method carries before its `#[inline]`.
+    attributes: Vec<String>,
+    /// Its `#[inline]`, without the `#[..]`.
+    inline: &'static str,
+    /// The name of its `u64` argument.
+    parameter: &'static str,
+    /// Whether its `Self` argument is handed over as it is, the enum
+    /// itself, rather than matched beside `self`.
+    hands_enum: bool,
 }
 
 /// Writes `mod hand`.
@@ -192,6 +201,22 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.close("}");
     }
     writer.blank();
+    // `with = Into::into` rebuilds the enum through the `From` impls the
+    // subject's attribute writes, which the hand writes for its own enum.
+    let rebuilds = context.inherent()
+        && context.cell.lift == Lift::Into
+        && context.cell.declared_node().holds_this();
+    if rebuilds {
+        for (slot, _, _) in context.cell.method_slots() {
+            let payload = slot.payload();
+            writer.open(format!("impl From<{payload}> for E {{"));
+            writer.open(format!("fn from(payload: {payload}) -> E {{"));
+            writer.line(format!("E::{}(payload)", slot.name()));
+            writer.close("}");
+            writer.close("}");
+            writer.blank();
+        }
+    }
     writer.open(format!("impl{generics} {TRAIT} for E{generics} {{"));
     for (associated, overridden) in context.associated() {
         let name = associated.name();
@@ -226,9 +251,25 @@ pub fn write(writer: &mut Writer, context: &Context) {
         lift: Lift::Bare,
         target: Node::Tag,
         by_place: context.cell.every_under_cfg() && context.base_receiver() != Receiver::Owned,
+        attributes: Vec::new(),
+        inline: "inline",
+        parameter: "x",
+        hands_enum: false,
     };
     write_method(writer, context, &base);
+    // The forwarding of a deprecated method calls it, so it is written
+    // under `#[allow(deprecated)]`, as a hand writes it
+    // (what-is-generated.md).
+    let mut attributes = context.repeated_attributes();
+    if context.item.deprecated {
+        attributes.push(String::from("#[allow(deprecated)]"));
+    }
     let fallback = match context.path.form {
+        // A method in no build has no arm to write.
+        PathForm::Forwarded | PathForm::First if !context.cell.method_present() => None,
+        // An inherent method's arms are written below, with the body it
+        // takes for the variants its mark leaves out.
+        PathForm::Forwarded | PathForm::First if context.inherent() => None,
         PathForm::Forwarded => context
             .argument
             .kind
@@ -236,7 +277,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
             .map(|_| context.mismatch("E")),
         PathForm::First => Some(format!(
             "{{ {} {} }}",
-            context.unused(false),
+            context.unused(Site::Impl, false),
             context.mismatch("E")
         )),
         PathForm::Default | PathForm::Written => None,
@@ -260,6 +301,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
         lift: context.cell.lift,
         target: context.cell.target_node(),
         by_place: context.cell.every_under_cfg() && context.cell.recv != Receiver::Owned,
+        attributes,
+        inline: context.item.inline,
+        parameter: context.parameter(),
+        hands_enum: false,
     };
     if method.inherent {
         writer.close("}");
@@ -268,7 +313,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let fallback = match context.path.form {
             PathForm::First => Some(format!(
                 "{{ {} {} }}",
-                context.unused(false),
+                context.unused(Site::Inherent, false),
                 context.declared_constant()
             )),
             PathForm::Forwarded | PathForm::Default | PathForm::Written => None,
@@ -276,6 +321,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let method = Method {
             signature: context.declared_signature(),
             fallback,
+            hands_enum: context.hands_the_enum(),
             ..method
         };
         write_method(writer, context, &method);
@@ -283,13 +329,20 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.close("}");
         return;
     }
+    // A method the trait declares under a `#[cfg]` that never holds is in
+    // no build, so the hand has nothing of it to write.
+    let present = context.cell.method_present();
     match context.path.form {
-        PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
-        PathForm::Default => {}
+        PathForm::Forwarded | PathForm::First if present => write_method(writer, context, &method),
+        PathForm::Forwarded | PathForm::First | PathForm::Default => {}
+        PathForm::Written if !present => {}
         PathForm::Written => {
             writer.blank();
+            for attribute in context.repeated_attributes() {
+                writer.line(attribute);
+            }
             writer.open(format!("{} {{", method.signature));
-            writer.line(context.unused(true));
+            writer.line(context.unused(Site::Impl, true));
             writer.line(context.mismatch("E"));
             writer.close("}");
         }
@@ -346,7 +399,10 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
         conversion.expect("the verdict writes a hand only for a conversion that exists");
     writer.blank();
     if !method.inherent {
-        writer.line("#[inline]");
+        for attribute in &method.attributes {
+            writer.line(attribute);
+        }
+        writer.line(format!("#[{}]", method.inline));
     }
     writer.open(format!("{} {{", method.signature));
     match wrapping {
@@ -358,10 +414,11 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     // matched by place, with `ref` bindings, where the receiver binds by
     // reference (golden `every_variant_under_cfg`).
     let by_place = method.by_place && unwrap.binding != Binding::Owned;
-    let scrutinee = match (method.argument, by_place) {
-        (Some(_), _) => format!("({}, other)", unwrap.scrutinee),
-        (None, true) => format!("*{}", unwrap.scrutinee),
-        (None, false) => String::from(unwrap.scrutinee),
+    let paired = method.argument.is_some() && !method.hands_enum;
+    let scrutinee = match (paired, by_place) {
+        (true, _) => format!("({}, other)", unwrap.scrutinee),
+        (false, true) => format!("*{}", unwrap.scrutinee),
+        (false, false) => String::from(unwrap.scrutinee),
     };
     writer.open(format!("match {scrutinee} {{"));
     for (slot, _, target) in context.live() {
@@ -411,23 +468,40 @@ fn arm(
     if let Some(predicate) = slot.cfg {
         pattern_text = format!("#[cfg({predicate})] {pattern_text}");
     }
-    if method.inherent {
-        let value = inherent_value(&own, method, awaited, conversion, slot);
-        return format!("{pattern_text} => {value},");
-    }
-    let mut arguments = vec![own.handed(handover)];
+    // The `Self` argument: the enum handed over as it is, or the same
+    // variant's target, matched beside `self`.
+    let mut other_argument = None;
     if let Some(kind) = method.argument {
         let (other_binding, other_handover) = match kind {
             ArgumentKind::Shared => (Binding::Shared, Handover::Borrow),
             ArgumentKind::Exclusive => (Binding::Exclusive, Handover::BorrowMutably),
             ArgumentKind::Owned => (Binding::Owned, Handover::Move),
         };
-        let other = Place::of("same", other_binding, target.route);
-        pattern_text = format!("({pattern_text}, {})", pattern("E", slot, target, "same"));
-        arguments.push(other.handed(other_handover));
+        match method.hands_enum {
+            true => other_argument = Some(String::from("other")),
+            false => {
+                let other = Place::of("same", other_binding, target.route);
+                pattern_text = format!("({pattern_text}, {})", pattern("E", slot, target, "same"));
+                other_argument = Some(other.handed(other_handover));
+            }
+        }
     }
+    if method.inherent {
+        let value = inherent_value(
+            &own,
+            method,
+            handover,
+            other_argument,
+            awaited,
+            conversion,
+            slot,
+        );
+        return format!("{pattern_text} => {value},");
+    }
+    let mut arguments = vec![own.handed(handover)];
+    arguments.extend(other_argument);
     if method.name == "m" {
-        arguments.push(String::from("x"));
+        arguments.push(String::from(method.parameter));
     }
     let mut call = format!(
         "<{} as {TRAIT}>::{}{}({})",
@@ -457,6 +531,8 @@ fn arm(
 fn inherent_value(
     own: &Place,
     method: &Method,
+    handover: Handover,
+    other: Option<String>,
     awaited: bool,
     conversion: &Conversion,
     slot: &Slot,
@@ -489,16 +565,42 @@ fn inherent_value(
     };
     let value = match method.callee {
         Callee::Method | Callee::Renamed => {
-            let receiver = match own.method_result() {
-                Some(call) => call.text(),
-                None => own.receiver_text(),
+            // A receiver that is a pinned reference or the box is built as
+            // the trait's forwarding hands it over; any other is the target
+            // the call autorefs.
+            let receiver = match handover {
+                Handover::Pin | Handover::PinMutably | Handover::MoveBox => own.handed(handover),
+                Handover::Borrow | Handover::BorrowMutably | Handover::Move => {
+                    match own.method_result() {
+                        Some(call) => call.text(),
+                        None => own.receiver_text(),
+                    }
+                }
             };
-            let mut call = format!("{receiver}.{}(x)", method.callee_name());
+            let mut arguments: Vec<String> = other.into_iter().collect();
+            arguments.push(String::from("x"));
+            let mut call = format!(
+                "{receiver}.{}{}({})",
+                method.callee_name(),
+                method.turbofish,
+                arguments.join(", ")
+            );
+            if method.unsafety {
+                call = format!("unsafe {{ {call} }}");
+            }
             if awaited {
                 call = format!("{call}.await");
             }
-            let variant = constructor("E", slot);
-            convert(conversion, &call, &variant)
+            // `with = Into::into` converts what the payload answers, its
+            // own type included, into the declared type through the enum's
+            // `From` impls, where a return of `Self` would rewrap it.
+            match method.lift {
+                Lift::Into => format!("Into::into({call})"),
+                Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => {
+                    let variant = constructor("E", slot);
+                    convert(conversion, &call, &variant)
+                }
+            }
         }
         Callee::Value => read(own),
         Callee::Field => read(&field),

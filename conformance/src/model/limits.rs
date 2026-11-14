@@ -230,6 +230,8 @@ pub enum Anchor {
     BlockMethod,
     /// The signature of the method under test in a block.
     BlockSignature,
+    /// The `#[whichever::dispatch(..)]` on a partial impl block.
+    BlockAttribute,
     /// Anywhere in the cell: the span is not pinned yet.
     Anywhere,
 }
@@ -244,6 +246,7 @@ impl Anchor {
             Anchor::Enum => String::from("enum"),
             Anchor::BlockMethod => String::from("block-method"),
             Anchor::BlockSignature => String::from("block-signature"),
+            Anchor::BlockAttribute => String::from("block-attribute"),
             Anchor::Anywhere => String::from("anywhere"),
         }
     }

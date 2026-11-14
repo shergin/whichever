@@ -173,6 +173,43 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "inherent-scope",
+        summary: "an inherent method's `Self` argument, its boxed and pinned receivers and its qualifiers, over enums and structs",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "deref-box"]),
+            ("recv", &["ref", "value", "box", "pin-ref", "pin-mut"]),
+            ("arg", &["none", "ref-bare", "value", "mut"]),
+            ("qual", &["plain", "unsafe", "generic", "turbofish"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "inherent-into",
+        summary: "`with = Into::into` over the answers it converts, through the enum's `From` impls or into themselves",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("callee", &["method", "renamed"]),
+            ("ret", &["u64", "unit", "ref", "mut", "self", "option-self"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "deref-ref", "unit"]),
+            ("recv", &["ref", "mut", "value"]),
+        ],
+        fixed: &[("lift", "into")],
+    },
+    Zone {
+        name: "inherent-shared",
+        summary: "`value` over two variants that hold one payload type, reached by different target kinds",
+        vary: &[
+            ("s0", TARGETS),
+            ("s1", &["plain", "deref-box", "deref-rc", "via-field", "via-index", "marked-tuple", "marked-struct", "marked-via"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "ref"]),
+        ],
+        fixed: &[("path", "inherent"), ("callee", "value")],
+    },
+    Zone {
         name: "structs",
         summary: "the struct subjects under every receiver, return type and qualifier",
         vary: &[
@@ -214,6 +251,18 @@ pub const ZONES: &[Zone] = &[
             ("recv", &["ref", "mut", "value", "box", "pin-ref", "pin-mut"]),
             ("ret", &["u64", "self", "assoc", "out", "ref", "future"]),
             ("path", &["attribute", "block", "block-star"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "items",
+        summary: "the attributes on the trait's method through every path, over the qualifiers, second variants and receivers a block's mark or a carried attribute meets",
+        vary: &[
+            ("item", &[]),
+            ("path", &[]),
+            ("qual", &["plain", "provided", "generic"]),
+            ("s1", &["plain", "unit", "pair"]),
+            ("recv", &["ref", "value", "rc"]),
         ],
         fixed: &[],
     },

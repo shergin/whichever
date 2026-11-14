@@ -42,53 +42,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             SlotVariant::Live(_) | SlotVariant::Pair => {}
             SlotVariant::Unit => continue,
         }
-        if context.inherent() && context.cell.callee == Callee::Value {
-            writer.line("#[derive(Clone, Copy)]");
-        }
-        writer.line(format!("pub struct {payload} {{"));
-        writer.line("    state: u64,");
-        writer.line("    spare: u64,");
-        writer.line("}");
-        writer.blank();
-        writer.open(format!("impl {payload} {{"));
-        writer.open("pub fn new(state: u64) -> Self {");
-        writer.line(format!("{payload} {{ state, spare: 0 }}"));
-        writer.close("}");
-        writer.blank();
-        writer.open("pub fn state(&self) -> u64 {");
-        writer.line("self.state");
-        writer.close("}");
-        writer.blank();
-        let callee = context.cell.callee;
-        let calls = matches!(callee, Callee::Method | Callee::Renamed);
-        if context.inherent() && calls {
-            writer.line("/// The method the subject's inherent method forwards to.");
-            writer.open(format!(
-                "pub {} {{",
-                context.signature_with(Site::Inherent, context.node, context.callee_name())
-            ));
-            answer_body(writer, context, index);
-            writer.close("}");
-        }
-        if !context.inherent() || callee != Callee::Method {
-            writer.blank();
-            writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
-            writer.line("/// method meant shows in the law.");
-            writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
-            poison_body(writer, context, index);
-            writer.close("}");
-        }
-        writer.close("}");
-        writer.blank();
-        write_impl(writer, context, index);
-        writer.blank();
-        if matches!(context.cell.lift, Lift::ByRef | Lift::ByValue) {
-            writer.open(format!("impl support::Counted for {payload} {{"));
-            writer.open("fn count(&self) -> u64 {");
-            writer.line("self.state");
-            writer.close("}");
-            writer.close("}");
-            writer.blank();
+        // A variant that holds another slot's payload type declares none.
+        if !slot.holds_another() {
+            write_payload(writer, context, index);
         }
         let wrapped = slot
             .target()
@@ -116,6 +72,60 @@ pub fn write(writer: &mut Writer, context: &Context) {
     }
 }
 
+/// Writes the payload of slot `index`: its struct, its inherent methods,
+/// its impl of the trait and, for a function lift, its count.
+fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
+    let payload = format!("P{index}");
+    if context.inherent() && context.cell.callee == Callee::Value {
+        writer.line("#[derive(Clone, Copy)]");
+    }
+    writer.line(format!("pub struct {payload} {{"));
+    writer.line("    state: u64,");
+    writer.line("    spare: u64,");
+    writer.line("}");
+    writer.blank();
+    writer.open(format!("impl {payload} {{"));
+    writer.open("pub fn new(state: u64) -> Self {");
+    writer.line(format!("{payload} {{ state, spare: 0 }}"));
+    writer.close("}");
+    writer.blank();
+    writer.open("pub fn state(&self) -> u64 {");
+    writer.line("self.state");
+    writer.close("}");
+    writer.blank();
+    let callee = context.cell.callee;
+    let calls = matches!(callee, Callee::Method | Callee::Renamed);
+    if context.inherent() && calls {
+        writer.line("/// The method the subject's inherent method forwards to.");
+        writer.open(format!(
+            "pub {} {{",
+            context.signature_with(Site::Payload, context.node, context.callee_name())
+        ));
+        answer_body(writer, context, index, "x");
+        writer.close("}");
+    }
+    if !context.inherent() || callee != Callee::Method {
+        writer.blank();
+        writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
+        writer.line("/// method meant shows in the law.");
+        writer.open(format!("pub {} {{", context.signature(Site::Payload)));
+        poison_body(writer, context, index);
+        writer.close("}");
+    }
+    writer.close("}");
+    writer.blank();
+    write_impl(writer, context, index);
+    writer.blank();
+    if matches!(context.cell.lift, Lift::ByRef | Lift::ByValue) {
+        writer.open(format!("impl support::Counted for {payload} {{"));
+        writer.open("fn count(&self) -> u64 {");
+        writer.line("self.state");
+        writer.close("}");
+        writer.close("}");
+        writer.blank();
+    }
+}
+
 fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
     writer.open(format!("impl {TRAIT} for P{index} {{"));
     for (associated, overridden) in context.associated() {
@@ -136,8 +146,11 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
     let overrides = !context.inherent() && (!context.qualifier.provided || index == 0);
     if overrides {
         writer.blank();
+        for attribute in context.repeated_attributes() {
+            writer.line(attribute);
+        }
         writer.open(format!("{} {{", context.signature(Site::Impl)));
-        answer_body(writer, context, index);
+        answer_body(writer, context, index, context.parameter());
         writer.close("}");
     }
     writer.close("}");
@@ -152,23 +165,30 @@ fn this(context: &Context) -> &'static str {
     "this"
 }
 
-fn answer_body(writer: &mut Writer, context: &Context, index: usize) {
+/// Writes the body of a payload's answer, `x` being the name the method's
+/// `u64` argument has.
+fn answer_body(writer: &mut Writer, context: &Context, index: usize, x: &str) {
     let this = this(context);
     if this != "self" {
         writer.line(format!("let this = {};", context.receiver.this));
     }
     if context.qualifier.generic == Some(Generic::Fixed) {
-        writer.line("let x: u64 = x.into();");
+        writer.line(format!("let {x}: u64 = {x}.into();"));
     }
     if context.receiver.mutates {
-        writer.line(format!("{this}.state += x + 1;"));
+        writer.line(format!("{this}.state += {x} + 1;"));
     }
-    if context.argument.kind == Some(ArgumentKind::Exclusive) {
+    // The enum an inherent method hands over shows only what the trait's
+    // control method answers of it.
+    let enum_argument = context.hands_the_enum();
+    if context.argument.kind == Some(ArgumentKind::Exclusive) && !enum_argument {
         writer.line("other.state += 2;");
     }
-    let mut number = format!("{}_000_000 + {this}.state * 100 + x", index + 1);
-    if context.argument.kind.is_some() {
-        number.push_str(" + other.state * 7");
+    let mut number = format!("{}_000_000 + {this}.state * 100 + {x}", index + 1);
+    match (context.argument.kind, enum_argument) {
+        (Some(_), true) => number.push_str(" + other.base() * 7"),
+        (Some(_), false) => number.push_str(" + other.state * 7"),
+        (None, _) => {}
     }
     if context.qualifier.generic == Some(Generic::Turbofish) {
         number.push_str(" + W::VALUE * 10_000");
@@ -200,7 +220,7 @@ fn poison_body(writer: &mut Writer, context: &Context, index: usize) {
 
 /// Writes the default body of a provided method, which knows no payload.
 pub fn default_body(writer: &mut Writer, context: &Context) {
-    let mut number = String::from("3_000_000 + self.base() * 100 + x");
+    let mut number = format!("3_000_000 + self.base() * 100 + {}", context.parameter());
     if context.argument.kind.is_some() {
         number.push_str(" + other.base() * 7");
     }

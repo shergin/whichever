@@ -89,24 +89,14 @@ pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
     // keeps only the methods it could forward (macros/ARCHITECTURE.md
     // 3.8), so what its signature alone names is not imported.
     let dropped = matches!(context.verdict, Verdict::Limit(_));
-    // A variant compiled out is never resolved, so its types use no import.
+    // An item compiled out is never resolved, so its types use no import.
     let lines: Vec<&str> = draft.source.lines().collect();
-    let compiled_out = |index: usize| {
-        let attributes = lines[..index]
-            .iter()
-            .rev()
-            .take_while(|line| line.trim_start().starts_with("#["));
-        let mut under = false;
-        for line in attributes {
-            under |= line.trim() == "#[cfg(any())]";
-        }
-        under
-    };
-    let body: Vec<&str> = draft
-        .source
-        .lines()
+    let compiled_out = compiled_out(&lines);
+    let body: Vec<&str> = lines
+        .iter()
+        .copied()
         .enumerate()
-        .filter(|(index, _)| !compiled_out(*index))
+        .filter(|(index, _)| !compiled_out[*index])
         .filter(|(index, _)| !(dropped && draft.part_of(index + 1) == Some(Part::Inherent)))
         .map(|(_, line)| line)
         .filter(|line| !line.starts_with("use "))
@@ -121,6 +111,39 @@ pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
         .map(|(line, _)| *line)
         .collect();
     write(&context, mode, &used)
+}
+
+/// Returns, for every line, whether it belongs to an item under
+/// `#[cfg(any())]`: the attribute, the attributes after it, the item's
+/// first line and, when that line opens a block, every line to the one
+/// that closes it.
+fn compiled_out(lines: &[&str]) -> Vec<bool> {
+    let mut excluded = vec![false; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        if lines[index].trim() != "#[cfg(any())]" {
+            index += 1;
+            continue;
+        }
+        let mut cursor = index;
+        while cursor < lines.len() && lines[cursor].trim_start().starts_with("#[") {
+            excluded[cursor] = true;
+            cursor += 1;
+        }
+        let mut depth: isize = 0;
+        while cursor < lines.len() {
+            excluded[cursor] = true;
+            let opens = lines[cursor].matches('{').count() as isize;
+            let closes = lines[cursor].matches('}').count() as isize;
+            depth += opens - closes;
+            cursor += 1;
+            if depth <= 0 {
+                break;
+            }
+        }
+        index = cursor;
+    }
+    excluded
 }
 
 /// The imports a cell may need, each with the spellings that use it. An

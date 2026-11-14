@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use crate::cell::Cell;
 use crate::ledger::{self, Files, Known};
+use crate::model::path::Site as PathSite;
 use crate::model::Verdict;
 use crate::render::{self, Rendered};
 use crate::select::{self, Selection};
@@ -346,13 +347,19 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         expansion::available(&workspace)?;
         progress("cargo expand, for the shapes");
         for shard in shards.iter().filter(|shard| shard.kind == ShardKind::Pass) {
-            let modules: Vec<&str> = shard
+            let cells: Vec<expansion::Expected> = shard
                 .modules
                 .iter()
                 .filter(|module| entries[by_module[module.as_str()]].state == State::Full)
-                .map(String::as_str)
+                .map(|module| {
+                    let cell = &entries[by_module[module.as_str()]].cell;
+                    expansion::Expected {
+                        module: module.as_str(),
+                        derived: cell.path.descriptor().site != PathSite::Block,
+                    }
+                })
                 .collect();
-            let found = expansion::compare(&workspace, shard, &modules, render::context::TRAIT)?;
+            let found = expansion::compare(&workspace, shard, &cells, render::context::TRAIT)?;
             for (module, methods) in found {
                 let entry = &mut entries[by_module[&module]];
                 for (method, differences) in methods {

@@ -11,8 +11,8 @@ use crate::model::argument::{ArgumentKind, MismatchSite};
 use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
-use crate::model::target::{Form, Pointer, Step, Storage};
-use crate::model::{Callee, Lift, Slot, SlotVariant};
+use crate::model::target::{Form, Pointer, Step, Storage, TargetDescriptor};
+use crate::model::{Callee, Lift, Slot, SlotVariant, Target};
 
 /// Who gave an answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +27,10 @@ enum Side {
 /// `hand` against `hand::E`.
 pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.line("#[cfg(test)]");
+    // The law calls a deprecated method, which the deprecation reaches.
+    if context.item.deprecated {
+        writer.line("#[allow(deprecated)]");
+    }
     writer.open("mod law {");
     writer.line("use super::*;");
     writer.blank();
@@ -35,11 +39,17 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.open("macro_rules! law {");
     writer.open("() => {");
     write_seen(writer, context);
-    write_observers(writer, context);
-    for slot in &context.slots {
-        write_slot(writer, context, slot);
+    // A method in no build is not called; the control method still is.
+    let present = context.cell.method_present();
+    if present {
+        write_observers(writer, context);
     }
-    write_mismatch(writer, context);
+    for slot in &context.slots {
+        write_slot(writer, context, slot, present);
+    }
+    if present {
+        write_mismatch(writer, context);
+    }
     writer.close("};");
     writer.close("}");
     for test in tests {
@@ -274,9 +284,9 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
         Some(Generic::Fixed) | None => "",
     };
     let mut text = match context.inherent() {
-        true if path == "S" => format!("{path}::m({})", arguments.join(", ")),
+        true if path == "S" => format!("{path}::m{turbofish}({})", arguments.join(", ")),
         true => format!(
-            "{path}::{}({})",
+            "{path}::{}{turbofish}({})",
             context.callee_name(),
             arguments.join(", ")
         ),
@@ -305,10 +315,15 @@ enum Expect {
     Default,
 }
 
-fn expectations(context: &Context, slot: &Slot) -> (Expect, Expect) {
-    let forwarded =
-        |slots: Vec<(Slot, _, _)>| slots.iter().any(|(other, _, _)| other.index == slot.index);
-    let method = match context.path.form {
+/// Returns whether the slot is among `slots`.
+fn forwarded_to(slot: &Slot, slots: Vec<(Slot, Target, TargetDescriptor)>) -> bool {
+    slots.iter().any(|(other, _, _)| other.index == slot.index)
+}
+
+/// Returns what the law expects of the method under test on a slot.
+fn method_expectation(context: &Context, slot: &Slot) -> Expect {
+    let forwarded = |slots| forwarded_to(slot, slots);
+    match context.path.form {
         PathForm::Forwarded | PathForm::First if forwarded(context.cell.method_slots()) => {
             Expect::Twin
         }
@@ -322,12 +337,15 @@ fn expectations(context: &Context, slot: &Slot) -> (Expect, Expect) {
         PathForm::Forwarded | PathForm::First | PathForm::Written => {
             Expect::Constant(context.mismatched_output("S"))
         }
-    };
-    let base = match forwarded(context.cell.base_slots()) {
+    }
+}
+
+/// Returns what the law expects of the control method on a slot.
+fn base_expectation(context: &Context, slot: &Slot) -> Expect {
+    match forwarded_to(slot, context.cell.base_slots()) {
         true => Expect::Twin,
         false => Expect::Constant(String::from("0")),
-    };
-    (method, base)
+    }
 }
 
 /// Returns what an inherent method's twin answers, observed: the twin's
@@ -337,7 +355,8 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
     let lift = context.cell.lift;
     match context.cell.callee {
         Callee::Method | Callee::Renamed => {
-            let answer = call(context, payload, "twin", None, "x");
+            let other = context.argument.kind.map(|_| "other_twin");
+            let answer = call(context, payload, "twin", other, "x");
             match lift {
                 Lift::Bare | Lift::Into => format!("observe_p{index}({answer})"),
                 Lift::Some => format!("format!(\"Some({{}})\", observe_p{index}({answer}))"),
@@ -380,12 +399,52 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
     }
 }
 
-fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
+/// Writes the checks of one slot: the method under test's when `present`,
+/// then the control method's.
+fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool) {
     let index = slot.index;
     let name = slot.name();
     let payload = slot.payload();
     let seed = seed(index);
-    let (method, base) = expectations(context, slot);
+    let base = base_expectation(context, slot);
+    if present {
+        let method = method_expectation(context, slot);
+        write_method_checks(writer, context, slot, &method, base == Expect::Twin);
+    }
+    writer.open("{");
+    write_subject(writer, "S", slot, "subject", seed, false);
+    match base {
+        Expect::Twin => {
+            writer.line(format!("let twin = {payload}::new({seed});"));
+            writer.line(format!(
+                "assert_eq!({}, {}, \"base on {name}\");",
+                context.base_call("S", "subject"),
+                context.base_call(&payload, "twin")
+            ));
+        }
+        Expect::Constant(constant) => writer.line(format!(
+            "assert_eq!({}, {constant}, \"base on {name}\");",
+            context.base_call("S", "subject")
+        )),
+        Expect::Default => unreachable!("the control method is never left to a default"),
+    }
+    writer.close("}");
+}
+
+/// Writes the calls of the method under test on one slot, for every
+/// sample, with what each is expected to answer and leave behind;
+/// `base_twin` says whether the control method answers what a twin does.
+fn write_method_checks(
+    writer: &mut Writer,
+    context: &Context,
+    slot: &Slot,
+    method: &Expect,
+    base_twin: bool,
+) {
+    let index = slot.index;
+    let name = slot.name();
+    let payload = slot.payload();
+    let seed = seed(index);
     let exclusive = context.receiver.call.contains("&mut");
     let other_exclusive = context.argument.kind == Some(ArgumentKind::Exclusive);
     let comment = match method {
@@ -399,7 +458,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
     let samples: Vec<String> = SAMPLES.iter().map(u64::to_string).collect();
     writer.open(format!("for x in [{}u64, {}] {{", samples[0], samples[1]));
     write_subject(writer, "S", slot, "subject", seed, exclusive);
-    let twin_needed = method == Expect::Twin;
+    let twin_needed = *method == Expect::Twin;
     // A twin is borrowed mutably by its own method under a `&mut` receiver,
     // or, for an inherent place, where the declared type borrows it so.
     let twin_exclusive = match context.inherent() && !context.takes_x() {
@@ -410,9 +469,15 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
         let binding = if twin_exclusive { "let mut" } else { "let" };
         writer.line(format!("{binding} twin = {payload}::new({seed});"));
     }
+    // The twin of the `Self` argument is the same variant's payload, or,
+    // where an inherent method hands the enum over as it is, the enum.
+    let enum_argument = context.hands_the_enum();
     if context.argument.kind.is_some() {
         write_subject(writer, "S", slot, "other", OTHER_SEED, other_exclusive);
-        if twin_needed {
+        if twin_needed && enum_argument {
+            write_subject(writer, "S", slot, "other_twin", OTHER_SEED, other_exclusive);
+        }
+        if twin_needed && !enum_argument {
             let binding = if other_exclusive { "let mut" } else { "let" };
             writer.line(format!(
                 "{binding} other_twin = {payload}::new({OTHER_SEED});"
@@ -424,7 +489,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
     ));
-    match &method {
+    match method {
         Expect::Twin if context.inherent() => {
             writer.line(format!(
                 "let expected = {};",
@@ -450,8 +515,12 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
             writer.line("let expected = observe(written);");
         }
         Expect::Default => {
-            let base_of =
-                |seed: u64| context.base_call(&payload, &format!("{payload}::new({seed})"));
+            // The default body reads the control method, which answers what
+            // a payload of the slot answers, or the block's body.
+            let base_of = |seed: u64| match base_twin {
+                true => context.base_call(&payload, &format!("{payload}::new({seed})")),
+                false => String::from("0"),
+            };
             let binding = if exclusive { "let mut" } else { "let" };
             writer.line(format!(
                 "{binding} defaulted = Defaulted {{ base: {} }};",
@@ -475,7 +544,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
         "assert_eq!(answer, expected, \"m on {name} with x = {{x}}\");"
     ));
     if !context.receiver.consumes {
-        let state = match (&method, slot.variant) {
+        let state = match (method, slot.variant) {
             (Expect::Twin, _) => String::from("twin.state()"),
             (Expect::Constant(_) | Expect::Default, SlotVariant::Unit) => String::from("\"unit\""),
             (Expect::Constant(_) | Expect::Default, SlotVariant::Live(_) | SlotVariant::Pair) => {
@@ -485,7 +554,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
         writer.line(format!(
             "assert_eq!(seen(&subject), format!(\"{index}:{{}}\", {state}), \"{name} after m with x = {{x}}\");"
         ));
-        if twin_needed && base == Expect::Twin && !context.base_receiver().descriptor().consumes {
+        if twin_needed && base_twin && !context.base_receiver().descriptor().consumes {
             writer.line(format!(
                 "assert_eq!({}, {}, \"base on {name} after m\");",
                 context.base_call("S", "subject"),
@@ -493,34 +562,18 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
             ));
         }
     }
-    if other_exclusive && twin_needed {
+    if other_exclusive && twin_needed && !enum_argument {
         writer.line(format!(
             "assert_eq!(seen(&other), format!(\"{index}:{{}}\", other_twin.state()), \"the argument after m with x = {{x}}\");"
         ));
     }
     writer.close("}");
-    writer.open("{");
-    write_subject(writer, "S", slot, "subject", seed, false);
-    match base {
-        Expect::Twin => {
-            writer.line(format!("let twin = {payload}::new({seed});"));
-            writer.line(format!(
-                "assert_eq!({}, {}, \"base on {name}\");",
-                context.base_call("S", "subject"),
-                context.base_call(&payload, "twin")
-            ));
-        }
-        Expect::Constant(constant) => writer.line(format!(
-            "assert_eq!({}, {constant}, \"base on {name}\");",
-            context.base_call("S", "subject")
-        )),
-        Expect::Default => unreachable!("the control method is never left to a default"),
-    }
-    writer.close("}");
 }
 
 fn write_mismatch(writer: &mut Writer, context: &Context) {
-    if context.argument.kind.is_none() {
+    // An inherent method hands its `Self` argument over and has no
+    // mismatch.
+    if context.argument.kind.is_none() || context.inherent() {
         return;
     }
     let checked = match context.path.form {

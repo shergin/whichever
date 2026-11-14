@@ -8,7 +8,7 @@
 
 use crate::axis::Axis;
 use crate::model::{
-    Argument, Callee, Cfg, Lift, Path, Qualifier, Receiver, Return, Second, Target,
+    Argument, Callee, Cfg, Item, Lift, Path, Qualifier, Receiver, Return, Second, Target,
 };
 
 /// The id of the neutral cell.
@@ -173,6 +173,8 @@ cell! {
     lift: Lift,
     /// The `#[cfg]` on the subject's variants.
     cfg: Cfg,
+    /// The attributes on the trait's method under test.
+    item: Item,
 }
 
 impl Cell {

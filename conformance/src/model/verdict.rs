@@ -24,7 +24,7 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
 use super::{
-    Argument, Callee, Cfg, Lift, Qualifier, Receiver, Return, Second, Slot, Target, Verdict,
+    Argument, Callee, Cfg, Item, Lift, Qualifier, Receiver, Return, Second, Slot, Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -33,6 +33,19 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // The callee and the lift are an inherent method's alone.
     let inherent = cell.path.descriptor().site == PathSite::Inherent;
     if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
+        return Verdict::NonCanonical;
+    }
+    // The attributes are on the trait's method, which an inherent method
+    // is not.
+    if inherent && cell.item != Item::Bare {
+        return Verdict::NonCanonical;
+    }
+    // Nor has an inherent method a mismatch or a default body: its `Self`
+    // argument is the enum, handed over as it is (inherent-methods.md), so
+    // `&Self` is spelled once, with no mismatch, and a provided method is a
+    // trait's.
+    let mismatched = matches!(cell.arg, Argument::SharedOnTrait | Argument::SharedOnEnum);
+    if inherent && (mismatched || cell.qual == Qualifier::Provided) {
         return Verdict::NonCanonical;
     }
     // A struct subject has its one field and no second variant.
@@ -49,8 +62,17 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if let Some(reason) = unpredicted(cell) {
         return Verdict::Unmodelled(reason);
     }
-    let expected = limits(cell);
-    let rejections = rejections(cell);
+    let mut expected = limits(cell);
+    let mut rejections = rejections(cell);
+    // A method the trait declares under a `#[cfg]` that does not hold has
+    // no generated item in this build ("the generated item exists exactly
+    // when the trait's does", what-is-generated.md), so nothing about it
+    // is reported or rejected; what concerns the variants through the
+    // control method stands.
+    if !cell.method_present() {
+        expected.retain(|expected| !expected.limit.is_of_method());
+        rejections.retain(|rejection| rejection.method == Forwarded::Base);
+    }
     if !expected.is_empty() {
         // A method that cannot be forwarded is written with its sentence as
         // its body (macros/ARCHITECTURE.md 3.8), so a sentence on `m`
@@ -127,6 +149,7 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.path == super::Path::Attribute
         && cell.callee == Callee::Method
         && cell.lift == Lift::Bare
+        && cell.item == Item::Bare
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -139,6 +162,12 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
 
     if node.borrows() && receiver.lends == Lends::Nothing {
         return Some("a reference return that borrows from the `Self` argument");
+    }
+    // rustc warns of `#[inline]` on a method with no body in the trait
+    // itself, and is phasing it out, so the attribute is the provided
+    // method's.
+    if cell.item == Item::Inline && !qualifier.provided {
+        return Some("`#[inline]` on a required method, which rustc warns of in the trait");
     }
     let path = cell.path.descriptor();
     if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
@@ -159,42 +188,63 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             return Some("an inherent or partial method naming variants under `#[cfg]`");
         }
     }
+    let inherent = path.site == PathSite::Inherent;
     if cell.s0.descriptor().is_struct() {
         // "Two values of the struct always hold the same field, and the
         // argument is unwrapped to it" (structs.md): no mismatch to give.
-        if argument.kind.is_some() && argument.mismatch == MismatchSite::Enum {
+        if argument.kind.is_some() && argument.mismatch == MismatchSite::Enum && !inherent {
             return Some("a mismatch option on a struct, which has no second variant");
         }
-        if path.site == PathSite::Inherent || path.form == PathForm::First {
-            return Some(
-                "a struct's inherent block or a block method naming its fields, not modelled yet",
-            );
+        // "A block on a dispatch struct forwards the same way: `*` is the
+        // field marked bare, or the only field, and a field's name is that
+        // field" (inherent-methods.md); the model names no field.
+        if path.form == PathForm::First {
+            return Some("a struct's inherent or block method naming its field, not modelled yet");
         }
     }
-    if path.site == PathSite::Inherent {
+    if inherent {
         // An inherent method forwards by method-call syntax to the
-        // payloads' own `m` (inherent-methods.md); the model covers the
-        // receivers, returns and qualifiers that page describes for an
-        // enum.
-        let place = matches!(cell.callee, Callee::Value | Callee::Field);
-        let boxed_or_pinned = matches!(cell.recv, Receiver::Boxed | Receiver::PinExclusive);
-        let common = matches!(
-            cell.recv,
-            Receiver::Shared | Receiver::Exclusive | Receiver::Owned
-        );
-        if !(common || (place && boxed_or_pinned)) {
+        // payloads' own `m` (inherent-methods.md), under the receivers the
+        // trait's forwarding takes; one that would need a refcount or an
+        // allocation is not described for an inherent method.
+        let forwarded = match cell.recv {
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::Owned
+            | Receiver::Boxed
+            | Receiver::PinShared
+            | Receiver::PinExclusive => true,
+            Receiver::Rc | Receiver::Arc | Receiver::PinBoxed => false,
+        };
+        if !forwarded {
             return Some(
-                "an inherent method with a receiver other than `&self`, `&mut self` or `self`",
+                "an inherent method under a receiver that would need a refcount or an allocation",
             );
-        }
-        if cell.arg != Argument::Absent {
-            return Some("an inherent method with a `Self` argument, which is the enum itself");
         }
         if let Some(reason) = unpredicted_callee(cell) {
             return Some(reason);
         }
-        if !matches!(cell.qual, Qualifier::Plain | Qualifier::Async) {
-            return Some("an inherent method that is generic, unsafe or provided");
+        // The payload takes the enum it is handed as a type parameter of
+        // its own, which a turbofish naming the method's would have to
+        // spell too.
+        let enum_argument = argument.kind.is_some() && !cell.s0.descriptor().is_struct();
+        if enum_argument && cell.qual == Qualifier::Turbofish {
+            return Some("an inherent turbofish beside a `Self` argument the payload takes as a type parameter");
+        }
+        // An inherent opaque future names the receiver's lifetime alone,
+        // `+ '_` (golden `async_returns`), so the `async move` block that
+        // awaits the arms cannot capture a borrowed argument or a type
+        // parameter, which a hand would have to name with `use<..>`.
+        let opaque = matches!(node.future(), Some((FutureKind::Opaque, _)));
+        let borrowed = matches!(
+            argument.kind,
+            Some(ArgumentKind::Shared | ArgumentKind::Exclusive)
+        );
+        let generic = qualifier.generic == Some(Generic::Fixed);
+        if opaque && (borrowed || generic) {
+            return Some(
+                "an inherent opaque future that captures an argument its `+ '_` does not name",
+            );
         }
         let supported = match cell.ret {
             Return::Tag
@@ -265,7 +315,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             return Some("a block body for a return type that needs a payload to make");
         }
     }
-    if argument.kind.is_some() && argument.mismatch != MismatchSite::Missing {
+    if argument.kind.is_some() && argument.mismatch != MismatchSite::Missing && !inherent {
         // Open question: the docs do not say what a mismatch is for a
         // future. The `match` of an opaque future, and of a boxed one whose
         // output is converted, is in one `async move` block, so the
@@ -319,19 +369,39 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     if first && !constant {
         return Some("an inherent body for a return type that needs a payload to make");
     }
-    if lift == Lift::Into {
-        return Some("a lift through `Into::into`, not modelled yet");
-    }
     match cell.callee {
         Callee::Method | Callee::Renamed => {
+            // `with = Into::into` "rebuilds the enum through its `From`
+            // impls" (inherent-methods.md): the payload answers its own
+            // type, which converts into the enum named in the return type,
+            // or a value that converts into itself.
+            let into = match cell.ret {
+                Return::Tag | Return::Unit | Return::Shared | Return::Exclusive => true,
+                Return::This => cell.into_rebuilds(),
+                Return::OptionThis
+                | Return::ResultThis
+                | Return::TupleThis
+                | Return::Assoc
+                | Return::Out
+                | Return::OptionOut
+                | Return::ResultError
+                | Return::ResultThisError
+                | Return::Future
+                | Return::FutureThis
+                | Return::BoxedFuture
+                | Return::BoxedFutureOut
+                | Return::Iterator
+                | Return::VecThis
+                | Return::OptionTupleThis => false,
+            };
             let fits = match lift {
                 Lift::Bare | Lift::Some | Lift::Ok => true,
                 Lift::ByRef => cell.ret == Return::Shared,
                 Lift::ByValue => cell.ret == Return::Tag,
-                Lift::Into => false,
+                Lift::Into => into,
             };
             if !fits {
-                return Some("a function lift over an answer of another type");
+                return Some("a lift over an answer the lift does not take");
             }
             if lift != Lift::Bare && cell.ret.node().future().is_some() {
                 return Some("a lift over a future");
@@ -342,11 +412,18 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 return Some("a place read as a return type other than a value or a reference");
             }
             if cell.qual != Qualifier::Plain {
-                return Some("a place under an `async fn`");
+                return Some("a place under an `async`, `unsafe` or generic method");
             }
-            if cell.callee == Callee::Value && cell.s1 != Second::Absent {
-                // Both variants' targets would have to be one type.
-                return Some("the target itself over two variants of different payloads");
+            // A place reads the target alone, so a `Self` argument would be
+            // the user's own unused argument.
+            if cell.arg != Argument::Absent {
+                return Some("a place beside a `Self` argument, which nothing reads");
+            }
+            // "Any other lift is handed the target as it stands"
+            // (inherent-methods.md), which for `Into::into` is the binding
+            // or the place, converted into a type of the method's choosing.
+            if lift == Lift::Into {
+                return Some("a place lifted through `Into::into`, not modelled yet");
             }
             let function = matches!(lift, Lift::ByRef | Lift::ByValue);
             if function && cell.ret != Return::Tag {
@@ -372,7 +449,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     };
     let node = cell.ret.node();
     let receiver = cell.recv.descriptor();
-    let argument = cell.arg.descriptor();
+    let argument = cell.reached_argument();
     let slots = cell.slots();
     let path = cell.path.descriptor();
     // The variant-specific rules of `m` concern the variants it is
@@ -418,8 +495,13 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // "Every variant a trait is dispatched to holds exactly one unnamed
     // field, `Name(Payload)`, or marks the field to forward to with
     // `#[dispatch]`." A block method that names the variants it forwards
-    // to is how a trait reaches the others, the control method included.
-    for slot in slots.iter().filter(|_| cell.base_reaches_all()) {
+    // to is how a trait reaches the others, the control method included,
+    // so the sentence stands where some method is forwarded to every
+    // variant with no mark: the control method, or the method under test
+    // a block is silent about.
+    let silent = path.form == PathForm::Forwarded && path.mark.is_none() && cell.method_present();
+    let dispatched = cell.base_reaches_all() || silent;
+    for slot in slots.iter().filter(|_| dispatched) {
         match slot.variant {
             super::SlotVariant::Live(_) => {}
             super::SlotVariant::Unit => expect(Limit::UnitVariant, Anchor::Variant(slot.index)),
@@ -568,7 +650,7 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     };
     let node = cell.ret.node();
     let receiver = cell.recv.descriptor();
-    let argument = cell.arg.descriptor();
+    let argument = cell.reached_argument();
     let qualifier = cell.qual.descriptor();
     let live = cell.method_slots();
     let forwarded = !live.is_empty();

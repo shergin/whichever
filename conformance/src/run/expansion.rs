@@ -2,6 +2,14 @@
 //! `cargo expand`, the tool the repository's golden test uses, and each
 //! passing cell's forwarded methods are compared with its hand's through
 //! [`crate::shape`].
+//!
+//! Beside the operations, the step compares what the generated items
+//! carry (what-is-generated.md): every method of the subject's impls
+//! carries the attributes the hand's carries, so a forwarded trait method
+//! has `#[inline]`, or the trait method's own `#[inline(..)]`, beside the
+//! attributes the trait method passes on, and an inherent method keeps the
+//! attributes the user wrote and gains none; and the trait's impl written
+//! through the subject's attribute is `#[automatically_derived]`.
 
 use std::collections::BTreeMap;
 use std::process::Stdio;
@@ -52,27 +60,74 @@ fn expand(workspace: &Workspace, shard: &Shard) -> Result<syn::File, RunError> {
     })
 }
 
-/// Returns, for each of `modules` in the shard, how its subject's
+/// What the shape step checks of one cell.
+#[derive(Clone, Copy, Debug)]
+pub struct Expected<'a> {
+    /// The cell's module.
+    pub module: &'a str,
+    /// Whether the subject's attribute writes the trait's impl, which is
+    /// then `#[automatically_derived]`.
+    pub derived: bool,
+}
+
+/// Returns, for each of `cells` in the shard, how its subject's
 /// forwarded methods differ from its hand's; a cell with no difference is
 /// absent.
 pub fn compare(
     workspace: &Workspace,
     shard: &Shard,
-    modules: &[&str],
+    cells: &[Expected<'_>],
     trait_name: &str,
 ) -> Result<BTreeMap<String, Differences>, RunError> {
     let file = expand(workspace, shard)?;
     let mut found = BTreeMap::new();
-    for module in modules {
-        let differences = compare_cell(&file, module, trait_name);
+    for cell in cells {
+        let differences = compare_cell(&file, cell, trait_name);
         if !differences.is_empty() {
-            found.insert(String::from(*module), differences);
+            found.insert(String::from(cell.module), differences);
         }
     }
     Ok(found)
 }
 
-fn compare_cell(file: &syn::File, module: &str, trait_name: &str) -> Differences {
+/// Returns an attribute as it is written, without the `#[..]`.
+fn spell_attribute(attribute: &syn::Attribute) -> String {
+    let path: Vec<String> = attribute
+        .path()
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    let path = path.join("::");
+    match &attribute.meta {
+        syn::Meta::Path(_) => path,
+        syn::Meta::List(list) => format!("{path}({})", list.tokens),
+        syn::Meta::NameValue(_) => format!("{path} = .."),
+    }
+}
+
+/// Returns the attributes, spelled and sorted, so that their order makes
+/// no difference.
+fn spell_attributes(attributes: &[syn::Attribute]) -> Vec<String> {
+    let mut spelled: Vec<String> = attributes.iter().map(spell_attribute).collect();
+    spelled.sort();
+    spelled
+}
+
+/// Returns a list of attributes for a message.
+fn list_attributes(attributes: &[String]) -> String {
+    if attributes.is_empty() {
+        return String::from("none");
+    }
+    let spelled: Vec<String> = attributes
+        .iter()
+        .map(|attribute| format!("`#[{attribute}]`"))
+        .collect();
+    spelled.join(" ")
+}
+
+fn compare_cell(file: &syn::File, cell: &Expected<'_>, trait_name: &str) -> Differences {
+    let module = cell.module;
     let mut found = Differences::new();
     let missing = |what: &str| vec![format!("the expansion holds no {what}")];
     let Some(items) = shape::module(file, &[module]) else {
@@ -84,6 +139,20 @@ fn compare_cell(file: &syn::File, module: &str, trait_name: &str) -> Differences
         return found;
     };
     let mut subject = shape::impls(items, "E", Some(trait_name));
+    let derived = subject.iter().all(|block| {
+        block
+            .attrs
+            .iter()
+            .any(|attribute| attribute.path().is_ident("automatically_derived"))
+    });
+    if cell.derived && !derived {
+        found.insert(
+            String::from("impl"),
+            vec![String::from(
+                "the impl the subject's attribute writes is not `#[automatically_derived]`",
+            )],
+        );
+    }
     subject.extend(shape::impls(items, "E", None));
     let mut hand = shape::impls(hand_items, "E", Some(trait_name));
     hand.extend(shape::impls(hand_items, "E", None));
@@ -97,10 +166,19 @@ fn compare_cell(file: &syn::File, module: &str, trait_name: &str) -> Differences
                 found.insert(name, missing("forwarded method of this name"));
                 continue;
             };
-            let differences = shape::differences(
+            let mut differences = shape::differences(
                 &shape::method_shape(&subject_method.block),
                 &shape::method_shape(&hand_method.block),
             );
+            let carried = spell_attributes(&subject_method.attrs);
+            let written = spell_attributes(&hand_method.attrs);
+            if carried != written {
+                differences.push(format!(
+                    "attributes: the subject {}, the hand {}",
+                    list_attributes(&carried),
+                    list_attributes(&written)
+                ));
+            }
             if !differences.is_empty() {
                 found.insert(name, differences);
             }
