@@ -1,0 +1,11 @@
+# The cells that diverge from the model because the macro is wrong, one per
+# line: the id, the outcome as a run spells it, and one sentence saying what
+# is wrong. A run does not fail on a line's divergence while the outcome is
+# the same; it fails once the cell stops diverging, or diverges otherwise.
+# Columns are separated by one tab.
+s0=via-method-value	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+s0=via-method-value ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+s0=via-method-value recv=value	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+s0=via-method-value recv=value ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+s0=via-method-value recv=pin-ref	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+s0=via-method-value recv=pin-ref ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.

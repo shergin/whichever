@@ -1,0 +1,9 @@
+# Cells always selected, one id per line, each with where its shape came
+# from. The defects recorded in the bug notes that stage 1's axes can
+# express are here, so a regression shows whatever the zones hold.
+
+# The associated type's agreement check on an enum whose first payload does
+# not use the enum's lifetime (E0794 before 0.5.1, the polars-pipe survey).
+s1=deref-ref ret=assoc
+# The same with the lifetime on the first variant.
+s0=deref-ref ret=assoc

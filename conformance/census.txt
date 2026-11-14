@@ -1,0 +1,65 @@
+# The cells each suite holds, by verdict, and the combinations it spans
+# but never selects, by reason. A run compares this file exactly;
+# `run --bless` rewrites it.
+
+suite shapes
+  pass 495
+  limit 1265
+  malformed 22
+  never 242 non-canonical
+  never 120 unmodelled: a mutable borrow through a shared pointer, which no document covers
+  never 16 unmodelled: a value moved out of a route that ends in a method call
+
+suite pairs
+  pass 514
+  limit 936
+  malformed 0
+  never 144 unmodelled: a mutable borrow through a shared pointer, which no document covers
+  never 26 unmodelled: a value moved out of a route that ends in a method call
+
+suite arguments
+  pass 2566
+  limit 4247
+  malformed 17
+  never 613 non-canonical
+  never 201 unmodelled: a `Self` argument moved out of a pointer that does not own it
+  never 828 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 678 unmodelled: a mutable borrow through a shared pointer, which no document covers
+  never 570 unmodelled: a reference return that borrows from the `Self` argument
+
+suite boxed
+  pass 1102
+  limit 1443
+  malformed 0
+  never 288 non-canonical
+  never 36 unmodelled: a converted boxed future that captures a `Self` argument of another lifetime
+  never 20 unmodelled: a converted boxed future that captures a type parameter without a lifetime bound
+  never 368 unmodelled: a default body that would need a payload to make its answer
+  never 846 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 120 unmodelled: a reference return that borrows from the `Self` argument
+  never 97 unmodelled: an `async fn` that returns a future
+
+suite qualifiers
+  pass 1233
+  limit 2567
+  malformed 22
+  never 638 non-canonical
+  never 18 unmodelled: a converted boxed future that captures a type parameter without a lifetime bound
+  never 560 unmodelled: a default body that would need a payload to make its answer
+  never 240 unmodelled: a mutable borrow through a shared pointer, which no document covers
+  never 122 unmodelled: an `async fn` that returns a future
+
+suite value-method-route
+  pass 3
+  limit 3
+  malformed 0
+
+suite pinned
+  pass 2
+  limit 0
+  malformed 0
+
+suite known
+  pass 3
+  limit 3
+  malformed 0
