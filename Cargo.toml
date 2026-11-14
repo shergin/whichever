@@ -10,7 +10,7 @@ documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/benchmarks", "/docs", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
+exclude = ["/smoke", "/benchmarks", "/conformance", "/docs", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
 
 [features]
 default = ["renamed-dependency"]
@@ -38,6 +38,7 @@ members = [
     "smoke/no_std",
     "benchmarks",
     "benchmarks/subjects",
+    "conformance",
 ]
 # A workspace of its own: its enum crate uses the last published
 # `whichever`, which this workspace's members must not.
