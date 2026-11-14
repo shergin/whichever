@@ -21,17 +21,22 @@ any default.
   not into the crate.
 - A limit is one sentence on the offending item, naming the way around it
   where one exists, with the enum still emitted. Every limit has a
-  `tests/ui` case and a line in the README's "Limits", landed together.
+  `tests/ui` case and a line in `docs/limits.md`, landed together.
 - Claims are measured against the hand. A number in the docs comes from
   `benchmarks/RESULTS.md`, with machine, toolchain and date; the reference
   row is the hand-written `match`. Benchmarks are runtime only.
-- The README names a concept before code does, with one word per thing:
-  the macro `#[dispatchable]` leaves next to a trait is the carrier macro.
-  The macro source's internal names, such as "subject" for the enum or
-  struct, stay out of public text.
+- The README is the case for the crate: what the attributes write, where
+  the other crates stop, the comparison in short and the measurements. How
+  an attribute is used, an option or a limit, goes on its page under
+  `docs/` and in the crate docs, and the README links there.
+- The README and the pages under `docs/` name a concept before code does,
+  with one word per thing: the macro `#[dispatchable]` leaves next to a
+  trait is the carrier macro. The macro source's internal names, such as
+  "subject" for the enum or struct, stay out of public text.
 - Public docs are updated in the same change that makes them stale: the
-  README, the crate docs in `src/lib.rs`, the Unreleased section of
-  `CHANGELOG.md`, and the guide when a measurement it quotes moves.
+  README, the pages under `docs/`, the crate docs in `src/lib.rs`, the
+  Unreleased section of `CHANGELOG.md`, and the guide when a measurement
+  it quotes moves.
 - Settled stays settled. A choice among real alternatives is recorded in
   `docs/decisions/` with the condition that reopens it. Do not relitigate
   without new evidence; when evidence arrives, supersede the record rather

@@ -28,7 +28,7 @@ nothing. The spans survive, so errors point at the user's tokens.
 - `enum_dispatch`'s cache cannot see a trait from another crate: the enum
   compiles with no impl and the first call fails; it panics on associated
   types and on methods without a receiver; its errors lose their spans
-  (the README's "Why another one", and the comparison table's first row).
+  ([the comparison](../comparison.md), and its table's first row).
 - The smoke crates: `smoke/traits` declares, `smoke/enums` dispatches, in a
   second crate, in CI since 0.1.0.
 - Under rust-analyzer, which expands in its own process, the attributes

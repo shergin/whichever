@@ -53,4 +53,5 @@ two carriers could not share one trait, E0252.
   traits in two modules would share it, and telling them apart would need
   knowledge of the other, which is state between expansions. Dropped.
 - Catching E0428 and explaining it: a proc macro cannot see rustc's later
-  error; the `name =` option is documented in the README instead.
+  error; the `name =` option is documented in [limits](../limits.md)
+  instead.

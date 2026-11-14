@@ -220,4 +220,4 @@ attribute adds is that the impl stays correct when the trait grows, forwards
 the items a hand gets wrong or leaves out (default methods, `Self`
 arguments, associated types with differing concrete types), and works with a
 trait from another crate. The comparison with the other crates that do this
-is the table in the [README](../README.md#why-another-one).
+is in [the comparison](comparison.md).

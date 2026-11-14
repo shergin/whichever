@@ -13,6 +13,17 @@ changes are expected and listed without apology.
   snapshots are the ones 0.7.2 had. The minimum supported Rust version
   stays 1.88. A tree still wholly on `syn` 2 gains `syn` 3 instead; the
   decision record weighs the two.
+- The README is the case for the crate and no longer its manual: what the
+  attributes write, where `enum_dispatch` and the crates after it stop, the
+  comparison in short and the measurements. The options, routes, inherent
+  methods, restatements, partial impl blocks, struct forwarding, the table
+  of what each trait item becomes, the limits and the compatibility notes
+  moved, wording intact, to a page each under `docs/`, with the full
+  comparison table in `docs/comparison.md`; `docs/README.md` says which to
+  read when. `examples/storage.rs` is the trait the README shows that
+  `enum_dispatch` cannot take, an associated type unified through `Into`,
+  a `&Self` argument, an `Option<Self>` return and `Display`, with each
+  point asserted. No code changed.
 
 ## 0.7.2 - 2026-11-12
 

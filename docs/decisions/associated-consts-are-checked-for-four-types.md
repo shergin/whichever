@@ -4,7 +4,7 @@ Status: accepted, 2026-11-02 (0.3.0). Serves rule 4 of the
 [vision](../vision.md), a limit is one sentence, whose opposite failure is
 silence. Reopen when const evaluation can compare a
 value of any type, for example through const trait methods; the check then
-extends to every type and the README's limit line goes.
+extends to every type and its line in [limits](../limits.md) goes.
 
 ## Context
 
@@ -23,8 +23,8 @@ non-generic enum, is checked at compile time to agree between the variants,
 with the error on the variant that differs. `Name = value` on the enum fixes
 a const that differs per payload by design, as `Name = Type` fixes an
 associated type. A const of any other type, or on a generic enum, is taken
-from the first variant without a check, and the README lists that as a
-limit.
+from the first variant without a check, and [limits](../limits.md) lists
+that as a limit.
 
 ## Evidence
 
