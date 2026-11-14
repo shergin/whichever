@@ -8,10 +8,11 @@ use super::context::{seed, spell, Associates, Context, LABEL, OTHER_SEED, SAMPLE
 use super::payload::answer_type;
 use super::writer::Writer;
 use crate::model::argument::{ArgumentKind, MismatchSite};
+use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
-use crate::model::target::{Form, Pointer, Step, Storage, TargetDescriptor};
-use crate::model::Slot;
+use crate::model::target::{Form, Pointer, Step, Storage};
+use crate::model::{Slot, SlotVariant};
 
 /// Who gave an answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,8 +23,9 @@ enum Side {
     Payload(usize),
 }
 
-/// Writes `mod law`.
-pub fn write(writer: &mut Writer, context: &Context) {
+/// Writes `mod law` with the tests named, `subject` against `E` and
+/// `hand` against `hand::E`.
+pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.line("#[cfg(test)]");
     writer.open("mod law {");
     writer.line("use super::*;");
@@ -34,26 +36,25 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.open("() => {");
     write_seen(writer, context);
     write_observers(writer, context);
-    for (slot, _, target) in context.live() {
-        write_slot(writer, context, &slot, &target);
+    for slot in &context.slots {
+        write_slot(writer, context, slot);
     }
     write_mismatch(writer, context);
     writer.close("};");
     writer.close("}");
-    writer.blank();
-    writer.line("#[test]");
-    writer.open("fn subject() {");
-    writer.line("use super::E as S;");
-    writer.anchor("law-subject");
-    writer.line("law!();");
-    writer.close("}");
-    writer.blank();
-    writer.line("#[test]");
-    writer.open("fn hand() {");
-    writer.line("use super::hand::E as S;");
-    writer.anchor("law-hand");
-    writer.line("law!();");
-    writer.close("}");
+    for test in tests {
+        let path = match *test {
+            "subject" => "super::E",
+            _ => "super::hand::E",
+        };
+        writer.blank();
+        writer.line("#[test]");
+        writer.open(format!("fn {test}() {{"));
+        writer.line(format!("use {path} as S;"));
+        writer.anchor(format!("law-{test}"));
+        writer.line("law!();");
+        writer.close("}");
+    }
     writer.close("}");
 }
 
@@ -61,13 +62,24 @@ fn write_seen(writer: &mut Writer, context: &Context) {
     writer.line("/// Returns the variant a subject holds, by slot, and its payload's state.");
     writer.open("fn seen(subject: &S) -> String {");
     writer.open("match subject {");
-    for (slot, _, target) in context.live() {
-        let pattern = super::context::pattern("S", &slot, &target, "inner");
-        writer.line(format!(
-            "{pattern} => format!(\"{}:{{}}\", {}.state()),",
-            slot.index,
-            reach("inner", target.route)
-        ));
+    for slot in &context.slots {
+        let index = slot.index;
+        let name = slot.name();
+        let arm = match slot.variant {
+            SlotVariant::Live(target) => {
+                let target = target.descriptor();
+                let pattern = super::context::pattern("S", slot, &target, "inner");
+                format!(
+                    "{pattern} => format!(\"{index}:{{}}\", {}.state()),",
+                    reach("inner", target.route)
+                )
+            }
+            SlotVariant::Unit => format!("S::{name} => String::from(\"{index}:unit\"),"),
+            SlotVariant::Pair => {
+                format!("S::{name}(inner, _) => format!(\"{index}:{{}}\", inner.state()),")
+            }
+        };
+        writer.line(arm);
     }
     writer.close("}");
     writer.close("}");
@@ -96,7 +108,7 @@ fn write_observers(writer: &mut Writer, context: &Context) {
     writer.line(observation(&output, "answer", Side::Subject, 0));
     writer.close("}");
     writer.blank();
-    for (slot, _, _) in context.live() {
+    for (slot, _, _) in context.cell.method_slots() {
         let index = slot.index;
         writer.line(format!("/// Returns what the answer of `P{index}` shows."));
         writer.open(format!(
@@ -152,7 +164,12 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
                 shown.join(", ")
             )
         }
-        Node::Future(_, _) | Node::Iterator | Node::Vec(_) => {
+        Node::Iterator => format!("format!(\"{{:?}}\", {value}.collect::<Vec<u64>>())"),
+        Node::Vec(element) => format!(
+            "{value}.into_iter().map(|{binding}| {}).collect::<Vec<String>>().join(\", \")",
+            inner(element, &binding)
+        ),
+        Node::Future(_, _) => {
             unreachable!("the law observes a future's output, and a passing cell holds no iterator")
         }
     }
@@ -164,12 +181,26 @@ fn write_subject(
     writer: &mut Writer,
     path: &str,
     slot: &Slot,
-    target: &TargetDescriptor,
     name: &str,
     seed: u64,
     mutable: bool,
 ) {
     let payload = format!("{}::new({seed})", slot.payload());
+    let variant = slot.name();
+    let binding = if mutable { "let mut" } else { "let" };
+    let target = match slot.variant {
+        SlotVariant::Live(target) => target.descriptor(),
+        SlotVariant::Unit => {
+            writer.line(format!("{binding} {name} = {path}::{variant};"));
+            return;
+        }
+        SlotVariant::Pair => {
+            writer.line(format!(
+                "{binding} {name} = {path}::{variant}({payload}, {LABEL});"
+            ));
+            return;
+        }
+    };
     let stored = match target.storage {
         Storage::Payload => payload,
         Storage::Pointer(Pointer::Box) => format!("Box::new({payload})"),
@@ -189,13 +220,11 @@ fn write_subject(
         ),
         Storage::Pair => format!("({LABEL}, {payload})"),
     };
-    let variant = slot.name();
     let value = match target.form {
         Form::Single => format!("{path}::{variant}({stored})"),
         Form::MarkedTuple => format!("{path}::{variant}({stored}, {LABEL})"),
         Form::MarkedStruct => format!("{path}::{variant} {{ label: {LABEL}, held: {stored} }}"),
     };
-    let binding = if mutable { "let mut" } else { "let" };
     writer.line(format!("{binding} {name} = {value};"));
 }
 
@@ -216,10 +245,13 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
         Some(Generic::Turbofish) => "::<support::Three>",
         Some(Generic::Fixed) | None => "",
     };
-    let mut text = format!(
-        "<{path} as {TRAIT}>::m{turbofish}({})",
-        arguments.join(", ")
-    );
+    let mut text = match context.inherent() {
+        true => format!("{path}::m({})", arguments.join(", ")),
+        false => format!(
+            "<{path} as {TRAIT}>::m{turbofish}({})",
+            arguments.join(", ")
+        ),
+    };
     if context.qualifier.unsafety {
         text = format!("unsafe {{ {text} }}");
     }
@@ -229,80 +261,174 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
     text
 }
 
-fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, target: &TargetDescriptor) {
+/// What the law expects of a call on a slot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Expect {
+    /// What a twin of the slot's payload answers.
+    Twin,
+    /// A constant: the body a block writes, by its expression.
+    Constant(String),
+    /// What the trait's default body answers.
+    Default,
+}
+
+fn expectations(context: &Context, slot: &Slot) -> (Expect, Expect) {
+    let forwarded =
+        |slots: Vec<(Slot, _, _)>| slots.iter().any(|(other, _, _)| other.index == slot.index);
+    let method = match context.path.form {
+        PathForm::Forwarded | PathForm::First if forwarded(context.cell.method_slots()) => {
+            Expect::Twin
+        }
+        PathForm::Default => Expect::Default,
+        PathForm::Forwarded | PathForm::First | PathForm::Written => {
+            Expect::Constant(context.mismatched_output("S"))
+        }
+    };
+    let base = match forwarded(context.cell.base_slots()) {
+        true => Expect::Twin,
+        false => Expect::Constant(String::from("0")),
+    };
+    (method, base)
+}
+
+fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
     let index = slot.index;
     let name = slot.name();
     let payload = slot.payload();
     let seed = seed(index);
+    let (method, base) = expectations(context, slot);
     let exclusive = context.receiver.call.contains("&mut");
     let other_exclusive = context.argument.kind == Some(ArgumentKind::Exclusive);
-    writer.line(format!(
-        "// `{name}` holds a fresh `{payload}`, and a twin of it is called directly."
-    ));
+    let comment = match method {
+        Expect::Twin => {
+            format!("`{name}` holds a fresh `{payload}`, and a twin of it is called directly.")
+        }
+        Expect::Constant(_) => format!("`{name}` answers the body the block writes."),
+        Expect::Default => format!("`{name}` answers what the trait's default body answers."),
+    };
+    writer.line(format!("// {comment}"));
     let samples: Vec<String> = SAMPLES.iter().map(u64::to_string).collect();
     writer.open(format!("for x in [{}u64, {}] {{", samples[0], samples[1]));
-    write_subject(writer, "S", slot, target, "subject", seed, exclusive);
-    let binding = if exclusive { "let mut" } else { "let" };
-    writer.line(format!("{binding} twin = {payload}::new({seed});"));
+    write_subject(writer, "S", slot, "subject", seed, exclusive);
+    let twin_needed = method == Expect::Twin;
+    if twin_needed {
+        let binding = if exclusive { "let mut" } else { "let" };
+        writer.line(format!("{binding} twin = {payload}::new({seed});"));
+    }
     if context.argument.kind.is_some() {
-        write_subject(
-            writer,
-            "S",
-            slot,
-            target,
-            "other",
-            OTHER_SEED,
-            other_exclusive,
-        );
-        let binding = if other_exclusive { "let mut" } else { "let" };
-        writer.line(format!(
-            "{binding} other_twin = {payload}::new({OTHER_SEED});"
-        ));
+        write_subject(writer, "S", slot, "other", OTHER_SEED, other_exclusive);
+        if twin_needed {
+            let binding = if other_exclusive { "let mut" } else { "let" };
+            writer.line(format!(
+                "{binding} other_twin = {payload}::new({OTHER_SEED});"
+            ));
+        }
     }
     let other = context.argument.kind.map(|_| "other");
-    let other_twin = context.argument.kind.map(|_| "other_twin");
     writer.line(format!(
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
     ));
-    writer.line(format!(
-        "let expected = observe_p{index}({});",
-        call(context, &payload, "twin", other_twin, "x")
-    ));
+    match &method {
+        Expect::Twin => {
+            let other_twin = context.argument.kind.map(|_| "other_twin");
+            writer.line(format!(
+                "let expected = observe_p{index}({});",
+                call(context, &payload, "twin", other_twin, "x")
+            ));
+        }
+        Expect::Constant(constant) => {
+            writer.line(format!(
+                "let written: {} = {constant};",
+                spell(&context.output(), "S", Associates::Qualified)
+            ));
+            writer.line("let expected = observe(written);");
+        }
+        Expect::Default => {
+            let base_of =
+                |seed: u64| context.base_call(&payload, &format!("{payload}::new({seed})"));
+            let binding = if exclusive { "let mut" } else { "let" };
+            writer.line(format!(
+                "{binding} defaulted = Defaulted {{ base: {} }};",
+                base_of(seed)
+            ));
+            if context.argument.kind.is_some() {
+                let binding = if other_exclusive { "let mut" } else { "let" };
+                writer.line(format!(
+                    "{binding} other_defaulted = Defaulted {{ base: {} }};",
+                    base_of(OTHER_SEED)
+                ));
+            }
+            let other_defaulted = context.argument.kind.map(|_| "other_defaulted");
+            writer.line(format!(
+                "let expected = observe({});",
+                call(context, "Defaulted", "defaulted", other_defaulted, "x")
+            ));
+        }
+    }
     writer.line(format!(
         "assert_eq!(answer, expected, \"m on {name} with x = {{x}}\");"
     ));
     if !context.receiver.consumes {
+        let state = match (&method, slot.variant) {
+            (Expect::Twin, _) => String::from("twin.state()"),
+            (Expect::Constant(_) | Expect::Default, SlotVariant::Unit) => String::from("\"unit\""),
+            (Expect::Constant(_) | Expect::Default, SlotVariant::Live(_) | SlotVariant::Pair) => {
+                seed.to_string()
+            }
+        };
         writer.line(format!(
-            "assert_eq!(seen(&subject), format!(\"{index}:{{}}\", twin.state()), \"{name} after m with x = {{x}}\");"
+            "assert_eq!(seen(&subject), format!(\"{index}:{{}}\", {state}), \"{name} after m with x = {{x}}\");"
         ));
-        writer.line(format!(
-            "assert_eq!(<S as {TRAIT}>::base(&subject), <{payload} as {TRAIT}>::base(&twin), \"base on {name} after m\");"
-        ));
+        if twin_needed && base == Expect::Twin && !context.base_receiver().descriptor().consumes {
+            writer.line(format!(
+                "assert_eq!({}, {}, \"base on {name} after m\");",
+                context.base_call("S", "subject"),
+                context.base_call(&payload, "twin")
+            ));
+        }
     }
-    if other_exclusive {
+    if other_exclusive && twin_needed {
         writer.line(format!(
             "assert_eq!(seen(&other), format!(\"{index}:{{}}\", other_twin.state()), \"the argument after m with x = {{x}}\");"
         ));
     }
     writer.close("}");
     writer.open("{");
-    write_subject(writer, "S", slot, target, "subject", seed, false);
-    writer.line(format!("let twin = {payload}::new({seed});"));
-    writer.line(format!(
-        "assert_eq!(<S as {TRAIT}>::base(&subject), <{payload} as {TRAIT}>::base(&twin), \"base on {name}\");"
-    ));
+    write_subject(writer, "S", slot, "subject", seed, false);
+    match base {
+        Expect::Twin => {
+            writer.line(format!("let twin = {payload}::new({seed});"));
+            writer.line(format!(
+                "assert_eq!({}, {}, \"base on {name}\");",
+                context.base_call("S", "subject"),
+                context.base_call(&payload, "twin")
+            ));
+        }
+        Expect::Constant(constant) => writer.line(format!(
+            "assert_eq!({}, {constant}, \"base on {name}\");",
+            context.base_call("S", "subject")
+        )),
+        Expect::Default => unreachable!("the control method is never left to a default"),
+    }
     writer.close("}");
 }
 
 fn write_mismatch(writer: &mut Writer, context: &Context) {
-    if context.argument.kind.is_none() || context.argument.mismatch == MismatchSite::Missing {
+    if context.argument.kind.is_none() {
         return;
     }
-    let live = context.live();
-    let [(first, _, first_target), (second, _, second_target)] = live.as_slice() else {
+    let checked = match context.path.form {
+        PathForm::Forwarded => context.argument.mismatch != MismatchSite::Missing,
+        PathForm::First => true,
+        PathForm::Default | PathForm::Written => false,
+    };
+    let [first, second] = context.slots.as_slice() else {
         return;
     };
+    if !checked {
+        return;
+    }
     let exclusive = context.receiver.call.contains("&mut");
     let other_exclusive = context.argument.kind == Some(ArgumentKind::Exclusive);
     writer.line(format!(
@@ -311,24 +437,8 @@ fn write_mismatch(writer: &mut Writer, context: &Context) {
         second.name()
     ));
     writer.open("{");
-    write_subject(
-        writer,
-        "S",
-        first,
-        first_target,
-        "subject",
-        seed(0),
-        exclusive,
-    );
-    write_subject(
-        writer,
-        "S",
-        second,
-        second_target,
-        "other",
-        OTHER_SEED,
-        other_exclusive,
-    );
+    write_subject(writer, "S", first, "subject", seed(0), exclusive);
+    write_subject(writer, "S", second, "other", OTHER_SEED, other_exclusive);
     let output = context.output();
     writer.line(format!(
         "let mismatch: {} = {};",

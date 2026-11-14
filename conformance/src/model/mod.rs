@@ -8,13 +8,14 @@
 pub mod argument;
 pub mod axes;
 pub mod limits;
+pub mod path;
 pub mod qualifier;
 pub mod receiver;
 pub mod returns;
 pub mod target;
 mod verdict;
 
-pub use axes::{Argument, Qualifier, Receiver, Return, Second, Target};
+pub use axes::{Argument, Path, Qualifier, Receiver, Return, Second, Target};
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
 
@@ -34,6 +35,17 @@ pub enum Verdict {
     /// rejected by rustc. Rendered without subject or hand; must fail to
     /// compile.
     Malformed(&'static str),
+    /// The forwarding cannot be written in Rust, a hand gets this rustc
+    /// error, and no sentence is documented. Rendered with subject and hand
+    /// and checked only: the hand must fail with the code, the subject must
+    /// fail too, and no error of the subject may sit on an attribute.
+    Rejected {
+        /// The hand's error: a code such as `E0596`, or the message of an
+        /// error that has none.
+        code: &'static str,
+        /// Why no hand can write it.
+        reason: &'static str,
+    },
     /// The model cannot write this cell yet; never selected, counted in
     /// the census.
     Unmodelled(&'static str),
@@ -48,6 +60,7 @@ impl Verdict {
             Verdict::Pass => "pass",
             Verdict::Limit(_) => "limit",
             Verdict::Malformed(_) => "malformed",
+            Verdict::Rejected { .. } => "rejected",
             Verdict::Unmodelled(_) => "unmodelled",
             Verdict::NonCanonical => "non-canonical",
         }
@@ -56,7 +69,10 @@ impl Verdict {
     /// Returns whether a run holds cells of this verdict.
     pub fn is_selectable(&self) -> bool {
         match self {
-            Verdict::Pass | Verdict::Limit(_) | Verdict::Malformed(_) => true,
+            Verdict::Pass
+            | Verdict::Limit(_)
+            | Verdict::Malformed(_)
+            | Verdict::Rejected { .. } => true,
             Verdict::Unmodelled(_) | Verdict::NonCanonical => false,
         }
     }
@@ -76,6 +92,7 @@ impl Verdict {
                 format!("limit {}", sentences.join(" "))
             }
             Verdict::Malformed(reason) => format!("malformed: {reason}"),
+            Verdict::Rejected { code, reason } => format!("rejected {code}: {reason}"),
             Verdict::Unmodelled(reason) => format!("unmodelled: {reason}"),
             Verdict::NonCanonical => String::from("non-canonical"),
         }
@@ -155,6 +172,38 @@ impl Cell {
                 let (target, descriptor) = slot.target()?;
                 Some((slot, target, descriptor))
             })
+            .collect()
+    }
+
+    /// Returns the live slots the method under test is forwarded to.
+    pub fn method_slots(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
+        let form = self.path.descriptor().form;
+        self.live_slots()
+            .into_iter()
+            .filter(|(slot, _, _)| match form {
+                path::Form::Forwarded => true,
+                path::Form::First => slot.index == 0,
+                path::Form::Default | path::Form::Written => false,
+            })
+            .collect()
+    }
+
+    /// Returns whether the control method is forwarded to every variant;
+    /// otherwise it names the first, `#[dispatch(A)]` with a body for the
+    /// rest, which is how a block reaches a variant holding no payload.
+    pub fn base_reaches_all(&self) -> bool {
+        let path = self.path.descriptor();
+        let first = path.form == path::Form::First && path.site == path::Site::Block;
+        let unreachable = self.slots().iter().any(|slot| slot.target().is_none());
+        !(first && unreachable)
+    }
+
+    /// Returns the live slots the control method is forwarded to.
+    pub fn base_slots(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
+        let all = self.base_reaches_all();
+        self.live_slots()
+            .into_iter()
+            .filter(|(slot, _, _)| all || slot.index == 0)
             .collect()
     }
 

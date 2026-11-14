@@ -31,6 +31,15 @@ pub enum Limit {
     MovesThroughSharedPointer,
     /// A `&mut self` method on a route ending in a method call.
     MethodRouteOnMutSelf,
+    /// An associated type taken from the first variant, where no variant's
+    /// target has a type to take it from.
+    UnsuppliedType,
+    /// `#[dispatch(default)]` on a method the trait gives no default body.
+    DefaultWithoutDefault,
+    /// A body on a method whose mark names every variant.
+    BodyNeverRuns,
+    /// `#[dispatch(*)]` over a variant that holds no payload.
+    StarOverUnforwardable,
 }
 
 /// A catalogue entry.
@@ -65,6 +74,10 @@ impl Limit {
         Limit::BoxSelfPlain,
         Limit::MovesThroughSharedPointer,
         Limit::MethodRouteOnMutSelf,
+        Limit::UnsuppliedType,
+        Limit::DefaultWithoutDefault,
+        Limit::BodyNeverRuns,
+        Limit::StarOverUnforwardable,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -136,6 +149,51 @@ impl Limit {
                 "ends in a method call, whose result cannot be borrowed mutably",
                 "route_method_on_mut_self",
             ),
+            Limit::DefaultWithoutDefault => entry(
+                "default-without-default",
+                "has no default body in",
+                "block_default_without_a_default",
+            ),
+            Limit::BodyNeverRuns => entry(
+                "body-never-runs",
+                "so its body would never run",
+                "inherent_all_with_body",
+            ),
+            Limit::StarOverUnforwardable => entry(
+                "star-over-unforwardable",
+                "is forwarded to every variant, but",
+                "inherent_all_with_unforwardable",
+            ),
+            Limit::UnsuppliedType => Entry {
+                keeps_impl: false,
+                ..entry(
+                    "unsupplied-type",
+                    "so none can supply",
+                    "all_variants_conditional",
+                )
+            },
+        }
+    }
+
+    /// Returns whether the sentence is the body of the method under test,
+    /// which then reports nothing else, rather than a sentence on a variant
+    /// that leaves the method's other arms written.
+    pub fn is_of_method(self) -> bool {
+        match self {
+            Limit::UnitVariant | Limit::TwoFields | Limit::UnsuppliedType => false,
+            Limit::Receiver
+            | Limit::SelfArgumentWithoutMismatch
+            | Limit::OpaqueReturn
+            | Limit::SelfInReturn
+            | Limit::DerefSelfReturn
+            | Limit::RouteSelfReturn
+            | Limit::SelfReturnOtherFields
+            | Limit::BoxSelfPlain
+            | Limit::MovesThroughSharedPointer
+            | Limit::MethodRouteOnMutSelf
+            | Limit::DefaultWithoutDefault
+            | Limit::BodyNeverRuns
+            | Limit::StarOverUnforwardable => true,
         }
     }
 
@@ -165,6 +223,13 @@ pub enum Anchor {
     Variant(usize),
     /// The subject's `#[whichever::dispatch(..)]` attribute.
     Attribute,
+    /// The subject's name, `pub enum E`.
+    Enum,
+    /// The method under test in a block: its `#[dispatch(..)]` line, or its
+    /// signature when it carries none.
+    BlockMethod,
+    /// The signature of the method under test in a block.
+    BlockSignature,
     /// Anywhere in the cell: the span is not pinned yet.
     Anywhere,
 }
@@ -176,6 +241,9 @@ impl Anchor {
             Anchor::Method => String::from("method"),
             Anchor::Variant(slot) => format!("variant-{slot}"),
             Anchor::Attribute => String::from("attribute"),
+            Anchor::Enum => String::from("enum"),
+            Anchor::BlockMethod => String::from("block-method"),
+            Anchor::BlockSignature => String::from("block-signature"),
             Anchor::Anywhere => String::from("anywhere"),
         }
     }

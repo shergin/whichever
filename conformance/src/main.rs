@@ -4,6 +4,7 @@
 //! cargo run -p whichever-conformance --release -- <command>
 //!
 //! run [--suite NAME]... [--filter TEXT] [--bless] [--whichever PATH] [--jobs N]
+//!     [--shape] [--random N [--seed S]]
 //! list [--suite NAME]...
 //! show <id>
 //! axes
@@ -25,6 +26,7 @@ usage: cargo run -p whichever-conformance --release -- <command>
 
 commands:
   run [--suite NAME]... [--filter TEXT] [--bless] [--whichever PATH] [--jobs N]
+      [--shape] [--random N [--seed S]]
   list [--suite NAME]...
   show <id>
   axes";
@@ -105,6 +107,24 @@ fn options(arguments: &[String]) -> Result<Options, RunError> {
             "--suite" => options.suites.push(value("--suite")?),
             "--filter" => options.filter = Some(value("--filter")?),
             "--bless" => options.bless = true,
+            "--shape" => options.shape = true,
+            "--random" => {
+                let count = value("--random")?;
+                let count = count
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|count| *count > 0)
+                    .ok_or_else(|| {
+                        RunError::Usage(format!("`--random {count}` is no positive number"))
+                    })?;
+                options.random = Some(count);
+            }
+            "--seed" => {
+                let seed = value("--seed")?;
+                options.seed = seed
+                    .parse::<u64>()
+                    .map_err(|_| RunError::Usage(format!("`--seed {seed}` is no number")))?;
+            }
             "--whichever" => options.whichever = Some(PathBuf::from(value("--whichever")?)),
             "--jobs" => {
                 let jobs = value("--jobs")?;

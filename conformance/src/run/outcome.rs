@@ -39,6 +39,11 @@ pub enum Finding {
         /// `subject` or `hand`.
         test: String,
     },
+    /// The shape of a forwarded method differs from the hand's.
+    Shape {
+        /// The method.
+        method: String,
+    },
     /// A test of the law reported no result.
     Untested {
         /// `subject` or `hand`.
@@ -54,6 +59,7 @@ impl Finding {
             Finding::Error { code, part } => format!("error:{code}@{part}"),
             Finding::Warning { lint, part } => format!("warning:{lint}@{part}"),
             Finding::Law { test } => format!("law:{test}"),
+            Finding::Shape { method } => format!("shape:{method}"),
             Finding::Untested { test } => format!("untested:{test}"),
         }
     }
@@ -69,7 +75,7 @@ impl Finding {
                 )
             }
             Finding::Law { test } | Finding::Untested { test } => test == "hand",
-            Finding::Sentence { .. } => false,
+            Finding::Sentence { .. } | Finding::Shape { .. } => false,
         }
     }
 }
@@ -99,8 +105,22 @@ impl Outcome {
     pub fn has_error(&self) -> bool {
         self.findings.iter().any(|finding| match finding {
             Finding::Sentence { .. } | Finding::Error { .. } => true,
-            Finding::Warning { .. } | Finding::Law { .. } | Finding::Untested { .. } => false,
+            Finding::Warning { .. }
+            | Finding::Law { .. }
+            | Finding::Shape { .. }
+            | Finding::Untested { .. } => false,
         })
+    }
+
+    /// Adds a finding once, keeping the findings sorted.
+    pub fn add(&mut self, finding: Finding, message: Option<String>) {
+        if self.first_message.is_none() {
+            self.first_message = message;
+        }
+        if !self.findings.contains(&finding) {
+            self.findings.push(finding);
+            self.findings.sort();
+        }
     }
 }
 
@@ -143,7 +163,10 @@ pub fn observe_diagnostic(outcome: &mut Outcome, rendered: &Rendered, diagnostic
         .filter(|other| other.module == site.module)
         .map(|other| other.line)
         .collect();
-    let part = part_of(rendered, site.line, &chain);
+    let part = match rendered.covers_attribute(site.line, site.last) {
+        true => String::from("attribute"),
+        false => part_of(rendered, site.line, &chain),
+    };
     let finding = match diagnostic.level {
         Level::Warning => Finding::Warning {
             lint: diagnostic
@@ -296,10 +319,53 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                 false => Judgement::Diverges,
             }
         }
+        Verdict::Rejected { code, .. } => {
+            let quoted_code = quoted(code);
+            let in_hand = |finding: &Finding| match finding {
+                Finding::Error { part, .. } | Finding::Warning { part, .. } => part == "hand",
+                Finding::Sentence { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            };
+            let expected = outcome.findings.iter().any(|finding| match finding {
+                Finding::Error { code: found, part } => {
+                    part == "hand" && (found == code || *found == quoted_code)
+                }
+                Finding::Sentence { .. }
+                | Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            });
+            if !expected {
+                return Judgement::Harness;
+            }
+            let subject: Vec<&Finding> = outcome
+                .findings
+                .iter()
+                .filter(|finding| !in_hand(finding))
+                .collect();
+            let accepted = |finding: &&Finding| match finding {
+                Finding::Sentence { key, .. } => Limit::from_key(key).is_some(),
+                Finding::Error { part, .. } => part != "attribute",
+                Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            };
+            match !subject.is_empty() && subject.iter().all(accepted) {
+                true => Judgement::Agrees,
+                false => Judgement::Diverges,
+            }
+        }
         Verdict::Malformed(_) => {
             let failed = outcome.findings.iter().any(|finding| match finding {
                 Finding::Error { .. } | Finding::Sentence { .. } => true,
-                Finding::Warning { .. } | Finding::Law { .. } | Finding::Untested { .. } => false,
+                Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
             });
             match failed {
                 true => Judgement::Agrees,
@@ -367,6 +433,36 @@ mod tests {
         assert_eq!(
             judge(&verdict, &Outcome::default(), &rendered),
             Judgement::Diverges
+        );
+    }
+
+    #[test]
+    fn a_rejection_agrees_only_off_the_attributes() {
+        let cell = Cell::parse("s0=deref-rc recv=mut").expect("an id");
+        let rendered = render(&cell);
+        let verdict = cell.verdict();
+        assert!(matches!(verdict, Verdict::Rejected { code: "E0596", .. }));
+        let error = |code: &str, part: &str| Finding::Error {
+            code: String::from(code),
+            part: String::from(part),
+        };
+        let outcome = |findings: Vec<Finding>| Outcome {
+            findings,
+            first_message: None,
+        };
+        let on_payload = outcome(vec![error("E0596", "hand"), error("E0596", "subject")]);
+        assert_eq!(judge(&verdict, &on_payload, &rendered), Judgement::Agrees);
+        let on_attribute = outcome(vec![error("E0596", "hand"), error("E0596", "attribute")]);
+        assert_eq!(
+            judge(&verdict, &on_attribute, &rendered),
+            Judgement::Diverges
+        );
+        let hand_only = outcome(vec![error("E0596", "hand")]);
+        assert_eq!(judge(&verdict, &hand_only, &rendered), Judgement::Diverges);
+        let hand_compiles = outcome(vec![error("E0596", "subject")]);
+        assert_eq!(
+            judge(&verdict, &hand_compiles, &rendered),
+            Judgement::Harness
         );
     }
 }

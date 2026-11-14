@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::model::Verdict;
 use crate::render::support;
 
 /// What a shard holds.
@@ -17,15 +18,30 @@ pub enum ShardKind {
     Limit,
     /// Malformed cells, checked.
     Malformed,
+    /// Rejected cells, checked.
+    Rejected,
 }
 
 impl ShardKind {
+    /// Returns the kind of shard a verdict's cells go in.
+    pub fn of(verdict: &Verdict) -> ShardKind {
+        match verdict {
+            Verdict::Pass => ShardKind::Pass,
+            Verdict::Limit(_) => ShardKind::Limit,
+            Verdict::Rejected { .. } => ShardKind::Rejected,
+            Verdict::Malformed(_) | Verdict::Unmodelled(_) | Verdict::NonCanonical => {
+                ShardKind::Malformed
+            }
+        }
+    }
+
     /// Returns the kind's name, the prefix of its shards' names.
     pub fn name(self) -> &'static str {
         match self {
             ShardKind::Pass => "pass",
             ShardKind::Limit => "limit",
             ShardKind::Malformed => "malformed",
+            ShardKind::Rejected => "rejected",
         }
     }
 
@@ -36,6 +52,7 @@ impl ShardKind {
             ShardKind::Pass => 16,
             ShardKind::Limit => 24,
             ShardKind::Malformed => 1,
+            ShardKind::Rejected => 8,
         }
     }
 

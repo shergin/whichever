@@ -9,6 +9,7 @@
 //! its verdict and the ledger.
 
 pub mod cargo;
+mod expansion;
 pub mod outcome;
 mod report;
 pub mod workspace;
@@ -40,6 +41,12 @@ pub struct Options {
     pub whichever: Option<PathBuf>,
     /// The jobs cargo runs at once.
     pub jobs: Option<usize>,
+    /// Random cells to add, for a soak run.
+    pub random: Option<usize>,
+    /// The seed the random cells are drawn by.
+    pub seed: u64,
+    /// Compare the shape of every passing cell's expansion with its hand's.
+    pub shape: bool,
 }
 
 /// Why a run could not judge.
@@ -90,6 +97,27 @@ pub struct Entry {
     pub shard: String,
     /// What the run observed.
     pub outcome: Outcome,
+    /// How the cell is checked.
+    pub state: State,
+    /// The cell rendered with its hand alone, once its subject fails.
+    pub hand_only: Option<Rendered>,
+    /// What the run observed of the subject before the cell was rendered
+    /// with its hand alone.
+    pub subject_outcome: Outcome,
+    /// What the last check observed of the cell rendered with its hand
+    /// alone.
+    pub hand_outcome: Outcome,
+}
+
+/// How a cell of a pass shard is checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    /// As the verdict asks.
+    Full,
+    /// With its hand alone, since its subject fails.
+    HandOnly,
+    /// Not at all, since its hand fails too.
+    Removed,
 }
 
 /// Returns the repository the crate is built in.
@@ -120,9 +148,18 @@ pub fn suites(files: &Files) -> Result<(Vec<Selection>, Vec<Known>), RunError> {
         "pinned",
         pinned.iter().map(|entry| parse(&entry.id)).collect(),
     ));
+    let held: Vec<Cell> = selections
+        .iter()
+        .flat_map(|selection| selection.cells.iter().copied())
+        .collect();
+    for array in select::arrays::ARRAYS {
+        let (mut selection, coverage) = select::arrays::build(array, &held);
+        selection.coverage = Some(coverage);
+        selections.push(selection);
+    }
     selections.push(select::select(
         "known",
-        known.iter().map(|entry| parse(&entry.id)).collect(),
+        known.iter().map(|entry| entry.pattern.cell).collect(),
     ));
     Ok((selections, known))
 }
@@ -159,6 +196,10 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         }
     };
 
+    let mut selections = selections;
+    if let Some(count) = options.random {
+        selections.push(select::random(count, options.seed));
+    }
     let entries = gather(&selections, options)?;
     if entries.is_empty() {
         return Err(RunError::Usage(String::from("the selection holds no cell")));
@@ -209,15 +250,17 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         .enumerate()
         .map(|(index, entry)| (entry.module.clone(), index))
         .collect();
-    let mut set_aside: BTreeSet<String> = BTreeSet::new();
     let mut round = 0;
     let step = Instant::now();
     loop {
         round += 1;
         progress(&format!("cargo check, round {round}"));
         for entry in entries.iter_mut() {
-            if !set_aside.contains(&entry.module) {
-                entry.outcome = Outcome::default();
+            entry.hand_outcome = Outcome::default();
+            match entry.state {
+                State::Full => entry.outcome = Outcome::default(),
+                State::HandOnly => entry.outcome = entry.subject_outcome.clone(),
+                State::Removed => {}
             }
         }
         let diagnostics = check(&workspace, options.jobs)?;
@@ -235,36 +278,92 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                 )));
             };
             let entry = &mut entries[*index];
-            if set_aside.contains(&entry.module) {
+            let rendered = match (&entry.state, &entry.hand_only) {
+                (State::Full, _) => &entry.rendered,
+                (State::HandOnly, Some(hand_only)) => hand_only,
+                (State::HandOnly, None) | (State::Removed, _) => continue,
+            };
+            outcome::observe_diagnostic(&mut entry.outcome, rendered, diagnostic);
+            if entry.state == State::HandOnly {
+                outcome::observe_diagnostic(&mut entry.hand_outcome, rendered, diagnostic);
+            }
+        }
+
+        // A passing cell whose subject fails is checked again with its hand
+        // alone, so that its law still runs; one whose hand fails too is
+        // removed, the hand's errors kept.
+        let mut moved = 0;
+        for entry in entries.iter_mut() {
+            if entry.verdict != Verdict::Pass {
                 continue;
             }
-            outcome::observe_diagnostic(&mut entry.outcome, &entry.rendered, diagnostic);
+            match entry.state {
+                State::Full if entry.outcome.has_error() => {
+                    entry.subject_outcome = entry.outcome.clone();
+                    let hand_only = render::render_as(&entry.cell, render::Mode::HandOnly);
+                    std::fs::write(
+                        workspace.cell_path(&entry.shard, &entry.module),
+                        &hand_only.source,
+                    )
+                    .map_err(harness)?;
+                    entry.hand_only = Some(hand_only);
+                    entry.state = State::HandOnly;
+                    moved += 1;
+                }
+                State::HandOnly if entry.hand_outcome.has_error() => {
+                    entry.state = State::Removed;
+                    moved += 1;
+                }
+                State::Full | State::HandOnly | State::Removed => {}
+            }
         }
-        let failing: Vec<String> = entries
-            .iter()
-            .filter(|entry| entry.verdict == Verdict::Pass && entry.outcome.has_error())
-            .filter(|entry| !set_aside.contains(&entry.module))
-            .map(|entry| entry.module.clone())
-            .collect();
-        if failing.is_empty() {
+        if moved == 0 {
             break;
         }
         progress(&format!(
-            "{} pass cells have errors and are set aside",
-            failing.len()
+            "{moved} pass cells have errors and are checked with their hand alone"
         ));
-        set_aside.extend(failing);
+        let removed: BTreeSet<&str> = entries
+            .iter()
+            .filter(|entry| entry.state == State::Removed)
+            .map(|entry| entry.module.as_str())
+            .collect();
         for shard in shards.iter().filter(|shard| shard.kind == ShardKind::Pass) {
             let kept: Vec<String> = shard
                 .modules
                 .iter()
-                .filter(|module| !set_aside.contains(*module))
+                .filter(|module| !removed.contains(module.as_str()))
                 .cloned()
                 .collect();
             workspace.write_lib(shard, &kept).map_err(harness)?;
         }
     }
     timings.push((format!("check, {round} rounds"), step.elapsed()));
+
+    if options.shape {
+        let step = Instant::now();
+        expansion::available(&workspace)?;
+        progress("cargo expand, for the shapes");
+        for shard in shards.iter().filter(|shard| shard.kind == ShardKind::Pass) {
+            let modules: Vec<&str> = shard
+                .modules
+                .iter()
+                .filter(|module| entries[by_module[module.as_str()]].state == State::Full)
+                .map(String::as_str)
+                .collect();
+            let found = expansion::compare(&workspace, shard, &modules, render::context::TRAIT)?;
+            for (module, methods) in found {
+                let entry = &mut entries[by_module[&module]];
+                for (method, differences) in methods {
+                    let message = format!("shape of `{method}`: {}", differences.join("; "));
+                    entry
+                        .outcome
+                        .add(outcome::Finding::Shape { method }, Some(message));
+                }
+            }
+        }
+        timings.push((String::from("shape"), step.elapsed()));
+    }
 
     let step = Instant::now();
     let pass_shards: Vec<&Shard> = shards
@@ -275,10 +374,15 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         progress("cargo test");
         let results = test(&workspace, &pass_shards, options.jobs)?;
         for entry in entries.iter_mut() {
-            if entry.verdict != Verdict::Pass || set_aside.contains(&entry.module) {
+            if entry.verdict != Verdict::Pass {
                 continue;
             }
-            for test in ["subject", "hand"] {
+            let tests: &[&str] = match entry.state {
+                State::Full => &["subject", "hand"],
+                State::HandOnly => &["hand"],
+                State::Removed => &[],
+            };
+            for test in tests {
                 let name = format!("{}::law::{test}", entry.module);
                 outcome::observe_test(&mut entry.outcome, test, results.get(&name));
             }
@@ -298,6 +402,8 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         workspace: &workspace,
         census_differences: &census_differences,
         timings: &timings,
+        complete: options.suites.is_empty() && options.filter.is_none(),
+        shape: options.shape,
     };
     let status = report.print();
     report
@@ -314,7 +420,8 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
     for selection in selections {
         let asked = options.suites.is_empty()
             || options.suites.contains(&selection.suite)
-            || selection.suite == "known";
+            || selection.suite == "known"
+            || selection.suite == "random";
         if !asked {
             continue;
         }
@@ -345,13 +452,7 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
             )));
         }
         let verdict = cell.verdict();
-        let kind = match verdict {
-            Verdict::Pass => ShardKind::Pass,
-            Verdict::Limit(_) => ShardKind::Limit,
-            Verdict::Malformed(_) | Verdict::Unmodelled(_) | Verdict::NonCanonical => {
-                ShardKind::Malformed
-            }
-        };
+        let kind = ShardKind::of(&verdict);
         entries.push(Entry {
             rendered: render::render(&cell),
             shard: kind.shard(cell.hash()),
@@ -361,6 +462,10 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
             module,
             verdict,
             outcome: Outcome::default(),
+            state: State::Full,
+            hand_only: None,
+            subject_outcome: Outcome::default(),
+            hand_outcome: Outcome::default(),
         });
     }
     Ok(entries)
@@ -370,13 +475,7 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
 fn shards(entries: &[Entry]) -> Vec<Shard> {
     let mut shards: BTreeMap<String, Shard> = BTreeMap::new();
     for entry in entries {
-        let kind = match entry.verdict {
-            Verdict::Pass => ShardKind::Pass,
-            Verdict::Limit(_) => ShardKind::Limit,
-            Verdict::Malformed(_) | Verdict::Unmodelled(_) | Verdict::NonCanonical => {
-                ShardKind::Malformed
-            }
-        };
+        let kind = ShardKind::of(&entry.verdict);
         let shard = shards.entry(entry.shard.clone()).or_insert_with(|| Shard {
             name: entry.shard.clone(),
             kind,

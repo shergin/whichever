@@ -96,8 +96,50 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "value-method-route",
-        summary: "a route ending in a method that returns its target by value, which `docs/routes.md` says serves `&self` and `self` methods",
-        vary: &[("recv", &["ref", "value", "pin-ref"]), ("ret", &["u64", "self"])],
+        summary: "a route ending in a method that yields its target by value, which serves `self` by value",
+        vary: &[
+            ("recv", &["ref", "value", "pin-ref", "box"]),
+            ("ret", &[]),
+            ("s1", &["none", "plain"]),
+            ("arg", &["none", "value", "ref-enum"]),
+        ],
         fixed: &[("s0", "via-method-value")],
+    },
+    Zone {
+        name: "paths",
+        summary: "every path under a few receivers, every return type and a few second variants, required or provided",
+        vary: &[
+            ("path", &[]),
+            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
+            ("ret", &[]),
+            ("s1", &["plain", "unit", "pair", "deref-box"]),
+            ("qual", &["plain", "provided"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "path-arguments",
+        summary: "every path with every `Self` argument",
+        vary: &[
+            ("path", &[]),
+            ("arg", &[]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "unit", "self", "option-self"]),
+            ("s1", &["plain", "none", "unit"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "inherent",
+        summary: "the inherent paths over every target kind, under the receivers, returns and qualifiers the inherent docs describe",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("s0", &[]),
+            ("s1", &["plain", "none", "deref-box", "unit"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "unit", "ref", "mut", "self", "option-self", "result-self", "future"]),
+            ("qual", &["plain", "async"]),
+        ],
+        fixed: &[],
     },
 ];

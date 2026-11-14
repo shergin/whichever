@@ -19,8 +19,22 @@ enum Flavour {
     Poison,
 }
 
-/// Writes the payloads, their wrappers and their impls.
+/// Writes the payloads, their wrappers and their impls, and the twin a
+/// default is called on when the block leaves the method to it.
 pub fn write(writer: &mut Writer, context: &Context) {
+    if context.path.form == crate::model::path::Form::Default && context.qualifier.provided {
+        writer.line("/// A type that keeps the trait's default, to call it directly.");
+        writer.line("pub struct Defaulted {");
+        writer.line("    base: u64,");
+        writer.line("}");
+        writer.blank();
+        writer.open(format!("impl {TRAIT} for Defaulted {{"));
+        writer.open(format!("{} {{", context.base_signature()));
+        writer.line("self.base");
+        writer.close("}");
+        writer.close("}");
+        writer.blank();
+    }
     for slot in &context.slots {
         let index = slot.index;
         let payload = slot.payload();
@@ -42,10 +56,21 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.line("self.state");
         writer.close("}");
         writer.blank();
-        writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
-        writer.line("/// trait's method shows in the law.");
-        writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
-        poison_body(writer, context, index);
+        match context.inherent() {
+            true => {
+                writer.line("/// The method the subject's inherent method forwards to.");
+                writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
+                answer_body(writer, context, index);
+            }
+            false => {
+                writer.line(
+                    "/// Answers what no forwarding may: an arm that calls it instead of the",
+                );
+                writer.line("/// trait's method shows in the law.");
+                writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
+                poison_body(writer, context, index);
+            }
+        }
         writer.close("}");
         writer.close("}");
         writer.blank();
@@ -88,13 +113,13 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
         writer.line(format!("type {} = {ty};", associated.name()));
     }
     writer.blank();
-    writer.open("fn base(&self) -> u64 {");
+    writer.open(format!("{} {{", context.base_signature()));
     match index {
         0 => writer.line("self.state * 10"),
         _ => writer.line(format!("self.state * 10 + {index}")),
     }
     writer.close("}");
-    let overrides = !context.qualifier.provided || index == 0;
+    let overrides = !context.inherent() && (!context.qualifier.provided || index == 0);
     if overrides {
         writer.blank();
         writer.open(format!("{} {{", context.signature(Site::Impl)));

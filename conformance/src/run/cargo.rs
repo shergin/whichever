@@ -65,8 +65,10 @@ pub enum Level {
 pub struct Site {
     /// The cell's module, `c_` and twelve hex digits.
     pub module: String,
-    /// The line, counted from 1.
+    /// The first line of the span, counted from 1.
     pub line: usize,
+    /// The span's last line.
+    pub last: usize,
 }
 
 /// A diagnostic of rustc, attributed to a cell.
@@ -147,7 +149,12 @@ pub fn diagnostics(output: &str) -> Vec<Diagnostic> {
         while let Some(current) = span {
             if let Some(module) = current["file_name"].as_str().and_then(cell_module) {
                 let line = current["line_start"].as_u64().unwrap_or(0) as usize;
-                chain.push(Site { module, line });
+                let last = current["line_end"].as_u64().unwrap_or(0) as usize;
+                chain.push(Site {
+                    module,
+                    line,
+                    last: last.max(line),
+                });
             }
             let expansion = &current["expansion"];
             if expansion["macro_decl_name"] == "compile_error!" {
@@ -231,7 +238,8 @@ mod tests {
             diagnostic.site,
             Some(Site {
                 module: String::from("c_0123456789ab"),
-                line: 40
+                line: 40,
+                last: 40,
             })
         );
         assert!(!diagnostic.from_compile_error);

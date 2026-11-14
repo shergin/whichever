@@ -1,11 +1,50 @@
-# The cells that diverge from the model because the macro is wrong, one per
-# line: the id, the outcome as a run spells it, and one sentence saying what
-# is wrong. A run does not fail on a line's divergence while the outcome is
-# the same; it fails once the cell stops diverging, or diverges otherwise.
-# Columns are separated by one tab.
-s0=via-method-value	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
-s0=via-method-value ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
-s0=via-method-value recv=value	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
-s0=via-method-value recv=value ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
-s0=via-method-value recv=pin-ref	error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
-s0=via-method-value recv=pin-ref ret=self	sentence:route-self-return@variant-0, error:E0308@trait	A route ending in a method that returns its target by value hands the result to a `&self` method unborrowed, so rustc reports E0308 where a hand writes `&inner.copied()`.
+# The divergences the macro is to blame for, one line per region: a
+# pattern in id syntax, whose unnamed axes are free and whose named values
+# may be neutral, the outcome as a run spells it, and one sentence saying
+# what is wrong. A line excuses every selected cell its pattern matches
+# whose outcome is the listed one; a line that excuses nothing fails the
+# run as stale. Columns are separated by one tab.
+
+# Rejected shapes: no hand can write them, and the macro's rustc error is
+# right but sits on a span that covers the attributes, which
+# macros/ARCHITECTURE.md 3.8 calls a defect.
+base	error:E0596@attribute, error:E0596@hand	A mutable borrow through `Rc`, `Arc` or `&T` under a `deref` variant gets rustc's E0596 on a span from the trait's attribute to the enum's, not on the variant's payload.
+base	error:E0311@hand, error:E0311@trait, error:E0596@attribute, error:E0596@hand	A mutable borrow through `Rc`, `Arc` or `&T` under a `deref` variant gets rustc's E0596 on a span from the trait's attribute to the enum's, not on the variant's payload.
+base	error:E0308@attribute, error:E0308@hand	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, not on the route.
+base	error:E0308@attribute, error:E0308@hand, error:E0308@subject	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, not on the route.
+base	error:E0277@subject, error:E0308@attribute, error:E0308@hand	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, not on the route.
+base	error:E0277@attribute, error:E0277@subject, error:E0308@attribute, error:E0308@hand	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, not on the route.
+
+# The shape of the fallback arm, awaiting a ruling on the shape module: what
+# the `match` takes by move, a `Self` argument by value or by `&mut`, is
+# bound again in the macro's fallback arm, `(__a, __b) =>`, as
+# docs/options.md describes, which the shape reads as `_ _` against the
+# hand's `_`.
+arg=value	shape:m	The fallback arm binds the moved receiver and argument again, which the shape module reads as a different arm from the hand's wildcard.
+arg=mut	shape:m	The fallback arm binds the moved receiver and argument again, which the shape module reads as a different arm from the hand's wildcard.
+
+# Partial blocks.
+arg=mut path=block	error:"lifetime may not live long enough"@hand, error:"lifetime may not live long enough"@trait, error:E0311@hand, error:E0311@trait, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block	error:"lifetime may not live long enough"@hand, error:"lifetime may not live long enough"@trait, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block	error:E0596@attribute, error:E0596@hand, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block	sentence:unit-variant@variant-1, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block	warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block-star	error:"lifetime may not live long enough"@hand, error:"lifetime may not live long enough"@subject, error:E0311@hand, error:E0311@subject, warning:unused_variables@subject	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block-star	error:"lifetime may not live long enough"@hand, error:"lifetime may not live long enough"@subject, warning:unused_variables@subject	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block-star	error:E0596@attribute, error:E0596@hand, warning:unused_variables@subject	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=mut path=block-star	warning:unused_variables@subject	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=value path=block	error:E0311@hand, error:E0311@trait, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=value path=block	sentence:unit-variant@variant-1, warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=value path=block	warning:unused_variables@trait	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+arg=value path=block-star	warning:unused_variables@subject	A `Self` argument the `match` moves is bound again in the fallback arm of a partial block's forwarding, and rustc warns that the binding is unused where the mismatch does not name it.
+s1=unit path=block-star	sentence:star-over-unforwardable@block-signature, sentence:unit-variant@variant-1, error:E0308@subject	`#[dispatch(*)]` over a variant holding no payload is answered by its sentence and, for a method with a `Self` argument, by an E0308 on the enum's name beside it.
+base	error:E0277@attribute, error:E0277@subject, error:E0308@hand	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, not on the route.
+base	error:"lifetime may not live long enough"@hand, error:"lifetime may not live long enough"@trait, error:E0596@attribute, error:E0596@hand, warning:unused_variables@trait	A mutable borrow through `Rc`, `Arc` or `&T` under a `deref` variant gets rustc's E0596 on a span from the trait's attribute to the enum's, and a moved `Self` argument bound again in a partial block's fallback arm is left unused.
+base	error:E0308@attribute, error:E0308@hand, warning:unused_variables@subject	A route ending in a method call whose result does not fit the receiver gets rustc's E0308 on a span from the trait's attribute to the enum's, and a moved `Self` argument bound again in a partial block's fallback arm is left unused.
+base	error:E0311@hand, error:E0311@subject, warning:unused_variables@subject	A moved `Self` argument bound again in a partial block's fallback arm is left unused, which rustc warns of beside the E0311 every hand gets.
+
+# The two above meeting under `--shape`.
+arg=mut path=block	warning:unused_variables@trait, shape:m	A moved `Self` argument bound again in a partial block's fallback arm is left unused, and the shape module reads that arm as different from the hand's wildcard.
+arg=mut path=block-star	warning:unused_variables@subject, shape:m	A moved `Self` argument bound again in a partial block's fallback arm is left unused, and the shape module reads that arm as different from the hand's wildcard.
+arg=value path=block	warning:unused_variables@trait, shape:m	A moved `Self` argument bound again in a partial block's fallback arm is left unused, and the shape module reads that arm as different from the hand's wildcard.
+arg=value path=block-star	warning:unused_variables@subject, shape:m	A moved `Self` argument bound again in a partial block's fallback arm is left unused, and the shape module reads that arm as different from the hand's wildcard.

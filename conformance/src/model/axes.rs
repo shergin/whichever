@@ -192,3 +192,28 @@ axis! {
         Provided = "provided",
     }
 }
+
+axis! {
+    /// How the method under test reaches the subject: the trait on the
+    /// subject's attribute, a partial impl block, or an inherent block.
+    pub enum Path {
+        /// The trait named on the subject's `#[whichever::dispatch(..)]`.
+        Attribute = "attribute",
+        /// A partial impl block that says nothing about `m`.
+        Block = "block",
+        /// `#[dispatch(*)] fn m(..);` in the block.
+        BlockStar = "block-star",
+        /// `#[dispatch(A)] fn m(..) { .. }`: the first variant forwards, the
+        /// body answers for the rest.
+        BlockSome = "block-some",
+        /// `#[dispatch(default)] fn m(..);`, left to the trait's default.
+        BlockDefault = "block-default",
+        /// The block writes `m` itself.
+        BlockWritten = "block-written",
+        /// An inherent block with `#[dispatch(*)] pub fn m(..);`, calling the
+        /// payloads' own `m`.
+        Inherent = "inherent",
+        /// An inherent `#[dispatch(A)] pub fn m(..) { .. }`.
+        InherentSome = "inherent-some",
+    }
+}

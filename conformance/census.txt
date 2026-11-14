@@ -4,36 +4,33 @@
 
 suite shapes
   pass 495
-  limit 1265
+  limit 1328
+  rejected 73
   malformed 22
   never 242 non-canonical
-  never 120 unmodelled: a mutable borrow through a shared pointer, which no document covers
-  never 16 unmodelled: a value moved out of a route that ends in a method call
 
 suite pairs
   pass 514
-  limit 936
+  limit 956
+  rejected 136
   malformed 0
-  never 144 unmodelled: a mutable borrow through a shared pointer, which no document covers
-  never 26 unmodelled: a value moved out of a route that ends in a method call
+  never 14 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
   pass 2566
-  limit 4247
+  limit 4708
+  rejected 232
   malformed 17
   never 613 non-canonical
-  never 201 unmodelled: a `Self` argument moved out of a pointer that does not own it
-  never 828 unmodelled: a mismatch expression for a return type that needs a payload to make
-  never 678 unmodelled: a mutable borrow through a shared pointer, which no document covers
-  never 570 unmodelled: a reference return that borrows from the `Self` argument
+  never 984 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 600 unmodelled: a reference return that borrows from the `Self` argument
 
 suite boxed
-  pass 1102
+  pass 1114
   limit 1443
+  rejected 44
   malformed 0
   never 288 non-canonical
-  never 36 unmodelled: a converted boxed future that captures a `Self` argument of another lifetime
-  never 20 unmodelled: a converted boxed future that captures a type parameter without a lifetime bound
   never 368 unmodelled: a default body that would need a payload to make its answer
   never 846 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 120 unmodelled: a reference return that borrows from the `Self` argument
@@ -41,25 +38,95 @@ suite boxed
 
 suite qualifiers
   pass 1233
-  limit 2567
+  limit 2657
+  rejected 130
   malformed 22
   never 638 non-canonical
-  never 18 unmodelled: a converted boxed future that captures a type parameter without a lifetime bound
-  never 560 unmodelled: a default body that would need a payload to make its answer
-  never 240 unmodelled: a mutable borrow through a shared pointer, which no document covers
-  never 122 unmodelled: an `async fn` that returns a future
+  never 590 unmodelled: a default body that would need a payload to make its answer
+  never 130 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
-  pass 3
-  limit 3
+  pass 12
+  limit 93
+  rejected 145
   malformed 0
+  never 44 non-canonical
+  never 98 unmodelled: a limit beside a rejection the limit does not replace
+  never 80 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 8 unmodelled: a reference return that borrows from the `Self` argument
+
+suite paths
+  pass 875
+  limit 1676
+  rejected 0
+  malformed 9
+  never 567 non-canonical
+  never 268 unmodelled: a block body for a future return
+  never 196 unmodelled: a block body for a return type that needs a payload to make
+  never 1512 unmodelled: a default body that would need a payload to make its answer
+  never 9 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 440 unmodelled: an inherent method that is generic, unsafe or provided
+  never 576 unmodelled: an inherent method with a receiver other than `&self`, `&mut self` or `self`
+  never 272 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+
+suite path-arguments
+  pass 660
+  limit 600
+  rejected 0
+  malformed 0
+  never 108 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 360 unmodelled: an inherent method with a `Self` argument, which is the enum itself
+
+suite inherent
+  pass 932
+  limit 718
+  rejected 114
+  malformed 0
+  never 624 non-canonical
+  never 224 unmodelled: a block body for a future return
+  never 88 unmodelled: a block body for a return type that needs a payload to make
+  never 18 unmodelled: a limit beside a rejection the limit does not replace
+  never 112 unmodelled: an `async fn` that returns a future
+  never 1746 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 256 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
+  never 64 unmodelled: an inherent method through a route whose method yields its target
+  never 96 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
 
 suite pinned
   pass 2
   limit 0
+  rejected 0
   malformed 0
 
+suite array
+  pass 3019
+  limit 0
+  rejected 0
+  malformed 0
+  rows 3019
+  covered 28269
+  unreached 13978
+
+suite array-limits
+  pass 0
+  limit 229
+  rejected 0
+  malformed 0
+  rows 229
+  covered 2302
+  unreached 157
+
+suite array-rejected
+  pass 0
+  limit 0
+  rejected 342
+  malformed 0
+  rows 342
+  covered 1839
+  unreached 620
+
 suite known
-  pass 3
-  limit 3
+  pass 7
+  limit 1
+  rejected 0
   malformed 0

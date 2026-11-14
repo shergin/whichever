@@ -3,8 +3,9 @@
 
 use crate::cell::Cell;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
+use crate::model::path::{Form as PathForm, PathDescriptor};
 use crate::model::qualifier::{Generic, QualifierDescriptor};
-use crate::model::receiver::ReceiverDescriptor;
+use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
 use crate::model::{Receiver, Slot, SlotVariant, Target, Verdict};
@@ -44,6 +45,8 @@ pub struct Context {
     pub qualifier: QualifierDescriptor,
     /// The subject's variants.
     pub slots: Vec<Slot>,
+    /// How the method reaches the subject.
+    pub path: PathDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -77,12 +80,41 @@ impl Context {
             argument: cell.arg.descriptor(),
             qualifier: cell.qual.descriptor(),
             slots: cell.slots(),
+            path: cell.path.descriptor(),
         }
     }
 
     /// Returns the live slots with their target descriptions.
     pub fn live(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
         self.cell.live_slots()
+    }
+
+    /// Returns the control method's receiver: `&self`, or `self` when every
+    /// live target is yielded by a route's method, which serves `self` by
+    /// value only.
+    pub fn base_receiver(&self) -> Receiver {
+        let live = self.cell.base_slots();
+        let yielded =
+            !live.is_empty() && live.iter().all(|(_, _, target)| target.ends_in_temporary());
+        match yielded {
+            true => Receiver::Owned,
+            false => Receiver::Shared,
+        }
+    }
+
+    /// Returns the control method's signature.
+    pub fn base_signature(&self) -> String {
+        format!(
+            "fn base({}) -> u64",
+            self.base_receiver().descriptor().spelling
+        )
+    }
+
+    /// Returns a call of the control method through the trait as `path`
+    /// implements it, on `value`, which it borrows or takes.
+    pub fn base_call(&self, path: &str, value: &str) -> String {
+        let argument = self.base_receiver().descriptor().call.replace("{}", value);
+        format!("<{path} as {TRAIT}>::base({argument})")
     }
 
     /// Returns whether the subject borrows, so it takes `'a`.
@@ -160,6 +192,13 @@ impl Context {
         if self.node != Node::Unit {
             text.push_str(" -> ");
             text.push_str(&spell(&self.node, "Self", associates));
+            // An inherent method's opaque return captures no lifetime it
+            // does not name, so a borrowing receiver's is named, as the
+            // golden `async_returns` writes it.
+            let opaque = matches!(self.node.future(), Some((FutureKind::Opaque, _)));
+            if site == Site::Inherent && opaque && self.receiver.lends != Lends::Nothing {
+                text.push_str(" + '_");
+            }
         }
         if self.needs_sized() && site != Site::Inherent {
             text.push_str(" where Self: Sized");
@@ -181,10 +220,29 @@ impl Context {
                 options.push(format!("{} = support::Wide", associated.name()));
             }
         }
-        if self.argument.kind.is_some() && self.argument.mismatch == MismatchSite::Enum {
+        let forwarded = self.path.form == PathForm::Forwarded;
+        if forwarded && self.argument.kind.is_some() && self.argument.mismatch == MismatchSite::Enum
+        {
             options.push(format!("mismatch(m = {})", self.mismatch("E")));
         }
         options
+    }
+
+    /// Returns whether the method under test is an inherent method of the
+    /// subject, forwarded to the payloads' own.
+    pub fn inherent(&self) -> bool {
+        self.path.site == crate::model::path::Site::Inherent
+    }
+
+    /// Returns the statement a written body opens with, so that the
+    /// arguments it ignores are used: `x`, and the `Self` argument when
+    /// `with_other`, which a fallback arm cannot name since the `match`
+    /// takes it.
+    pub fn unused(&self, with_other: bool) -> &'static str {
+        match self.argument.kind.is_some() && with_other {
+            true => "let _ = (other, x);",
+            false => "let _ = x;",
+        }
     }
 
     /// Returns the mismatch expression, the method's answer for two

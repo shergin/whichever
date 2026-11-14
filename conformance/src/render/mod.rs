@@ -29,6 +29,11 @@ pub struct Rendered {
     pub sections: Vec<Section>,
     /// The line of each anchor, by name.
     pub anchors: BTreeMap<String, usize>,
+    /// The lines that start with an attribute of the macro's:
+    /// `#[whichever::dispatchable]`, `#[whichever::dispatch(..)]` or
+    /// `#[dispatch(..)]`. A rustc error whose span covers one sits on an
+    /// attribute, which `macros/ARCHITECTURE.md` 3.8 calls a defect.
+    pub attributes: Vec<usize>,
 }
 
 impl Rendered {
@@ -38,6 +43,14 @@ impl Rendered {
             .iter()
             .find(|section| section.first <= line && line <= section.last)
             .map(|section| section.part)
+    }
+
+    /// Returns whether a span from `first` to `last` covers an attribute
+    /// line.
+    pub fn covers_attribute(&self, first: usize, last: usize) -> bool {
+        self.attributes
+            .iter()
+            .any(|line| first <= *line && *line <= last)
     }
 
     /// Returns the line of an anchor; `None` for `Anywhere` and for an
@@ -52,10 +65,26 @@ pub fn show_command(id: &str) -> String {
     format!("cargo run -p whichever-conformance --release -- show '{id}'")
 }
 
+/// What a rendering holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// What the verdict asks for.
+    Full,
+    /// The trait, the payloads, the hand and the hand's law only: a passing
+    /// cell whose subject fails is checked this way, so that its hand is
+    /// known to be right.
+    HandOnly,
+}
+
 /// Renders a cell as the source of its module.
 pub fn render(cell: &Cell) -> Rendered {
+    render_as(cell, Mode::Full)
+}
+
+/// Renders a cell as `mode` says.
+pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
     let context = Context::new(cell);
-    let draft = write(&context, &IMPORTS.map(|(line, _)| line));
+    let draft = write(&context, mode, &IMPORTS.map(|(line, _)| line));
     let body: Vec<&str> = draft
         .source
         .lines()
@@ -70,7 +99,7 @@ pub fn render(cell: &Cell) -> Rendered {
         })
         .map(|(line, _)| *line)
         .collect();
-    write(&context, &used)
+    write(&context, mode, &used)
 }
 
 /// The imports a cell may need, each with the spellings that use it. An
@@ -84,7 +113,15 @@ const IMPORTS: [(&str, &[&str]); 5] = [
     ("use crate::support;", &["support::"]),
 ];
 
-fn write(context: &Context, imports: &[&str]) -> Rendered {
+/// The parts a rendering holds.
+struct Parts {
+    subject: bool,
+    probe: bool,
+    hand: bool,
+    law: &'static [&'static str],
+}
+
+fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
     let cell = &context.cell;
     let mut writer = Writer::new();
     writer.begin(Part::Header);
@@ -93,17 +130,42 @@ fn write(context: &Context, imports: &[&str]) -> Rendered {
     writer.line("//!");
     writer.line(format!("//! Verdict: {}.", context.verdict.describe()));
     writer.line(format!("//! Shown by `{}`.", show_command(&id)));
-    let (subject, hand) = match &context.verdict {
-        Verdict::Pass => (true, true),
-        Verdict::Limit(_) => (true, false),
-        Verdict::Malformed(_) => (false, false),
-        Verdict::Unmodelled(_) | Verdict::NonCanonical => {
-            let (source, sections, anchors) = writer.finish();
-            return Rendered {
-                source,
-                sections,
-                anchors,
-            };
+    if mode == Mode::HandOnly {
+        writer.line("//! Rendered with the hand alone, since the subject fails.");
+    }
+    let nothing = Parts {
+        subject: false,
+        probe: false,
+        hand: false,
+        law: &[],
+    };
+    let parts = match (&context.verdict, mode) {
+        (Verdict::Pass, Mode::Full) => Parts {
+            subject: true,
+            hand: true,
+            law: &["subject", "hand"],
+            ..nothing
+        },
+        (Verdict::Pass, Mode::HandOnly) => Parts {
+            hand: true,
+            law: &["hand"],
+            ..nothing
+        },
+        (Verdict::Limit(expected), _) => Parts {
+            subject: true,
+            probe: expected
+                .iter()
+                .all(|expected| expected.limit.entry().keeps_impl),
+            ..nothing
+        },
+        (Verdict::Rejected { .. }, _) => Parts {
+            subject: true,
+            hand: true,
+            ..nothing
+        },
+        (Verdict::Malformed(_), _) => nothing,
+        (Verdict::Unmodelled(_) | Verdict::NonCanonical, _) => {
+            return finish(writer);
         }
     };
     writer.blank();
@@ -116,33 +178,44 @@ fn write(context: &Context, imports: &[&str]) -> Rendered {
     writer.blank();
     writer.begin(Part::Payloads);
     payload::write(&mut writer, context);
-    if subject {
+    if parts.subject {
         writer.begin(Part::Subject);
         declarations::write_subject(&mut writer, context);
         writer.blank();
     }
-    if let Verdict::Limit(expected) = &context.verdict {
-        if expected
-            .iter()
-            .all(|expected| expected.limit.entry().keeps_impl)
-        {
-            writer.begin(Part::Probe);
-            declarations::write_probe(&mut writer);
-            writer.blank();
-        }
+    if parts.probe {
+        writer.begin(Part::Probe);
+        declarations::write_probe(&mut writer, context);
+        writer.blank();
     }
-    if hand {
+    if parts.hand {
         writer.begin(Part::Hand);
         hand::write(&mut writer, context);
         writer.blank();
-        writer.begin(Part::Law);
-        law::write(&mut writer, context);
     }
+    if !parts.law.is_empty() {
+        writer.begin(Part::Law);
+        law::write(&mut writer, context, parts.law);
+    }
+    finish(writer)
+}
+
+fn finish(writer: Writer) -> Rendered {
     let (source, sections, anchors) = writer.finish();
+    let attributes = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let line = line.trim_start();
+            line.starts_with("#[whichever::") || line.starts_with("#[dispatch")
+        })
+        .map(|(index, _)| index + 1)
+        .collect();
     Rendered {
         source,
         sections,
         anchors,
+        attributes,
     }
 }
 
@@ -192,5 +265,26 @@ mod tests {
         let malformed = render(&Cell::parse("ret=mut").expect("an id"));
         assert!(!malformed.source.contains("whichever::dispatch("));
         assert!(malformed.source.contains("#[whichever::dispatchable]"));
+    }
+
+    #[test]
+    fn a_cell_rendered_with_its_hand_alone_tests_the_hand_only() {
+        let rendered = render_as(&Cell::neutral(), Mode::HandOnly);
+        assert!(!rendered.source.contains("#[whichever::dispatch("));
+        assert!(rendered.source.contains("mod hand {"));
+        assert!(rendered.source.contains("fn hand()"));
+        assert!(!rendered.source.contains("fn subject()"));
+    }
+
+    #[test]
+    fn attribute_lines_are_recorded() {
+        let rendered = render(&Cell::neutral());
+        let attribute = rendered
+            .line_of(Anchor::Attribute)
+            .expect("an attribute anchor");
+        assert!(rendered.attributes.contains(&attribute));
+        assert!(rendered.covers_attribute(attribute - 1, attribute + 1));
+        let variant = rendered.line_of(Anchor::Variant(0)).expect("a variant");
+        assert!(!rendered.covers_attribute(variant, variant));
     }
 }

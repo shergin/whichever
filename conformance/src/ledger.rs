@@ -2,17 +2,16 @@
 //! model with the reason for each, `pinned.txt`, the cells always
 //! selected, and `census.txt`, how many cells each suite holds by verdict.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::cell::Cell;
+use crate::cell::{Cell, Pattern};
 use crate::select::Selection;
 
-/// A line of `known.tsv`: a cell that diverges, how, and why.
+/// A line of `known.tsv`: the cells that diverge, how, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Known {
-    /// The cell, by its id.
-    pub id: String,
+    /// The cells, by a pattern in id syntax.
+    pub pattern: Pattern,
     /// The outcome it diverges with, as a run spells it.
     pub outcome: String,
     /// What is wrong, in one sentence.
@@ -90,7 +89,8 @@ pub fn parse_known(text: &str) -> Result<Vec<Known>, LedgerError> {
                 fields.len()
             )));
         };
-        canonical(id, "known.tsv", line)?;
+        let pattern = Pattern::parse(id)
+            .map_err(|error| LedgerError(format!("known.tsv:{line}: {error}")))?;
         if outcome.trim().is_empty() || reason.trim().is_empty() {
             return Err(LedgerError(format!(
                 "known.tsv:{line}: the outcome and the reason are not empty"
@@ -101,15 +101,19 @@ pub fn parse_known(text: &str) -> Result<Vec<Known>, LedgerError> {
                 "known.tsv:{line}: the reason is one sentence ending in a period"
             )));
         }
-        if let Some(earlier) = known.iter().find(|entry| entry.id == *id) {
+        let outcome = outcome.trim();
+        if let Some(earlier) = known
+            .iter()
+            .find(|entry| entry.pattern.text == pattern.text && entry.outcome == outcome)
+        {
             return Err(LedgerError(format!(
-                "known.tsv:{line}: `{id}` is listed on line {} already",
+                "known.tsv:{line}: `{id}` with this outcome is listed on line {} already",
                 earlier.line
             )));
         }
         known.push(Known {
-            id: String::from(*id),
-            outcome: String::from(outcome.trim()),
+            pattern,
+            outcome: String::from(outcome),
             reason: String::from(reason.trim()),
             line,
         });
@@ -156,10 +160,16 @@ pub fn census(selections: &[Selection]) -> String {
         text.push('\n');
         text.push_str(&format!("suite {}\n", selection.suite));
         let counts = selection.by_verdict();
-        for kind in ["pass", "limit", "malformed"] {
+        for kind in ["pass", "limit", "rejected", "malformed"] {
             text.push_str(&format!(
                 "  {kind} {}\n",
                 counts.get(kind).copied().unwrap_or(0)
+            ));
+        }
+        if let Some(coverage) = &selection.coverage {
+            text.push_str(&format!(
+                "  rows {}\n  covered {}\n  unreached {}\n",
+                coverage.rows, coverage.covered, coverage.unreached
             ));
         }
         for (reason, count) in &selection.never {
@@ -188,31 +198,23 @@ pub fn differences(expected: &str, found: &str) -> Vec<String> {
     lines
 }
 
-/// Returns the known lines by id.
-pub fn by_id(known: &[Known]) -> BTreeMap<&str, &Known> {
-    known
-        .iter()
-        .map(|entry| (entry.id.as_str(), entry))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn known_lines_parse() {
         let text = "# A comment.\n\nrecv=mut\terror:E0308@subject\tThe arm borrows twice.\n";
         let known = parse_known(text).expect("a valid file");
-        assert_eq!(
-            known,
-            vec![Known {
-                id: String::from("recv=mut"),
-                outcome: String::from("error:E0308@subject"),
-                reason: String::from("The arm borrows twice."),
-                line: 3,
-            }]
-        );
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[0].pattern.text, "recv=mut");
+        assert_eq!(known[0].outcome, "error:E0308@subject");
+        assert_eq!(known[0].reason, "The arm borrows twice.");
+        assert_eq!(known[0].line, 3);
+        let patterns = parse_known("s1=plain recv=mut\ta\tA.\nrecv=mut\tb\tB.\n")
+            .expect("patterns name neutral values and repeat with other outcomes");
+        assert_eq!(patterns.len(), 2);
     }
 
     #[test]
@@ -220,10 +222,9 @@ mod tests {
         for text in [
             "recv=mut\terror:E0308@subject\n",
             "recv=boxed\terror:E0308@subject\tA reason.\n",
-            "s1=plain recv=mut\terror:E0308@subject\tA reason.\n",
             "recv=mut\t\tA reason.\n",
             "recv=mut\terror:E0308@subject\tno period\n",
-            "recv=mut\ta\tA.\nrecv=mut\tb\tB.\n",
+            "recv=mut\ta\tA.\nrecv=mut\ta\tB.\n",
         ] {
             assert!(parse_known(text).is_err(), "{text:?} parsed");
         }
@@ -248,6 +249,7 @@ mod tests {
             suite: String::from("zone"),
             cells: vec![Cell::neutral()],
             never: BTreeMap::from([(String::from("non-canonical"), 2)]),
+            coverage: None,
         };
         assert_eq!(
             census(&[selection]).lines().skip(4).collect::<Vec<_>>(),
@@ -255,6 +257,7 @@ mod tests {
                 "suite zone",
                 "  pass 1",
                 "  limit 0",
+                "  rejected 0",
                 "  malformed 0",
                 "  never 2 non-canonical"
             ]

@@ -5,6 +5,7 @@
 //! own, always selected. Selection is a function of the model: the same
 //! model gives the same cells in the same order.
 
+pub mod arrays;
 pub mod covering;
 pub mod rng;
 mod zones;
@@ -103,6 +104,8 @@ pub struct Selection {
     pub cells: Vec<Cell>,
     /// The combinations not selected, counted by reason.
     pub never: BTreeMap<String, usize>,
+    /// For an array, what its covering found.
+    pub coverage: Option<arrays::Coverage>,
 }
 
 impl Selection {
@@ -134,13 +137,44 @@ pub fn select(suite: &str, combinations: Vec<Cell>) -> Selection {
         let reason = match verdict {
             Verdict::Unmodelled(reason) => format!("unmodelled: {reason}"),
             Verdict::NonCanonical => String::from("non-canonical"),
-            Verdict::Pass | Verdict::Limit(_) | Verdict::Malformed(_) => {
+            Verdict::Pass
+            | Verdict::Limit(_)
+            | Verdict::Malformed(_)
+            | Verdict::Rejected { .. } => {
                 unreachable!("a selectable verdict is selected")
             }
         };
         *selection.never.entry(reason).or_insert(0) += 1;
     }
     selection
+}
+
+/// Returns `count` cells drawn at random by `seed` from the cells that
+/// pass, are a limit with one sentence, or are rejected, for a soak run;
+/// never part of the census.
+pub fn random(count: usize, seed: u64) -> Selection {
+    let classes = [
+        arrays::Class::Pass,
+        arrays::Class::SingleLimit,
+        arrays::Class::Rejected,
+    ];
+    let domains: Vec<usize> = Cell::AXES.iter().map(|axis| (axis.words)().len()).collect();
+    let mut generator = rng::Rng::new(seed);
+    let mut cells: Vec<Cell> = Vec::new();
+    let mut attempts = 0;
+    while cells.len() < count && attempts < count.saturating_mul(1000) {
+        attempts += 1;
+        let row: Vec<usize> = domains
+            .iter()
+            .map(|domain| generator.below(*domain))
+            .collect();
+        let cell = Cell::from_row(&row).expect("rows of the cells' axes");
+        let verdict = cell.verdict();
+        if classes.iter().any(|class| class.holds(&verdict)) && !cells.contains(&cell) {
+            cells.push(cell);
+        }
+    }
+    select("random", cells)
 }
 
 /// Returns the selection of every zone.

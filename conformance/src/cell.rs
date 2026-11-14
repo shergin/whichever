@@ -7,7 +7,7 @@
 //! cell's module and file.
 
 use crate::axis::Axis;
-use crate::model::{Argument, Qualifier, Receiver, Return, Second, Target};
+use crate::model::{Argument, Path, Qualifier, Receiver, Return, Second, Target};
 
 /// The id of the neutral cell.
 pub const BASE: &str = "base";
@@ -163,6 +163,8 @@ cell! {
     arg: Argument,
     /// What qualifies the method.
     qual: Qualifier,
+    /// How the method reaches the subject.
+    path: Path,
 }
 
 impl Cell {
@@ -175,6 +177,51 @@ impl Cell {
     /// Returns the stable 64-bit hash of the cell's id.
     pub fn hash(&self) -> u64 {
         fnv1a(self.id().as_bytes())
+    }
+}
+
+/// A set of cells spelled as an id: the axes it names hold the values it
+/// names, and every other axis is free. A neutral value may be named, so
+/// `recv=ref` holds every cell whose receiver is `&self`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pattern {
+    /// The cell the pattern spells, its unnamed axes neutral.
+    pub cell: Cell,
+    /// The axes it names, by index into [`Cell::AXES`], in order.
+    pub named: Vec<usize>,
+    /// The pattern as written.
+    pub text: String,
+}
+
+impl Pattern {
+    /// Returns the pattern a text spells, in id syntax.
+    pub fn parse(text: &str) -> Result<Pattern, ParseError> {
+        let cell = Cell::parse(text)?;
+        let mut named = Vec::new();
+        let text = text.trim();
+        if text != BASE {
+            for part in text.split_whitespace() {
+                let name = part.split_once('=').map_or(part, |(name, _)| name);
+                let index = Cell::AXES
+                    .iter()
+                    .position(|axis| axis.name == name)
+                    .expect("a parsed id names only axes");
+                named.push(index);
+            }
+        }
+        named.sort();
+        Ok(Pattern {
+            cell,
+            named,
+            text: String::from(text),
+        })
+    }
+
+    /// Returns whether a cell holds the values the pattern names.
+    pub fn matches(&self, cell: &Cell) -> bool {
+        let row = cell.row();
+        let own = self.cell.row();
+        self.named.iter().all(|axis| row[*axis] == own[*axis])
     }
 }
 
@@ -285,6 +332,17 @@ mod tests {
         row[0] = 1000;
         assert_eq!(Cell::from_row(&row), None);
         assert_eq!(Cell::from_row(&[0]), None);
+    }
+
+    #[test]
+    fn a_pattern_names_some_axes_and_leaves_the_others_free() {
+        let pattern = Pattern::parse("recv=ref s0=deref-rc").expect("a pattern");
+        assert_eq!(pattern.cell.id(), "s0=deref-rc");
+        assert!(pattern.matches(&Cell::parse("s0=deref-rc ret=self").expect("an id")));
+        assert!(!pattern.matches(&Cell::parse("s0=deref-rc recv=mut").expect("an id")));
+        let everything = Pattern::parse(BASE).expect("a pattern");
+        assert!(everything.matches(&Cell::parse("recv=mut").expect("an id")));
+        assert!(Pattern::parse("recv=boxed").is_err());
     }
 
     #[test]

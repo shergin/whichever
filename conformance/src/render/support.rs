@@ -5,7 +5,6 @@
 pub const SOURCE: &str = r#"//! What every cell of the shard shares.
 
 use core::future::Future;
-use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 
 /// What an inherent method of a payload answers: a forwarding that calls it
@@ -79,9 +78,11 @@ impl Weight for Three {
     const VALUE: u64 = 3;
 }
 
-/// Polls a future to completion; the cells' futures never wait.
+/// Polls a future to completion; the cells' futures never wait. The
+/// future is boxed rather than pinned with `pin!`, whose expansion holds
+/// syntax `syn` does not read, so that `cargo expand` output parses.
 pub fn block_on<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
+    let mut future = Box::pin(future);
     let mut context = Context::from_waker(Waker::noop());
     loop {
         if let Poll::Ready(output) = future.as_mut().poll(&mut context) {

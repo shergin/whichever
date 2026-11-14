@@ -20,15 +20,20 @@ This crate is never published and nothing in the facade depends on it.
   `s0=deref-box recv=box ret=self`; the neutral cell is `base`. An axis
   added later is neutral in every id written before it, so an id stays
   valid.
-- The **verdict** is what the model says a cell is. A cell passes, or it is
-  a limit answered by named sentences, or it is not Rust at all, which is
-  malformed. A cell the model cannot write yet is unmodelled, and one whose
-  axes that do not matter are not neutral is non-canonical; neither is ever
-  run.
+- The **verdict** is what the model says a cell is. A cell passes; or it is
+  a limit answered by named sentences; or it is rejected, a forwarding no
+  hand can write in Rust and no sentence covers, where the hand gets a
+  named rustc error; or it is not Rust at all, which is malformed. A cell
+  the model cannot write yet is unmodelled, and one whose axes that do not
+  matter are not neutral is non-canonical; neither is ever run.
 - The **outcome** is what a run observed for a cell. A cell whose outcome is
   not what its verdict allows has **diverged**.
 - A **suite** is a selection of cells. A zone is the full product of a few
-  axes; the pinned cells and the known divergences are suites of their own.
+  axes. An array is a covering array within one class of verdict: every
+  combination of values of any three axes among the passing cells, or of
+  any two among the limits of one sentence and among the rejected cells,
+  meets in some cell, the zones' and pinned cells counted. The pinned cells
+  and the known divergences are suites of their own.
 
 `cargo run -p whichever-conformance --release -- axes` lists the axes and
 their values.
@@ -58,7 +63,18 @@ passing cell holds:
 
 A limit cell holds the trait, the payloads, the subject and a probe that
 calls `base` through the trait, so a withheld impl or a cascade shows as an
-error of its own. A malformed cell holds the trait and the payloads.
+error of its own. A rejected cell holds the subject and the hand and no
+law; it agrees when the hand fails with the named error, the subject fails
+too, and no error of the subject sits on an attribute, which
+`macros/ARCHITECTURE.md` 3.8 calls a defect. A malformed cell holds the
+trait and the payloads.
+
+The `path` axis says how `m` reaches the subject: the trait named on the
+subject's attribute, a partial impl block (silent about `m`, `*`, naming
+the first variant with a body for the rest, `default`, or writing `m`
+itself), or an inherent block forwarding to the payloads' own `m`. The law
+expects, per variant, what a twin of the payload answers, the body the
+block writes, or what the trait's default answers.
 
 ## Running it
 
@@ -73,9 +89,14 @@ cargo run -p whichever-conformance --release -- show 's0=via-field recv=mut'
 A run writes a workspace of shard crates under `target/conformance/ws`, one
 file per cell, and builds it in `target/conformance/target`. A file is
 written only when it changed, so a second run rebuilds only what moved.
-`cargo check` runs first; a passing cell with an error is set aside and the
-check repeats until the passing shards are clean, then `cargo test` runs
-their laws. `--whichever PATH` judges another checkout, an older release
+`cargo check` runs first; a passing cell whose subject has an error is
+checked again rendered with its hand alone, so that its hand's law still
+runs and the divergence is known to be the macro's, and the check repeats
+until the passing shards are clean; then `cargo test` runs their laws.
+`--shape` expands every passing shard with `cargo expand` and compares the
+operations of each forwarded method with its hand's; `--random N --seed S`
+adds N random cells of the three classes for a soak run, outside the
+census. `--whichever PATH` judges another checkout, an older release
 exported with `git archive` or a mutated copy, with the same model. `--jobs
 N` is handed to cargo.
 
@@ -109,7 +130,12 @@ An outcome is `pass` or a list of findings:
   `law-hand`;
 - `warning:LINT@PART`, a warning;
 - `law:subject` or `law:hand`, a failed test of the law; the message is the
-  panic's first line.
+  panic's first line;
+- `shape:METHOD`, a forwarded method whose operations differ from the
+  hand's under `--shape`; the message lists the differences.
+
+An error whose span covers an attribute line of the cell is in the part
+`attribute`, whatever part the line is in.
 
 The file is the cell as it was compiled; `show` prints it again from the
 model. A finding in the hand, in its law, or in the payloads blames the
@@ -140,11 +166,15 @@ documents and the goldens best support and says so in a comment beginning
 
 ## The ledger
 
-- `known.tsv` holds the known divergences, tab-separated: the id, the
-  outcome, and the reason, which is one sentence. A listed divergence with
-  the same outcome does not fail the run; a listed cell that agrees, or
-  diverges otherwise, does, and says which line to update. Every listed cell
-  is always run.
+- `known.tsv` holds the known divergences, tab-separated: a pattern, the
+  outcome, and the reason, which is one sentence. A pattern is spelled as
+  an id: the axes it names hold those values, a neutral value included
+  when written out, and every other axis is free, so `base` matches every
+  cell. A line excuses every cell it matches whose outcome is the listed
+  one. A line that excuses nothing in a complete run, every suite and no
+  filter, fails it as stale; a line about a shape is judged so only under
+  `--shape`, and any other only without. The pattern's own cell is always
+  run.
 - `pinned.txt` holds cells always run, one id per line, with a `#` comment
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the
@@ -169,3 +199,19 @@ what diverges, and bless the census.
 A new axis is one more line in the `cell!` invocation in `src/cell.rs`, its
 neutral value first, so no id changes. A new zone is one more entry in
 `src/select/zones.rs`.
+
+## Findings the checks do not hold yet
+
+The checks hold a sentence by its catalogue key, so a sentence with the
+right key and the wrong words agrees. These were seen and are kept here
+until a check holds them:
+
+- A `Self` argument by value through a `deref` variant over `Rc` is
+  reported as "`m` takes `self` by value", though the receiver is `&self`
+  and the argument is what would move.
+- `self: Pin<&mut Self>` and a `&mut Self` argument on a route ending in a
+  method call are reported as "`m` takes `&mut self`".
+- `self: Box<Self>` on a `deref` variant over `Rc` is reported as "holds a
+  plain `Rc<P0>`; hold `Box<Rc<P0>>` in a `#[dispatch(deref)]` variant",
+  which would dereference to `Rc<P0>`, no implementor of the trait.
+- A reference in a sentence is spelled without its space, `&'aP0`.

@@ -7,7 +7,7 @@ use std::time::Duration;
 use super::outcome::Judgement;
 use super::workspace::Workspace;
 use super::{Entry, Status};
-use crate::ledger::{self, Known};
+use crate::ledger::Known;
 use crate::render::show_command;
 
 /// What a run hands its report.
@@ -24,6 +24,13 @@ pub struct Report<'a> {
     pub census_differences: &'a [String],
     /// The wall time of each step.
     pub timings: &'a [(String, Duration)],
+    /// Whether the run held every suite unfiltered, so that a known line
+    /// that excuses nothing is stale.
+    pub complete: bool,
+    /// Whether the shape step ran. A known line about a shape is judged
+    /// stale only when it did, and any other line only when it did not,
+    /// since the shape adds findings to the outcomes those lines name.
+    pub shape: bool,
 }
 
 /// How a cell stands once the ledger is read.
@@ -31,8 +38,7 @@ pub struct Report<'a> {
 enum Standing {
     Agrees,
     Diverges,
-    Known,
-    KnownButAgrees(String),
+    Known(usize),
     KnownButDiffers(String),
     ModelBroken,
 }
@@ -42,8 +48,7 @@ impl Standing {
         match self {
             Standing::Agrees => "agrees",
             Standing::Diverges => "diverges",
-            Standing::Known => "known",
-            Standing::KnownButAgrees(_) => "known-but-agrees",
+            Standing::Known(_) => "known",
             Standing::KnownButDiffers(_) => "known-but-differs",
             Standing::ModelBroken => "model-broken",
         }
@@ -52,27 +57,63 @@ impl Standing {
 
 impl Report<'_> {
     fn standings(&self) -> Vec<Standing> {
-        let known = ledger::by_id(self.known);
         self.entries
             .iter()
             .zip(self.judgements)
             .map(|(entry, judgement)| {
-                let listed = known.get(entry.id.as_str());
                 let outcome = entry.outcome.spell();
-                match (judgement, listed) {
-                    (Judgement::Harness, _) => Standing::ModelBroken,
-                    (Judgement::Agrees, None) => Standing::Agrees,
-                    (Judgement::Diverges, None) => Standing::Diverges,
-                    (Judgement::Agrees, Some(line)) => {
-                        Standing::KnownButAgrees(format!("known.tsv:{}", line.line))
+                let listed: Vec<(usize, &Known)> = self
+                    .known
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| line.pattern.matches(&entry.cell))
+                    .collect();
+                match judgement {
+                    Judgement::Harness => Standing::ModelBroken,
+                    Judgement::Agrees => Standing::Agrees,
+                    Judgement::Diverges => {
+                        if let Some((index, _)) =
+                            listed.iter().find(|(_, line)| line.outcome == outcome)
+                        {
+                            return Standing::Known(*index);
+                        }
+                        // A line that names no axis is about an outcome
+                        // wherever it occurs, so it says nothing of a cell
+                        // whose outcome differs.
+                        let lines: Vec<String> = listed
+                            .iter()
+                            .filter(|(_, line)| !line.pattern.named.is_empty())
+                            .map(|(_, line)| {
+                                format!("known.tsv:{} says `{}`", line.line, line.outcome)
+                            })
+                            .collect();
+                        if lines.is_empty() {
+                            return Standing::Diverges;
+                        }
+                        Standing::KnownButDiffers(lines.join("; "))
                     }
-                    (Judgement::Diverges, Some(line)) if line.outcome == outcome => Standing::Known,
-                    (Judgement::Diverges, Some(line)) => Standing::KnownButDiffers(format!(
-                        "known.tsv:{} says `{}`",
-                        line.line, line.outcome
-                    )),
                 }
             })
+            .collect()
+    }
+
+    /// Returns the known lines that excuse nothing although their own cell
+    /// ran.
+    fn stale(&self, standings: &[Standing]) -> Vec<&Known> {
+        self.known
+            .iter()
+            .enumerate()
+            .filter(|_| self.complete)
+            .filter(|(_, line)| self.shape == line.outcome.contains("shape:"))
+            .filter(|(index, line)| {
+                let ran = self
+                    .entries
+                    .iter()
+                    .any(|entry| entry.cell == line.pattern.cell);
+                let used = standings.contains(&Standing::Known(*index));
+                ran && !used
+            })
+            .map(|(_, line)| line)
             .collect()
     }
 
@@ -161,11 +202,8 @@ impl Report<'_> {
         let mut status = Status::Clean;
         for (entry, standing) in self.entries.iter().zip(&standings) {
             let note = match standing {
-                Standing::Agrees | Standing::Known => continue,
+                Standing::Agrees | Standing::Known(_) => continue,
                 Standing::Diverges => String::from("diverged"),
-                Standing::KnownButAgrees(line) => {
-                    format!("no longer diverges, so {line} is to be removed")
-                }
                 Standing::KnownButDiffers(line) => {
                     format!("diverges differently from what {line}; update the line")
                 }
@@ -192,6 +230,16 @@ impl Report<'_> {
                     .display()
             );
             println!("  show      {}", show_command(&entry.id));
+        }
+        for line in self.stale(&standings) {
+            status = match status {
+                Status::ModelBroken => Status::ModelBroken,
+                Status::Clean | Status::Diverged => Status::Diverged,
+            };
+            println!();
+            println!("stale: known.tsv:{} `{}`", line.line, line.pattern.text);
+            println!("  note      excuses no divergence of this run; remove or update the line");
+            println!("  outcome   {}", line.outcome);
         }
         if !self.census_differences.is_empty() {
             status = match status {

@@ -10,6 +10,7 @@
 use super::context::{pattern, variant, Context, Site, TRAIT};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
+use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
 use crate::model::returns::{Associated, Conversion, FutureKind, Node};
 use crate::model::target::{Step, TargetDescriptor};
@@ -92,8 +93,28 @@ impl Place {
         }
     }
 
-    /// Returns the place handed over as `handover` asks.
+    /// Returns the method call a route ends in: the reference a lending
+    /// method returns, or the value a yielding one does.
+    fn method_result(&self) -> Option<&Place> {
+        match self {
+            Place::Call(_, _) => Some(self),
+            Place::Deref(inner) if matches!(**inner, Place::Call(_, _)) => Some(inner),
+            Place::Binding(_, _) | Place::Deref(_) | Place::Field(_, _) => None,
+        }
+    }
+
+    /// Returns the place handed over as `handover` asks. A route ending in
+    /// a method call hands the method's result over as it is
+    /// (docs/decisions/an-arm-reaches-its-target-through-a-route.md).
     fn handed(&self, handover: Handover) -> String {
+        if let Some(call) = self.method_result() {
+            return match handover {
+                Handover::Pin | Handover::PinMutably => format!("Pin::new({})", call.text()),
+                Handover::Borrow | Handover::BorrowMutably | Handover::Move | Handover::MoveBox => {
+                    call.text()
+                }
+            };
+        }
         match handover {
             Handover::Borrow => self.borrowed(false),
             Handover::BorrowMutably => self.borrowed(true),
@@ -120,7 +141,13 @@ struct Method {
     asyncness: bool,
     unsafety: bool,
     turbofish: &'static str,
-    mismatch: Option<String>,
+    /// The slots the method is forwarded to.
+    slots: Vec<usize>,
+    /// The arm for every other variant: a mismatch, or a block's body.
+    fallback: Option<String>,
+    /// Whether the method is inherent, calling the payloads' own by
+    /// method-call syntax.
+    inherent: bool,
 }
 
 /// Writes `mod hand`.
@@ -146,23 +173,36 @@ pub fn write(writer: &mut Writer, context: &Context) {
         };
         writer.line(format!("type {name} = {ty};"));
     }
+    let indices = |slots: Vec<(Slot, crate::model::Target, TargetDescriptor)>| -> Vec<usize> {
+        slots.iter().map(|(slot, _, _)| slot.index).collect()
+    };
     let base = Method {
         name: "base",
-        signature: String::from("fn base(&self) -> u64"),
-        receiver: Receiver::Shared,
+        signature: context.base_signature(),
+        receiver: context.base_receiver(),
         argument: None,
         node: Node::Tag,
         asyncness: false,
         unsafety: false,
         turbofish: "",
-        mismatch: None,
+        slots: indices(context.cell.base_slots()),
+        fallback: (!context.cell.base_reaches_all()).then(|| String::from("0")),
+        inherent: false,
     };
     write_method(writer, context, &base);
-    let mismatch = context
-        .argument
-        .kind
-        .filter(|_| context.slots.len() > 1)
-        .map(|_| context.mismatch("E"));
+    let fallback = match context.path.form {
+        PathForm::Forwarded => context
+            .argument
+            .kind
+            .filter(|_| context.slots.len() > 1)
+            .map(|_| context.mismatch("E")),
+        PathForm::First => Some(format!(
+            "{{ {} {} }}",
+            context.unused(false),
+            context.mismatch("E")
+        )),
+        PathForm::Default | PathForm::Written => None,
+    };
     let method = Method {
         name: "m",
         signature: context.signature(Site::Impl),
@@ -175,9 +215,34 @@ pub fn write(writer: &mut Writer, context: &Context) {
             Some(crate::model::qualifier::Generic::Turbofish) => "::<W>",
             Some(crate::model::qualifier::Generic::Fixed) | None => "",
         },
-        mismatch,
+        slots: indices(context.cell.method_slots()),
+        fallback,
+        inherent: context.inherent(),
     };
-    write_method(writer, context, &method);
+    if method.inherent {
+        writer.close("}");
+        writer.blank();
+        writer.open(format!("impl{generics} E{generics} {{"));
+        let method = Method {
+            signature: format!("pub {}", context.signature(Site::Inherent)),
+            ..method
+        };
+        write_method(writer, context, &method);
+        writer.close("}");
+        writer.close("}");
+        return;
+    }
+    match context.path.form {
+        PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
+        PathForm::Default => {}
+        PathForm::Written => {
+            writer.blank();
+            writer.open(format!("{} {{", method.signature));
+            writer.line(context.unused(true));
+            writer.line(context.mismatch("E"));
+            writer.close("}");
+        }
+    }
     writer.close("}");
     writer.close("}");
 }
@@ -212,7 +277,9 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     let conversion =
         conversion.expect("the verdict writes a hand only for a conversion that exists");
     writer.blank();
-    writer.line("#[inline]");
+    if !method.inherent {
+        writer.line("#[inline]");
+    }
     writer.open(format!("{} {{", method.signature));
     match wrapping {
         Wrapping::Plain => {}
@@ -225,6 +292,9 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     };
     writer.open(format!("match {scrutinee} {{"));
     for (slot, _, target) in context.live() {
+        if !method.slots.contains(&slot.index) {
+            continue;
+        }
         let arm = arm(
             &slot,
             &target,
@@ -236,8 +306,8 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
         );
         writer.line(arm);
     }
-    if let Some(mismatch) = &method.mismatch {
-        writer.line(format!("_ => {mismatch},"));
+    if let Some(fallback) = &method.fallback {
+        writer.line(format!("_ => {fallback},"));
     }
     writer.close("}");
     match wrapping {
@@ -273,13 +343,22 @@ fn arm(
     if method.name == "m" {
         arguments.push(String::from("x"));
     }
-    let mut call = format!(
-        "<{} as {TRAIT}>::{}{}({})",
-        slot.payload(),
-        method.name,
-        method.turbofish,
-        arguments.join(", ")
-    );
+    let mut call = match method.inherent {
+        true => {
+            let receiver = match own.method_result() {
+                Some(call) => call.text(),
+                None => own.receiver_text(),
+            };
+            format!("{receiver}.{}(x)", method.name)
+        }
+        false => format!(
+            "<{} as {TRAIT}>::{}{}({})",
+            slot.payload(),
+            method.name,
+            method.turbofish,
+            arguments.join(", ")
+        ),
+    };
     if method.unsafety {
         call = format!("unsafe {{ {call} }}");
     }
@@ -365,7 +444,7 @@ mod tests {
         assert_eq!(method.handed(Handover::Borrow), "inner.lend()");
         assert_eq!(method.handed(Handover::Pin), "Pin::new(inner.lend())");
         let value = Place::of("inner", Binding::Shared, &[Step::Yield("copied")]);
-        assert_eq!(value.handed(Handover::Borrow), "&inner.copied()");
+        assert_eq!(value.handed(Handover::Borrow), "inner.copied()");
         assert_eq!(value.handed(Handover::Move), "inner.copied()");
     }
 
