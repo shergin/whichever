@@ -3,7 +3,7 @@
 //! for which arguments, and an inherent method of the trait method's name
 //! that answers a poison value.
 
-use super::context::{spell, Associates, Context, Site, TRAIT};
+use super::context::{spell, Associates, Context, Site};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::qualifier::Generic;
@@ -25,10 +25,14 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if context.path.form == crate::model::path::Form::Default && context.qualifier.provided {
         writer.line("/// A type that keeps the trait's default, to call it directly.");
         writer.line("pub struct Defaulted {");
-        writer.line("    base: u64,");
+        writer.line("    pub base: u64,");
         writer.line("}");
         writer.blank();
-        writer.open(format!("impl {TRAIT} for Defaulted {{"));
+        writer.open(format!(
+            "impl{} {} for Defaulted {{",
+            context.payload_generics(),
+            context.trait_path()
+        ));
         writer.open(format!("{} {{", context.base_signature()));
         writer.line("self.base");
         writer.close("}");
@@ -52,8 +56,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
         if wrapped {
             let wrapper = slot.wrapper();
             writer.line(format!("pub struct {wrapper} {{"));
-            writer.line("    label: u64,");
-            writer.line(format!("    payload: {payload},"));
+            writer.line("    pub label: u64,");
+            writer.line(format!("    pub payload: {payload},"));
             writer.line("}");
             writer.blank();
             writer.open(format!("impl {wrapper} {{"));
@@ -80,8 +84,8 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
         writer.line("#[derive(Clone, Copy)]");
     }
     writer.line(format!("pub struct {payload} {{"));
-    writer.line("    state: u64,");
-    writer.line("    spare: u64,");
+    writer.line("    pub state: u64,");
+    writer.line("    pub spare: u64,");
     writer.line("}");
     writer.blank();
     writer.open(format!("impl {payload} {{"));
@@ -127,7 +131,11 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
 }
 
 fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
-    writer.open(format!("impl {TRAIT} for P{index} {{"));
+    writer.open(format!(
+        "impl{} {} for P{index} {{",
+        context.payload_generics(),
+        context.trait_path()
+    ));
     for (associated, overridden) in context.associated() {
         let ty = match (associated, overridden) {
             (Associated::Out, false) => String::from("u64"),
@@ -185,6 +193,10 @@ fn answer_body(writer: &mut Writer, context: &Context, index: usize, x: &str) {
         writer.line("other.state += 2;");
     }
     let mut number = format!("{}_000_000 + {this}.state * 100 + {x}", index + 1);
+    // The const parameter the trait is implemented at shows in the answer.
+    if context.generics.constant {
+        number.push_str(" + N * 1_000");
+    }
     match (context.argument.kind, enum_argument) {
         (Some(_), true) => number.push_str(" + other.base() * 7"),
         (Some(_), false) => number.push_str(" + other.state * 7"),
@@ -220,7 +232,20 @@ fn poison_body(writer: &mut Writer, context: &Context, index: usize) {
 
 /// Writes the default body of a provided method, which knows no payload.
 pub fn default_body(writer: &mut Writer, context: &Context) {
-    let mut number = format!("3_000_000 + self.base() * 100 + {}", context.parameter());
+    // A default body knows the projected argument's type only where the
+    // trait's bound fixes it.
+    let x = context.parameter();
+    let counted = !context.generics.projected || context.generics.fixed;
+    if !counted {
+        writer.line(format!("let _ = {x};"));
+    }
+    let mut number = match counted {
+        true => format!("3_000_000 + self.base() * 100 + {x}"),
+        false => String::from("3_000_000 + self.base() * 100"),
+    };
+    if context.generics.constant {
+        number.push_str(" + N * 1_000");
+    }
     if context.argument.kind.is_some() {
         number.push_str(" + other.base() * 7");
     }

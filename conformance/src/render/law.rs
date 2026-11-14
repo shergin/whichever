@@ -4,7 +4,7 @@
 //! leaves the payload in the twin's state. The same body is checked
 //! against the subject and against the hand.
 
-use super::context::{seed, spell, Associates, Context, LABEL, OTHER_SEED, SAMPLES, TRAIT};
+use super::context::{seed, spell, Associates, Context, LABEL, OTHER_SEED, SAMPLES};
 use super::payload::answer_type;
 use super::writer::Writer;
 use crate::model::argument::{ArgumentKind, MismatchSite};
@@ -60,7 +60,11 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
         writer.blank();
         writer.line("#[test]");
         writer.open(format!("fn {test}() {{"));
-        writer.line(format!("use {path} as S;"));
+        // A generic subject is named at the argument the law takes it at.
+        match context.generics.parameter {
+            Some(_) => writer.line(format!("type S = {};", context.subject_instance(path))),
+            None => writer.line(format!("use {path} as S;")),
+        }
         writer.anchor(format!("law-{test}"));
         writer.line("law!();");
         writer.close("}");
@@ -291,7 +295,8 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
             arguments.join(", ")
         ),
         false => format!(
-            "<{path} as {TRAIT}>::m{turbofish}({})",
+            "<{path} as {}>::m{turbofish}({})",
+            context.trait_instance(),
             arguments.join(", ")
         ),
     };

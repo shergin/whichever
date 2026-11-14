@@ -293,6 +293,40 @@ axis! {
     }
 }
 
+axis! {
+    /// Where the trait and the payloads live, beside the subject.
+    pub enum Home {
+        /// In the cell's module, beside the subject.
+        Local = "local",
+        /// In a sibling module inside the cell, its signature naming a type
+        /// by a `crate::` path.
+        Sibling = "sibling",
+        /// In another crate, a `traits-NNN` shard the subject's depends on,
+        /// its signature naming a type by a `crate::` path of that crate.
+        Crate = "crate",
+    }
+}
+
+axis! {
+    /// The generics of the trait or the subject.
+    pub enum Generics {
+        /// None.
+        Bare = "none",
+        /// The first variant's payload is a type parameter of the enum,
+        /// `enum E<T> { A(T), .. }`.
+        Payload = "payload",
+        /// A generic trait dispatched at a concrete argument,
+        /// `Probe<support::Json>`.
+        Concrete = "concrete",
+        /// A trait generic over a const dispatched at the enum's own
+        /// parameter, `Probe<N>` on `enum E<const N: u64>`.
+        Own = "own",
+        /// A generic trait whose parameter has a default, left out,
+        /// `#[dispatch(Probe)]` for `trait Probe<F = support::Json>`.
+        Defaulted = "defaulted",
+    }
+}
+
 impl Cfg {
     /// Returns the predicate the variant of a slot is under, if any.
     pub fn of(self, slot: usize) -> Option<&'static str> {

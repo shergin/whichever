@@ -174,6 +174,34 @@ suite cfg
   never 170 non-canonical
   never 102 unmodelled: an enum with no variant in this build
 
+suite homes
+  pass 516
+  limit 136
+  rejected 0
+  malformed 0
+  never 384 non-canonical
+  never 48 unmodelled: a block body for a future return
+  never 24 unmodelled: a block body for a return type that needs a payload to make
+  never 184 unmodelled: a default body that would need a payload to make its answer
+  never 12 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 32 unmodelled: an inherent body for a return type that needs a payload to make
+  never 96 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+  never 8 unmodelled: an inherent opaque future that captures an argument its `+ '_` does not name
+
+suite generics
+  pass 784
+  limit 374
+  rejected 0
+  malformed 0
+  never 800 non-canonical
+  never 72 unmodelled: a block body for a future return
+  never 36 unmodelled: a block body for a return type that needs a payload to make
+  never 398 unmodelled: a default body that would need a payload to make its answer
+  never 160 unmodelled: a generic struct subject, which the law names by an alias
+  never 32 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 384 unmodelled: a type-parameter payload through a partial block, whose header is the user's
+  never 560 unmodelled: an associated type beside generics, which the model spells for the plain trait
+
 suite items
   pass 470
   limit 418
@@ -184,37 +212,37 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite pinned
-  pass 28
+  pass 39
   limit 1
   rejected 2
   malformed 0
 
 suite array
-  pass 4236
+  pass 4275
   limit 0
   rejected 0
   malformed 0
-  rows 4236
-  covered 48041
-  unreached 26733
+  rows 4275
+  covered 48797
+  unreached 26792
 
 suite array-limits
   pass 0
-  limit 276
+  limit 278
   rejected 0
   malformed 0
-  rows 276
-  covered 3721
-  unreached 689
+  rows 278
+  covered 4422
+  unreached 803
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 511
+  rejected 536
   malformed 0
-  rows 511
-  covered 3437
-  unreached 973
+  rows 536
+  covered 4109
+  unreached 1116
 
 suite known
   pass 18
@@ -222,4 +250,3 @@ suite known
   rejected 1
   malformed 0
   never 2 non-canonical
-  never 2 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait

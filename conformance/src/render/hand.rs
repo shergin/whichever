@@ -7,9 +7,7 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{
-    constructor, is_struct, pattern, variant, write_struct, Context, Site, TRAIT,
-};
+use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
@@ -178,6 +176,8 @@ struct Method {
     /// Whether its `Self` argument is handed over as it is, the enum
     /// itself, rather than matched beside `self`.
     hands_enum: bool,
+    /// The trait as its arms name it.
+    trait_path: String,
 }
 
 /// Writes `mod hand`.
@@ -188,7 +188,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.blank();
     let generics = context.generics();
     if is_struct(&context.slots) {
-        write_struct(writer, &context.slots[0], generics, false, false);
+        write_struct(writer, &context.slots[0], &generics, false, false);
     } else {
         writer.open(format!("pub enum E{generics} {{"));
         for slot in &context.declared {
@@ -217,7 +217,12 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.blank();
         }
     }
-    writer.open(format!("impl{generics} {TRAIT} for E{generics} {{"));
+    writer.open(format!(
+        "impl{} {} for E{} {{",
+        context.impl_generics(),
+        context.trait_path(),
+        context.type_generics()
+    ));
     for (associated, overridden) in context.associated() {
         let name = associated.name();
         let ty = match (associated, overridden) {
@@ -226,8 +231,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 let supplier = context
                     .cell
                     .supplier()
-                    .map_or_else(|| String::from("P0"), |slot| slot.payload());
-                format!("<{supplier} as {TRAIT}>::{name}")
+                    .map_or_else(|| String::from("P0"), |slot| slot.declared_payload());
+                format!("<{supplier} as {}>::{name}", context.trait_path())
             }
         };
         writer.line(format!("type {name} = {ty};"));
@@ -255,6 +260,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         inline: "inline",
         parameter: "x",
         hands_enum: false,
+        trait_path: context.trait_path(),
     };
     write_method(writer, context, &base);
     // The forwarding of a deprecated method calls it, so it is written
@@ -305,6 +311,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         inline: context.item.inline,
         parameter: context.parameter(),
         hands_enum: false,
+        trait_path: context.trait_path(),
     };
     if method.inherent {
         writer.close("}");
@@ -340,6 +347,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.blank();
             for attribute in context.repeated_attributes() {
                 writer.line(attribute);
+            }
+            if context.item.inline != "inline" {
+                writer.line(format!("#[{}]", context.item.inline));
             }
             writer.open(format!("{} {{", method.signature));
             writer.line(context.unused(Site::Impl, true));
@@ -504,8 +514,9 @@ fn arm(
         arguments.push(String::from(method.parameter));
     }
     let mut call = format!(
-        "<{} as {TRAIT}>::{}{}({})",
-        slot.payload(),
+        "<{} as {}>::{}{}({})",
+        slot.declared_payload(),
+        method.trait_path,
         method.name,
         method.turbofish,
         arguments.join(", ")

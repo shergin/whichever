@@ -20,6 +20,9 @@ pub enum ShardKind {
     Malformed,
     /// Rejected cells, checked.
     Rejected,
+    /// The traits and payloads of the cells whose trait lives in another
+    /// crate, which every other shard depends on.
+    Traits,
 }
 
 impl ShardKind {
@@ -42,6 +45,7 @@ impl ShardKind {
             ShardKind::Limit => "limit",
             ShardKind::Malformed => "malformed",
             ShardKind::Rejected => "rejected",
+            ShardKind::Traits => "traits",
         }
     }
 
@@ -53,6 +57,7 @@ impl ShardKind {
             ShardKind::Limit => 24,
             ShardKind::Malformed => 1,
             ShardKind::Rejected => 8,
+            ShardKind::Traits => 8,
         }
     }
 
@@ -71,6 +76,13 @@ pub struct Shard {
     pub kind: ShardKind,
     /// The modules of its cells, sorted.
     pub modules: Vec<String>,
+    /// The shards it depends on: every traits shard, for any other.
+    pub dependencies: Vec<String>,
+}
+
+/// Returns the name of a shard as a crate's identifier: `traits_003`.
+pub fn crate_name(shard: &str) -> String {
+    shard.replace('-', "_")
 }
 
 /// The workspace's directories.
@@ -127,7 +139,7 @@ impl Workspace {
         whichever: &Path,
         lock: Option<&Path>,
         shards: &[Shard],
-        source: &dyn Fn(&str) -> String,
+        source: &dyn Fn(&Shard, &str) -> String,
     ) -> io::Result<usize> {
         fs::create_dir_all(&self.root)?;
         let members: Vec<String> = shards
@@ -172,11 +184,18 @@ impl Workspace {
                 toml_string(&shard.name),
                 toml_string(&whichever.display().to_string())
             );
+            let mut manifest = manifest;
+            for dependency in &shard.dependencies {
+                manifest.push_str(&format!(
+                    "{dependency} = {{ path = {} }}\n",
+                    toml_string(&format!("../{dependency}"))
+                ));
+            }
             write_if_changed(&directory.join("Cargo.toml"), &manifest)?;
             write_if_changed(&directory.join("src").join("support.rs"), support::SOURCE)?;
             self.write_lib(shard, &shard.modules)?;
             for module in &shard.modules {
-                if write_if_changed(&self.cell_path(&shard.name, module), &source(module))? {
+                if write_if_changed(&self.cell_path(&shard.name, module), &source(shard, module))? {
                     written += 1;
                 }
             }
@@ -219,8 +238,13 @@ impl Workspace {
              \n",
             shard.name
         );
+        // A traits shard's modules are reached from the subject's crate.
+        let visibility = match shard.kind {
+            ShardKind::Traits => "pub ",
+            ShardKind::Pass | ShardKind::Limit | ShardKind::Malformed | ShardKind::Rejected => "",
+        };
         for module in modules {
-            text.push_str(&format!("mod {module};\n"));
+            text.push_str(&format!("{visibility}mod {module};\n"));
         }
         write_if_changed(
             &self.root.join(&shard.name).join("src").join("lib.rs"),

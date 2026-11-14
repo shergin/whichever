@@ -17,6 +17,23 @@ pub static POISON_PLACE: u64 = POISON;
 /// The place a mismatched reference points at.
 pub static MISMATCH: u64 = 424_242;
 
+/// The argument of the method under test, named by a `crate::` path where
+/// the trait lives away from the subject.
+pub type Count = u64;
+
+/// What a generic trait is dispatched at.
+pub trait Format {
+    /// The value the method under test takes.
+    type Value;
+}
+
+/// The format every generic trait is dispatched at.
+pub struct Json;
+
+impl Format for Json {
+    type Value = u64;
+}
+
 /// The error a payload answers with.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Fault(pub u64);

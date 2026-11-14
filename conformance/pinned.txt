@@ -79,3 +79,25 @@ s0=struct s1=none recv=value ret=self arg=value path=inherent
 arg=ref-bare path=inherent
 # `with = Into::into` rebuilds the enum through its `From` impls.
 ret=self path=inherent lift=into
+
+# The trait and the payloads in another crate: the agreement check of an
+# associated type over a borrowing variant (agreement-check-misses-implied-
+# outlives-bounds), the trait method's `#[cfg]` decided in the trait's
+# crate, and a mismatch expression that names the support module where the
+# enum is.
+s1=deref-ref ret=assoc home=crate
+qual=provided path=block-default item=cfg-on home=crate
+item=cfg-off home=crate
+arg=ref-trait home=crate
+arg=ref-enum path=block home=sibling
+
+# Generics: a type-parameter payload beside a concrete one and behind a
+# `Box` (generic_payloads), a generic trait at a concrete argument whose
+# bound fixes the projection, at the enum's own const parameter, and with a
+# defaulted parameter left out (associated_types_and_generics).
+generic=payload
+s0=deref-box s1=none generic=payload
+qual=provided generic=concrete
+ret=self generic=own
+qual=provided path=block-default generic=defaulted
+home=crate generic=concrete

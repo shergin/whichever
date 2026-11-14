@@ -11,8 +11,29 @@ use crate::model::Anchor;
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
 /// `base` and the method under test `m`.
 pub fn write_trait(writer: &mut Writer, context: &Context) {
+    // A trait in a sibling module is imported where the subject is, the
+    // carrier macro with it, as a user imports a trait of another module.
+    let Some(module) = context.home.module else {
+        write_trait_items(writer, context);
+        return;
+    };
+    writer.open(format!("pub mod {module} {{"));
+    // What the trait's signature names it reaches through its parent.
+    writer.line("#[allow(unused_imports)]");
+    writer.line("use super::*;");
+    writer.blank();
+    write_trait_items(writer, context);
+    writer.close("}");
+    writer.blank();
+    writer.line(format!("use {module}::{TRAIT};"));
+}
+
+fn write_trait_items(writer: &mut Writer, context: &Context) {
     writer.line("#[whichever::dispatchable]");
-    writer.open(format!("pub trait {TRAIT} {{"));
+    writer.open(format!(
+        "pub trait {TRAIT}{} {{",
+        context.trait_parameters()
+    ));
     for (associated, _) in context.associated() {
         writer.line(format!("type {};", associated.name()));
     }
@@ -48,7 +69,7 @@ pub fn write_trait(writer: &mut Writer, context: &Context) {
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
-    let mut arguments = vec![String::from(TRAIT)];
+    let mut arguments = vec![context.trait_path()];
     arguments.extend(context.options());
     writer.anchor(Anchor::Attribute.name());
     match block {
@@ -56,7 +77,7 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
         false => writer.line(format!("#[whichever::dispatch({})]", arguments.join(", "))),
     }
     if is_struct(&context.slots) {
-        write_struct(writer, &context.slots[0], context.generics(), true, true);
+        write_struct(writer, &context.slots[0], &context.generics(), true, true);
     } else {
         writer.anchor(Anchor::Enum.name());
         writer.open(format!("pub enum E{} {{", context.generics()));
@@ -118,8 +139,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         true => writer.line("#[whichever::dispatch]"),
         false => writer.line(format!("#[whichever::dispatch({})]", options.join(", "))),
     }
-    let generics = context.generics();
-    writer.open(format!("impl{generics} {TRAIT} for E{generics} {{"));
+    writer.open(format!(
+        "impl{} {} for E{} {{",
+        context.impl_generics(),
+        context.trait_path(),
+        context.type_generics()
+    ));
     if !context.cell.base_reaches_all() {
         writer.line("#[dispatch(A)]");
         writer.open(format!("{} {{", context.base_signature()));
@@ -136,11 +161,16 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         if let Some(mark) = context.path.mark {
             writer.line(format!("#[dispatch({mark})]"));
         }
-        // A body the block writes repeats the signature the trait allows a
-        // lint on, so it allows the lint too.
-        let bodied = matches!(context.path.form, PathForm::First | PathForm::Written);
-        if let (true, Some(lint)) = (bodied, context.item.allowed) {
-            writer.line(format!("#[allow({lint})]"));
+        // The block's method is the user's item, which keeps the attributes
+        // written on it: it repeats the signature the trait allows a lint
+        // on, so it allows the lint too, and the trait method's own
+        // `#[inline(..)]`, which it would otherwise not carry.
+        //
+        // Open question: what-is-generated.md gives the forwarding "the
+        // trait method's own `#[inline(..)]`", which is read as the plain
+        // forwarding's; a mark's method takes what the user writes on it.
+        for attribute in context.block_attributes() {
+            writer.line(attribute);
         }
         let signature = context.signature(Site::Impl);
         writer.anchor(Anchor::BlockSignature.name());
@@ -162,11 +192,15 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
 pub fn write_probe(writer: &mut Writer, context: &Context) {
     writer.line("/// Calls the control method through the trait, so that a withheld impl");
     writer.line("/// shows as an error of its own.");
+    let subject = context.subject_instance("E");
     let taken = match context.base_receiver().descriptor().consumes {
-        true => "E",
-        false => "&E",
+        true => subject.clone(),
+        false => format!("&{subject}"),
     };
     writer.open(format!("pub fn probe(subject: {taken}) -> u64 {{"));
-    writer.line(format!("<E as {TRAIT}>::base(subject)"));
+    writer.line(format!(
+        "<{subject} as {}>::base(subject)",
+        context.trait_instance()
+    ));
     writer.close("}");
 }

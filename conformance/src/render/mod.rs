@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 
 use crate::cell::Cell;
 use crate::model::{Anchor, Verdict};
+use crate::run::workspace::{crate_name, ShardKind};
 use context::Context;
 use writer::{Part, Section, Writer};
 
@@ -34,6 +35,9 @@ pub struct Rendered {
     /// `#[dispatch(..)]`. A rustc error whose span covers one sits on an
     /// attribute, which `macros/ARCHITECTURE.md` 3.8 calls a defect.
     pub attributes: Vec<usize>,
+    /// The shard the trait and the payloads are written in, where they
+    /// live in a crate of their own.
+    pub trait_shard: Option<String>,
 }
 
 impl Rendered {
@@ -51,6 +55,49 @@ impl Rendered {
         self.attributes
             .iter()
             .any(|line| first <= *line && *line <= last)
+    }
+
+    /// Returns the cell's files: the subject's, and the trait's where the
+    /// trait lives in a crate of its own. The two keep the lines of the
+    /// rendered cell, so one record of parts and anchors serves both: the
+    /// trait's file is the cell up to its payloads, and the subject's
+    /// blanks the trait and the payloads and takes `support` from the
+    /// trait's crate.
+    pub fn files(&self) -> (String, Option<String>) {
+        let Some(shard) = &self.trait_shard else {
+            return (self.source.clone(), None);
+        };
+        let krate = crate::run::workspace::crate_name(shard);
+        let lines: Vec<&str> = self.source.lines().collect();
+        let mut subject = Vec::new();
+        let mut trait_file = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let part = self.part_of(index + 1);
+            let declared = matches!(part, Some(Part::Trait | Part::Payloads));
+            let header = matches!(part, Some(Part::Header));
+            let foreign = header && line.starts_with("use ") && line.ends_with("::*;");
+            let support = *line == "use crate::support;";
+            match (declared, support) {
+                (true, _) => subject.push(String::new()),
+                (false, true) => subject.push(format!("use {krate}::support;")),
+                (false, false) => subject.push(String::from(*line)),
+            }
+            match declared || (header && !foreign) {
+                true => trait_file.push(String::from(*line)),
+                false => trait_file.push(String::new()),
+            }
+        }
+        let last = (0..lines.len())
+            .rev()
+            .find(|index| self.part_of(index + 1) == Some(Part::Payloads))
+            .map_or(0, |index| index + 1);
+        trait_file.truncate(last);
+        let join = |lines: Vec<String>| {
+            let mut text = lines.join("\n");
+            text.push('\n');
+            text
+        };
+        (join(subject), Some(join(trait_file)))
     }
 
     /// Returns the line of an anchor; `None` for `Anywhere` and for an
@@ -213,8 +260,23 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
         }
     };
     writer.blank();
+    // A trait in another crate splits the cell into two files, whose
+    // imports serve one or the other.
+    let trait_shard = context
+        .home
+        .foreign
+        .then(|| ShardKind::Traits.shard(cell.hash()));
+    if trait_shard.is_some() {
+        writer.line("#![allow(unused_imports)]");
+    }
     for import in imports {
         writer.line(*import);
+    }
+    if let Some(shard) = &trait_shard {
+        if !imports.contains(&"use crate::support;") {
+            writer.line("use crate::support;");
+        }
+        writer.line(format!("use {}::{}::*;", crate_name(shard), cell.module()));
     }
     writer.blank();
     writer.begin(Part::Trait);
@@ -241,7 +303,9 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
         writer.begin(Part::Law);
         law::write(&mut writer, context, parts.law);
     }
-    finish(writer)
+    let mut rendered = finish(writer);
+    rendered.trait_shard = trait_shard;
+    rendered
 }
 
 fn finish(writer: Writer) -> Rendered {
@@ -260,6 +324,7 @@ fn finish(writer: Writer) -> Rendered {
         sections,
         anchors,
         attributes,
+        trait_shard: None,
     }
 }
 

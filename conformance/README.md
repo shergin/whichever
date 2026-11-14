@@ -100,6 +100,22 @@ itself), or an inherent block forwarding to the payloads' own `m`. The law
 expects, per variant, what a twin of the payload answers, the body the
 block writes, or what the trait's default answers.
 
+The `home` axis says where the trait and the payloads live: in the cell's
+module, in a sibling module the subject imports the trait from, or in
+another crate. There the cell is written as two files that keep its line
+numbers: the trait's crate, a `traits-NNN` shard every other shard depends
+on, holds the cell up to its payloads, and the subject's shard holds the
+rest and takes `support` from the trait's crate. A cell whose trait's crate
+fails is set aside from both, its findings kept, and the check repeats. A
+trait away from the subject names its argument `crate::support::Count`, so
+the rewrite of `crate::` paths to the trait's crate is exercised.
+
+The `generic` axis is a payload that is the enum's type parameter, a trait
+generic over a format dispatched at `support::Json`, a trait generic over
+a const dispatched at the enum's own parameter, and a defaulted parameter
+left out. The law names a generic subject by an alias at the argument it
+takes it at, `type S = E<P0>;`.
+
 ## Running it
 
 ```sh

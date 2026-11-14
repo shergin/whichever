@@ -89,6 +89,8 @@ pub struct Diagnostic {
     pub chain: Vec<Site>,
     /// Whether a `compile_error!` in the backtrace raised it.
     pub from_compile_error: bool,
+    /// The crate being compiled when it was raised.
+    pub krate: String,
 }
 
 /// Returns the module a file of a cell is, or `None` for any other file.
@@ -170,6 +172,7 @@ pub fn diagnostics(output: &str) -> Vec<Diagnostic> {
             site: chain.first().cloned(),
             chain,
             from_compile_error,
+            krate: String::from(value["target"]["name"].as_str().unwrap_or_default()),
         });
     }
     found

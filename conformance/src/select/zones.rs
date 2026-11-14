@@ -255,6 +255,32 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "homes",
+        summary: "the trait in a sibling module or another crate, through every path, over the target kinds, returns and qualifiers whose signatures it writes into the subject's module",
+        vary: &[
+            ("home", &["sibling", "crate"]),
+            ("path", &[]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
+            ("ret", &["u64", "self", "assoc", "out", "result-error", "future"]),
+            ("qual", &["plain", "provided", "generic"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "generics",
+        summary: "a type-parameter payload and a generic trait at a concrete argument, at the enum's own parameter and with a default left out, over the paths, target kinds, receivers and returns that name them",
+        vary: &[
+            ("generic", &["payload", "concrete", "own", "defaulted"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default"]),
+            ("s0", &["plain", "deref-box", "struct"]),
+            ("s1", &["plain", "none", "deref-box"]),
+            ("recv", &["ref", "value"]),
+            ("ret", &["u64", "self", "option-self", "assoc", "future"]),
+            ("qual", &["plain", "provided"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "items",
         summary: "the attributes on the trait's method through every path, over the qualifiers, second variants and receivers a block's mark or a carried attribute meets",
         vary: &[

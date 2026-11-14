@@ -7,6 +7,8 @@
 
 pub mod argument;
 pub mod axes;
+pub mod generics;
+pub mod home;
 pub mod item;
 pub mod limits;
 pub mod path;
@@ -17,7 +19,8 @@ pub mod target;
 mod verdict;
 
 pub use axes::{
-    Argument, Callee, Cfg, Item, Lift, Path, Qualifier, Receiver, Return, Second, Target,
+    Argument, Callee, Cfg, Generics, Home, Item, Lift, Path, Qualifier, Receiver, Return, Second,
+    Target,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -125,6 +128,8 @@ pub struct Slot {
     /// The slot whose payload type the variant holds: its own, or the
     /// first slot's where two variants hold one type.
     pub holds: usize,
+    /// Whether the subject declares the payload as its type parameter.
+    pub parameter: bool,
 }
 
 impl Slot {
@@ -136,6 +141,15 @@ impl Slot {
     /// Returns the name of the slot's payload type.
     pub fn payload(&self) -> String {
         format!("P{}", self.holds)
+    }
+
+    /// Returns the payload type as the subject declares it: its type
+    /// parameter, or the payload's name.
+    pub fn declared_payload(&self) -> String {
+        match self.parameter {
+            true => String::from("T"),
+            false => self.payload(),
+        }
     }
 
     /// Returns whether the slot holds the payload type of another, which
@@ -175,6 +189,7 @@ impl Cell {
             variant: SlotVariant::Live(self.s0),
             cfg: self.cfg.of(0),
             holds: 0,
+            parameter: self.generic.descriptor().payload,
         }];
         let second = match self.s1.slot() {
             SecondSlot::Absent => return slots,
@@ -191,6 +206,7 @@ impl Cell {
             variant: second,
             cfg: self.cfg.of(1),
             holds,
+            parameter: false,
         });
         slots
     }

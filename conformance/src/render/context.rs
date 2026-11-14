@@ -3,6 +3,8 @@
 
 use crate::cell::Cell;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
+use crate::model::generics::GenericsDescriptor;
+use crate::model::home::HomeDescriptor;
 use crate::model::item::ItemDescriptor;
 use crate::model::path::{Form as PathForm, PathDescriptor};
 use crate::model::qualifier::{Generic, QualifierDescriptor};
@@ -54,6 +56,10 @@ pub struct Context {
     pub path: PathDescriptor,
     /// The attributes on the trait's method under test.
     pub item: ItemDescriptor,
+    /// Where the trait and the payloads live.
+    pub home: HomeDescriptor,
+    /// The generics of the trait or the subject.
+    pub generics: GenericsDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -94,6 +100,8 @@ impl Context {
             declared: cell.declared_slots(),
             path: cell.path.descriptor(),
             item: cell.item.descriptor(),
+            home: cell.home.descriptor(),
+            generics: cell.generic.descriptor(),
         }
     }
 
@@ -101,6 +109,20 @@ impl Context {
     /// signature is repeated: in the trait and in its impls.
     pub fn parameter(&self) -> &'static str {
         self.item.parameter
+    }
+
+    /// Returns the attributes a block writes on its method under test
+    /// after its mark: the lint the trait allows and the trait method's own
+    /// `#[inline(..)]`, as a hand repeating the signature writes them.
+    pub fn block_attributes(&self) -> Vec<String> {
+        let mut attributes = Vec::new();
+        if let Some(lint) = self.item.allowed {
+            attributes.push(format!("#[allow({lint})]"));
+        }
+        if self.item.inline != "inline" {
+            attributes.push(format!("#[{}]", self.item.inline));
+        }
+        attributes
     }
 
     /// Returns the attributes an item that repeats the trait method's
@@ -147,7 +169,74 @@ impl Context {
     /// implements it, on `value`, which it borrows or takes.
     pub fn base_call(&self, path: &str, value: &str) -> String {
         let argument = self.base_receiver().descriptor().call.replace("{}", value);
-        format!("<{path} as {TRAIT}>::base({argument})")
+        format!("<{path} as {}>::base({argument})", self.trait_instance())
+    }
+
+    /// Returns the trait's parameters as it declares them. A bound fixes
+    /// the projection to `u64` where a default body counts the argument.
+    pub fn trait_parameters(&self) -> &'static str {
+        match (self.generics.fixed, self.qualifier.provided) {
+            (true, true) => "<F: support::Format<Value = u64>>",
+            (true, false) | (false, _) => self.generics.declared,
+        }
+    }
+
+    /// Returns the trait as an impl names it, its arguments included:
+    /// `Probe<support::Json>`, `Probe<N>`.
+    pub fn trait_path(&self) -> String {
+        format!("{TRAIT}{}", self.generics.argument)
+    }
+
+    /// Returns the trait as the law names it on a value: `Probe<3>`.
+    pub fn trait_instance(&self) -> String {
+        format!("{TRAIT}{}", self.generics.instance)
+    }
+
+    /// Returns the subject at the argument the law takes it at, `E<P0>`,
+    /// by `path`.
+    pub fn subject_instance(&self, path: &str) -> String {
+        match self.generics.parameter {
+            Some(parameter) => format!("{path}<{}>", parameter.instance),
+            None => String::from(path),
+        }
+    }
+
+    /// Returns the generics an impl of the trait for a payload declares:
+    /// the trait's const parameter, which every payload implements it at.
+    pub fn payload_generics(&self) -> &'static str {
+        match self.generics.constant {
+            true => "<const N: u64>",
+            false => "",
+        }
+    }
+
+    /// Returns the subject's generics as an impl declares them, with the
+    /// bound a hand writes: `<'a>`, `<T: Probe>`.
+    pub fn impl_generics(&self) -> String {
+        self.generics_with(|parameter| parameter.bounded)
+    }
+
+    /// Returns the subject's generics as its type names them: `<'a>`,
+    /// `<T>`.
+    pub fn type_generics(&self) -> String {
+        self.generics_with(|parameter| parameter.named)
+    }
+
+    fn generics_with(
+        &self,
+        spell: impl Fn(&crate::model::generics::Parameter) -> &'static str,
+    ) -> String {
+        let mut parameters: Vec<&str> = Vec::new();
+        if self.borrows() {
+            parameters.push("'a");
+        }
+        if let Some(parameter) = &self.generics.parameter {
+            parameters.push(spell(parameter));
+        }
+        match parameters.is_empty() {
+            true => String::new(),
+            false => format!("<{}>", parameters.join(", ")),
+        }
     }
 
     /// Returns whether the subject borrows, so it takes `'a`.
@@ -155,12 +244,10 @@ impl Context {
         self.live().iter().any(|(_, _, target)| target.borrows())
     }
 
-    /// Returns the subject's generics: `<'a>` or nothing.
-    pub fn generics(&self) -> &'static str {
-        if self.borrows() {
-            return "<'a>";
-        }
-        ""
+    /// Returns the subject's generics as it declares them: `<'a>`, `<T>`,
+    /// `<const N: u64>`, or nothing.
+    pub fn generics(&self) -> String {
+        self.generics_with(|parameter| parameter.declared)
     }
 
     /// Returns whether the trait method needs `where Self: Sized`: `Self`
@@ -323,9 +410,17 @@ impl Context {
                 Site::Trait | Site::Impl => self.parameter(),
                 Site::Inherent | Site::Payload => "x",
             };
+            // The trait names the argument's type as its home spells it, and
+            // an impl by the alias its module imports.
+            let ty = match (site, self.home.argument) {
+                (Site::Trait, _) if self.generics.projected => "F::Value",
+                (Site::Trait, argument) => argument,
+                (Site::Impl, "u64") | (Site::Inherent | Site::Payload, _) => "u64",
+                (Site::Impl, _) => "support::Count",
+            };
             match self.qualifier.generic {
                 Some(Generic::Fixed) => text.push_str(&format!(", {name}: X")),
-                Some(Generic::Turbofish) | None => text.push_str(&format!(", {name}: u64")),
+                Some(Generic::Turbofish) | None => text.push_str(&format!(", {name}: {ty}")),
             }
         }
         text.push(')');
@@ -364,6 +459,20 @@ impl Context {
         }
         // An inherent method has no mismatch: its `Self` argument is the
         // enum, handed over as it is.
+        // Two variants of which one holds the subject's type parameter
+        // would get overlapping `From` impls, so the cell leaves them out,
+        // as the golden `generic_payloads` does.
+        //
+        // Open question: whether a type-parameter payload beside another
+        // gets `From` impls is not documented.
+        let live = self
+            .declared
+            .iter()
+            .filter(|slot| slot.target().is_some())
+            .count();
+        if self.generics.payload && live > 1 {
+            options.push(String::from("from = false"));
+        }
         let forwarded = self.path.form == PathForm::Forwarded && !self.inherent();
         if forwarded && self.argument.kind.is_some() && self.argument.mismatch == MismatchSite::Enum
         {
@@ -506,7 +615,7 @@ pub fn constant(node: &Node, this: &str) -> String {
 
 /// Returns the type a slot's variant stores.
 pub fn storage(slot: &Slot, target: &TargetDescriptor) -> String {
-    let payload = slot.payload();
+    let payload = slot.declared_payload();
     match target.storage {
         Storage::Payload => payload,
         Storage::Pointer(Pointer::Box) => format!("Box<{payload}>"),

@@ -24,7 +24,8 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
 use super::{
-    Argument, Callee, Cfg, Item, Lift, Qualifier, Receiver, Return, Second, Slot, Target, Verdict,
+    Argument, Callee, Cfg, Generics, Home, Item, Lift, Qualifier, Receiver, Return, Second, Slot,
+    Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -46,6 +47,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // trait's.
     let mismatched = matches!(cell.arg, Argument::SharedOnTrait | Argument::SharedOnEnum);
     if inherent && (mismatched || cell.qual == Qualifier::Provided) {
+        return Verdict::NonCanonical;
+    }
+    // The generics are the trait's and its impl's, which an inherent
+    // method's arms do not name.
+    if inherent && cell.generic != Generics::Bare {
         return Verdict::NonCanonical;
     }
     // A struct subject has its one field and no second variant.
@@ -150,6 +156,8 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.callee == Callee::Method
         && cell.lift == Lift::Bare
         && cell.item == Item::Bare
+        && cell.home == Home::Local
+        && cell.generic == Generics::Bare
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -170,6 +178,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         return Some("`#[inline]` on a required method, which rustc warns of in the trait");
     }
     let path = cell.path.descriptor();
+    if let Some(reason) = unpredicted_generics(cell) {
+        return Some(reason);
+    }
     if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
         // Open question: in a build that leaves no variant, a hand's
         // `match *self {}` leaves the arguments unused, as the expansion
@@ -329,7 +340,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // payload, which only the enum's attribute can name, and only for a
         // variant that holds its payload by value.
         let nameable = argument.mismatch == MismatchSite::Enum
-            && cell.s0.descriptor().storage == Storage::Payload;
+            && cell.s0.descriptor().storage == Storage::Payload
+            && cell.generic != Generics::Payload;
         if !output.has_constant(nameable) {
             return Some("a mismatch expression for a return type that needs a payload to make");
         }
@@ -346,6 +358,59 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     if qualifier.provided && !node.has_default() {
         return Some("a default body that would need a payload to make its answer");
+    }
+    None
+}
+
+/// The generics the model writes: one parameter, of the trait or of the
+/// subject, on a subject that borrows nothing.
+fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
+    if cell.generic == Generics::Bare {
+        return None;
+    }
+    let borrows = cell
+        .live_slots()
+        .iter()
+        .any(|(_, _, target)| target.borrows());
+    if borrows {
+        return Some("a generic beside the lifetime the subject takes");
+    }
+    // An associated type taken from a type parameter is the parameter's
+    // own, which a hand bounds or overrides; the model spells neither.
+    if !cell.ret.node().associated().is_empty() {
+        return Some(
+            "an associated type beside generics, which the model spells for the plain trait",
+        );
+    }
+    // A variant compiled out may leave the subject's parameter unused.
+    if cell.cfg != Cfg::Absent {
+        return Some("generics beside variants under `#[cfg]`");
+    }
+    // The law names a generic subject by an alias, which a tuple struct's
+    // constructor and pattern cannot be spelled through.
+    let parameter = cell.generic.descriptor().parameter.is_some();
+    if parameter && cell.s0.descriptor().is_struct() {
+        return Some("a generic struct subject, which the law names by an alias");
+    }
+    if cell.generic != Generics::Payload {
+        return None;
+    }
+    // "A payload that is a type parameter of the enum, or `Box<T>` under
+    // `deref`, gives the impl the bound `Raw: Trait`" (options.md); a
+    // partial block's header is the user's, and spells the bound itself.
+    if !matches!(cell.s0, Target::Plain | Target::DerefBox | Target::Struct) {
+        return Some("a type-parameter payload reached through a route or a marked field");
+    }
+    if cell.path != super::Path::Attribute {
+        return Some(
+            "a type-parameter payload through a partial block, whose header is the user's",
+        );
+    }
+    // A pinned receiver needs every payload to be `Unpin`
+    // (what-is-generated.md), a bound on the parameter the model does not
+    // write.
+    if matches!(cell.recv, Receiver::PinShared | Receiver::PinExclusive) {
+        return Some("a type-parameter payload under a pinned receiver, which needs `T: Unpin`");
     }
     None
 }

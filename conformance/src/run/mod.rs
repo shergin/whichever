@@ -227,16 +227,25 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
     let shards = shards(&entries);
     let lock = repo.join("Cargo.lock");
     let step = Instant::now();
-    let sources: BTreeMap<String, String> = entries
+    let sources: BTreeMap<String, (String, Option<String>)> = entries
         .iter()
-        .map(|entry| (entry.module.clone(), entry.rendered.source.clone()))
+        .map(|entry| (entry.module.clone(), entry.rendered.files()))
         .collect();
     let written = workspace
         .write(
             &whichever,
             lock.exists().then_some(lock.as_path()),
             &shards,
-            &|module| sources[module].clone(),
+            &|shard, module| {
+                let (subject, trait_file) = &sources[module];
+                match shard.kind {
+                    ShardKind::Traits => trait_file.clone().unwrap_or_default(),
+                    ShardKind::Pass
+                    | ShardKind::Limit
+                    | ShardKind::Malformed
+                    | ShardKind::Rejected => subject.clone(),
+                }
+            },
         )
         .map_err(harness)?;
     progress(&format!(
@@ -291,6 +300,33 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
             }
         }
 
+        // A trait's crate that fails leaves the crates that depend on it
+        // unchecked, so a cell whose trait's crate has an error is set aside
+        // from both crates, its findings kept, and the round is repeated.
+        let foreign: BTreeSet<&str> = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.level == Level::Error && diagnostic.krate.starts_with("traits")
+            })
+            .filter_map(|diagnostic| diagnostic.site.as_ref())
+            .map(|site| site.module.as_str())
+            .collect();
+        let mut aside = 0;
+        for module in &foreign {
+            let entry = &mut entries[by_module[*module]];
+            if entry.state != State::Removed {
+                entry.state = State::Removed;
+                aside += 1;
+            }
+        }
+        if aside > 0 {
+            progress(&format!(
+                "{aside} cells fail in their trait's crate and are set aside"
+            ));
+            write_libs(&workspace, &shards, &entries)?;
+            continue;
+        }
+
         // A passing cell whose subject fails is checked again with its hand
         // alone, so that its law still runs; one whose hand fails too is
         // removed, the hand's errors kept.
@@ -303,11 +339,13 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                 State::Full if entry.outcome.has_error() => {
                     entry.subject_outcome = entry.outcome.clone();
                     let hand_only = render::render_as(&entry.cell, render::Mode::HandOnly);
-                    std::fs::write(
-                        workspace.cell_path(&entry.shard, &entry.module),
-                        &hand_only.source,
-                    )
-                    .map_err(harness)?;
+                    let (subject, trait_file) = hand_only.files();
+                    std::fs::write(workspace.cell_path(&entry.shard, &entry.module), subject)
+                        .map_err(harness)?;
+                    if let (Some(shard), Some(trait_file)) = (&hand_only.trait_shard, trait_file) {
+                        std::fs::write(workspace.cell_path(shard, &entry.module), trait_file)
+                            .map_err(harness)?;
+                    }
                     entry.hand_only = Some(hand_only);
                     entry.state = State::HandOnly;
                     moved += 1;
@@ -325,20 +363,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         progress(&format!(
             "{moved} pass cells have errors and are checked with their hand alone"
         ));
-        let removed: BTreeSet<&str> = entries
-            .iter()
-            .filter(|entry| entry.state == State::Removed)
-            .map(|entry| entry.module.as_str())
-            .collect();
-        for shard in shards.iter().filter(|shard| shard.kind == ShardKind::Pass) {
-            let kept: Vec<String> = shard
-                .modules
-                .iter()
-                .filter(|module| !removed.contains(module.as_str()))
-                .cloned()
-                .collect();
-            workspace.write_lib(shard, &kept).map_err(harness)?;
-        }
+        write_libs(&workspace, &shards, &entries)?;
     }
     timings.push((format!("check, {round} rounds"), step.elapsed()));
 
@@ -479,21 +504,56 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
     Ok(entries)
 }
 
-/// Returns the shards the entries fall in, by name.
+/// Rewrites every shard's library without the cells set aside.
+fn write_libs(workspace: &Workspace, shards: &[Shard], entries: &[Entry]) -> Result<(), RunError> {
+    let removed: BTreeSet<&str> = entries
+        .iter()
+        .filter(|entry| entry.state == State::Removed)
+        .map(|entry| entry.module.as_str())
+        .collect();
+    for shard in shards {
+        let kept: Vec<String> = shard
+            .modules
+            .iter()
+            .filter(|module| !removed.contains(module.as_str()))
+            .cloned()
+            .collect();
+        workspace.write_lib(shard, &kept).map_err(harness)?;
+    }
+    Ok(())
+}
+
+/// Returns the shards the entries fall in, by name: the subjects' by
+/// verdict, and the traits' of the cells whose trait lives in a crate of
+/// its own, which every other shard depends on.
 fn shards(entries: &[Entry]) -> Vec<Shard> {
     let mut shards: BTreeMap<String, Shard> = BTreeMap::new();
-    for entry in entries {
-        let kind = ShardKind::of(&entry.verdict);
-        let shard = shards.entry(entry.shard.clone()).or_insert_with(|| Shard {
-            name: entry.shard.clone(),
+    let mut add = |name: &str, kind: ShardKind, module: &str| {
+        let shard = shards.entry(String::from(name)).or_insert_with(|| Shard {
+            name: String::from(name),
             kind,
             modules: Vec::new(),
+            dependencies: Vec::new(),
         });
-        shard.modules.push(entry.module.clone());
+        shard.modules.push(String::from(module));
+    };
+    for entry in entries {
+        add(&entry.shard, ShardKind::of(&entry.verdict), &entry.module);
+        if let Some(traits) = &entry.rendered.trait_shard {
+            add(traits, ShardKind::Traits, &entry.module);
+        }
     }
+    let traits: Vec<String> = shards
+        .values()
+        .filter(|shard| shard.kind == ShardKind::Traits)
+        .map(|shard| shard.name.clone())
+        .collect();
     let mut shards: Vec<Shard> = shards.into_values().collect();
     for shard in &mut shards {
         shard.modules.sort();
+        if shard.kind != ShardKind::Traits {
+            shard.dependencies = traits.clone();
+        }
     }
     shards
 }

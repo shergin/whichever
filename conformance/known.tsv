@@ -61,17 +61,13 @@ item=cfg-on s1=unit	sentence:unit-variant@variant-1-cfg	A partial block's mark o
 item=cfg-on s1=pair	sentence:two-fields@variant-1	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
 item=cfg-on s1=pair	sentence:two-fields@variant-1-cfg	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
 
-# A mark in a partial block writes the forwarding the plain one is, which
-# carries the attributes the trait method passes on; the mark's does not.
-path=block-star item=allow	warning:non_snake_case@subject	A `#[dispatch(*)]` mark in a partial block does not carry the trait method's `#[allow(..)]` onto the method it writes, so a lint the trait allows warns in generated code.
-path=block-star item=allow	shape:m	A `#[dispatch(*)]` mark in a partial block does not carry the trait method's `#[allow(..)]` onto the method it writes, so a lint the trait allows warns in generated code.
-path=block-star item=inline-always	shape:m	A mark in a partial block writes its method with `#[inline]` where the trait method has an `#[inline(..)]` of its own, which the plain forwarding carries.
-path=block-some item=inline-always	shape:m	A mark in a partial block writes its method with `#[inline]` where the trait method has an `#[inline(..)]` of its own, which the plain forwarding carries.
-
 # A `mismatch` option naming a method the trait declares under a `#[cfg]`
-# that does not hold. Open question: the docs decide a method's `#[cfg]` in
-# the trait's crate and say nothing of an option naming it.
-arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument, though the method exists in the builds where the `cfg` holds.
-arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument, though the method exists in the builds where the `cfg` holds.
-arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument, though the method exists in the builds where the `cfg` holds.
-arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument, though the method exists in the builds where the `cfg` holds.
+# that does not hold.
+arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
+arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
+arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
+arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
+
+# A projection through the trait's parameter, `F::Value`, is qualified with
+# the parameter's bound as written, its associated constraint included.
+generic=concrete qual=provided	error:E0229@trait	A projection through a trait parameter whose bound constrains an associated type is qualified with the constraint, `<support::Json as support::Format<Value = u64>>::Value`, which rustc rejects.
