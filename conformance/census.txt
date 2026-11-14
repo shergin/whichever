@@ -84,8 +84,9 @@ suite inherent
   limit 706
   rejected 114
   malformed 0
-  never 624 non-canonical
+  never 1224 non-canonical
   never 18 unmodelled: a limit beside a rejection the limit does not replace
+  never 168 unmodelled: a struct's inherent block or a block method naming its fields, not modelled yet
   never 112 unmodelled: an `async fn` that returns a future
   never 1458 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
   never 728 unmodelled: an inherent body for a return type that needs a payload to make
@@ -114,6 +115,33 @@ suite inherent-calls
   never 396 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
   never 192 unmodelled: an inherent body for a return type that needs a payload to make
 
+suite structs
+  pass 699
+  limit 901
+  rejected 8
+  malformed 0
+  never 264 non-canonical
+  never 236 unmodelled: a default body that would need a payload to make its answer
+  never 52 unmodelled: an `async fn` that returns a future
+
+suite struct-arguments
+  pass 90
+  limit 18
+  rejected 0
+  malformed 0
+  never 12 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 60 unmodelled: a mismatch option on a struct, which has no second variant
+
+suite struct-paths
+  pass 154
+  limit 68
+  rejected 0
+  malformed 0
+  never 20 non-canonical
+  never 16 unmodelled: a block body for a future return
+  never 8 unmodelled: a block body for a return type that needs a payload to make
+  never 134 unmodelled: a default body that would need a payload to make its answer
+
 suite pinned
   pass 10
   limit 1
@@ -121,31 +149,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 3257
+  pass 3343
   limit 0
   rejected 0
   malformed 0
-  rows 3257
-  covered 36280
-  unreached 32405
+  rows 3343
+  covered 37567
+  unreached 35700
 
 suite array-limits
   pass 0
-  limit 250
+  limit 251
   rejected 0
   malformed 0
-  rows 250
-  covered 2695
-  unreached 558
+  rows 251
+  covered 2777
+  unreached 624
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 382
+  rejected 387
   malformed 0
-  rows 382
-  covered 2244
-  unreached 1009
+  rows 387
+  covered 2284
+  unreached 1117
 
 suite known
   pass 12

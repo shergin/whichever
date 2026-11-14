@@ -33,6 +33,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
         return Verdict::NonCanonical;
     }
+    // A struct subject has its one field and no second variant.
+    let is_struct = cell.s0.descriptor().is_struct();
+    if is_struct && cell.s1 != Second::Absent {
+        return Verdict::NonCanonical;
+    }
     if let Some(reason) = malformed(cell) {
         if !canonical_when_malformed(cell) {
             return Verdict::NonCanonical;
@@ -134,6 +139,18 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         return Some("a reference return that borrows from the `Self` argument");
     }
     let path = cell.path.descriptor();
+    if cell.s0.descriptor().is_struct() {
+        // "Two values of the struct always hold the same field, and the
+        // argument is unwrapped to it" (structs.md): no mismatch to give.
+        if argument.kind.is_some() && argument.mismatch == MismatchSite::Enum {
+            return Some("a mismatch option on a struct, which has no second variant");
+        }
+        if path.site == PathSite::Inherent || path.form == PathForm::First {
+            return Some(
+                "a struct's inherent block or a block method naming its fields, not modelled yet",
+            );
+        }
+    }
     if path.site == PathSite::Inherent {
         // An inherent method forwards by method-call syntax to the
         // payloads' own `m` (inherent-methods.md); the model covers the
@@ -410,7 +427,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::SelfInReturn, on_method);
     }
 
-    let opaque = forwarded && matches!(node, Node::Iterator);
+    // "A struct's `match` has one arm, so it forwards a return-position
+    // `impl Trait` as it is, which an enum cannot" (structs.md).
+    let one_arm = cell.s0.descriptor().is_struct();
+    let opaque = forwarded && !one_arm && matches!(node, Node::Iterator);
     if opaque {
         expect(Limit::OpaqueReturn, on_method);
     }

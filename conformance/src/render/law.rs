@@ -241,6 +241,8 @@ fn write_subject(
         Form::Single => format!("{path}::{variant}({stored})"),
         Form::MarkedTuple => format!("{path}::{variant}({stored}, {LABEL})"),
         Form::MarkedStruct => format!("{path}::{variant} {{ label: {LABEL}, held: {stored} }}"),
+        Form::Struct => format!("{path}({stored})"),
+        Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
     };
     writer.line(format!("{binding} {name} = {value};"));
 }

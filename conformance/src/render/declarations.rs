@@ -1,7 +1,7 @@
 //! The trait, the subject spelled with the attributes, and the probe that
 //! calls through the trait in a limit cell.
 
-use super::context::{variant, Context, Site, TRAIT};
+use super::context::{is_struct, variant, write_struct, Context, Site, TRAIT};
 use super::payload;
 use super::writer::{Part, Writer};
 use crate::model::argument::MismatchSite;
@@ -51,17 +51,21 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
         true => writer.line("#[whichever::dispatch]"),
         false => writer.line(format!("#[whichever::dispatch({})]", arguments.join(", "))),
     }
-    writer.anchor(Anchor::Enum.name());
-    writer.open(format!("pub enum E{} {{", context.generics()));
-    for slot in &context.slots {
-        let (attribute, declaration) = variant(slot, true);
-        if let Some(attribute) = attribute {
-            writer.line(attribute);
+    if is_struct(&context.slots) {
+        write_struct(writer, &context.slots[0], context.generics(), true, true);
+    } else {
+        writer.anchor(Anchor::Enum.name());
+        writer.open(format!("pub enum E{} {{", context.generics()));
+        for slot in &context.slots {
+            let (attribute, declaration) = variant(slot, true);
+            if let Some(attribute) = attribute {
+                writer.line(attribute);
+            }
+            writer.anchor(Anchor::Variant(slot.index).name());
+            writer.line(declaration);
         }
-        writer.anchor(Anchor::Variant(slot.index).name());
-        writer.line(declaration);
+        writer.close("}");
     }
-    writer.close("}");
     if block {
         writer.blank();
         write_block(writer, context, &arguments[1..]);

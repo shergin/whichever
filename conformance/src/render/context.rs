@@ -8,7 +8,9 @@ use crate::model::qualifier::{Generic, QualifierDescriptor};
 use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
-use crate::model::{Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
+use crate::model::{Anchor, Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
+
+use super::writer::Writer;
 
 /// The trait every cell dispatches.
 pub const TRAIT: &str = "Probe";
@@ -330,6 +332,8 @@ impl Context {
             Form::Single => format!("{path}::A({payload})"),
             Form::MarkedTuple => format!("{path}::A({payload}, {LABEL})"),
             Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {payload} }}"),
+            Form::Struct => format!("{path}({payload})"),
+            Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {payload} }}"),
         };
         constant(&self.output(), &this)
     }
@@ -455,6 +459,56 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             None,
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
+        Form::Struct | Form::StructMarked => {
+            unreachable!("a struct subject is written by `write_struct`")
+        }
+    }
+}
+
+/// Writes a struct subject of one slot, its fields public so a sibling
+/// module can build it. The forwarded field has a line of its own, the
+/// anchor of the slot when `anchored` holds, since a sentence about the
+/// field sits on its type.
+pub fn write_struct(
+    writer: &mut Writer,
+    slot: &Slot,
+    generics: &str,
+    attributes: bool,
+    anchored: bool,
+) {
+    let Some((_, target)) = slot.target() else {
+        unreachable!("a struct subject holds a live target");
+    };
+    let stored = storage(slot, &target);
+    if anchored {
+        writer.anchor(Anchor::Enum.name());
+    }
+    match target.form {
+        Form::Struct => {
+            writer.open(format!("pub struct E{generics}("));
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("pub {stored},"));
+            writer.close(");");
+        }
+        Form::StructMarked => {
+            let mark = match (attributes, target.option) {
+                (false, _) => "",
+                (true, Some(_)) => unreachable!("the marked struct field takes no option"),
+                (true, None) => "#[dispatch] ",
+            };
+            writer.open(format!("pub struct E{generics} {{"));
+            writer.line("pub label: u64,");
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("{mark}pub held: {stored},"));
+            writer.close("}");
+        }
+        Form::Single | Form::MarkedTuple | Form::MarkedStruct => {
+            unreachable!("an enum subject is written variant by variant")
+        }
     }
 }
 
@@ -466,5 +520,25 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::Single => format!("{path}::{name}({binding})"),
         Form::MarkedTuple => format!("{path}::{name}({binding}, ..)"),
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
+        Form::Struct => format!("{path}({binding}, ..)"),
+        Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
     }
+}
+
+/// Returns the constructor a rewrap calls: the variant's path, or the
+/// struct's name.
+pub fn constructor(path: &str, slot: &Slot) -> String {
+    let is_struct = slot.target().is_some_and(|(_, target)| target.is_struct());
+    match is_struct {
+        true => String::from(path),
+        false => format!("{path}::{}", slot.name()),
+    }
+}
+
+/// Returns whether the subject is a struct.
+pub fn is_struct(slots: &[Slot]) -> bool {
+    slots
+        .first()
+        .and_then(Slot::target)
+        .is_some_and(|(_, target)| target.is_struct())
 }

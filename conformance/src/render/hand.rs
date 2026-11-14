@@ -7,7 +7,9 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{pattern, variant, Context, Site, TRAIT};
+use super::context::{
+    constructor, is_struct, pattern, variant, write_struct, Context, Site, TRAIT,
+};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
@@ -173,12 +175,16 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.line("use super::*;");
     writer.blank();
     let generics = context.generics();
-    writer.open(format!("pub enum E{generics} {{"));
-    for slot in &context.slots {
-        let (_, declaration) = variant(slot, false);
-        writer.line(declaration);
+    if is_struct(&context.slots) {
+        write_struct(writer, &context.slots[0], generics, false, false);
+    } else {
+        writer.open(format!("pub enum E{generics} {{"));
+        for slot in &context.slots {
+            let (_, declaration) = variant(slot, false);
+            writer.line(declaration);
+        }
+        writer.close("}");
     }
-    writer.close("}");
     writer.blank();
     writer.open(format!("impl{generics} {TRAIT} for E{generics} {{"));
     for (associated, overridden) in context.associated() {
@@ -294,7 +300,19 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     let unwrap = receiver
         .unwrap
         .expect("the verdict writes a hand only for a forwarded receiver");
+    // "On a struct the one arm returns the field's future as it is, unless
+    // its output is rewrapped or converted" (what-is-generated.md).
+    let one_arm = is_struct(&context.slots);
     let (wrapping, awaited, conversion) = match method.node.future() {
+        Some((FutureKind::Opaque, output))
+            if one_arm
+                && output
+                    .conversion()
+                    .as_ref()
+                    .is_some_and(Conversion::is_keep) =>
+        {
+            (Wrapping::Plain, false, output.conversion())
+        }
         Some((FutureKind::Opaque, output)) => (Wrapping::AsyncBlock, true, output.conversion()),
         Some((FutureKind::Boxed, output)) => {
             let conversion = output.conversion();
@@ -303,6 +321,11 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
                 false => (Wrapping::BoxedBlock, true, conversion),
             }
         }
+        None if one_arm => (
+            Wrapping::Plain,
+            method.asyncness,
+            method.node.conversion_of_one(),
+        ),
         None => (Wrapping::Plain, method.asyncness, method.node.conversion()),
     };
     let conversion =
@@ -391,7 +414,7 @@ fn arm(
     if awaited {
         call = format!("{call}.await");
     }
-    let variant = format!("E::{}", slot.name());
+    let variant = constructor("E", slot);
     format!(
         "{pattern_text} => {},",
         convert(conversion, &call, &variant)
@@ -446,7 +469,7 @@ fn inherent_value(
             if awaited {
                 call = format!("{call}.await");
             }
-            let variant = format!("E::{}", slot.name());
+            let variant = constructor("E", slot);
             convert(conversion, &call, &variant)
         }
         Callee::Value => read(own),

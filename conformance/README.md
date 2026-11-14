@@ -73,6 +73,12 @@ The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
 target or a field of it, and what `with` wraps the result in.
 
+Two values of `s0`, `struct` and `struct-marked`, make the subject a
+struct: one field, or a field marked `#[dispatch]` beside a label. A struct
+has no second variant, so `s1` stays `none`, and its one arm hands a
+return-position `impl Trait` or a future over as it is, as
+`docs/structs.md` says.
+
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`

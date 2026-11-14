@@ -196,6 +196,15 @@ impl Node {
         self.any(&|node| matches!(node, Node::Future(_, _)))
     }
 
+    /// Returns the conversion a subject of one target writes: a struct
+    /// hands an opaque iterator over as it is.
+    pub fn conversion_of_one(&self) -> Option<Conversion> {
+        match self {
+            Node::Iterator => Some(Conversion::Keep),
+            other => other.conversion(),
+        }
+    }
+
     /// Returns the conversion the hand writes, or `None` where it would
     /// need a closure or an allocation: `Self` in a `Vec`, a tuple under an
     /// `Option` or a `Result`, an iterator, which every payload answers

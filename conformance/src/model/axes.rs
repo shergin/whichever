@@ -41,6 +41,11 @@ axis! {
         /// `A { label: u64, #[dispatch(via = .payload)] held: W0 }`, a
         /// marked field with a route of its own.
         MarkedVia = "marked-via",
+        /// `pub struct E(P0)`: a struct subject with its one field.
+        Struct = "struct",
+        /// `pub struct E { label: u64, #[dispatch] held: P0 }`: a struct
+        /// subject with a marked field among several.
+        StructMarked = "struct-marked",
     }
 }
 
