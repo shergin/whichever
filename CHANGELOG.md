@@ -14,8 +14,9 @@ changes are expected and listed without apology.
   stays 1.88. A tree still wholly on `syn` 2 gains `syn` 3 instead; the
   decision record weighs the two.
 - The README is the case for the crate and no longer its manual: what the
-  attributes write, where `enum_dispatch` and the crates after it stop, a
-  few lines each, and the measurements. The options, routes, inherent
+  attributes write, the open set, a `Box<dyn Trait>` variant beside the
+  inline ones, where `enum_dispatch` and the crates after it stop, a few
+  lines each, and the measurements. The options, routes, inherent
   methods, restatements, partial impl blocks, struct forwarding, the table
   of what each trait item becomes, the limits and the compatibility notes
   moved, wording intact, to a page each under `docs/`, with the full

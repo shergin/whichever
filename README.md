@@ -20,6 +20,10 @@ crates that followed each cover some of that; `whichever` covers all of
 it, and what it generates is the hand-written `match`, instruction for
 instruction.
 
+And the set does not have to be closed. One variant can hold a
+`Box<dyn Trait>`: the kinds you listed are matched inline, and any other
+implementor still fits.
+
 ```rust
 // In the crate that owns the trait.
 #[whichever::dispatchable]
@@ -61,6 +65,34 @@ has the full account.
 
 Run `cargo add whichever` in the crate that owns the trait and in the
 crate that owns the enum.
+
+## Inline for the common kinds, `dyn` for the rest
+
+An enum is a closed set, and that is what makes it fast. Sometimes one
+more kind turns up that nobody listed: a plugin's type, a test double,
+the rare case not worth a variant. Keep the enum, and give it one variant
+that holds a trait object:
+
+```rust
+#[whichever::dispatch(Shape)]
+pub enum AnyShape {
+    Circle(Circle),
+    Square(Square),
+    #[dispatch(deref)]
+    Other(Box<dyn Shape>),
+}
+```
+
+`Circle` and `Square` stay inline, with no allocation and a `match` arm
+the optimiser can inline. `Other` takes any implementor of `Shape`, from
+any crate, at the cost of the vtable call a trait object always has. The
+common kinds keep the enum's speed, and the set stays open.
+
+The trait has to be object safe for that variant, and a method that
+requires `Self: Sized` is left to the trait's default in a partial impl
+block. [Reaching the target](docs/routes.md) has the details, and
+[When enum dispatch pays](docs/when-to-use-enum-dispatch.md#patterns)
+sets the pattern beside its neighbours.
 
 ## Where the alternatives stop
 
@@ -108,7 +140,8 @@ it cannot take, dispatched with the same two attributes.
 - **[Generic traits](docs/options.md)** at a concrete instantiation, with
   type, lifetime and const parameters.
 - **[`Box<T>`, `Rc<T>` and `&T` payloads](docs/routes.md)**, dispatched
-  like a plain `T`, or a field of the payload as the target.
+  like a plain `T`, a `Box<dyn Trait>` for an open set among them, or a
+  field of the payload as the target.
 - **[`async fn`, `impl Future`, `self: Pin<&mut Self>` and
   `self: Box<Self>`](docs/what-is-generated.md)**.
 - **[Inherent methods](docs/inherent-methods.md)** forwarded to some
