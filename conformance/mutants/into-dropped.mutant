@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: A method returning an overridden `Self::Name` converts the payload's result with `Into`, as `docs/options.md` says.
+expect: killed
+
+find:
+        Conversion::Into => quote_spanned! { site => ::core::convert::Into::into(#value) },
+replace:
+        Conversion::Into => value,

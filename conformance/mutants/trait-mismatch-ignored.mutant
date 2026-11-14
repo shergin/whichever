@@ -1,0 +1,8 @@
+file: macros/src/options.rs
+breaks: A `#[dispatch(mismatch = expr)]` on the trait method gives the result for two different variants, as `docs/options.md` says.
+expect: killed
+
+find:
+        return Ok(Some(pair.value));
+replace:
+        return Ok(None);

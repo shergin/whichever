@@ -1,0 +1,9 @@
+file: macros/src/dispatchable.rs
+breaks: A `#[cfg]` on a trait item is decided in the trait's crate, so the generated item exists exactly when the trait's does, as `docs/what-is-generated.md` says.
+expect: survives
+reason: No axis puts a trait item under `#[cfg]`, so no cell has a carrier written per combination of predicates.
+
+find:
+                if holds(index) {
+replace:
+                if !holds(index) {

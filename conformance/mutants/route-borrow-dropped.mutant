@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: An arm hands a target reached through a route to `&self` as a reference, as `docs/routes.md` writes it, `<_ as Shape>::area(&inner.base)`.
+expect: killed
+
+find:
+        Access::Shared => quote_spanned!(site => &#reached),
+replace:
+        Access::Shared => quote_spanned!(site => #reached),

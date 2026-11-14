@@ -1,0 +1,9 @@
+file: macros/src/agreement.rs
+breaks: Every other variant's associated types are checked to equal the first's, with the error on that variant, as `docs/what-is-generated.md` says.
+expect: survives
+reason: No cell has payloads whose associated types disagree, so the type agreement check is not modelled.
+
+find:
+            Some(quote_spanned! { span => #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })
+replace:
+            Some(quote_spanned! { span => #(#cfgs)* Self::__first_implements::<#payload>(); })

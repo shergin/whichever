@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: The arms of an `async fn` or of a method returning `impl Future` are awaited, as `docs/what-is-generated.md` says.
+expect: killed
+
+find:
+            value = quote_spanned! { site => #value.await };
+replace:
+            value = quote_spanned! { site => #value };

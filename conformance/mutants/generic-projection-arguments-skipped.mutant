@@ -1,0 +1,10 @@
+file: macros/src/substitution.rs
+breaks: A generic trait's parameters are substituted in every signature, the arguments of a projection's later segments included, as `docs/options.md` says.
+expect: survives
+reason: No cell dispatches a generic trait, so the substitution of its parameters is not modelled.
+
+find:
+                    for segment in type_path.path.segments.iter_mut().skip(1) {
+                        self.visit_path_segment_mut(segment);
+                    }
+replace:

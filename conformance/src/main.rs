@@ -8,6 +8,7 @@
 //! list [--suite NAME]...
 //! show <id>
 //! axes
+//! mutants [--only NAME]... [--suite NAME]... [--no-shape]
 //! ```
 //!
 //! `run` exits 0 when nothing diverged and the ledger agrees, 1 on a
@@ -29,7 +30,8 @@ commands:
       [--shape] [--random N [--seed S]]
   list [--suite NAME]...
   show <id>
-  axes";
+  axes
+  mutants [--only NAME]... [--suite NAME]... [--no-shape]";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -86,6 +88,7 @@ fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        "mutants" => whichever_conformance::mutants::command(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)

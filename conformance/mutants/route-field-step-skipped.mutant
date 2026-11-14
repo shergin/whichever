@@ -1,0 +1,12 @@
+file: macros/src/route.rs
+breaks: A route `.field` calls the trait on that field of the payload, as `docs/routes.md` says.
+expect: killed
+
+find:
+                    } else {
+                        expression = quote_spanned!(site => #expression.#member);
+                    }
+replace:
+                    } else {
+                        expression = quote_spanned!(site => #expression);
+                    }

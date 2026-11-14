@@ -48,6 +48,9 @@ pub struct Options {
     pub seed: u64,
     /// Compare the shape of every passing cell's expansion with its hand's.
     pub shape: bool,
+    /// Print the summary without the divergences, for a caller that reads
+    /// the table instead.
+    pub quiet: bool,
 }
 
 /// Why a run could not judge.
@@ -437,6 +440,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         timings: &timings,
         complete: options.suites.is_empty() && options.filter.is_none(),
         shape: options.shape,
+        quiet: options.quiet,
     };
     let status = report.print();
     report

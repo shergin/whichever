@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings, so a build that leaves no variant still compiles, as `docs/what-is-generated.md` says.
+expect: survives
+reason: No axis puts a variant under `#[cfg]`, so no cell holds an enum whose variants may all be compiled out.
+
+find:
+        let always_present = entries.iter().any(|entry| match entry {
+replace:
+        let always_present = !entries.is_empty() || entries.iter().any(|entry| match entry {

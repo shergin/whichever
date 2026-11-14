@@ -1,0 +1,9 @@
+file: macros/src/implement.rs
+breaks: Every token of a forwarded method carries the subject's span, so that no error lands on the trait's attribute, as `macros/ARCHITECTURE.md` 3.8 says.
+expect: survives
+reason: Only the rejected cells of `s0=via-method` and `s0=via-method-value` have a subject error on a token the arms write, and the `known.tsv` lines for those routes excuse an error on the attribute in every cell of the route.
+
+find:
+        site: at(subject_ident.span()),
+replace:
+        site: Span::call_site(),

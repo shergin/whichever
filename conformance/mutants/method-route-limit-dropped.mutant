@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: A route ending in a method call cannot serve a `&mut self` method and says so in one sentence, as `docs/limits.md` says.
+expect: killed
+
+find:
+        let exclusive = matches!(self.receiver, ReceiverKind::Value(Access::Exclusive))
+            || matches!
+replace:
+        let exclusive = matches!

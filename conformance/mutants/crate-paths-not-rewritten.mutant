@@ -1,0 +1,13 @@
+file: macros/src/dispatchable.rs
+breaks: A `crate::` path in a trait's signature is rewritten to the trait's crate, so the carrier macro works from another crate, as `docs/limits.md` says.
+expect: survives
+reason: Every cell holds its trait and its subject in one crate, so the carrier macro is never read from another.
+
+find:
+                output.extend([
+                    TokenTree::Punct(Punct::new('$', Spacing::Alone)),
+                    TokenTree::Ident(ident),
+                ]);
+replace:
+                let _ = (Punct::new('$', Spacing::Alone), &mut output);
+                output.extend([TokenTree::Ident(ident)]);

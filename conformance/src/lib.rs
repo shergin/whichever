@@ -77,6 +77,7 @@ pub mod axis;
 pub mod cell;
 pub mod ledger;
 pub mod model;
+pub mod mutants;
 pub mod render;
 pub mod run;
 pub mod select;

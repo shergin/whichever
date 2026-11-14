@@ -31,6 +31,8 @@ pub struct Report<'a> {
     /// stale only when it did, and any other line only when it did not,
     /// since the shape adds findings to the outcomes those lines name.
     pub shape: bool,
+    /// Whether the divergences go unprinted, the summary alone printed.
+    pub quiet: bool,
 }
 
 /// How a cell stands once the ledger is read.
@@ -205,6 +207,9 @@ impl Report<'_> {
                 (_, Standing::ModelBroken) | (Status::ModelBroken, _) => Status::ModelBroken,
                 (Status::Clean | Status::Diverged, _) => Status::Diverged,
             };
+            if self.quiet {
+                continue;
+            }
             println!();
             println!("{}: `{}`", standing.name(), entry.id);
             println!("  note      {note}");

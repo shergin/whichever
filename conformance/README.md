@@ -262,6 +262,89 @@ A new axis is one more line in the `cell!` invocation in `src/cell.rs`, its
 neutral value first, so no id changes. A new zone is one more entry in
 `src/select/zones.rs`.
 
+## The mutants
+
+A matrix that agrees says nothing of what it would notice. A **mutant**
+is one small change to the crate under test that a developer could make
+by mistake and that leaves the macros compiling: a borrow dropped in an
+arm, a limit no longer reported, an `#[inline]` lost. The mutants measure
+the matrix: each is injected alone, and the matrix either notices it or
+does not.
+
+A mutant is a file of `mutants/`, `<name>.mutant`:
+
+```text
+file: macros/src/forwarding.rs
+breaks: The arms of an `async fn` are awaited, as `docs/what-is-generated.md` says.
+expect: killed
+
+find:
+            value = quote_spanned! { site => #value.await };
+replace:
+            value = quote_spanned! { site => #value };
+```
+
+`file` is the source file it changes, relative to the repository's root;
+`breaks` is the promise it breaks and the document that makes it;
+`expect` is `killed`, or `survives` with a line `reason:` saying in one
+sentence what the matrix lacks. The lines between `find:` and `replace:`
+are the text to find, which occurs exactly once in the file, and the
+lines after `replace:` replace it. A mutant whose text no longer occurs
+exactly once is stale: the macros moved on, and the mutant is updated or
+deleted rather than left to mutate something else. A unit test of this
+crate checks that every mutant still applies.
+
+```sh
+cargo run -p whichever-conformance --release -- mutants
+cargo run -p whichever-conformance --release -- mutants --only await-dropped
+cargo run -p whichever-conformance --release -- mutants --suite array --suite pinned
+```
+
+The command runs the matrix with `--shape` on the unmodified crate, and
+stops with a harness error unless that run agrees. Then, per mutant, it
+copies the crate under test, the facade's manifest and sources and the
+macro crate's, to `target/conformance/mutants/<name>`, applies the
+change, checks that the copy compiles, and runs the matrix against the
+copy as `run --shape --whichever PATH` does. `--suite` narrows both runs
+as it narrows `run`, and `--no-shape` leaves the shape out of both. A
+full run per mutant builds every shard again, about as long as a cold
+run.
+
+A mutant is **killed** when a cell that agreed in the baseline diverges,
+or a line of `known.tsv` goes stale; otherwise it **survived**. The table
+is printed and written to `target/conformance/mutants.tsv`, one line per
+mutant:
+
+- `result`: `killed` or `survived`; `stale` for a text that does not
+  occur once, `uncompiled` for a copy that does not compile, and
+  `harness` for a run that could not judge, which count as neither;
+- `expected`: what the mutant's `expect:` line says;
+- `checks`: what caught it: `verdict` for an error, a warning or a
+  sentence where the verdict allows none, or a sentence missing; `law`;
+  `shape`; `stale` for a known line that excuses nothing; `hand` for a
+  hand that broke, where the mutant changed what the trait's attribute
+  writes;
+- `cells`: how many cells newly diverge;
+- `example`: one of them, with its first new finding and its message, or
+  the stale line. For a survivor, the cells that agreed in the baseline
+  and now diverge where a line of `known.tsv` excuses them, if any: a line
+  wider than its defect hides a mutant there.
+
+Below the table come the kill rate among the mutants that compiled and
+ran, and every mutant whose result is not its `expect:` line. The command
+exits 0 when every result is what its mutant expects; 1 when a mutant
+expected to be killed survived, which means the matrix lost a check, or
+one expected to survive was killed, whose `expect:` line is then updated
+as a stale `known.tsv` line is removed; and 2 on a usage or harness
+error, a stale or uncompiled mutant included.
+
+A mutant expected to survive is a gap of the matrix with its reason, and
+the reason says what would close it: an axis value, a zone, a check. When
+the matrix grows to close it, the run says so and the line becomes
+`expect: killed`. A defect the matrix should have caught becomes a mutant
+when it is fixed: the fix reverted is the mutant, so the matrix keeps
+proving that it would notice the defect again.
+
 ## Findings the checks do not hold yet
 
 The checks hold a sentence by its catalogue key, so a sentence with the

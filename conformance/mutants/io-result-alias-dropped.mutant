@@ -1,0 +1,11 @@
+file: macros/src/shape.rs
+breaks: A method returning `io::Result<Self>` is mapped like `Result<Self, E>`, as `docs/what-is-generated.md` says.
+expect: survives
+reason: The `ret` axis spells a `Result` with both its arguments, so no cell returns `io::Result<Self>` or another one-argument alias.
+
+find:
+            // `io::Result<T>`: the alias fixes the error type.
+            ("Result", [inner]) => Some(Conversion::Map(Box::new(classify(
+                inner, whole, spec, site,
+            )?))),
+replace:
