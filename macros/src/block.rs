@@ -16,6 +16,7 @@ use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitS
 use crate::protocol::{carrier_path, TraitRequest};
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{place_borrow, ReturnSite};
+use crate::spelling;
 use crate::subject::{Entry, Subject};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
@@ -77,7 +78,7 @@ pub(crate) fn expand_inherent(
     // An inherent impl of another crate's type is not this crate's to
     // write, with or without forwarding.
     if let Some(remote) = remote {
-        let spelled = remote.to_token_stream().to_string().replace(' ', "");
+        let spelled = spelling::spelled(remote);
         return Err(Error::new_spanned(
             &item_impl.self_ty,
             format!("`{spelled}` is another crate's enum, which gets no inherent impl here; forward through a trait of this crate, or write free functions"),

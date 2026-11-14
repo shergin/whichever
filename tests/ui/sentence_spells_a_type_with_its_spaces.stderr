@@ -1,0 +1,43 @@
+error: `borrowed` takes `self` by value, and `Borrowed` dereferences a `&'a Name`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/sentence_spells_a_type_with_its_spaces.rs:14:14
+   |
+14 |     Borrowed(&'a Name),
+   |              ^^^^^^^^
+...
+23 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Held` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `exclusive` takes `self` by value, and `Exclusive` dereferences a `&'a mut Name`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/sentence_spells_a_type_with_its_spaces.rs:16:15
+   |
+16 |     Exclusive(&'a mut Name),
+   |               ^^^^^^^^^^^^
+...
+23 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Held` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `object` takes `self` by value, and `Object` dereferences a `Rc<dyn Named + 'a>`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/sentence_spells_a_type_with_its_spaces.rs:18:12
+   |
+18 |     Object(Rc<dyn Named + 'a>),
+   |            ^^^^^^^^^^^^^^^^^^
+...
+23 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Held` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `paired` takes `self` by value, and `Paired` dereferences a `Rc<Pair<'a, Name>>`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/sentence_spells_a_type_with_its_spaces.rs:20:12
+   |
+20 |     Paired(Rc<Pair<'a, Name>>),
+   |            ^^^^^^^^^^^^^^^^^^
+...
+23 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Held` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

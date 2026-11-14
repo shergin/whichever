@@ -5,9 +5,9 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
-Two fixes and a sentence from the survey of 2026-11-13 of acadrust 0.6.8:
-the first fix found by the survey, the second and the sentence while
-probing the first.
+Three fixes and a sentence from the survey of 2026-11-13 of acadrust
+0.6.8: the first fix found by the survey, the second, the sentence and the
+third while probing the first.
 
 - Before, an inherent method with `value` made the arm the pattern's
   binding as it is, a `&Handle` under `&self`, even where the method
@@ -58,6 +58,12 @@ probing the first.
   moves nothing and is not reported. The `tests/ui` case
   `place_moves_through_a_shared_pointer_under_a_boxed_receiver` is new; no
   other snapshot and no golden changed.
+- Before, a sentence spelled a type or a path with every space taken
+  out, so a payload `&'a Name` read `&'aName`, and `&'a mut Name` and
+  `dyn Named + 'a` likewise. Sentences now spell them as written, `&'a
+  Name`, `Rc<dyn Named + 'a>`, `Result<A, B>`. The `tests/ui` case
+  `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
+  changed, since none held such a type.
 
 ## 0.7.3 - 2026-11-13
 

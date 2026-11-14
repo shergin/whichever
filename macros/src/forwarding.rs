@@ -24,6 +24,7 @@ use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
     ArgumentKind, Conversion, FutureShape, PlaceBorrow, ReceiverKind, ReturnSite,
 };
+use crate::spelling;
 use crate::subject::{Entry, Target, Unforwardable};
 
 /// Returns an identifier with `macro_rules`-style hygiene, which can never
@@ -391,7 +392,7 @@ impl MethodPlan {
                 .iter()
                 .any(|(_, access)| matches!(access, Access::Owned));
         if owned && route.starts_with_deref() && !holds_a_box(payload) {
-            let spelled = payload.to_token_stream().to_string().replace(' ', "");
+            let spelled = spelling::spelled(payload);
             let taken = if boxed_place {
                 "`self: Box<Self>`"
             } else {
@@ -778,7 +779,7 @@ fn receiver_expression(
             if !target.holds_box() {
                 let ident = &target.ident;
                 let payload = &target.payload;
-                let spelled = payload.to_token_stream().to_string().replace(' ', "");
+                let spelled = spelling::spelled(payload);
                 // A payload that already is a `Box` only lacks `deref`.
                 let advice = if last_segment(payload).is_some_and(|segment| segment.ident == "Box")
                 {
