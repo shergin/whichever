@@ -7,27 +7,36 @@ changes are expected and listed without apology.
 
 A fix from the survey of 2026-11-13 of acadrust 0.6.8.
 
-- Before, an inherent method with `value` on the marked field of a variant
-  with several, `Unknown { name: String, #[dispatch] handle: Handle }`,
-  made the arm the pattern's binding as it is, a `&Handle` under `&self`,
-  even where the method returns `Handle`, so beside a routed tuple variant
-  the arms did not agree: rustc's E0308, expected `Handle`, found
-  `&Handle`. acadrust's `ObjectType::intrinsic_handle` reads a `handle`
-  over 35 tuple variants and such a struct variant. The marked field is now
-  read as any target a route reaches: under a `&self`, `&mut self` or
-  pinned receiver the arm is `*inner` for `fn handle(&self) -> Handle`,
-  `Some(*inner)` under `with = Some` for `-> Option<Handle>` and
+- Before, an inherent method with `value` made the arm the pattern's
+  binding as it is, a `&Handle` under `&self`, even where the method
+  returns `Handle`: on a plain payload, `Plain(Handle)`, on the marked
+  field of a variant with several, `Unknown { name: String, #[dispatch]
+  handle: Handle }`, and on a dispatch struct's field, `struct Slot {
+  #[dispatch] handle: Handle, label: String }`. The arm did not compile,
+  rustc's E0308, expected `Handle`, found `&Handle`, and beside a routed
+  variant, which already read a value, the arms did not agree. acadrust's
+  `ObjectType::intrinsic_handle` reads a `handle` over 35 tuple variants
+  and such a struct variant. Every target is now handed over as the return
+  type asks, as a field is: under a `&self`, `&mut self` or pinned
+  receiver `#[dispatch(*, value)]` on `fn handle(&self) -> Handle` is
+  `*inner`, `Some(*inner)` under `with = Some` for `-> Option<Handle>` and
   `Ok(*inner)` under `with = Ok` for `-> Result<Handle, E>`. A method that
   returns a reference, `-> &Handle`, `-> &mut Handle` or `-> Option<&Handle>`
-  under `with = Some`, still gets `inner`; a lift other than `Some` or `Ok`
-  is still handed the binding, a reference under `&self`, where a place
-  reached through `via` or `field` is handed by value; `self` by value and
-  an `async` method are as before. `value` on a plain payload or on a
-  dispatch struct's field is unchanged. Nothing that compiled before
-  expands differently, short of a return type that hides a reference
-  behind a type alias, which `field` and routes already read as a value.
-  The expansion golden `marked_field_by_value` shows the arms; no other
-  golden and no `tests/ui` snapshot changed.
+  under `with = Some`, still gets `inner`; a lift other than `Some` or
+  `Ok`, a raw pointer return and an `impl Trait` return on a dispatch
+  struct are still handed the target as it stands, the binding for a
+  target the pattern binds and a place reached through `via` or `field` by
+  value; `self` by value and an `async` method are as before. Parentheses
+  around the return type, or the group a `macro_rules!` fragment leaves,
+  are looked through. One thing that compiled before no longer does:
+  `value` on a plain payload or a struct's field whose method hides a
+  reference behind a type alias, `type CircleRef<'a> = &'a Circle;` and
+  `fn circle(&self) -> CircleRef<'_>`, since the return type is read as
+  written and the alias now reads as a value, as `field` and routes always
+  read it; spell the reference in the signature, `-> &Circle`. The
+  expansion goldens `marked_field_by_value` and `payload_and_field_by_value`
+  are new and show the arms; no other golden and no `tests/ui` snapshot
+  changed.
 
 ## 0.7.3 - 2026-11-13
 

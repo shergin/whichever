@@ -431,22 +431,19 @@ impl MethodPlan {
                     }
                     None => route.reach(&inner, through_reference, site),
                 };
-                // The binding itself is borrowed as the receiver is; a
-                // place reached through a field or a route is borrowed as
+                // A place reached through a field or a route is borrowed as
                 // the return type asks, so `via = .name, value` and `field
-                // = name` are one arm.
+                // = name` are one arm. The target the pattern binds, a
+                // payload, a marked field or a struct's field, is asked
+                // the same way: under a reference receiver its binding is
+                // a reference to it, which is the arm where the return
+                // type asks for one and is read through, `*inner`, where
+                // it asks for a value. A lift whose parameter is unread
+                // takes the binding as it stands, and an awaited arm
+                // awaits it, since the return type then speaks of the
+                // future's output.
                 if field.is_none() && route.is_direct() {
-                    // The marked field of a variant with several is a
-                    // place a route reaches, and its binding a reference
-                    // to it under a reference receiver: where the return
-                    // type asks for a value the place is read through the
-                    // binding, `*inner`, and where it asks for a reference
-                    // the binding is that reference. A lift whose parameter
-                    // is unread takes the binding as it stands, and an
-                    // awaited arm awaits it, since the return type then
-                    // speaks of the future's output.
-                    let read = target.is_marked_field()
-                        && self.binds_references()
+                    let read = self.binds_references()
                         && !self.awaited
                         && matches!(borrow, PlaceBorrow::Value);
                     if read {

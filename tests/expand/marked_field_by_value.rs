@@ -4,45 +4,42 @@
 //! it asks for a reference the binding is that reference. Under `with =
 //! Some` the return type's first argument asks, and any other lift is
 //! handed the binding as it stands.
-#[derive(Clone, Copy)]
-pub struct Handle(pub u64);
-
 pub struct Dictionary {
-    pub handle: Handle,
+    pub handle: u64,
 }
 
 #[whichever::dispatch(from = false)]
 pub enum Object {
     #[dispatch(via = .handle)]
     Dictionary(Dictionary),
-    Tagged(#[dispatch] Handle, u32),
+    Tagged(#[dispatch] u64, u32),
     Unknown {
         name: String,
         #[dispatch]
-        handle: Handle,
+        handle: u64,
     },
 }
 
-fn raw(handle: &Handle) -> u64 {
-    handle.0
+fn raw(handle: &u64) -> u64 {
+    *handle
 }
 
 #[whichever::dispatch]
 impl Object {
     #[dispatch(*, value)]
-    pub fn handle(&self) -> Handle;
+    pub fn handle(&self) -> u64;
 
     #[dispatch(*, value)]
-    pub fn handle_ref(&self) -> &Handle;
+    pub fn handle_ref(&self) -> &u64;
 
     #[dispatch(*, value)]
-    pub fn handle_mut(&mut self) -> &mut Handle;
+    pub fn handle_mut(&mut self) -> &mut u64;
 
     #[dispatch(*, value, with = Some)]
-    pub fn some_handle(&self) -> Option<Handle>;
+    pub fn some_handle(&self) -> Option<u64>;
 
     #[dispatch(*, value, with = Some)]
-    pub fn some_handle_ref(&self) -> Option<&Handle>;
+    pub fn some_handle_ref(&self) -> Option<&u64>;
 
     #[dispatch(Tagged, Unknown, value, with = raw)]
     pub fn raw_of_marked(&self) -> u64 {

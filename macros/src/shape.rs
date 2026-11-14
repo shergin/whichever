@@ -399,21 +399,27 @@ pub(crate) enum PlaceBorrow {
 /// does one of the two over a return type that shows no first argument: a
 /// function's parameter cannot be read off the return type, and a lift
 /// through a trait, `Option::from` or `Into::into`, takes a field that is
-/// itself a reference as it is and would refuse a reference to it.
+/// itself a reference as it is and would refuse a reference to it. A raw
+/// pointer and an opaque type are unread as well: a reference coerces to
+/// the first and may implement what the second names, so neither says
+/// whether the arm is the reference or the value.
 pub(crate) fn place_borrow(output: &ReturnType, lift: Option<&Path>) -> PlaceBorrow {
-    let read = |ty: &Type| match ty {
+    let read = |ty: &Type| match ungrouped(ty) {
         Type::Reference(reference) => PlaceBorrow::Reference(reference.mutability),
+        Type::Ptr(_) | Type::ImplTrait(_) => PlaceBorrow::Unread,
         _ => PlaceBorrow::Value,
     };
     let returned = match output {
-        ReturnType::Type(_, ty) => Some(&**ty),
+        ReturnType::Type(_, ty) => Some(ungrouped(ty)),
         ReturnType::Default => None,
     };
     if let Some(reference @ Type::Reference(_)) = returned {
         return read(reference);
     }
     let Some(lift) = lift else {
-        return PlaceBorrow::Value;
+        // Without a lift the return type itself takes the place, and a
+        // method that returns nothing takes a value.
+        return returned.map_or(PlaceBorrow::Value, read);
     };
     let constructs = lift
         .segments
@@ -426,6 +432,18 @@ pub(crate) fn place_borrow(output: &ReturnType, lift: Option<&Path>) -> PlaceBor
         .and_then(last_segment)
         .and_then(|segment| generic_type_args(segment).into_iter().next())
         .map_or(PlaceBorrow::Unread, read)
+}
+
+/// Returns `ty` without the parentheses, or the invisible group a
+/// `macro_rules!` fragment leaves, around it.
+fn ungrouped(mut ty: &Type) -> &Type {
+    loop {
+        ty = match ty {
+            Type::Group(group) => &*group.elem,
+            Type::Paren(paren) => &*paren.elem,
+            _ => return ty,
+        };
+    }
 }
 
 /// The sentence for a `Self` the arms cannot wrap back into the subject. A
@@ -1074,6 +1092,83 @@ mod tests {
             );
             assert_eq!(borrow(parse_quote!(-> Maybe), lift), "unread");
             assert_eq!(borrow(ReturnType::Default, lift), "unread");
+        }
+    }
+
+    #[test]
+    fn a_raw_pointer_or_an_opaque_return_is_unread_under_any_lift_or_none() {
+        for lift in every_lift() {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(parse_quote!(-> *const T), lift), "unread");
+            assert_eq!(borrow(parse_quote!(-> *mut T), lift), "unread");
+            assert_eq!(borrow(parse_quote!(-> impl Display + '_), lift), "unread");
+        }
+    }
+
+    #[test]
+    fn a_raw_pointer_or_an_opaque_first_argument_is_unread_under_some_or_ok() {
+        for lift in constructors() {
+            let lift = Some(&lift);
+            assert_eq!(borrow(parse_quote!(-> Option<*const T>), lift), "unread");
+            assert_eq!(borrow(parse_quote!(-> Option<*mut T>), lift), "unread");
+            assert_eq!(
+                borrow(parse_quote!(-> Option<impl Display>), lift),
+                "unread"
+            );
+            assert_eq!(
+                borrow(parse_quote!(-> Result<impl Display + '_, E>), lift),
+                "unread"
+            );
+        }
+    }
+
+    #[test]
+    fn parentheses_around_a_type_are_looked_through() {
+        for lift in every_lift() {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(parse_quote!(-> (&T)), lift), "&");
+            assert_eq!(borrow(parse_quote!(-> (&mut T)), lift), "&mut");
+            assert_eq!(borrow(parse_quote!(-> ((&T))), lift), "&");
+        }
+        assert_eq!(borrow(parse_quote!(-> (T)), None), "by value");
+        for lift in constructors() {
+            let lift = Some(&lift);
+            assert_eq!(borrow(parse_quote!(-> Option<(&T)>), lift), "&");
+            assert_eq!(borrow(parse_quote!(-> Option<(&mut T)>), lift), "&mut");
+            assert_eq!(borrow(parse_quote!(-> Option<(T)>), lift), "by value");
+            assert_eq!(
+                borrow(parse_quote!(-> (Option<&T>)), lift),
+                "&",
+                "the return type is looked through before its first argument is read"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invisible_group_around_a_type_is_looked_through() {
+        let grouped = |elem: Type| {
+            let group = Type::Group(syn::TypeGroup {
+                attrs: Default::default(),
+                group_token: Default::default(),
+                elem: Box::new(elem),
+            });
+            ReturnType::Type(Default::default(), Box::new(group))
+        };
+        for lift in every_lift() {
+            let lift = lift.as_ref();
+            assert_eq!(borrow(grouped(parse_quote!(&T)), lift), "&");
+            assert_eq!(borrow(grouped(parse_quote!(&mut T)), lift), "&mut");
+            assert_eq!(borrow(grouped(parse_quote!(*const T)), lift), "unread");
+        }
+        assert_eq!(borrow(grouped(parse_quote!(T)), None), "by value");
+        for lift in constructors() {
+            let lift = Some(&lift);
+            assert_eq!(
+                borrow(grouped(parse_quote!(Option<&T>)), lift),
+                "&",
+                "a group around the whole return type"
+            );
+            assert_eq!(borrow(grouped(parse_quote!(Option<T>)), lift), "by value");
         }
     }
 

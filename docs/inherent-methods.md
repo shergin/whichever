@@ -45,20 +45,19 @@ returns a `Circle`. Two options make the arm a place instead of a call:
 method returns one and by value otherwise, so `#[dispatch(*, field =
 line_no)]` on `fn line_no(&self) -> usize;` is `inner.line_no` in every
 arm; and `value` makes the arm the target itself, which `with` wraps or
-the return type widens, so `#[dispatch(Controller, Spawn, value, with =
-Some)]` on `fn as_owned(&self) -> Option<&dyn Owned> { None }` is
-`Some(inner)` for the named variants. A target reached through a route is
-borrowed as the return type asks, as a field is, so `via = .name, value`
-is `field = name` spelled out. Under `with = Some` or `with = Ok` the
-borrow is read inside the `Option` or the `Result`, so `-> Option<&T>`
-gives `Some(&inner.name)`; any other lift is handed the place by value.
-The marked field of a variant with several is such a target, so `value`
-on `Unknown { name: String, #[dispatch] handle: Handle }` is `*inner` for
-`fn handle(&self) -> Handle`, `Some(*inner)` under `with = Some` for
-`-> Option<Handle>` and `inner` for `-> &Handle`; a lift other than `Some`
-or `Ok` is handed it as the pattern binds it, a reference under `&self`,
-where a place reached through `via` or `field` is handed by value.
-`via = route` reaches the target
+the return type widens, borrowed where the method returns a reference and
+read where it returns a value, as a field is. So `#[dispatch(Controller,
+Spawn, value, with = Some)]` on `fn as_owned(&self) -> Option<&dyn Owned>
+{ None }` is `Some(inner)` for the named variants, `#[dispatch(*, value)]`
+on `fn handle(&self) -> Handle;` is `*inner` in every arm, a payload or a
+marked field alike, and `via = .name, value` is `field = name` spelled
+out. Under `with = Some` or `with = Ok` the borrow is read inside the
+`Option` or the `Result`, so `-> Option<&T>` gives `Some(&inner.name)`.
+Any other lift is handed the target as it stands, the reference the
+pattern binds under `&self` or a place reached through `via` or `field`
+by value, and so is a method returning a raw pointer or, on a dispatch
+struct, an `impl Trait`. The return type is read as written, so a type
+alias for a reference reads as a value. `via = route` reaches the target
 for this method alone, over the variant's own route. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where

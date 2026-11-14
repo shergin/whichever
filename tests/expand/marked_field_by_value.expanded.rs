@@ -4,64 +4,50 @@
 //! it asks for a reference the binding is that reference. Under `with =
 //! Some` the return type's first argument asks, and any other lift is
 //! handed the binding as it stands.
-pub struct Handle(pub u64);
-#[automatically_derived]
-#[doc(hidden)]
-unsafe impl ::core::clone::TrivialClone for Handle {}
-#[automatically_derived]
-impl ::core::clone::Clone for Handle {
-    #[inline]
-    fn clone(&self) -> Self {
-        let _: ::core::clone::AssertParamIsClone<u64>;
-        *self
-    }
-}
-#[automatically_derived]
-impl ::core::marker::Copy for Handle {}
 pub struct Dictionary {
-    pub handle: Handle,
+    pub handle: u64,
 }
 pub enum Object {
     Dictionary(Dictionary),
-    Tagged(Handle, u32),
-    Unknown { name: String, handle: Handle },
+    Tagged(u64, u32),
+    Unknown { name: String, handle: u64 },
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_Object_846bc8e290b80da4_14_1 as Object;
-fn raw(handle: &Handle) -> u64 {
-    handle.0
+pub(crate) use __whichever_dispatch_Object_7bc0879a47b651b0_11_1 as Object;
+fn raw(handle: &u64) -> u64 {
+    *handle
 }
 impl Object {
-    pub fn handle(&self) -> Handle {
+    pub fn handle(&self) -> u64 {
         match self {
             Self::Dictionary(__inner) => __inner.handle,
             Self::Tagged(__inner, ..) => *__inner,
             Self::Unknown { handle: __inner, .. } => *__inner,
         }
     }
-    pub fn handle_ref(&self) -> &Handle {
+    pub fn handle_ref(&self) -> &u64 {
         match self {
             Self::Dictionary(__inner) => &__inner.handle,
             Self::Tagged(__inner, ..) => __inner,
             Self::Unknown { handle: __inner, .. } => __inner,
         }
     }
-    pub fn handle_mut(&mut self) -> &mut Handle {
+    pub fn handle_mut(&mut self) -> &mut u64 {
         match self {
             Self::Dictionary(__inner) => &mut __inner.handle,
             Self::Tagged(__inner, ..) => __inner,
             Self::Unknown { handle: __inner, .. } => __inner,
         }
     }
-    pub fn some_handle(&self) -> Option<Handle> {
+    pub fn some_handle(&self) -> Option<u64> {
         match self {
             Self::Dictionary(__inner) => Some(__inner.handle),
             Self::Tagged(__inner, ..) => Some(*__inner),
             Self::Unknown { handle: __inner, .. } => Some(*__inner),
         }
     }
-    pub fn some_handle_ref(&self) -> Option<&Handle> {
+    pub fn some_handle_ref(&self) -> Option<&u64> {
         match self {
             Self::Dictionary(__inner) => Some(&__inner.handle),
             Self::Tagged(__inner, ..) => Some(__inner),

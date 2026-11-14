@@ -337,14 +337,16 @@ pub struct Dictionary {
     pub handle: Handle,
 }
 
-// The marked field of a variant with several, beside a routed tuple
-// variant: `value` reads the field through the binding where the return
-// type asks for a value, and hands the binding over where it asks for a
-// reference, so each arm has the type the routed arm has.
+// A plain payload and the marked field of a variant with several, beside a
+// routed tuple variant: `value` reads the target the pattern binds through
+// the binding where the return type asks for a value, and hands the
+// binding over where it asks for a reference, so each arm has the type the
+// routed arm has.
 #[whichever::dispatch(from = false)]
 pub enum Object {
     #[dispatch(via = .handle)]
     Dictionary(Dictionary),
+    Plain(Handle),
     Tagged(#[dispatch] Handle, u32),
     Unknown {
         name: String,
@@ -361,15 +363,18 @@ fn raw(handle: &Handle) -> u64 {
 
 #[whichever::dispatch]
 impl Object {
-    /// The handle by value: `inner.handle` and `*inner`.
+    /// The handle by value: `inner.handle` for the routed variant and
+    /// `*inner` for the payload and the marked fields.
     #[dispatch(*, value)]
     pub fn handle(&self) -> Handle;
 
-    /// The handle by reference: `&inner.handle` and `inner`.
+    /// The handle by reference: `&inner.handle` for the routed variant and
+    /// `inner` for the payload and the marked fields.
     #[dispatch(*, value)]
     pub fn handle_ref(&self) -> &Handle;
 
-    /// The exclusive form: `&mut inner.handle` and `inner`.
+    /// The exclusive form: `&mut inner.handle` for the routed variant and
+    /// `inner` for the payload and the marked fields.
     #[dispatch(*, value)]
     pub fn handle_mut(&mut self) -> &mut Handle;
 
@@ -389,14 +394,22 @@ impl Object {
     #[dispatch(*, value, with = Ok)]
     pub fn ok_handle(&self) -> Result<Handle, ()>;
 
-    /// A receiver by value, under which the binding is the field itself.
+    /// A receiver by value, under which the binding is the target itself.
     #[dispatch(*, value)]
     pub fn into_handle(self) -> Handle;
 
-    /// Any other lift is handed the binding as it stands.
-    #[dispatch(Tagged, Unknown, value, with = raw)]
-    pub fn raw_of_marked(&self) -> u64 {
+    /// Any other lift is handed the binding as it stands, for the payload
+    /// and the marked fields alike.
+    #[dispatch(Plain, Tagged, Unknown, value, with = raw)]
+    pub fn raw_of_bound(&self) -> u64 {
         0
+    }
+
+    /// A raw pointer return takes the binding as it stands, the reference
+    /// coercing to the pointer, so each arm is the address of the target.
+    #[dispatch(Plain, Tagged, Unknown, value)]
+    pub fn handle_ptr(&self) -> *const Handle {
+        core::ptr::null()
     }
 
     /// By value under a pinned receiver, which binds references too.
@@ -422,86 +435,108 @@ impl Lookup {
     pub async fn ready(&mut self) -> u64;
 }
 
-fn objects() -> [Object; 3] {
+fn objects() -> [Object; 4] {
     [
         Object::Dictionary(Dictionary { handle: Handle(1) }),
-        Object::Tagged(Handle(2), 20),
+        Object::Plain(Handle(2)),
+        Object::Tagged(Handle(3), 30),
         Object::Unknown {
             name: "unknown".to_owned(),
-            handle: Handle(3),
+            handle: Handle(4),
         },
     ]
 }
 
+/// The handle each of `objects` holds, by reference to the place itself.
+fn places(objects: &[Object; 4]) -> [&Handle; 4] {
+    objects.each_ref().map(|object| match object {
+        Object::Dictionary(inner) => &inner.handle,
+        Object::Plain(handle) | Object::Tagged(handle, _) | Object::Unknown { handle, .. } => {
+            handle
+        }
+    })
+}
+
 #[test]
-fn a_marked_field_is_read_by_value_and_borrowed_by_reference() {
+fn a_bound_target_is_read_by_value_and_borrowed_by_reference() {
     let mut objects = objects();
     let handles = objects.each_ref().map(Object::handle);
-    assert_eq!(handles, [Handle(1), Handle(2), Handle(3)]);
+    assert_eq!(handles, [Handle(1), Handle(2), Handle(3), Handle(4)]);
     let handles = objects.each_ref().map(|object| *object.handle_ref());
-    assert_eq!(handles, [Handle(1), Handle(2), Handle(3)]);
-    let [dictionary, tagged, unknown] = &objects;
-    let Object::Dictionary(inner) = dictionary else {
-        unreachable!()
-    };
-    assert!(std::ptr::eq(dictionary.handle_ref(), &inner.handle));
-    let Object::Tagged(field, _) = tagged else {
-        unreachable!()
-    };
-    assert!(std::ptr::eq(tagged.handle_ref(), field));
-    let Object::Unknown { handle: field, .. } = unknown else {
-        unreachable!()
-    };
-    assert!(std::ptr::eq(unknown.handle_ref(), field));
+    assert_eq!(handles, [Handle(1), Handle(2), Handle(3), Handle(4)]);
+    for (object, place) in objects.iter().zip(places(&objects)) {
+        assert!(std::ptr::eq(object.handle_ref(), place));
+    }
     for object in &mut objects {
         object.handle_mut().0 += 10;
     }
     assert_eq!(
         objects.each_ref().map(Object::handle),
-        [Handle(11), Handle(12), Handle(13)]
+        [Handle(11), Handle(12), Handle(13), Handle(14)]
     );
     assert_eq!(
         objects.each_mut().map(Object::handle_through_mut),
-        [Handle(11), Handle(12), Handle(13)]
+        [Handle(11), Handle(12), Handle(13), Handle(14)]
     );
     assert_eq!(
         objects
             .each_mut()
             .map(|object| Pin::new(object).pinned_handle()),
-        [Handle(11), Handle(12), Handle(13)]
+        [Handle(11), Handle(12), Handle(13), Handle(14)]
     );
-    assert!(matches!(objects[1], Object::Tagged(Handle(12), 20)));
+    assert!(matches!(objects[1], Object::Plain(Handle(12))));
+    assert!(matches!(objects[2], Object::Tagged(Handle(13), 30)));
     assert_eq!(
         objects.map(Object::into_handle),
-        [Handle(11), Handle(12), Handle(13)]
+        [Handle(11), Handle(12), Handle(13), Handle(14)]
     );
 }
 
 #[test]
-fn a_marked_field_under_some_or_ok_is_read_as_the_first_argument_asks() {
+fn a_bound_target_under_some_or_ok_is_read_as_the_first_argument_asks() {
     let objects = objects();
     assert_eq!(
         objects.each_ref().map(Object::some_handle),
-        [Some(Handle(1)), Some(Handle(2)), Some(Handle(3))]
+        [
+            Some(Handle(1)),
+            Some(Handle(2)),
+            Some(Handle(3)),
+            Some(Handle(4))
+        ]
     );
     assert_eq!(
         objects.each_ref().map(Object::some_handle_ref),
-        [Some(&Handle(1)), Some(&Handle(2)), Some(&Handle(3))]
+        [
+            Some(&Handle(1)),
+            Some(&Handle(2)),
+            Some(&Handle(3)),
+            Some(&Handle(4))
+        ]
     );
-    let Object::Tagged(field, _) = &objects[1] else {
-        unreachable!()
-    };
-    assert!(std::ptr::eq(objects[1].some_handle_ref().unwrap(), field));
+    for (object, place) in objects.iter().zip(places(&objects)) {
+        assert!(std::ptr::eq(object.some_handle_ref().unwrap(), place));
+    }
     assert_eq!(
         objects.each_ref().map(Object::ok_handle),
-        [Ok(Handle(1)), Ok(Handle(2)), Ok(Handle(3))]
+        [Ok(Handle(1)), Ok(Handle(2)), Ok(Handle(3)), Ok(Handle(4))]
     );
 }
 
 #[test]
-fn any_other_lift_is_handed_the_marked_field_as_the_pattern_binds_it() {
+fn any_other_lift_is_handed_the_binding_as_the_pattern_makes_it() {
     let objects = objects();
-    assert_eq!(objects.each_ref().map(Object::raw_of_marked), [0, 2, 3]);
+    assert_eq!(objects.each_ref().map(Object::raw_of_bound), [0, 2, 3, 4]);
+}
+
+#[test]
+fn a_raw_pointer_return_is_the_address_of_the_bound_target() {
+    let objects = objects();
+    let [dictionary, bound @ ..] = &objects;
+    assert!(dictionary.handle_ptr().is_null());
+    let [_, places @ ..] = places(&objects);
+    for (object, place) in bound.iter().zip(places) {
+        assert!(std::ptr::eq(object.handle_ptr(), place));
+    }
 }
 
 #[test]

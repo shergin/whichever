@@ -257,12 +257,16 @@ arm that calls nothing: the target itself, or a field of it, handed over
 as `place_borrow` reads the return type, inside the `Option` or the
 `Result` under `with = Some` or `with = Ok`. Its `PlaceBorrow` is
 `Reference`, borrowed by `&` or `&mut`; `Value`, taken by value; or
-`Unread`, left as it stands, for any other lift or for one of the two over
-a return type that shows no first type argument. A marked field
-(`Target::is_marked_field`) is already a reference where the receiver
-binds references (`MethodPlan::binds_references`), so it is read through
-the binding, `*inner`, on a `Value` answer in an arm that is not awaited,
-and is the binding on the other two.
+`Unread`, left as it stands, for any other lift, for one of the two over
+a return type that shows no first type argument, for a raw pointer
+(`Type::Ptr`, to which a reference coerces) and for an opaque return
+(`Type::ImplTrait`, which the reference may implement); `ungrouped` looks
+through `Type::Group` and `Type::Paren` first. Every target the pattern
+binds, a payload, a marked field or a struct's field, is already a
+reference where the receiver binds references
+(`MethodPlan::binds_references`), so it is read through the binding,
+`*inner`, on a `Value` answer in an arm that is not awaited, and is the
+binding on the other two.
 
 ### 3.5 The protocol
 
@@ -693,6 +697,24 @@ handle, .. }` reads the `Handle` its `-> Handle` asks for. Golden
 `enums_with_every_variant_under_cfg` are extended; `place_borrow`'s unit
 tests are rewritten for the three answers; no other golden or snapshot
 changed.
+
+### Stage 20: one reading for every place
+
+Status: landed on 2026-11-13. The place branch of `MethodPlan::arm` no
+longer asks `Target::is_marked_field`, which is removed: a plain payload
+and a dispatch struct's field are read through the binding on a `Value`
+answer as the marked field is, so `value` on `fn handle(&self) -> Handle`
+is `*inner` for every target the pattern binds. `place_borrow` reads the
+return type without a lift as well, answers `Unread` for `Type::Ptr` and
+`Type::ImplTrait`, and looks through `Type::Group` and `Type::Paren`
+(`ungrouped`). Golden `payload_and_field_by_value` is new, and golden
+`marked_field_by_value` is regenerated over a `u64` handle, without the
+derive whose expansion follows the toolchain, its arms unchanged; the
+behaviour tests `routes`, `inherent_block_on_a_struct` and
+`enums_with_every_variant_under_cfg` are extended; `place_borrow`'s unit
+tests gain the pointer, opaque and grouped cases; no other golden or
+snapshot changed
+(`docs/decisions/a-place-is-handed-over-as-the-return-type-asks.md`).
 
 ## 5. Invariants every stage keeps
 

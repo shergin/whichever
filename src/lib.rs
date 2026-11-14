@@ -399,19 +399,18 @@
 //! a `Circle`. `field = name` makes the arm read that field of the target,
 //! by reference when the method returns one and by value otherwise; `value`
 //! makes the arm the target itself, for `with` to wrap or the return type
-//! to widen, `Some(inner)` as an `Option<&dyn Trait>`, and a target reached
-//! through a route is borrowed as the return type asks, as a field is, so
-//! `via = .name, value` is `field = name` spelled out; under `with = Some`
-//! or `with = Ok` the borrow is read inside the `Option` or the `Result`,
-//! `Some(&inner.name)` for `-> Option<&T>`, and any other lift is handed the
-//! place by value; the marked field of a variant with several is such a
-//! target, so `value` on `Unknown { name: String, #[dispatch] handle:
-//! Handle }` is `*inner` for `fn handle(&self) -> Handle`, `Some(*inner)`
-//! under `with = Some` for `-> Option<Handle>` and `inner` for `-> &Handle`,
-//! and a lift other than `Some` or `Ok` is handed it as the pattern binds
-//! it, a reference under `&self`, where a place reached through `via` or
-//! `field` is handed by value; and `via = route` reaches the target for this
-//! method alone. A `Self` argument is the enum itself and is handed to the
+//! to widen, borrowed where the method returns a reference and read where
+//! it returns a value, as a field is, so it is `Some(inner)` as an
+//! `Option<&dyn Trait>`, `*inner` for `fn handle(&self) -> Handle` on a
+//! payload or a marked field alike, and `via = .name, value` is `field =
+//! name` spelled out; under `with = Some` or `with = Ok` the borrow is read
+//! inside the `Option` or the `Result`, `Some(&inner.name)` for
+//! `-> Option<&T>`, and any other lift is handed the target as it stands,
+//! the reference the pattern binds under `&self` or a place reached through
+//! `via` or `field` by value, as is a method returning a raw pointer or, on
+//! a dispatch struct, an `impl Trait`; the return type is read as written,
+//! so a type alias for a reference reads as a value; and `via = route`
+//! reaches the target for this method alone. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be

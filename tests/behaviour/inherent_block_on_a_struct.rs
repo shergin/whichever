@@ -112,3 +112,66 @@ fn a_named_field_answers_and_star_is_the_bare_one() {
     assert_eq!(pair.right_radius(), 2);
     assert_eq!(pair.left_text(), Some("circle 1".to_owned()));
 }
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Handle(pub u64);
+
+/// A marked field beside another: `value` reads the field the pattern
+/// binds where the return type asks for a value and hands the binding over
+/// where it asks for a reference, for the marked field and for one named on
+/// the method alike.
+#[whichever::dispatch]
+pub struct Slot {
+    #[dispatch]
+    handle: Handle,
+    label: String,
+}
+
+#[whichever::dispatch]
+impl Slot {
+    #[dispatch(*, value)]
+    pub fn handle(&self) -> Handle;
+
+    #[dispatch(*, value)]
+    pub fn handle_ref(&self) -> &Handle;
+
+    #[dispatch(*, value)]
+    pub fn handle_mut(&mut self) -> &mut Handle;
+
+    #[dispatch(*, value, with = Some)]
+    pub fn some_handle(&self) -> Option<Handle>;
+
+    #[dispatch(label, value)]
+    pub fn label(&self) -> &String;
+
+    // An opaque return takes the binding as it stands, so a field that is
+    // not `Copy` is still handed over by reference.
+    #[dispatch(label, value)]
+    pub fn shown(&self) -> impl core::fmt::Display + '_;
+}
+
+/// A struct's only field, read by value through the binding.
+#[whichever::dispatch]
+pub struct Wrapped(Handle);
+
+#[whichever::dispatch]
+impl Wrapped {
+    #[dispatch(*, value)]
+    pub fn get(&self) -> Handle;
+}
+
+#[test]
+fn a_field_is_read_by_value_and_borrowed_by_reference() {
+    let mut slot = Slot {
+        handle: Handle(7),
+        label: "seven".to_owned(),
+    };
+    assert_eq!(slot.handle(), Handle(7));
+    assert!(std::ptr::eq(slot.handle_ref(), &slot.handle));
+    assert!(std::ptr::eq(slot.label(), &slot.label));
+    assert_eq!(slot.some_handle(), Some(Handle(7)));
+    assert_eq!(slot.shown().to_string(), "seven");
+    slot.handle_mut().0 += 1;
+    assert_eq!(slot.handle(), Handle(8));
+    assert_eq!(Wrapped(Handle(9)).get(), Handle(9));
+}

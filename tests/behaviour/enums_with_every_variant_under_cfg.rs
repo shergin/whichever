@@ -181,8 +181,9 @@ pub struct Holder {
     pub handle: Handle,
 }
 
-/// A marked field of a struct-like variant beside a routed one, read by
-/// value through the binding the `match *self` makes, `ref inner`.
+/// A plain payload and a marked field of a struct-like variant beside a
+/// routed one, each read by value through the binding the `match *self`
+/// makes, `ref inner`.
 #[whichever::dispatch(from = false)]
 pub enum Handled {
     #[cfg(test)]
@@ -194,6 +195,8 @@ pub enum Handled {
     #[cfg(test)]
     #[dispatch(via = .handle)]
     Held(Holder),
+    #[cfg(test)]
+    Bare(Handle),
 }
 
 #[whichever::dispatch]
@@ -443,7 +446,7 @@ fn marked_fields_and_routes_are_the_target() {
 }
 
 #[test]
-fn a_marked_field_is_read_by_value_through_the_binding() {
+fn a_payload_or_a_marked_field_is_read_by_value_through_the_binding() {
     let row = Handled::Row {
         id: 1,
         handle: Handle(4),
@@ -451,6 +454,8 @@ fn a_marked_field_is_read_by_value_through_the_binding() {
     let held = Handled::Held(Holder { handle: Handle(5) });
     assert_eq!(row.handle(), Handle(4));
     assert_eq!(held.handle(), Handle(5));
+    let bare = Handled::Bare(Handle(6));
+    assert_eq!(bare.handle(), Handle(6));
 }
 
 #[test]
