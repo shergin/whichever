@@ -3,6 +3,8 @@
 Several crates write the forwarding impl of a trait for an enum over its
 implementors, the `match` a hand would otherwise write for every method.
 
+## `enum_dispatch`
+
 `enum_dispatch` came first, and its mechanism is its limit. It keeps the
 trait's definition in a process-global cache inside the proc-macro server,
 and remembers it from one expansion to the next. That is why:
@@ -15,6 +17,59 @@ and remembers it from one expansion to the next. That is why:
   traits are out of reach.
 - **Errors lose their spans.** Tokens replayed from a cache no longer point
   at your code.
+
+Its tracker, read on 2026-11-13, still has these open: [associated
+types][ed-50], the most upvoted open issue and open since 2021; [the
+trait and the enum in different crates][ed-83]; [`Option<Self>` and
+`Result<Self, E>` returns][ed-82]; [traits of other crates][ed-79], and
+[`Display`][ed-55] in particular; [a generic trait on an enum that is not
+generic][ed-67]; and [IDE support][ed-52]. All of them work here.
+
+[ed-50]: https://gitlab.com/antonok/enum_dispatch/-/issues/50
+[ed-52]: https://gitlab.com/antonok/enum_dispatch/-/issues/52
+[ed-55]: https://gitlab.com/antonok/enum_dispatch/-/issues/55
+[ed-67]: https://gitlab.com/antonok/enum_dispatch/-/issues/67
+[ed-79]: https://gitlab.com/antonok/enum_dispatch/-/issues/79
+[ed-82]: https://gitlab.com/antonok/enum_dispatch/-/issues/82
+[ed-83]: https://gitlab.com/antonok/enum_dispatch/-/issues/83
+
+Here is a trait `enum_dispatch` cannot take, with the same two
+attributes:
+
+```rust
+#[whichever::dispatchable]
+pub trait Storage: Sized {
+    type Error;
+
+    fn load(&self, key: &str) -> Result<Vec<u8>, Self::Error>;
+
+    /// Two different backends never share a file.
+    #[dispatch(mismatch = false)]
+    fn shares_file_with(&self, other: &Self) -> bool;
+
+    fn snapshot(&self) -> Option<Self>;
+}
+
+#[derive(Debug)]
+#[whichever::dispatch(Storage, Error = StorageError)]
+#[whichever::dispatch(whichever::foreign::Display)]
+pub enum AnyStorage {
+    Memory(MemoryStorage), // Error = Infallible
+    Disk(DiskStorage),     // Error = io::Error
+}
+```
+
+- The variants' own error types meet in one `StorageError` through
+  `Into`.
+- `shares_file_with` on two different variants answers the `false` the
+  trait declares.
+- `snapshot` wraps the payload's `Option<Self>` back into its variant.
+- `Display` is a trait of `std`, dispatched from `whichever::foreign`.
+
+The whole program is [`examples/storage.rs`](../examples/storage.rs), and
+runs with `cargo run --example storage`.
+
+## The crates that followed
 
 The crates that followed work across crates, but each supports a different
 slice of what real traits look like:
@@ -33,11 +88,15 @@ slice of what real traits look like:
 Whichever you pick, the first trait with a `&Self` argument or an
 associated const sends you back to writing the `match` by hand.
 
+## What `whichever` does instead
+
 `whichever` keeps nothing between expansions. `#[dispatchable]` exports a
-carrier macro holding the trait's signatures, re-exported under the trait's own
-name, and `#[dispatch]` calls it. The trait reaches the enum through
-ordinary name resolution, so it works across crates, in any order, and
-every span is the one you wrote.
+carrier macro holding the trait's signatures, re-exported under the
+trait's own name, and `#[dispatch]` calls it. The trait reaches the enum
+through ordinary name resolution, so it works across crates, in any order,
+and every span is the one you wrote.
+
+## Feature by feature
 
 Every row where only `whichever` says yes is a trait that, with any other
 crate, goes back to a hand-written `match`.

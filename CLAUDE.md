@@ -26,9 +26,10 @@ any default.
   `benchmarks/RESULTS.md`, with machine, toolchain and date; the reference
   row is the hand-written `match`. Benchmarks are runtime only.
 - The README is the case for the crate: what the attributes write, where
-  the other crates stop, the comparison in short and the measurements. How
-  an attribute is used, an option or a limit, goes on its page under
-  `docs/` and in the crate docs, and the README links there.
+  the other crates stop in a few lines each, and the measurements. The
+  comparison in full is `docs/comparison.md`; how an attribute is used, an
+  option or a limit, goes on its page under `docs/` and in the crate docs,
+  and the README links there.
 - The README and the pages under `docs/` name a concept before code does,
   with one word per thing: the macro `#[dispatchable]` leaves next to a
   trait is the carrier macro. The macro source's internal names, such as
