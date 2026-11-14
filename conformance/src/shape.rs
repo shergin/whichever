@@ -68,7 +68,8 @@
 //! `Enum::A(inner)`, `Self::A { field: inner, .. }` and `Enum::A(ref mut
 //! inner, ..)`; `A A` for the tuple `(Enum::A(x), Enum::A(y))`; `A | B`
 //! for an or-pattern; `_` for a wildcard and for a binding such as
-//! `__other`. A path of one segment, `Wrapped(inner, ..)`,
+//! `__other`, and for a tuple of those, `(_, __same0)`, which is as much a
+//! catch-all; `A _` for a tuple that names a variant beside one. A path of one segment, `Wrapped(inner, ..)`,
 //! `Self { field: inner, .. }` or `Labelled { field: inner, .. }`, names a
 //! struct, whose name the body alone cannot tell from `Self`, so the
 //! pattern names `Self`. A reference, parentheses, a type ascription, a
@@ -625,12 +626,16 @@ fn pattern_variant(pattern: &Pat) -> String {
         Pat::TupleStruct(tuple) => path_variant(&tuple.path),
         Pat::Struct(fields) => path_variant(&fields.path),
         Pat::Path(path) => path_variant(&path.path),
-        Pat::Tuple(tuple) => tuple
-            .elems
-            .iter()
-            .map(pattern_variant)
-            .collect::<Vec<_>>()
-            .join(" "),
+        Pat::Tuple(tuple) => {
+            let elements: Vec<String> = tuple.elems.iter().map(pattern_variant).collect();
+            // A tuple of catch-alls is a catch-all: the fallback a
+            // forwarding writes as `(_, __same0)`, to bind a moved argument
+            // again, is the hand's `_`.
+            if elements.iter().all(|element| element == "_") {
+                return "_".to_owned();
+            }
+            elements.join(" ")
+        }
         Pat::Or(cases) => cases
             .cases
             .iter()
@@ -1996,5 +2001,31 @@ mod tests {
             }
         }
         assert!(seen > 100, "only {seen} methods were read");
+    }
+
+    #[test]
+    fn a_tuple_of_catch_alls_is_a_catch_all() {
+        let subject: syn::Block = syn::parse_quote!({
+            match (self, other) {
+                (E::A(__inner), E::A(__same0)) => <P0 as Probe>::m(__inner, __same0, x),
+                (_, __same0) => {
+                    let other = __same0;
+                    424_242
+                }
+            }
+        });
+        let hand: syn::Block = syn::parse_quote!({
+            match (self, other) {
+                (E::A(inner), E::A(same)) => <P0 as Probe>::m(inner, same, x),
+                _ => 424_242,
+            }
+        });
+        assert!(differences(&method_shape(&subject), &method_shape(&hand)).is_empty());
+        let named: syn::Block = syn::parse_quote!({
+            match (self, other) {
+                (E::A(inner), _) => inner.m(),
+            }
+        });
+        assert_eq!(method_shape(&named).arms[0].variant, "A _");
     }
 }

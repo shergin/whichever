@@ -85,9 +85,16 @@ pub fn render(cell: &Cell) -> Rendered {
 pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
     let context = Context::new(cell);
     let draft = write(&context, mode, &IMPORTS.map(|(line, _)| line));
+    // A limit's inherent method is not emitted, since the inherent path
+    // keeps only the methods it could forward (macros/ARCHITECTURE.md
+    // 3.8), so what its signature alone names is not imported.
+    let dropped = matches!(context.verdict, Verdict::Limit(_));
     let body: Vec<&str> = draft
         .source
         .lines()
+        .enumerate()
+        .filter(|(index, _)| !(dropped && draft.part_of(index + 1) == Some(Part::Inherent)))
+        .map(|(_, line)| line)
         .filter(|line| !line.starts_with("use "))
         .collect();
     let used: Vec<&str> = IMPORTS

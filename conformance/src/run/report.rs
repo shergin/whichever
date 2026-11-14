@@ -37,9 +37,11 @@ pub struct Report<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Standing {
     Agrees,
-    Diverges,
-    Known(usize),
-    KnownButDiffers(String),
+    /// Every finding that makes it diverge is excused, by these lines.
+    Known(Vec<usize>),
+    /// These findings are excused by no line; the lines are those that
+    /// excuse the others.
+    Unexcused(Vec<String>, Vec<usize>),
     ModelBroken,
 }
 
@@ -47,9 +49,8 @@ impl Standing {
     fn name(&self) -> &'static str {
         match self {
             Standing::Agrees => "agrees",
-            Standing::Diverges => "diverges",
             Standing::Known(_) => "known",
-            Standing::KnownButDiffers(_) => "known-but-differs",
+            Standing::Unexcused(_, _) => "diverges",
             Standing::ModelBroken => "model-broken",
         }
     }
@@ -60,37 +61,24 @@ impl Report<'_> {
         self.entries
             .iter()
             .zip(self.judgements)
-            .map(|(entry, judgement)| {
-                let outcome = entry.outcome.spell();
-                let listed: Vec<(usize, &Known)> = self
-                    .known
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, line)| line.pattern.matches(&entry.cell))
-                    .collect();
-                match judgement {
-                    Judgement::Harness => Standing::ModelBroken,
-                    Judgement::Agrees => Standing::Agrees,
-                    Judgement::Diverges => {
-                        if let Some((index, _)) =
-                            listed.iter().find(|(_, line)| line.outcome == outcome)
-                        {
-                            return Standing::Known(*index);
+            .map(|(entry, judgement)| match judgement {
+                Judgement::Harness => Standing::ModelBroken,
+                Judgement::Agrees => Standing::Agrees,
+                Judgement::Diverges(findings) => {
+                    let mut used = Vec::new();
+                    let mut unexcused = Vec::new();
+                    for finding in findings {
+                        let line = self.known.iter().position(|line| {
+                            line.finding == *finding && line.pattern.matches(&entry.cell)
+                        });
+                        match line {
+                            Some(index) => used.push(index),
+                            None => unexcused.push(finding.clone()),
                         }
-                        // A line that names no axis is about an outcome
-                        // wherever it occurs, so it says nothing of a cell
-                        // whose outcome differs.
-                        let lines: Vec<String> = listed
-                            .iter()
-                            .filter(|(_, line)| !line.pattern.named.is_empty())
-                            .map(|(_, line)| {
-                                format!("known.tsv:{} says `{}`", line.line, line.outcome)
-                            })
-                            .collect();
-                        if lines.is_empty() {
-                            return Standing::Diverges;
-                        }
-                        Standing::KnownButDiffers(lines.join("; "))
+                    }
+                    match unexcused.is_empty() {
+                        true => Standing::Known(used),
+                        false => Standing::Unexcused(unexcused, used),
                     }
                 }
             })
@@ -104,13 +92,16 @@ impl Report<'_> {
             .iter()
             .enumerate()
             .filter(|_| self.complete)
-            .filter(|(_, line)| self.shape == line.outcome.contains("shape:"))
+            .filter(|(_, line)| self.shape || !line.finding.starts_with("shape:"))
             .filter(|(index, line)| {
                 let ran = self
                     .entries
                     .iter()
                     .any(|entry| entry.cell == line.pattern.cell);
-                let used = standings.contains(&Standing::Known(*index));
+                let used = standings.iter().any(|standing| match standing {
+                    Standing::Known(lines) | Standing::Unexcused(_, lines) => lines.contains(index),
+                    Standing::Agrees | Standing::ModelBroken => false,
+                });
                 ran && !used
             })
             .map(|(_, line)| line)
@@ -203,9 +194,8 @@ impl Report<'_> {
         for (entry, standing) in self.entries.iter().zip(&standings) {
             let note = match standing {
                 Standing::Agrees | Standing::Known(_) => continue,
-                Standing::Diverges => String::from("diverged"),
-                Standing::KnownButDiffers(line) => {
-                    format!("diverges differently from what {line}; update the line")
+                Standing::Unexcused(findings, _) => {
+                    format!("diverged; no known line excuses {}", findings.join(", "))
                 }
                 Standing::ModelBroken => {
                     String::from("the hand does not compile or fails its law: the model is wrong")
@@ -239,7 +229,7 @@ impl Report<'_> {
             println!();
             println!("stale: known.tsv:{} `{}`", line.line, line.pattern.text);
             println!("  note      excuses no divergence of this run; remove or update the line");
-            println!("  outcome   {}", line.outcome);
+            println!("  finding   {}", line.finding);
         }
         if !self.census_differences.is_empty() {
             status = match status {
@@ -260,9 +250,16 @@ impl Report<'_> {
     /// Writes the full table, one tab-separated line per cell.
     pub fn write_table(&self, path: &Path) -> std::io::Result<()> {
         let standings = self.standings();
-        let mut text =
-            String::from("id\tmodule\tsuites\tverdict\toutcome\tstanding\tmessage\tfile\n");
-        for (entry, standing) in self.entries.iter().zip(&standings) {
+        let mut text = String::from(
+            "id\tmodule\tsuites\tverdict\toutcome\tstanding\tmessage\tfile\tdivergent\n",
+        );
+        for ((entry, standing), judgement) in
+            self.entries.iter().zip(&standings).zip(self.judgements)
+        {
+            let divergent = match judgement {
+                Judgement::Diverges(findings) => findings.join(", "),
+                Judgement::Agrees | Judgement::Harness => String::new(),
+            };
             let message = entry
                 .outcome
                 .first_message
@@ -270,7 +267,7 @@ impl Report<'_> {
                 .unwrap_or_default()
                 .replace('\t', " ");
             text.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 entry.id,
                 entry.module,
                 entry.suites.join(","),
@@ -280,7 +277,8 @@ impl Report<'_> {
                 message,
                 self.workspace
                     .cell_path(&entry.shard, &entry.module)
-                    .display()
+                    .display(),
+                divergent
             ));
         }
         if let Some(parent) = path.parent() {

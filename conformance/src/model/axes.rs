@@ -217,3 +217,35 @@ axis! {
         InherentSome = "inherent-some",
     }
 }
+
+axis! {
+    /// What an inherent method's arm calls or reads on its target.
+    pub enum Callee {
+        /// The payload's own method of the same name.
+        Method = "method",
+        /// The payload's method of another name, `call = answer`.
+        Renamed = "renamed",
+        /// The target itself, `value`.
+        Value = "value",
+        /// A field of the target, `field = state`.
+        Field = "field",
+    }
+}
+
+axis! {
+    /// What an inherent method's `with` wraps each arm's result in.
+    pub enum Lift {
+        /// No `with`.
+        Bare = "none",
+        /// `with = Some`.
+        Some = "some",
+        /// `with = Ok`.
+        Ok = "ok",
+        /// `with = support::by_ref`, a function taking `&T`.
+        ByRef = "by-ref",
+        /// `with = support::by_value`, a function taking `T`.
+        ByValue = "by-value",
+        /// `with = Into::into`.
+        Into = "into",
+    }
+}

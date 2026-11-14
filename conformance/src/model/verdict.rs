@@ -23,11 +23,16 @@ use super::qualifier::Generic;
 use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
-use super::{Argument, Qualifier, Receiver, Return, Second, Target, Verdict};
+use super::{Argument, Callee, Lift, Qualifier, Receiver, Return, Second, Target, Verdict};
 use crate::cell::Cell;
 
 /// Returns the cell's verdict.
 pub fn verdict(cell: &Cell) -> Verdict {
+    // The callee and the lift are an inherent method's alone.
+    let inherent = cell.path.descriptor().site == PathSite::Inherent;
+    if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
+        return Verdict::NonCanonical;
+    }
     if let Some(reason) = malformed(cell) {
         if !canonical_when_malformed(cell) {
             return Verdict::NonCanonical;
@@ -113,6 +118,8 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.arg == Argument::Absent
         && cell.qual == Qualifier::Plain
         && cell.path == super::Path::Attribute
+        && cell.callee == Callee::Method
+        && cell.lift == Lift::Bare
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -132,16 +139,22 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // payloads' own `m` (inherent-methods.md); the model covers the
         // receivers, returns and qualifiers that page describes for an
         // enum.
-        if !matches!(
+        let place = matches!(cell.callee, Callee::Value | Callee::Field);
+        let boxed_or_pinned = matches!(cell.recv, Receiver::Boxed | Receiver::PinExclusive);
+        let common = matches!(
             cell.recv,
             Receiver::Shared | Receiver::Exclusive | Receiver::Owned
-        ) {
+        );
+        if !(common || (place && boxed_or_pinned)) {
             return Some(
                 "an inherent method with a receiver other than `&self`, `&mut self` or `self`",
             );
         }
         if cell.arg != Argument::Absent {
             return Some("an inherent method with a `Self` argument, which is the enum itself");
+        }
+        if let Some(reason) = unpredicted_callee(cell) {
+            return Some(reason);
         }
         if !matches!(cell.qual, Qualifier::Plain | Qualifier::Async) {
             return Some("an inherent method that is generic, unsafe or provided");
@@ -249,6 +262,66 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     None
 }
 
+/// The callees and lifts the model writes, as inherent-methods.md
+/// describes them; the rest is unmodelled.
+fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
+    let plain_place = cell
+        .method_slots()
+        .iter()
+        .all(|(_, _, target)| !target.is_routed());
+    let lift = cell.lift;
+    // An inherent method that names the first variant has a body for the
+    // rest, a constant of the declared type; only rendering builds that
+    // type, so its constant is read here from the target's.
+    let first = cell.path.descriptor().form == PathForm::First;
+    let constant = match lift {
+        Lift::Bare | Lift::Into => cell.target_node().has_constant(false),
+        Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => true,
+    };
+    if first && !constant {
+        return Some("an inherent body for a return type that needs a payload to make");
+    }
+    if lift == Lift::Into {
+        return Some("a lift through `Into::into`, not modelled yet");
+    }
+    match cell.callee {
+        Callee::Method | Callee::Renamed => {
+            let fits = match lift {
+                Lift::Bare | Lift::Some | Lift::Ok => true,
+                Lift::ByRef => cell.ret == Return::Shared,
+                Lift::ByValue => cell.ret == Return::Tag,
+                Lift::Into => false,
+            };
+            if !fits {
+                return Some("a function lift over an answer of another type");
+            }
+            if lift != Lift::Bare && cell.ret.node().future().is_some() {
+                return Some("a lift over a future");
+            }
+        }
+        Callee::Value | Callee::Field => {
+            if !matches!(cell.ret, Return::Tag | Return::Shared | Return::Exclusive) {
+                return Some("a place read as a return type other than a value or a reference");
+            }
+            if cell.qual != Qualifier::Plain {
+                return Some("a place under an `async fn`");
+            }
+            if cell.callee == Callee::Value && cell.s1 != Second::Absent {
+                // Both variants' targets would have to be one type.
+                return Some("the target itself over two variants of different payloads");
+            }
+            let function = matches!(lift, Lift::ByRef | Lift::ByValue);
+            if function && cell.ret != Return::Tag {
+                return Some("a function lift declared with a return type other than its own");
+            }
+            if function && !plain_place {
+                return Some("a function lift handed a place reached through a route");
+            }
+        }
+    }
+    None
+}
+
 /// The sentences the docs promise for the cell, each with where it is
 /// reported.
 fn limits(cell: &Cell) -> Vec<Expected> {
@@ -329,6 +402,14 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     // "An enum cannot dispatch a return-position `impl Trait`, at any depth
     // of the return type, except `impl Future<Output = T>`."
+    // With `with`, the payload returns the plain value and the lift wraps
+    // the variant (inherent-methods.md); a lift around a return that holds
+    // `Self` under a wrapper of its own is a `Self` the rewrap cannot reach.
+    let lifted = matches!(cell.lift, Lift::Some | Lift::Ok);
+    if lifted && node.holds_this() && node != Node::This {
+        expect(Limit::SelfInReturn, on_method);
+    }
+
     let opaque = forwarded && matches!(node, Node::Iterator);
     if opaque {
         expect(Limit::OpaqueReturn, on_method);
@@ -368,7 +449,8 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     //
     // Open question: a variant over another pointer, or reached through a
     // field, is read as getting the same sentence.
-    if cell.recv == Receiver::Boxed {
+    let place = matches!(cell.callee, Callee::Value | Callee::Field);
+    if cell.recv == Receiver::Boxed && !place {
         for (slot, _, target) in &method_live {
             let boxed = target.pointer() == Some(Pointer::Box) && target.route == [Step::Deref];
             if !boxed {
@@ -383,7 +465,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     //
     // A `Self` argument by value gets the same sentence, which names the
     // receiver though it is the argument that would move.
-    if cell.recv == Receiver::Owned || argument.kind == Some(ArgumentKind::Owned) {
+    // An inherent place under `self: Box<Self>` is moved too, unless the
+    // return type borrows it: the case
+    // `place_moves_through_a_shared_pointer_under_a_boxed_receiver` holds
+    // the same fragment.
+    let boxed_place = cell.recv == Receiver::Boxed && place && !node.borrows();
+    if cell.recv == Receiver::Owned || boxed_place || argument.kind == Some(ArgumentKind::Owned) {
         for (slot, _, target) in &method_live {
             if target.pointer().is_some_and(|pointer| !pointer.owns()) {
                 expect(
@@ -447,8 +534,11 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
     // (docs/options.md), but nothing can be borrowed mutably through them:
     // the hand's `&mut **inner` is E0596, and no sentence is documented.
-    let exclusive =
-        receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive);
+    // An inherent place borrows mutably only where the declared type asks.
+    let place = matches!(cell.callee, Callee::Value | Callee::Field);
+    let exclusive = (receiver.lends == Lends::Exclusive
+        || argument.kind == Some(ArgumentKind::Exclusive))
+        && (!place || node.borrows_mutably());
     if exclusive
         && any(&|target| {
             target
@@ -499,6 +589,29 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
             "E0308",
             "a yielded target handed to the control method, which takes `&self`",
             Forwarded::Base,
+        );
+    }
+
+    // "Any other lift is handed the target as it stands, the reference the
+    // pattern binds under `&self` or a place reached through `via` or
+    // `field` by value" (inherent-methods.md): a function taking `&T` is
+    // handed a value where the binding owns or the place is a field, and
+    // one taking `T` is handed a reference where the binding borrows.
+    let by_reference = cell.recv.descriptor().lends != Lends::Nothing;
+    let value = cell.callee == Callee::Value;
+    let field = cell.callee == Callee::Field;
+    if cell.lift == Lift::ByRef && ((value && !by_reference) || field) {
+        reject(
+            "E0308",
+            "a function taking `&T` handed the target or a field by value",
+            Forwarded::Method,
+        );
+    }
+    if cell.lift == Lift::ByValue && value && by_reference {
+        reject(
+            "E0277",
+            "a function taking `T` handed the reference the pattern binds",
+            Forwarded::Method,
         );
     }
 

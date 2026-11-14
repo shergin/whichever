@@ -15,7 +15,7 @@ pub mod returns;
 pub mod target;
 mod verdict;
 
-pub use axes::{Argument, Path, Qualifier, Receiver, Return, Second, Target};
+pub use axes::{Argument, Callee, Lift, Path, Qualifier, Receiver, Return, Second, Target};
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
 
@@ -205,6 +205,35 @@ impl Cell {
             .into_iter()
             .filter(|(slot, _, _)| all || slot.index == 0)
             .collect()
+    }
+
+    /// Returns the type an inherent arm's target answers before any lift:
+    /// the payload itself, by value or borrowed, for `value`, and the
+    /// return type otherwise.
+    pub fn target_node(&self) -> returns::Node {
+        let node = self.ret.node();
+        if self.callee != Callee::Value {
+            return node;
+        }
+        match node {
+            returns::Node::Tag => returns::Node::Payload,
+            returns::Node::Shared => returns::Node::PayloadShared,
+            returns::Node::Exclusive => returns::Node::PayloadExclusive,
+            other => other,
+        }
+    }
+
+    /// Returns the return type the subject's method declares: the target's
+    /// type with the lift applied.
+    pub fn declared_node(&self) -> returns::Node {
+        let target = self.target_node();
+        let leaked = |node: returns::Node| -> &'static returns::Node { Box::leak(Box::new(node)) };
+        match self.lift {
+            Lift::Bare | Lift::Into => target,
+            Lift::Some => returns::Node::Option(leaked(target)),
+            Lift::Ok => returns::Node::Result(leaked(target), &returns::Node::Fault),
+            Lift::ByRef | Lift::ByValue => returns::Node::Tag,
+        }
     }
 
     /// Returns the cell's verdict.

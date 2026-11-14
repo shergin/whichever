@@ -7,3 +7,28 @@
 s1=deref-ref ret=assoc
 # The same with the lifetime on the first variant.
 s0=deref-ref ret=assoc
+
+# `value` on the marked field of a variant with several yielded `&T` where a
+# routed arm beside it yielded `T` (marked-field-value-not-borrowed, the
+# acadrust survey).
+s0=marked-tuple s1=none path=inherent callee=value
+s0=marked-struct s1=none path=inherent callee=value
+# A function lift on a marked field is handed the binding as it stands,
+# which compiles (the same note, section 5).
+s0=marked-tuple s1=none path=inherent callee=value lift=by-ref
+# `value` on a plain payload was never read by value
+# (value-on-a-payload-is-not-read-by-value, from the 408-cell probe).
+s1=none path=inherent callee=value
+# `value` and `field` on a `deref` variant under `self: Box<Self>`
+# dereferenced once too often (value-on-a-deref-variant-under-box-self).
+s0=deref-box s1=none recv=box path=inherent callee=value
+s0=deref-box s1=none recv=box path=inherent callee=field
+# A place under `self: Box<Self>` moved out of an `Rc` with E0507 before
+# 544dd94; the sentence now (place-under-box-self-moves-out-of-a-shared-pointer).
+s0=deref-rc s1=none recv=box path=inherent callee=value
+# A field under `with = Some` was not borrowed for `Option<&T>`
+# (place-under-with-is-not-borrowed, the pingora-core survey).
+s1=none ret=ref path=inherent callee=field lift=some
+# An inherent arm on a `deref` variant dereferenced the result, not the
+# payload (inherent-arm-on-a-deref-variant, the exact survey).
+s0=deref-box path=inherent

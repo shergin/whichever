@@ -9,7 +9,7 @@ use crate::model::argument::ArgumentKind;
 use crate::model::qualifier::Generic;
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::target::Storage;
-use crate::model::SlotVariant;
+use crate::model::{Callee, Lift, SlotVariant};
 
 /// Whether a value is a payload's true answer or the poison an inherent
 /// method answers.
@@ -42,6 +42,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             SlotVariant::Live(_) | SlotVariant::Pair => {}
             SlotVariant::Unit => continue,
         }
+        if context.inherent() && context.cell.callee == Callee::Value {
+            writer.line("#[derive(Clone, Copy)]");
+        }
         writer.line(format!("pub struct {payload} {{"));
         writer.line("    state: u64,");
         writer.line("    spare: u64,");
@@ -56,26 +59,37 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.line("self.state");
         writer.close("}");
         writer.blank();
-        match context.inherent() {
-            true => {
-                writer.line("/// The method the subject's inherent method forwards to.");
-                writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
-                answer_body(writer, context, index);
-            }
-            false => {
-                writer.line(
-                    "/// Answers what no forwarding may: an arm that calls it instead of the",
-                );
-                writer.line("/// trait's method shows in the law.");
-                writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
-                poison_body(writer, context, index);
-            }
+        let callee = context.cell.callee;
+        let calls = matches!(callee, Callee::Method | Callee::Renamed);
+        if context.inherent() && calls {
+            writer.line("/// The method the subject's inherent method forwards to.");
+            writer.open(format!(
+                "pub {} {{",
+                context.signature_with(Site::Inherent, context.node, context.callee_name())
+            ));
+            answer_body(writer, context, index);
+            writer.close("}");
         }
-        writer.close("}");
+        if !context.inherent() || callee != Callee::Method {
+            writer.blank();
+            writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
+            writer.line("/// method meant shows in the law.");
+            writer.open(format!("pub {} {{", context.signature(Site::Inherent)));
+            poison_body(writer, context, index);
+            writer.close("}");
+        }
         writer.close("}");
         writer.blank();
         write_impl(writer, context, index);
         writer.blank();
+        if matches!(context.cell.lift, Lift::ByRef | Lift::ByValue) {
+            writer.open(format!("impl support::Counted for {payload} {{"));
+            writer.open("fn count(&self) -> u64 {");
+            writer.line("self.state");
+            writer.close("}");
+            writer.close("}");
+            writer.blank();
+        }
         let wrapped = slot
             .target()
             .is_some_and(|(_, target)| target.storage == Storage::Wrapper);
@@ -173,9 +187,11 @@ fn poison_body(writer: &mut Writer, context: &Context, index: usize) {
     if this != "self" && context.node.borrows_mutably() {
         writer.line(format!("let this = {};", context.receiver.this));
     }
-    match context.argument.kind {
-        Some(_) => writer.line("let _ = (other, x);"),
-        None => writer.line("let _ = x;"),
+    match (context.argument.kind, context.takes_x()) {
+        (Some(_), true) => writer.line("let _ = (other, x);"),
+        (Some(_), false) => writer.line("let _ = other;"),
+        (None, true) => writer.line("let _ = x;"),
+        (None, false) => {}
     }
     if context.node != Node::Unit {
         writer.line(value(&context.node, this, index, Flavour::Poison));
@@ -201,6 +217,7 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
 fn uses_number(node: &Node) -> bool {
     match node {
         Node::Unit => false,
+        Node::Payload | Node::PayloadShared | Node::PayloadExclusive => true,
         Node::Tuple(elements) => elements.iter().any(uses_number),
         Node::Tag
         | Node::Shared
@@ -230,6 +247,9 @@ fn value(node: &Node, this: &str, index: usize, flavour: Flavour) -> String {
         Flavour::Poison => yes,
     };
     match node {
+        Node::Payload | Node::PayloadShared | Node::PayloadExclusive => {
+            unreachable!("no payload answers with a payload; an inherent place reads it")
+        }
         Node::Unit => String::from("()"),
         Node::Tag | Node::Assoc => String::from(number),
         Node::Shared => match flavour {

@@ -8,7 +8,7 @@ use crate::model::qualifier::{Generic, QualifierDescriptor};
 use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
-use crate::model::{Receiver, Slot, SlotVariant, Target, Verdict};
+use crate::model::{Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
 
 /// The trait every cell dispatches.
 pub const TRAIT: &str = "Probe";
@@ -161,6 +161,61 @@ impl Context {
     /// Returns the signature of the method under test, without a body or
     /// a semicolon.
     pub fn signature(&self, site: Site) -> String {
+        self.signature_with(site, self.node, "m")
+    }
+
+    /// Returns whether the method takes the argument `x`: an inherent
+    /// method that reads a place takes none, since nothing would use it.
+    pub fn takes_x(&self) -> bool {
+        !(self.inherent() && matches!(self.cell.callee, Callee::Value | Callee::Field))
+    }
+
+    /// Returns the name of the payload's method an inherent arm calls.
+    pub fn callee_name(&self) -> &'static str {
+        match self.cell.callee {
+            Callee::Renamed => "answer",
+            Callee::Method | Callee::Value | Callee::Field => "m",
+        }
+    }
+
+    /// Returns the signature the subject's inherent method declares: the
+    /// declared type, after the lift.
+    pub fn declared_signature(&self) -> String {
+        format!(
+            "pub {}",
+            self.signature_with(Site::Inherent, self.cell.declared_node(), "m")
+        )
+    }
+
+    /// Returns the constant of the declared type an inherent method's body
+    /// answers for the variants its mark leaves out.
+    pub fn declared_constant(&self) -> String {
+        constant(&self.cell.declared_node(), "E::A(P0::new(424_242))")
+    }
+
+    /// Returns the options an inherent method's `#[dispatch(..)]` takes
+    /// after the variants it names.
+    pub fn inherent_options(&self) -> String {
+        let callee = match self.cell.callee {
+            Callee::Method => "",
+            Callee::Renamed => ", call = answer",
+            Callee::Value => ", value",
+            Callee::Field => ", field = state",
+        };
+        let lift = match self.cell.lift {
+            Lift::Bare => "",
+            Lift::Some => ", with = Some",
+            Lift::Ok => ", with = Ok",
+            Lift::ByRef => ", with = support::by_ref",
+            Lift::ByValue => ", with = support::by_value",
+            Lift::Into => ", with = Into::into",
+        };
+        format!("{callee}{lift}")
+    }
+
+    /// Returns a signature of the method under test, named `name` and
+    /// returning `node`.
+    pub fn signature_with(&self, site: Site, node: Node, name: &str) -> String {
         let associates = match site {
             Site::Trait | Site::Impl => Associates::Projection,
             Site::Inherent => Associates::Qualified,
@@ -172,7 +227,8 @@ impl Context {
         if self.qualifier.unsafety {
             text.push_str("unsafe ");
         }
-        text.push_str("fn m");
+        text.push_str("fn ");
+        text.push_str(name);
         match self.qualifier.generic {
             Some(Generic::Fixed) => text.push_str("<X: Into<u64>>"),
             Some(Generic::Turbofish) => text.push_str("<W: support::Weight>"),
@@ -184,18 +240,20 @@ impl Context {
             text.push_str(", other: ");
             text.push_str(kind.spelling());
         }
-        match self.qualifier.generic {
-            Some(Generic::Fixed) => text.push_str(", x: X"),
-            Some(Generic::Turbofish) | None => text.push_str(", x: u64"),
+        if self.takes_x() {
+            match self.qualifier.generic {
+                Some(Generic::Fixed) => text.push_str(", x: X"),
+                Some(Generic::Turbofish) | None => text.push_str(", x: u64"),
+            }
         }
         text.push(')');
-        if self.node != Node::Unit {
+        if node != Node::Unit {
             text.push_str(" -> ");
-            text.push_str(&spell(&self.node, "Self", associates));
+            text.push_str(&spell(&node, "Self", associates));
             // An inherent method's opaque return captures no lifetime it
             // does not name, so a borrowing receiver's is named, as the
             // golden `async_returns` writes it.
-            let opaque = matches!(self.node.future(), Some((FutureKind::Opaque, _)));
+            let opaque = matches!(node.future(), Some((FutureKind::Opaque, _)));
             if site == Site::Inherent && opaque && self.receiver.lends != Lends::Nothing {
                 text.push_str(" + '_");
             }
@@ -239,6 +297,9 @@ impl Context {
     /// `with_other`, which a fallback arm cannot name since the `match`
     /// takes it.
     pub fn unused(&self, with_other: bool) -> &'static str {
+        if !self.takes_x() {
+            return "";
+        }
         match self.argument.kind.is_some() && with_other {
             true => "let _ = (other, x);",
             false => "let _ = x;",
@@ -277,6 +338,9 @@ impl Context {
 /// Returns a type's spelling, `this` standing for `Self`.
 pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
     match node {
+        Node::Payload => String::from("P0"),
+        Node::PayloadShared => String::from("&P0"),
+        Node::PayloadExclusive => String::from("&mut P0"),
         Node::Unit => String::from("()"),
         Node::Tag => String::from("u64"),
         Node::Shared => String::from("&u64"),
@@ -336,7 +400,13 @@ pub fn constant(node: &Node, this: &str) -> String {
                 .collect();
             format!("({})", elements.join(", "))
         }
-        Node::Exclusive | Node::Future(_, _) | Node::Iterator | Node::Vec(_) => {
+        Node::Exclusive
+        | Node::Payload
+        | Node::PayloadShared
+        | Node::PayloadExclusive
+        | Node::Future(_, _)
+        | Node::Iterator
+        | Node::Vec(_) => {
             unreachable!("the verdict leaves no mismatch for this type")
         }
     }

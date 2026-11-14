@@ -175,7 +175,8 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         .map(|selection| selection.suite.as_str())
         .collect();
     for suite in &options.suites {
-        if !names.contains(&suite.as_str()) {
+        let random = suite == "random" && options.random.is_some();
+        if !random && !names.contains(&suite.as_str()) {
             return Err(RunError::Usage(format!(
                 "no suite `{suite}`; the suites are {}",
                 names.join(", ")

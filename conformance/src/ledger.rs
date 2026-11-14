@@ -12,8 +12,8 @@ use crate::select::Selection;
 pub struct Known {
     /// The cells, by a pattern in id syntax.
     pub pattern: Pattern,
-    /// The outcome it diverges with, as a run spells it.
-    pub outcome: String,
+    /// The finding it excuses, as an outcome spells it.
+    pub finding: String,
     /// What is wrong, in one sentence.
     pub reason: String,
     /// The line of the file it was read from.
@@ -73,7 +73,7 @@ fn canonical(id: &str, file: &str, line: usize) -> Result<Cell, LedgerError> {
     Ok(cell)
 }
 
-/// Parses `known.tsv`: tab-separated `id`, `outcome` and `reason`, with
+/// Parses `known.tsv`: tab-separated `pattern`, `finding` and `reason`, with
 /// `#` comments and blank lines.
 pub fn parse_known(text: &str) -> Result<Vec<Known>, LedgerError> {
     let mut known: Vec<Known> = Vec::new();
@@ -83,17 +83,17 @@ pub fn parse_known(text: &str) -> Result<Vec<Known>, LedgerError> {
             continue;
         }
         let fields: Vec<&str> = raw.split('\t').collect();
-        let [id, outcome, reason] = fields.as_slice() else {
+        let [id, finding, reason] = fields.as_slice() else {
             return Err(LedgerError(format!(
-                "known.tsv:{line}: expected three tab-separated fields, `id`, `outcome` and `reason`; found {}",
+                "known.tsv:{line}: expected three tab-separated fields, `pattern`, `finding` and `reason`; found {}",
                 fields.len()
             )));
         };
         let pattern = Pattern::parse(id)
             .map_err(|error| LedgerError(format!("known.tsv:{line}: {error}")))?;
-        if outcome.trim().is_empty() || reason.trim().is_empty() {
+        if finding.trim().is_empty() || finding.contains(", ") || reason.trim().is_empty() {
             return Err(LedgerError(format!(
-                "known.tsv:{line}: the outcome and the reason are not empty"
+                "known.tsv:{line}: the finding is one finding and the reason is not empty"
             )));
         }
         if !reason.trim_end().ends_with('.') {
@@ -101,19 +101,19 @@ pub fn parse_known(text: &str) -> Result<Vec<Known>, LedgerError> {
                 "known.tsv:{line}: the reason is one sentence ending in a period"
             )));
         }
-        let outcome = outcome.trim();
+        let finding = finding.trim();
         if let Some(earlier) = known
             .iter()
-            .find(|entry| entry.pattern.text == pattern.text && entry.outcome == outcome)
+            .find(|entry| entry.pattern.text == pattern.text && entry.finding == finding)
         {
             return Err(LedgerError(format!(
-                "known.tsv:{line}: `{id}` with this outcome is listed on line {} already",
+                "known.tsv:{line}: `{id}` with this finding is listed on line {} already",
                 earlier.line
             )));
         }
         known.push(Known {
             pattern,
-            outcome: String::from(outcome),
+            finding: String::from(finding),
             reason: String::from(reason.trim()),
             line,
         });
@@ -209,7 +209,7 @@ mod tests {
         let known = parse_known(text).expect("a valid file");
         assert_eq!(known.len(), 1);
         assert_eq!(known[0].pattern.text, "recv=mut");
-        assert_eq!(known[0].outcome, "error:E0308@subject");
+        assert_eq!(known[0].finding, "error:E0308@subject");
         assert_eq!(known[0].reason, "The arm borrows twice.");
         assert_eq!(known[0].line, 3);
         let patterns = parse_known("s1=plain recv=mut\ta\tA.\nrecv=mut\tb\tB.\n")

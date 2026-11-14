@@ -136,7 +136,7 @@ impl Limit {
             ),
             Limit::BoxSelfPlain => entry(
                 "box-self-plain",
-                "takes `self: Box<Self>`, and",
+                "holds a plain",
                 "box_self_plain_variant",
             ),
             Limit::MovesThroughSharedPointer => entry(

@@ -273,28 +273,43 @@ fn quoted(message: &str) -> String {
 pub enum Judgement {
     /// The outcome is what the verdict allows.
     Agrees,
-    /// The outcome is not what the verdict allows.
-    Diverges,
+    /// The outcome is not what the verdict allows, for these findings,
+    /// spelled as the outcome spells them.
+    Diverges(Vec<String>),
     /// The hand does not compile or fails its law: the model is wrong.
     Harness,
 }
 
-/// Returns how an outcome stands to a verdict.
+/// Returns how an outcome stands to a verdict. The findings that make a
+/// cell diverge are decided here and nowhere else:
+///
+/// - for a pass, every finding;
+/// - for a limit, every finding that is not a predicted sentence on its
+///   anchor, and `missing:sentence` when no predicted sentence appears;
+/// - for a rejected cell, `compiles:subject` when the subject compiles, and
+///   every finding of the subject that is neither a catalogued sentence nor
+///   a rustc error off the attributes; the hand's expected failure is none;
+/// - for a malformed cell, `compiles:trait` when nothing fails.
 pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judgement {
+    let divergent = |findings: Vec<String>| match findings.is_empty() {
+        true => Judgement::Agrees,
+        false => Judgement::Diverges(findings),
+    };
+    let is_error = |finding: &Finding| match finding {
+        Finding::Sentence { .. } | Finding::Error { .. } => true,
+        Finding::Warning { .. }
+        | Finding::Law { .. }
+        | Finding::Shape { .. }
+        | Finding::Untested { .. } => false,
+    };
     match verdict {
         Verdict::Pass => {
             if outcome.findings.iter().any(Finding::blames_the_hand) {
                 return Judgement::Harness;
             }
-            match outcome.findings.is_empty() {
-                true => Judgement::Agrees,
-                false => Judgement::Diverges,
-            }
+            divergent(outcome.findings.iter().map(Finding::spell).collect())
         }
         Verdict::Limit(expected) => {
-            if outcome.findings.is_empty() {
-                return Judgement::Diverges;
-            }
             let lines: BTreeMap<String, Anchor> = expected
                 .iter()
                 .filter_map(|expected| {
@@ -302,7 +317,7 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                     Some((format!("line-{line}"), expected.anchor))
                 })
                 .collect();
-            let allowed = outcome.findings.iter().all(|finding| {
+            let predicted = |finding: &Finding| {
                 let Finding::Sentence { key, place } = finding else {
                     return false;
                 };
@@ -313,11 +328,17 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                             anchor => *place == anchor.name() || lines.get(place) == Some(&anchor),
                         }
                 })
-            });
-            match allowed {
-                true => Judgement::Agrees,
-                false => Judgement::Diverges,
+            };
+            let mut findings: Vec<String> = outcome
+                .findings
+                .iter()
+                .filter(|finding| !predicted(finding))
+                .map(Finding::spell)
+                .collect();
+            if !outcome.findings.iter().any(predicted) {
+                findings.push(String::from("missing:sentence"));
             }
+            divergent(findings)
         }
         Verdict::Rejected { code, .. } => {
             let quoted_code = quoted(code);
@@ -354,24 +375,20 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                 | Finding::Shape { .. }
                 | Finding::Untested { .. } => false,
             };
-            match !subject.is_empty() && subject.iter().all(accepted) {
-                true => Judgement::Agrees,
-                false => Judgement::Diverges,
+            let mut findings: Vec<String> = subject
+                .iter()
+                .filter(|finding| !accepted(finding))
+                .map(|finding| finding.spell())
+                .collect();
+            if !subject.iter().any(|finding| is_error(finding)) {
+                findings.push(String::from("compiles:subject"));
             }
+            divergent(findings)
         }
-        Verdict::Malformed(_) => {
-            let failed = outcome.findings.iter().any(|finding| match finding {
-                Finding::Error { .. } | Finding::Sentence { .. } => true,
-                Finding::Warning { .. }
-                | Finding::Law { .. }
-                | Finding::Shape { .. }
-                | Finding::Untested { .. } => false,
-            });
-            match failed {
-                true => Judgement::Agrees,
-                false => Judgement::Diverges,
-            }
-        }
+        Verdict::Malformed(_) => match outcome.findings.iter().any(is_error) {
+            true => Judgement::Agrees,
+            false => Judgement::Diverges(vec![String::from("compiles:trait")]),
+        },
         Verdict::Unmodelled(_) | Verdict::NonCanonical => Judgement::Harness,
     }
 }
@@ -397,10 +414,10 @@ mod tests {
             "subject",
             Some(&TestResult::Failed(String::from("left"))),
         );
-        assert_eq!(
+        assert!(matches!(
             judge(&Verdict::Pass, &outcome, &rendered),
-            Judgement::Diverges
-        );
+            Judgement::Diverges(_)
+        ));
         assert_eq!(outcome.spell(), "law:subject");
         observe_test(&mut outcome, "hand", None);
         assert_eq!(
@@ -429,11 +446,14 @@ mod tests {
             }],
             first_message: None,
         };
-        assert_eq!(judge(&verdict, &elsewhere, &rendered), Judgement::Diverges);
-        assert_eq!(
+        assert!(matches!(
+            judge(&verdict, &elsewhere, &rendered),
+            Judgement::Diverges(_)
+        ));
+        assert!(matches!(
             judge(&verdict, &Outcome::default(), &rendered),
-            Judgement::Diverges
-        );
+            Judgement::Diverges(_)
+        ));
     }
 
     #[test]
@@ -453,12 +473,15 @@ mod tests {
         let on_payload = outcome(vec![error("E0596", "hand"), error("E0596", "subject")]);
         assert_eq!(judge(&verdict, &on_payload, &rendered), Judgement::Agrees);
         let on_attribute = outcome(vec![error("E0596", "hand"), error("E0596", "attribute")]);
-        assert_eq!(
+        assert!(matches!(
             judge(&verdict, &on_attribute, &rendered),
-            Judgement::Diverges
-        );
+            Judgement::Diverges(_)
+        ));
         let hand_only = outcome(vec![error("E0596", "hand")]);
-        assert_eq!(judge(&verdict, &hand_only, &rendered), Judgement::Diverges);
+        assert!(matches!(
+            judge(&verdict, &hand_only, &rendered),
+            Judgement::Diverges(_)
+        ));
         let hand_compiles = outcome(vec![error("E0596", "subject")]);
         assert_eq!(
             judge(&verdict, &hand_compiles, &rendered),

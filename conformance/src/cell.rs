@@ -7,7 +7,7 @@
 //! cell's module and file.
 
 use crate::axis::Axis;
-use crate::model::{Argument, Path, Qualifier, Receiver, Return, Second, Target};
+use crate::model::{Argument, Callee, Lift, Path, Qualifier, Receiver, Return, Second, Target};
 
 /// The id of the neutral cell.
 pub const BASE: &str = "base";
@@ -165,6 +165,10 @@ cell! {
     qual: Qualifier,
     /// How the method reaches the subject.
     path: Path,
+    /// What an inherent method's arm calls or reads.
+    callee: Callee,
+    /// What an inherent method's `with` wraps the result in.
+    lift: Lift,
 }
 
 impl Cell {

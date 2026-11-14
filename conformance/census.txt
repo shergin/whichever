@@ -56,77 +56,100 @@ suite value-method-route
   never 8 unmodelled: a reference return that borrows from the `Self` argument
 
 suite paths
-  pass 875
-  limit 1676
+  pass 869
+  limit 1670
   rejected 0
   malformed 9
   never 567 non-canonical
-  never 268 unmodelled: a block body for a future return
-  never 196 unmodelled: a block body for a return type that needs a payload to make
+  never 256 unmodelled: a block body for a future return
+  never 192 unmodelled: a block body for a return type that needs a payload to make
   never 1512 unmodelled: a default body that would need a payload to make its answer
   never 9 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
-  never 440 unmodelled: an inherent method that is generic, unsafe or provided
+  never 184 unmodelled: an inherent body for a return type that needs a payload to make
+  never 348 unmodelled: an inherent method that is generic, unsafe or provided
   never 576 unmodelled: an inherent method with a receiver other than `&self`, `&mut self` or `self`
-  never 272 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+  never 208 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite path-arguments
-  pass 660
-  limit 600
+  pass 657
+  limit 594
   rejected 0
   malformed 0
   never 108 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 9 unmodelled: an inherent body for a return type that needs a payload to make
   never 360 unmodelled: an inherent method with a `Self` argument, which is the enum itself
 
 suite inherent
-  pass 932
-  limit 718
+  pass 920
+  limit 706
   rejected 114
   malformed 0
   never 624 non-canonical
-  never 224 unmodelled: a block body for a future return
-  never 88 unmodelled: a block body for a return type that needs a payload to make
   never 18 unmodelled: a limit beside a rejection the limit does not replace
   never 112 unmodelled: an `async fn` that returns a future
-  never 1746 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
-  never 256 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
-  never 64 unmodelled: an inherent method through a route whose method yields its target
-  never 96 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
+  never 1458 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 728 unmodelled: an inherent body for a return type that needs a payload to make
+  never 208 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
+  never 56 unmodelled: an inherent method through a route whose method yields its target
+  never 48 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
+
+suite inherent-places
+  pass 426
+  limit 12
+  rejected 42
+  malformed 0
+  never 350 non-canonical
+  never 140 unmodelled: a function lift declared with a return type other than its own
+  never 80 unmodelled: a function lift handed a place reached through a route
+
+suite inherent-calls
+  pass 594
+  limit 226
+  rejected 0
+  malformed 0
+  never 192 non-canonical
+  never 736 unmodelled: a function lift over an answer of another type
+  never 192 unmodelled: a lift over a future
+  never 352 unmodelled: a lift through `Into::into`, not modelled yet
+  never 396 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 192 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite pinned
-  pass 2
-  limit 0
+  pass 10
+  limit 1
   rejected 0
   malformed 0
 
 suite array
-  pass 3019
+  pass 3257
   limit 0
   rejected 0
   malformed 0
-  rows 3019
-  covered 28269
-  unreached 13978
+  rows 3257
+  covered 36280
+  unreached 32405
 
 suite array-limits
   pass 0
-  limit 229
+  limit 250
   rejected 0
   malformed 0
-  rows 229
-  covered 2302
-  unreached 157
+  rows 250
+  covered 2695
+  unreached 558
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 342
+  rejected 382
   malformed 0
-  rows 342
-  covered 1839
-  unreached 620
+  rows 382
+  covered 2244
+  unreached 1009
 
 suite known
-  pass 7
+  pass 12
   limit 1
-  rejected 0
+  rejected 1
   malformed 0
+  never 2 non-canonical

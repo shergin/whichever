@@ -12,7 +12,7 @@ use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
 use crate::model::target::{Form, Pointer, Step, Storage};
-use crate::model::{Slot, SlotVariant};
+use crate::model::{Callee, Lift, Slot, SlotVariant};
 
 /// Who gave an answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,10 +102,20 @@ fn reach(binding: &str, route: &[Step]) -> String {
 
 fn write_observers(writer: &mut Writer, context: &Context) {
     let output = context.output();
-    let subject_type = spell(&output, "S", Associates::Qualified);
+    let declared = match context.inherent() {
+        true => {
+            let declared = context.cell.declared_node();
+            match declared.future() {
+                Some((_, inner)) => *inner,
+                None => declared,
+            }
+        }
+        false => output,
+    };
+    let subject_type = spell(&declared, "S", Associates::Qualified);
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
-    writer.line(observation(&output, "answer", Side::Subject, 0));
+    writer.line(observation(&declared, "answer", Side::Subject, 0));
     writer.close("}");
     writer.blank();
     for (slot, _, _) in context.cell.method_slots() {
@@ -129,7 +139,14 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
         Node::Unit => format!("{{ let () = {value}; String::from(\"()\") }}"),
         Node::Tag | Node::Assoc => format!("{value}.to_string()"),
         Node::Shared => format!("format!(\"&{{}}\", {value})"),
-        Node::Exclusive => format!("format!(\"&mut {{}}\", {value})"),
+        // A mutable reference is written through, so that the state checked
+        // afterwards shows whether it was the payload's own.
+        Node::Exclusive => format!("{{ *{value} += 100; format!(\"&mut {{}}\", {value}) }}"),
+        Node::Payload => format!("{value}.state.to_string()"),
+        Node::PayloadShared => format!("format!(\"&{{}}\", {value}.state)"),
+        Node::PayloadExclusive => {
+            format!("{{ {value}.state += 100; format!(\"&mut {{}}\", {value}.state) }}")
+        }
         Node::This => match side {
             Side::Subject => format!("seen(&{value})"),
             Side::Payload(index) => format!("format!(\"{index}:{{}}\", {value}.state())"),
@@ -240,13 +257,20 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
             ArgumentKind::Owned => String::from(other),
         });
     }
-    arguments.push(String::from(x));
+    if context.takes_x() {
+        arguments.push(String::from(x));
+    }
     let turbofish = match context.qualifier.generic {
         Some(Generic::Turbofish) => "::<support::Three>",
         Some(Generic::Fixed) | None => "",
     };
     let mut text = match context.inherent() {
-        true => format!("{path}::m({})", arguments.join(", ")),
+        true if path == "S" => format!("{path}::m({})", arguments.join(", ")),
+        true => format!(
+            "{path}::{}({})",
+            context.callee_name(),
+            arguments.join(", ")
+        ),
         false => format!(
             "<{path} as {TRAIT}>::m{turbofish}({})",
             arguments.join(", ")
@@ -280,6 +304,12 @@ fn expectations(context: &Context, slot: &Slot) -> (Expect, Expect) {
             Expect::Twin
         }
         PathForm::Default => Expect::Default,
+        PathForm::Forwarded | PathForm::First | PathForm::Written if context.inherent() => {
+            Expect::Constant(super::context::constant(
+                &context.cell.declared_node(),
+                "S::A(P0::new(424_242))",
+            ))
+        }
         PathForm::Forwarded | PathForm::First | PathForm::Written => {
             Expect::Constant(context.mismatched_output("S"))
         }
@@ -289,6 +319,56 @@ fn expectations(context: &Context, slot: &Slot) -> (Expect, Expect) {
         false => Expect::Constant(String::from("0")),
     };
     (method, base)
+}
+
+/// Returns what an inherent method's twin answers, observed: the twin's
+/// own method, or the twin or its field read as the declared type asks,
+/// wrapped in the lift.
+fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
+    let lift = context.cell.lift;
+    match context.cell.callee {
+        Callee::Method | Callee::Renamed => {
+            let answer = call(context, payload, "twin", None, "x");
+            match lift {
+                Lift::Bare | Lift::Into => format!("observe_p{index}({answer})"),
+                Lift::Some => format!("format!(\"Some({{}})\", observe_p{index}({answer}))"),
+                Lift::Ok => format!("format!(\"Ok({{}})\", observe_p{index}({answer}))"),
+                Lift::ByRef => format!("support::by_ref({answer}).to_string()"),
+                Lift::ByValue => format!("support::by_value({answer}).to_string()"),
+            }
+        }
+        Callee::Value | Callee::Field => {
+            let place = match context.cell.callee {
+                Callee::Value => "twin",
+                Callee::Field | Callee::Method | Callee::Renamed => "twin.state",
+            };
+            let read = match context.cell.target_node() {
+                Node::PayloadShared | Node::Shared => format!("&{place}"),
+                Node::PayloadExclusive | Node::Exclusive => format!("&mut {place}"),
+                Node::Payload
+                | Node::Tag
+                | Node::Unit
+                | Node::This
+                | Node::Assoc
+                | Node::Overridden(_)
+                | Node::Fault
+                | Node::Option(_)
+                | Node::Result(_, _)
+                | Node::Tuple(_)
+                | Node::Future(_, _)
+                | Node::Iterator
+                | Node::Vec(_) => String::from(place),
+            };
+            let lifted = match lift {
+                Lift::Bare | Lift::Into => read,
+                Lift::Some => format!("Some({read})"),
+                Lift::Ok => format!("Ok({read})"),
+                Lift::ByRef => format!("support::by_ref(&{place})"),
+                Lift::ByValue => format!("support::by_value({place})"),
+            };
+            format!("observe({lifted})")
+        }
+    }
 }
 
 fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
@@ -311,8 +391,14 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
     writer.open(format!("for x in [{}u64, {}] {{", samples[0], samples[1]));
     write_subject(writer, "S", slot, "subject", seed, exclusive);
     let twin_needed = method == Expect::Twin;
+    // A twin is borrowed mutably by its own method under a `&mut` receiver,
+    // or, for an inherent place, where the declared type borrows it so.
+    let twin_exclusive = match context.inherent() && !context.takes_x() {
+        true => context.node.borrows_mutably(),
+        false => exclusive,
+    };
     if twin_needed {
-        let binding = if exclusive { "let mut" } else { "let" };
+        let binding = if twin_exclusive { "let mut" } else { "let" };
         writer.line(format!("{binding} twin = {payload}::new({seed});"));
     }
     if context.argument.kind.is_some() {
@@ -330,6 +416,12 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
         call(context, "S", "subject", other, "x")
     ));
     match &method {
+        Expect::Twin if context.inherent() => {
+            writer.line(format!(
+                "let expected = {};",
+                inherent_expected(context, index, &payload)
+            ));
+        }
         Expect::Twin => {
             let other_twin = context.argument.kind.map(|_| "other_twin");
             writer.line(format!(
@@ -338,9 +430,13 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
             ));
         }
         Expect::Constant(constant) => {
+            let written = match context.inherent() {
+                true => context.cell.declared_node(),
+                false => context.output(),
+            };
             writer.line(format!(
                 "let written: {} = {constant};",
-                spell(&context.output(), "S", Associates::Qualified)
+                spell(&written, "S", Associates::Qualified)
             ));
             writer.line("let expected = observe(written);");
         }

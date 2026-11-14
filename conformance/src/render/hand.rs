@@ -14,7 +14,7 @@ use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
 use crate::model::returns::{Associated, Conversion, FutureKind, Node};
 use crate::model::target::{Step, TargetDescriptor};
-use crate::model::{Receiver, Slot};
+use crate::model::{Callee, Lift, Receiver, Slot};
 
 /// A place expression, kept as a tree so that a borrow of it can be
 /// written the way a hand writes it.
@@ -30,6 +30,16 @@ enum Place {
     /// `place.name()`: a reference the target is behind, or the target
     /// itself as a temporary.
     Call(Box<Place>, &'static str),
+}
+
+impl Method {
+    /// Returns the name of the payload's method an inherent arm calls.
+    fn callee_name(&self) -> &'static str {
+        match self.callee {
+            Callee::Renamed => "answer",
+            Callee::Method | Callee::Value | Callee::Field => "m",
+        }
+    }
 }
 
 impl Place {
@@ -148,6 +158,12 @@ struct Method {
     /// Whether the method is inherent, calling the payloads' own by
     /// method-call syntax.
     inherent: bool,
+    /// What an inherent arm calls or reads.
+    callee: Callee,
+    /// What an inherent arm's result is wrapped in.
+    lift: Lift,
+    /// The type an inherent arm's target answers before the lift.
+    target: Node,
 }
 
 /// Writes `mod hand`.
@@ -188,6 +204,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
         slots: indices(context.cell.base_slots()),
         fallback: (!context.cell.base_reaches_all()).then(|| String::from("0")),
         inherent: false,
+        callee: Callee::Method,
+        lift: Lift::Bare,
+        target: Node::Tag,
     };
     write_method(writer, context, &base);
     let fallback = match context.path.form {
@@ -218,13 +237,25 @@ pub fn write(writer: &mut Writer, context: &Context) {
         slots: indices(context.cell.method_slots()),
         fallback,
         inherent: context.inherent(),
+        callee: context.cell.callee,
+        lift: context.cell.lift,
+        target: context.cell.target_node(),
     };
     if method.inherent {
         writer.close("}");
         writer.blank();
         writer.open(format!("impl{generics} E{generics} {{"));
+        let fallback = match context.path.form {
+            PathForm::First => Some(format!(
+                "{{ {} {} }}",
+                context.unused(false),
+                context.declared_constant()
+            )),
+            PathForm::Forwarded | PathForm::Default | PathForm::Written => None,
+        };
         let method = Method {
-            signature: format!("pub {}", context.signature(Site::Inherent)),
+            signature: context.declared_signature(),
+            fallback,
             ..method
         };
         write_method(writer, context, &method);
@@ -329,6 +360,10 @@ fn arm(
 ) -> String {
     let own = Place::of("inner", binding, target.route);
     let mut pattern_text = pattern("E", slot, target, "inner");
+    if method.inherent {
+        let value = inherent_value(&own, method, awaited, conversion, slot);
+        return format!("{pattern_text} => {value},");
+    }
     let mut arguments = vec![own.handed(handover)];
     if let Some(kind) = method.argument {
         let (other_binding, other_handover) = match kind {
@@ -343,22 +378,13 @@ fn arm(
     if method.name == "m" {
         arguments.push(String::from("x"));
     }
-    let mut call = match method.inherent {
-        true => {
-            let receiver = match own.method_result() {
-                Some(call) => call.text(),
-                None => own.receiver_text(),
-            };
-            format!("{receiver}.{}(x)", method.name)
-        }
-        false => format!(
-            "<{} as {TRAIT}>::{}{}({})",
-            slot.payload(),
-            method.name,
-            method.turbofish,
-            arguments.join(", ")
-        ),
-    };
+    let mut call = format!(
+        "<{} as {TRAIT}>::{}{}({})",
+        slot.payload(),
+        method.name,
+        method.turbofish,
+        arguments.join(", ")
+    );
     if method.unsafety {
         call = format!("unsafe {{ {call} }}");
     }
@@ -370,6 +396,73 @@ fn arm(
         "{pattern_text} => {},",
         convert(conversion, &call, &variant)
     )
+}
+
+/// Returns the value of an inherent arm: the payload's method called by
+/// method-call syntax, or the target or its field read as the declared
+/// type asks, then wrapped in the lift. A function lift is handed the
+/// target as it stands: the binding, or a place reached through a field,
+/// by value (inherent-methods.md).
+fn inherent_value(
+    own: &Place,
+    method: &Method,
+    awaited: bool,
+    conversion: &Conversion,
+    slot: &Slot,
+) -> String {
+    let read = |place: &Place| match method.target {
+        Node::PayloadShared | Node::Shared => place.borrowed(false),
+        Node::PayloadExclusive | Node::Exclusive => place.borrowed(true),
+        Node::Payload
+        | Node::Tag
+        | Node::Unit
+        | Node::This
+        | Node::Assoc
+        | Node::Overridden(_)
+        | Node::Fault
+        | Node::Option(_)
+        | Node::Result(_, _)
+        | Node::Tuple(_)
+        | Node::Future(_, _)
+        | Node::Iterator
+        | Node::Vec(_) => place.text(),
+    };
+    let field = Place::Field(Box::new(own.clone()), "state");
+    let standing = match method.callee {
+        Callee::Value => match own {
+            Place::Deref(binding) => binding.text(),
+            Place::Binding(_, _) | Place::Field(_, _) | Place::Call(_, _) => own.text(),
+        },
+        Callee::Field => field.text(),
+        Callee::Method | Callee::Renamed => String::new(),
+    };
+    let value = match method.callee {
+        Callee::Method | Callee::Renamed => {
+            let receiver = match own.method_result() {
+                Some(call) => call.text(),
+                None => own.receiver_text(),
+            };
+            let mut call = format!("{receiver}.{}(x)", method.callee_name());
+            if awaited {
+                call = format!("{call}.await");
+            }
+            let variant = format!("E::{}", slot.name());
+            convert(conversion, &call, &variant)
+        }
+        Callee::Value => read(own),
+        Callee::Field => read(&field),
+    };
+    let handed = match method.callee {
+        Callee::Method | Callee::Renamed => value.clone(),
+        Callee::Value | Callee::Field => standing,
+    };
+    match method.lift {
+        Lift::Bare | Lift::Into => value,
+        Lift::Some => format!("Some({value})"),
+        Lift::Ok => format!("Ok({value})"),
+        Lift::ByRef => format!("support::by_ref({handed})"),
+        Lift::ByValue => format!("support::by_value({handed})"),
+    }
 }
 
 /// Returns `value` converted as `conversion` says, `variant` being the

@@ -3,7 +3,7 @@
 
 use super::context::{variant, Context, Site, TRAIT};
 use super::payload;
-use super::writer::Writer;
+use super::writer::{Part, Writer};
 use crate::model::argument::MismatchSite;
 use crate::model::path::{Form as PathForm, Site as PathSite};
 use crate::model::Anchor;
@@ -68,6 +68,7 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
     }
     if context.inherent() {
         writer.blank();
+        writer.begin(Part::Inherent);
         write_inherent(writer, context);
     }
 }
@@ -79,15 +80,15 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
     writer.open(format!("impl{generics} E{generics} {{"));
     writer.anchor(Anchor::BlockMethod.name());
     if let Some(mark) = context.path.mark {
-        writer.line(format!("#[dispatch({mark})]"));
+        writer.line(format!("#[dispatch({mark}{})]", context.inherent_options()));
     }
-    let signature = format!("pub {}", context.signature(Site::Inherent));
+    let signature = context.declared_signature();
     writer.anchor(Anchor::BlockSignature.name());
     match context.path.form {
         PathForm::First => {
             writer.open(format!("{signature} {{"));
             writer.line(context.unused(false));
-            writer.line(context.mismatch("E"));
+            writer.line(context.declared_constant());
             writer.close("}");
         }
         PathForm::Forwarded | PathForm::Default | PathForm::Written => {

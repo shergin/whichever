@@ -14,6 +14,8 @@ pub enum Part {
     Payloads,
     /// The subject spelled with the attributes.
     Subject,
+    /// The subject's inherent block, on an inherent path.
+    Inherent,
     /// The call through the trait that shows a withheld impl.
     Probe,
     /// The hand's subject and its forwarding.
@@ -30,6 +32,7 @@ impl Part {
             Part::Trait => "trait",
             Part::Payloads => "payloads",
             Part::Subject => "subject",
+            Part::Inherent => "inherent",
             Part::Probe => "probe",
             Part::Hand => "hand",
             Part::Law => "law",

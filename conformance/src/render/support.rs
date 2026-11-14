@@ -78,6 +78,28 @@ impl Weight for Three {
     const VALUE: u64 = 3;
 }
 
+/// What a function lift counts a value as.
+pub trait Counted {
+    /// Returns the count.
+    fn count(&self) -> u64;
+}
+
+impl Counted for u64 {
+    fn count(&self) -> u64 {
+        *self
+    }
+}
+
+/// A lift taking its value by reference.
+pub fn by_ref<T: Counted>(value: &T) -> u64 {
+    value.count() * 2
+}
+
+/// A lift taking its value by value.
+pub fn by_value<T: Counted>(value: T) -> u64 {
+    value.count() * 3
+}
+
 /// Polls a future to completion; the cells' futures never wait. The
 /// future is boxed rather than pinned with `pin!`, whose expansion holds
 /// syntax `syn` does not read, so that `cargo expand` output parses.

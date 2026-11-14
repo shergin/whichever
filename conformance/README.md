@@ -69,6 +69,10 @@ too, and no error of the subject sits on an attribute, which
 `macros/ARCHITECTURE.md` 3.8 calls a defect. A malformed cell holds the
 trait and the payloads.
 
+The `callee` and `lift` axes are an inherent method's: whether the arm
+calls the payload's method, of the same name or another, or reads the
+target or a field of it, and what `with` wraps the result in.
+
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`
@@ -166,15 +170,22 @@ documents and the goldens best support and says so in a comment beginning
 
 ## The ledger
 
-- `known.tsv` holds the known divergences, tab-separated: a pattern, the
-  outcome, and the reason, which is one sentence. A pattern is spelled as
+- `known.tsv` holds the known divergences, tab-separated: a pattern, a
+  finding, and the reason, which is one sentence. A pattern is spelled as
   an id: the axes it names hold those values, a neutral value included
   when written out, and every other axis is free, so `base` matches every
-  cell. A line excuses every cell it matches whose outcome is the listed
-  one. A line that excuses nothing in a complete run, every suite and no
-  filter, fails it as stale; a line about a shape is judged so only under
-  `--shape`, and any other only without. The pattern's own cell is always
-  run.
+  cell. A cell that diverges is excused when every finding that makes it
+  diverge is excused by a line whose pattern matches it. Which findings
+  make a cell diverge is decided per verdict in one place: for a pass,
+  every finding; for a limit, every finding that is not a predicted
+  sentence, and `missing:sentence` when none appears; for a rejected cell,
+  `compiles:subject` and every finding of the subject that is neither a
+  catalogued sentence nor a rustc error off the attributes; for a
+  malformed cell, `compiles:trait`. A line names the axes that cause its
+  defect, so that it cannot excuse another defect's finding. A line that
+  excuses no finding in a complete run, every suite and no filter, fails it
+  as stale; a line about a shape is judged so only under `--shape`. The
+  pattern's own cell is always run.
 - `pinned.txt` holds cells always run, one id per line, with a `#` comment
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the

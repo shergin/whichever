@@ -36,6 +36,13 @@ pub enum FutureKind {
 /// A node of a return type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Node {
+    /// The first variant's payload by value, `P0`: an inherent method's
+    /// target itself.
+    Payload,
+    /// `&P0`.
+    PayloadShared,
+    /// `&mut P0`.
+    PayloadExclusive,
     /// `()`.
     Unit,
     /// `u64`.
@@ -116,7 +123,10 @@ impl Node {
     /// `Sized`.
     pub fn holds_this_below(&self) -> bool {
         match self {
-            Node::Unit
+            Node::Payload
+            | Node::PayloadShared
+            | Node::PayloadExclusive
+            | Node::Unit
             | Node::Tag
             | Node::Shared
             | Node::Exclusive
@@ -149,7 +159,10 @@ impl Node {
             let entry = match node {
                 Node::Assoc => (Associated::Out, false),
                 Node::Overridden(associated) => (*associated, true),
-                Node::Unit
+                Node::Payload
+                | Node::PayloadShared
+                | Node::PayloadExclusive
+                | Node::Unit
                 | Node::Tag
                 | Node::Shared
                 | Node::Exclusive
@@ -189,9 +202,15 @@ impl Node {
     /// with an opaque type of its own.
     pub fn conversion(&self) -> Option<Conversion> {
         match self {
-            Node::Unit | Node::Tag | Node::Shared | Node::Exclusive | Node::Assoc | Node::Fault => {
-                Some(Conversion::Keep)
-            }
+            Node::Payload
+            | Node::PayloadShared
+            | Node::PayloadExclusive
+            | Node::Unit
+            | Node::Tag
+            | Node::Shared
+            | Node::Exclusive
+            | Node::Assoc
+            | Node::Fault => Some(Conversion::Keep),
             Node::This => Some(Conversion::Rewrap),
             Node::Overridden(_) => Some(Conversion::Into),
             Node::Option(inner) => {
@@ -255,7 +274,13 @@ impl Node {
             Node::This => this,
             Node::Result(_, error) => error.has_constant(this),
             Node::Tuple(elements) => elements.iter().all(|element| element.has_constant(this)),
-            Node::Exclusive | Node::Future(_, _) | Node::Iterator | Node::Vec(_) => false,
+            Node::Exclusive
+            | Node::Payload
+            | Node::PayloadShared
+            | Node::PayloadExclusive
+            | Node::Future(_, _)
+            | Node::Iterator
+            | Node::Vec(_) => false,
         }
     }
 
@@ -268,9 +293,14 @@ impl Node {
             Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.has_default(),
             Node::Result(ok, error) => ok.has_default() && error.has_default(),
             Node::Tuple(elements) => elements.iter().all(Node::has_default),
-            Node::Shared | Node::Exclusive | Node::This | Node::Assoc | Node::Overridden(_) => {
-                false
-            }
+            Node::Shared
+            | Node::Exclusive
+            | Node::Payload
+            | Node::PayloadShared
+            | Node::PayloadExclusive
+            | Node::This
+            | Node::Assoc
+            | Node::Overridden(_) => false,
         }
     }
 
@@ -283,7 +313,10 @@ impl Node {
     fn visit(&self, visitor: &mut dyn FnMut(&Node)) {
         visitor(self);
         match self {
-            Node::Unit
+            Node::Payload
+            | Node::PayloadShared
+            | Node::PayloadExclusive
+            | Node::Unit
             | Node::Tag
             | Node::Shared
             | Node::Exclusive

@@ -142,4 +142,30 @@ pub const ZONES: &[Zone] = &[
         ],
         fixed: &[],
     },
+    Zone {
+        name: "inherent-places",
+        summary: "the 408-cell probe of 2026-11-13: `value` and `field` over the target kinds, receivers, returns and lifts",
+        vary: &[
+            ("s0", &["plain", "deref-box", "deref-rc", "via-field", "marked-tuple", "marked-struct", "marked-via"]),
+            ("recv", &["value", "ref", "mut", "box", "pin-mut"]),
+            ("callee", &["value", "field"]),
+            ("ret", &["u64", "ref", "mut"]),
+            ("lift", &["none", "some", "ok", "by-ref", "by-value"]),
+        ],
+        fixed: &[("path", "inherent"), ("s1", "none")],
+    },
+    Zone {
+        name: "inherent-calls",
+        summary: "an inherent method's call, renamed or not, under every lift",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("callee", &["method", "renamed"]),
+            ("lift", &[]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "ref", "self", "option-self", "future"]),
+            ("s1", &["plain", "none"]),
+        ],
+        fixed: &[],
+    },
 ];
