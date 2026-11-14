@@ -5,6 +5,12 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.7.3 - 2026-11-13
+
+The macro crate moves to `syn` 3, so a build that has left `syn` 2 gains
+no second copy of it, and the README becomes the case for the crate, with
+its manual in pages under `docs/`. No expansion and no sentence changed.
+
 - The macro crate parses with `syn` 3, where it used `syn` 2. coreutils,
   purecrypto, toasty and lofty build `syn` 3 only, as `serde_derive` and
   `thiserror` 2 do, and `whichever` would have put `syn` 2 back into those

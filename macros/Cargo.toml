@@ -1,6 +1,6 @@
 [package]
 name = "whichever-macros"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 rust-version = "1.88"
 description = "Procedural macros of the whichever crate"
