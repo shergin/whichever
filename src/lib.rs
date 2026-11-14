@@ -283,7 +283,9 @@
 //! the receiver and any `Self` argument dereferenced to match: `&**inner`
 //! for `&self`, `&mut **inner` for `&mut self` (the payload must implement
 //! `DerefMut`), `*inner` for `self` (a `Box` moves out; a reference or a
-//! shared pointer, which a value cannot be moved out of, is reported).
+//! shared pointer, which a value cannot be moved out of, is reported, as
+//! is an inherent method's `value` or `field` under `self: Box<Self>`
+//! unless the return type borrows it).
 //!
 //! ```
 //! use std::rc::Rc;
@@ -410,7 +412,10 @@
 //! `via` or `field` by value, as is a method returning a raw pointer or, on
 //! a dispatch struct, an `impl Trait`; the return type is read as written,
 //! so a type alias for a reference reads as a value; and `via = route`
-//! reaches the target for this method alone. A `Self` argument is the enum itself and is handed to the
+//! reaches the target for this method alone. A value cannot be moved out
+//! of a `deref` variant holding anything but a `Box`, so a method taking
+//! `self` is reported there, and so is a place under `self: Box<Self>`
+//! unless the return type borrows it. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
 //! it is compiled out, the method takes its body. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be

@@ -726,6 +726,17 @@ for any receiver but `self`, so under `self: Box<Self>`, whose `match
 was `**inner`, and `field = name` is `(*inner).name`. The behaviour test
 `pinned_and_boxed_receivers` is extended; no golden or snapshot changed.
 
+### Stage 22: the sentence for a place moved under `self: Box<Self>`
+
+Status: landed on 2026-11-13. The check in `MethodPlan::arm` that refuses
+a move out of a pointer that is not a `Box` counts a `Callee::Place` under
+`ReceiverKind::Boxed` as owned unless its `PlaceBorrow` is `Reference`,
+and the sentence names the receiver, `self: Box<Self>` where it said
+`self` by value. Compile-fail case
+`place_moves_through_a_shared_pointer_under_a_boxed_receiver` is new; the
+behaviour test `pinned_and_boxed_receivers` is extended; no other snapshot
+or golden changed.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully

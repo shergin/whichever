@@ -5,8 +5,9 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
-Two fixes from the survey of 2026-11-13 of acadrust 0.6.8: the first
-found by the survey, the second while probing the first.
+Two fixes and a sentence from the survey of 2026-11-13 of acadrust 0.6.8:
+the first fix found by the survey, the second and the sentence while
+probing the first.
 
 - Before, an inherent method with `value` made the arm the pattern's
   binding as it is, a `&Handle` under `&self`, even where the method
@@ -47,6 +48,16 @@ found by the survey, the second while probing the first.
   `field = name`, as with `self` by value. Every other receiver is
   unchanged, and a variant without a route was already right. No golden
   and no `tests/ui` snapshot changed.
+- Before, `value` or `field = name` under `self: Box<Self>` on a `deref`
+  variant holding an `Rc`, or any pointer but a `Box`, reached rustc as
+  E0507, cannot move out of an `Rc`, on the enum's attribute. It is now
+  the sentence, on the payload, as under `self` by value: "`into_name`
+  takes `self: Box<Self>`, and `Shared` dereferences a `Rc<Name>`, which
+  a value cannot be moved out of; hold a `Box`, or give it a body". A
+  place the return type borrows, `-> &'a Name` over `Borrowed(&'a Name)`,
+  moves nothing and is not reported. The `tests/ui` case
+  `place_moves_through_a_shared_pointer_under_a_boxed_receiver` is new; no
+  other snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

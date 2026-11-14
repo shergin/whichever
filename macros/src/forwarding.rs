@@ -375,17 +375,31 @@ impl MethodPlan {
         }
         // A value is moved out of a `Box` by dereferencing it, and out of
         // nothing else: a reference or a shared pointer keeps what it points
-        // at.
-        let owned = matches!(self.receiver, ReceiverKind::Value(Access::Owned))
+        // at. Under `self: Box<Self>` the enum is matched by value as well:
+        // an arm that is a call hands the payload's own box over, which the
+        // receiver's expression checks, and an arm that is a place moves
+        // its target out unless the return type borrows it.
+        let boxed_place = matches!(self.receiver, ReceiverKind::Boxed)
+            && matches!(
+                callee,
+                Callee::Place { borrow, .. } if !matches!(borrow, PlaceBorrow::Reference(_))
+            );
+        let owned = boxed_place
+            || matches!(self.receiver, ReceiverKind::Value(Access::Owned))
             || self
                 .same_variant
                 .iter()
                 .any(|(_, access)| matches!(access, Access::Owned));
         if owned && route.starts_with_deref() && !holds_a_box(payload) {
             let spelled = payload.to_token_stream().to_string().replace(' ', "");
+            let taken = if boxed_place {
+                "`self: Box<Self>`"
+            } else {
+                "`self` by value"
+            };
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` takes `self` by value, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
+                format!("`{method}` takes {taken}, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
             ));
         }
         let inner = hygienic("__inner");

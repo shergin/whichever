@@ -58,7 +58,10 @@ pattern binds under `&self` or a place reached through `via` or `field`
 by value, and so is a method returning a raw pointer or, on a dispatch
 struct, an `impl Trait`. The return type is read as written, so a type
 alias for a reference reads as a value. `via = route` reaches the target
-for this method alone, over the variant's own route. A `Self` argument is
+for this method alone, over the variant's own route. A value cannot be
+moved out of a `deref` variant holding anything but a `Box`, so a method
+taking `self` is reported there, and so is a place under `self:
+Box<Self>` unless the return type borrows it. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
 it is compiled out, the method takes its body. The `impl` block has to be

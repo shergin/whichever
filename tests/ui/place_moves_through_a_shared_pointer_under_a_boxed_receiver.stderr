@@ -1,0 +1,21 @@
+error: `into_name` takes `self: Box<Self>`, and `Shared` dereferences a `Rc<Name>`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/place_moves_through_a_shared_pointer_under_a_boxed_receiver.rs:11:12
+   |
+11 |     Shared(Rc<Name>),
+   |            ^^^^^^^^
+...
+17 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `E` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `into_text` takes `self: Box<Self>`, and `Shared` dereferences a `Rc<Name>`, which a value cannot be moved out of; hold a `Box`, or give it a body
+  --> tests/ui/place_moves_through_a_shared_pointer_under_a_boxed_receiver.rs:11:12
+   |
+11 |     Shared(Rc<Name>),
+   |            ^^^^^^^^
+...
+17 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `E` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -173,3 +173,38 @@ fn a_boxed_receiver_reads_a_dereferenced_place_by_value() {
     let handles = sources.each_ref().map(HandleSource::handle);
     assert_eq!(handles, [BoxedHandle(10), BoxedHandle(20), BoxedHandle(30)]);
 }
+
+// A place the return type borrows moves nothing out of the pointer, so under
+// `self: Box<Self>` a `deref` variant holding a reference hands over the
+// reference it holds, where a value taken out of it would be refused.
+#[whichever::dispatch]
+pub enum Lent<'a> {
+    #[dispatch(deref)]
+    Borrowed(&'a BoxedHandle),
+    #[dispatch(deref)]
+    Shared(&'a BoxedHandle),
+    #[dispatch(via = .0*)]
+    Paired((&'a BoxedHandle, u8)),
+}
+
+// The box is taken only so that the arm written under it is tested, as for
+// `HandleSource` above.
+#[whichever::dispatch]
+#[allow(clippy::boxed_local)]
+impl<'a> Lent<'a> {
+    #[dispatch(*, value)]
+    pub fn lent(self: Box<Self>) -> &'a BoxedHandle;
+}
+
+#[test]
+fn a_boxed_receiver_hands_over_a_borrowed_place() {
+    let first = BoxedHandle(1);
+    let second = BoxedHandle(2);
+    let third = BoxedHandle(3);
+    let lent = Box::new(Lent::Borrowed(&first)).lent();
+    assert!(std::ptr::eq(lent, &first));
+    let lent = Box::new(Lent::Shared(&second)).lent();
+    assert!(std::ptr::eq(lent, &second));
+    let lent = Box::new(Lent::Paired((&third, 0))).lent();
+    assert!(std::ptr::eq(lent, &third));
+}
