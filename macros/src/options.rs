@@ -15,6 +15,7 @@ use syn::{
 };
 
 use crate::route::Route;
+use crate::spelling;
 
 /// Returns the candidate closest to `name` when it is within one edit, or
 /// within two when both names are long enough for two edits to leave them
@@ -68,14 +69,15 @@ pub(crate) fn listed(names: &[String]) -> String {
     }
 }
 
-/// Returns what tells two traits apart wherever the macros compare them:
-/// the path as written, generic arguments included, without the spaces
-/// `quote` puts between tokens. A macro cannot resolve names, so two
-/// spellings of one trait are two traits, and two instantiations of one
-/// generic trait, or two traits of one name from two modules, are two as
-/// well, as they are to the compiler.
+/// Returns what tells two traits apart wherever the macros compare them,
+/// which is also how a sentence names the trait: the path as written,
+/// generic arguments included, spelled as a hand spells it, whatever
+/// spaces the source put between its tokens. A macro cannot resolve
+/// names, so two spellings of one trait are two traits, and two
+/// instantiations of one generic trait, or two traits of one name from two
+/// modules, are two as well, as they are to the compiler.
 pub(crate) fn trait_key(path: &Path) -> String {
-    path.to_token_stream().to_string().replace(' ', "")
+    spelling::spelled(path)
 }
 
 /// Returns whether `attribute` is this crate's `dispatch` attribute, written
@@ -145,7 +147,7 @@ impl TraitSpec {
         };
         let first = &path.segments[0].ident;
         if path.segments.len() > 1 && (first == "std" || first == "core" || first == "alloc") {
-            let spelled = path.to_token_stream().to_string().replace(' ', "");
+            let spelled = spelling::spelled(path);
             let name = &path.segments.last().expect("checked above").ident;
             return Err(Error::new_spanned(
                 path,
@@ -291,7 +293,7 @@ fn given_twice(key: &Ident) -> Error {
 /// type with an option: only a partial impl block declares one.
 fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
     let trait_name = trait_path
-        .map(|path| path.to_token_stream().to_string().replace(' ', ""))
+        .map(spelling::spelled)
         .unwrap_or_else(|| "Trait".to_owned());
     Error::new(
         name.span(),

@@ -56,6 +56,7 @@ mod selection;
 mod shape;
 #[cfg(test)]
 mod spans;
+mod spelling;
 mod subject;
 mod substitution;
 

@@ -112,6 +112,7 @@ src/
   forwarding.rs    the engine: a plan per method, arms per target, one renderer
   selection.rs     the engine's choice of targets: which a method's attribute names, with the checks on the attribute and the body
   shape.rs         classifying receivers, arguments, return types and generics
+  spelling.rs      how a type, a path or a route is spelled in a sentence
   substitution.rs  the trait's generics replaced by the subject's arguments
   agreement.rs     the associated type and const checks
   conversions.rs   `From` and `TryFrom`
@@ -736,6 +737,16 @@ and the sentence names the receiver, `self: Box<Self>` where it said
 `place_moves_through_a_shared_pointer_under_a_boxed_receiver` is new; the
 behaviour test `pinned_and_boxed_receivers` is extended; no other snapshot
 or golden changed.
+
+### Stage 23: sentences spell their tokens
+
+Status: landed on 2026-11-13. `spelling.rs` holds `spelled`, which the
+nine sites that put a type, a path or a route into a sentence use where
+each stripped every space from the tokens' `Display`, so `&'a Name` no
+longer reads `&'aName`. `trait_key` is spelled by it too, so the
+comparison key and the name in a sentence stay one string. Compile-fail
+case `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
+or golden changed; `spelled` has unit tests.
 
 ## 5. Invariants every stage keeps
 

@@ -9,6 +9,8 @@ use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, Index, LitFloat, LitInt, Member, Result, Token};
 
+use crate::spelling;
+
 /// One step of a route.
 #[derive(Clone)]
 pub(crate) enum Step {
@@ -138,7 +140,7 @@ impl Route {
 
     /// Spells the route as it is written, for a message.
     pub(crate) fn spelled(&self) -> String {
-        self.to_token_stream().to_string().replace(' ', "")
+        spelling::spelled(self)
     }
 }
 

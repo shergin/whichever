@@ -12,6 +12,7 @@ use syn::{
 
 use crate::combined;
 use crate::shape::bare_ident;
+use crate::spelling;
 
 /// Replaces generic parameters with the arguments named for them.
 pub(crate) struct Substitution {
@@ -225,8 +226,8 @@ impl Substitution {
             return;
         }
         let parameter = &type_path.path.segments[0].ident;
-        let projection = type_path.to_token_stream().to_string().replace(' ', "");
-        let argument = replacement.to_token_stream().to_string().replace(' ', "");
+        let projection = spelling::spelled(&*type_path);
+        let argument = spelling::spelled(replacement);
         let assoc = rest
             .iter()
             .map(|segment| segment.ident.to_string())
