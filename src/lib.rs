@@ -161,7 +161,7 @@
 //! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
-//! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings where the receiver is a reference, so a build that leaves no variant still compiles, as a hand's does. |
+//! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. So is a sentence about the variant, which a method that cannot be forwarded to it has as that arm's result: a variant compiled out is no error, and each variant the method cannot reach is named. An associated type or const comes from the first variant without a `#[cfg]`. An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings where the receiver is a reference, so a build that leaves no variant still compiles, as a hand's does. |
 //! | `#[deprecated]` on a variant | Its arms and its conversions are written under `#[allow(deprecated)]`; the deprecation reaches the code that names the variant. |
 //! | `#[deprecated]` on a method or an associated item | Forwarded under `#[allow(deprecated)]`, as a hand writes it; the deprecation reaches the callers through the trait's item. |
 //! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
@@ -676,7 +676,10 @@
 //!   variant of another shape is reported under its own `#[cfg]`, so a
 //!   variant compiled out is no error, and an enum that only forwards
 //!   inherent methods may hold such variants, which take the method's body.
-//!   A payload type used by two variants gets no `From` impl.
+//!   A sentence about the way a method reaches one variant follows that
+//!   variant's `#[cfg]` as well, and each variant a method cannot reach is
+//!   named in a sentence of its own. A payload type used by two variants
+//!   gets no `From` impl.
 //! - A method without a receiver needs a default body, which the enum uses,
 //!   or an implementation in a `#[dispatch]` impl block.
 //! - An enum cannot dispatch a return-position `impl Trait`, at any depth

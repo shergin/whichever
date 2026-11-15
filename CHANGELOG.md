@@ -82,6 +82,28 @@ Fixes the conformance matrix found, none of them from a survey.
   errors themselves are rustc's, for forwardings no hand can write
   either. The `tests/ui` case `mutable_borrow_through_a_shared_pointer`
   is new; no other snapshot and no golden changed.
+- Before, a method that could not be forwarded to one variant was reported
+  in every build, whatever `#[cfg]` the variant carried, and named the
+  first such variant alone. A `deref` variant under `#[cfg(test)]` beside
+  `fn grown(&self) -> Self` failed the build that leaves the variant out
+  with "`grown` returns `Self`, which cannot be wrapped back into the
+  dereferenced payload of `Boxed`", where a hand's arm under the same
+  `cfg` compiles; the same held for a `Self` return through a route or
+  beside other fields, a route ending in a method call under `&mut self`,
+  `self: Box<Self>` on a variant that is not a `deref` over a `Box`, and a
+  move out of a shared pointer. The sentence is now the result of that
+  variant's arm, under the variant's own `#[cfg]`: a build without the
+  variant forwards the rest, a build with it reports as before, and each
+  variant the method cannot reach is named. A second effect of the same
+  change: `#[dispatch(*)]` in a partial block over a variant without a
+  payload, for a method taking a `Self` argument, was answered by its
+  sentence and by rustc's E0308 on the enum's name, and is now answered by
+  the sentence alone. The `tests/ui` cases
+  `deref_with_self_return_under_a_cfg_that_holds` and
+  `star_over_variants_without_a_payload_beside_a_self_argument` are new;
+  the snapshot `route_moves_through_a_shared_pointer` gains the sentence
+  for its second variant, `Borrowed`, which it did not name before; no
+  other snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

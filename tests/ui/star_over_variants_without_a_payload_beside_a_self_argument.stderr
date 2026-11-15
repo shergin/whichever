@@ -1,0 +1,11 @@
+error: `same` is forwarded to every variant, but `Nothing` holds no payload; name the variants with a payload and give the method a body for the rest
+  --> tests/ui/star_over_variants_without_a_payload_beside_a_self_argument.rs:27:8
+   |
+27 |     fn same(&self, other: &Self) -> bool;
+   |        ^^^^
+
+error: `same` is forwarded to every variant, but `Pair` holds 2 fields, not one payload; name the variants with a payload and give the method a body for the rest
+  --> tests/ui/star_over_variants_without_a_payload_beside_a_self_argument.rs:27:8
+   |
+27 |     fn same(&self, other: &Self) -> bool;
+   |        ^^^^

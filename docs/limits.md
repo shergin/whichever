@@ -69,7 +69,11 @@
   `#[dispatchable(name = ..)]`.
 
 Every unsupported shape is reported as one sentence on the offending trait
-item or variant; see `tests/ui` for all of them. A rejected enum is still
+item or variant; see `tests/ui` for all of them. A sentence about one
+variant, whether about its shape or about the way a method reaches it, is
+reported under that variant's `#[cfg]`, so a variant compiled out is no
+error, and each variant a method cannot reach is named in a sentence of its
+own. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
 as its body, so the impl is complete and the calls around it resolve: that
