@@ -22,6 +22,24 @@ impl ArgumentKind {
             ArgumentKind::Owned => "Self",
         }
     }
+
+    /// Returns the argument's type with the lifetime `#[async_trait]`
+    /// names a borrowed argument's by, `'life1`.
+    pub fn lifetime_spelling(self) -> &'static str {
+        match self {
+            ArgumentKind::Shared => "&'life1 Self",
+            ArgumentKind::Exclusive => "&'life1 mut Self",
+            ArgumentKind::Owned => "Self",
+        }
+    }
+
+    /// Returns whether the argument is a reference.
+    pub fn borrows(self) -> bool {
+        match self {
+            ArgumentKind::Shared | ArgumentKind::Exclusive => true,
+            ArgumentKind::Owned => false,
+        }
+    }
 }
 
 /// Where the result for two different variants is spelled.

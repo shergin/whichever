@@ -291,7 +291,10 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
     let inner = |node: &Node, value: &str| observation(node, value, side, depth + 1);
     let binding = format!("value{depth}");
     match node {
-        Node::Unit => format!("{{ let () = {value}; String::from(\"()\") }}"),
+        // An answer of `()` shows nothing, so what the call noted is read
+        // back, right after the call: a dropped call, a call of the poison
+        // or a wrong argument notes otherwise than the twin's.
+        Node::Unit => format!("{{ let () = {value}; format!(\"() noted {{}}\", support::take_note()) }}"),
         Node::Tag | Node::Assoc => format!("{value}.to_string()"),
         Node::Shared | Node::Lent => format!("format!(\"&{{}}\", {value})"),
         // A mutable reference is written through, so that the state checked
@@ -564,7 +567,21 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
     let base = base_expectation(context, slot);
     if present {
         let method = method_expectation(context, slot);
-        write_method_checks(writer, context, slot, &method, base == Expect::Twin);
+        let base_twin = base == Expect::Twin;
+        write_method_checks(writer, context, slot, slot, &method, base_twin);
+        // An inherent method hands its `Self` argument over as the enum
+        // (inherent-methods.md), which the payload's answer reads, so the
+        // argument holds another variant too: an arm that handed over the
+        // matched payload, or a pair of the same variant, shows there.
+        let position = context
+            .slots
+            .iter()
+            .position(|other| other.index == slot.index);
+        let next = position.map(|position| &context.slots[(position + 1) % context.slots.len()]);
+        let another = next.filter(|next| next.index != slot.index);
+        if let (true, Expect::Twin, Some(another)) = (context.hands_the_enum(), &method, another) {
+            write_method_checks(writer, context, slot, another, &method, base_twin);
+        }
     }
     writer.open("{");
     write_subject(writer, "S", slot, "subject", seed, false);
@@ -598,12 +615,15 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
 }
 
 /// Writes the calls of the method under test on one slot, for every
-/// sample, with what each is expected to answer and leave behind;
-/// `base_twin` says whether the control method answers what a twin does.
+/// sample, with what each is expected to answer and leave behind; a `Self`
+/// argument holds the variant of `argument`, which is the slot itself
+/// unless the enum is handed over as it is. `base_twin` says whether the
+/// control method answers what a twin does.
 fn write_method_checks(
     writer: &mut Writer,
     context: &Context,
     slot: &Slot,
+    argument: &Slot,
     method: &Expect,
     base_twin: bool,
 ) {
@@ -621,6 +641,12 @@ fn write_method_checks(
         Expect::Default => format!("`{name}` answers what the trait's default body answers."),
     };
     writer.line(format!("// {comment}"));
+    if argument.index != slot.index {
+        writer.line(format!(
+            "// The `Self` argument is the enum holding `{}`.",
+            argument.name()
+        ));
+    }
     let samples: Vec<String> = SAMPLES.iter().map(u64::to_string).collect();
     writer.open(format!("for x in [{}u64, {}] {{", samples[0], samples[1]));
     write_subject(writer, "S", slot, "subject", seed, exclusive);
@@ -639,9 +665,16 @@ fn write_method_checks(
     // where an inherent method hands the enum over as it is, the enum.
     let enum_argument = context.hands_the_enum();
     if context.argument.kind.is_some() {
-        write_subject(writer, "S", slot, "other", OTHER_SEED, other_exclusive);
+        write_subject(writer, "S", argument, "other", OTHER_SEED, other_exclusive);
         if twin_needed && enum_argument {
-            write_subject(writer, "S", slot, "other_twin", OTHER_SEED, other_exclusive);
+            write_subject(
+                writer,
+                "S",
+                argument,
+                "other_twin",
+                OTHER_SEED,
+                other_exclusive,
+            );
         }
         if twin_needed && !enum_argument {
             let binding = if other_exclusive { "let mut" } else { "let" };

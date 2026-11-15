@@ -260,9 +260,13 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   crate, unused variable, in the build that compiles every variant out,
   where no arm is left to use the arguments; the enum's own attribute did
   not, its impl being automatically derived. Such a method now allows its
-  arguments to go unused, as a hand's does. The behaviour test
-  `enums_with_every_variant_under_cfg` holds it under
-  `#[deny(unused_variables)]`; no snapshot and no golden changed.
+  arguments to go unused, as a hand's does, where it has no body of yours
+  for the rest: a body is the arm of the build that compiles every variant
+  out, and an argument it leaves unused is reported as in the same impl
+  written by hand. The behaviour test `enums_with_every_variant_under_cfg`
+  holds the first under `#[deny(unused_variables)]` and the `tests/ui`
+  case `block_body_keeps_the_users_lint` the second; no other snapshot
+  and no golden changed.
 - Before, a sentence about the whole of an inherent method, a return type
   that wraps `Self` where the payload's result cannot be rebuilt, told a
   method that names its variants and has a body for the rest to "give it

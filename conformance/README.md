@@ -47,9 +47,11 @@ passing cell holds:
    test, `m`, and a control method, `base`, that every subject forwards.
 2. The payloads `P0`, `P1` and `P2`, whose answers say which payload gave them,
    from which state and for which arguments; a method taking `&mut self`
-   changes the state. Each payload also has an inherent method named `m`
-   that answers a poison value, so an arm that calls it instead of the
-   trait's method shows in the law.
+   changes the state, and one answering `()`, which shows nothing, notes
+   the number its answer would be made from in a `core::cell::Cell` of the
+   support module, which the law reads back after the call. Each payload
+   also has an inherent method named `m` that answers a poison value, so
+   an arm that calls it instead of the trait's method shows in the law.
 3. The subject, `E`, spelled with `#[whichever::dispatch(..)]`.
 4. `mod hand`, the same enum with the forwarding a careful hand writes, as
    `docs/what-is-generated.md` and the goldens show it. The hand is written
@@ -64,8 +66,11 @@ passing cell holds:
 A limit cell holds the trait, the payloads, the subject and a probe that
 calls `base` through the trait, so a withheld impl or a cascade shows as an
 error of its own. A rejected cell holds the subject and the hand and no
-law; it agrees when the hand fails with the named error, the subject fails
-too, and no error of the subject sits on an attribute, which
+law; it agrees when the hand fails with the named error and the subject
+fails with the same code and with nothing the hand does not get: a
+sentence, which no rejected cell predicts, or an error of a code the hand
+does not get, a cascade, diverges, and so does an error of the subject on
+an attribute, which
 `macros/ARCHITECTURE.md` 3.8 calls a defect. A malformed cell holds the
 trait and the payloads.
 
@@ -73,8 +78,10 @@ The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
 target or a field of it, and what `with` wraps the result in. An inherent
 method's `Self` argument is the enum, handed over as it is, which the
-payload's method takes as any implementor of the trait; on a struct it is
-the other value's field. Under `value` the two variants hold one payload
+payload's method takes as any implementor of the trait and whose control
+method its answer reads, so the law calls it with the argument holding the
+same variant and the next: an arm that handed over a payload instead shows
+there. On a struct it is the other value's field. Under `value` the two variants hold one payload
 type, each reaching it as its target kind does. `with = Into::into` names
 the enum in the return type and rebuilds it through the `From` impls the
 attribute writes, which the hand writes for its own enum.
@@ -86,6 +93,13 @@ a block's mark on `m` included, carries the method's `#[cfg]` and its
 `#[allow]`, as a hand writes them. A method under a `#[cfg]` that does not
 hold exists in no build: its sentences and rejections are dropped, the
 hand writes none of it, and the law checks the control method alone.
+
+A boxed future is spelled as `#[async_trait]` writes it, as the golden
+`boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +
+'async_trait>>`, the receiver's reference named `'life0` and a `Self`
+argument's `'life1`, each bound to outlive the future, as are `Self` and
+the method's type parameters, a parameter the converting block holds
+declared `Send`.
 
 Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
 the subject a struct: one field, a field marked `#[dispatch]` beside a
@@ -299,9 +313,13 @@ documents and the goldens best support and says so in a comment beginning
   make a cell diverge is decided per verdict in one place: for a pass,
   every finding; for a limit, every finding that is not a predicted
   sentence, `missing:sentence` when none appears, and `missing:KEY@ANCHOR`
-  for a predicted sentence about a variant that does not; for a rejected cell,
-  `compiles:subject` and every finding of the subject that is neither a
-  catalogued sentence nor a rustc error off the attributes; for a
+  for a predicted sentence about the subject that does not, a variant's
+  shape, an agreement or a conversion option, and for an anchor none of
+  whose predicted sentences of the method does, since an arm or a method
+  carries one of them; for a rejected cell,
+  `compiles:subject`, `missing:error:CODE@subject` when the subject fails
+  without the code the model names, and every finding of the subject that
+  is not an error off the attributes of a code the hand gets too; for a
   malformed cell, `compiles:trait`. A line names the axes that cause its
   defect, so that it cannot excuse another defect's finding. A line that
   excuses no finding in a complete run, every suite and no filter, fails it

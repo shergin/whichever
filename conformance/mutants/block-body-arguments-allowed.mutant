@@ -1,0 +1,8 @@
+file: macros/src/implement.rs
+breaks: A partial block's method with a body for the rest carries what the user writes on it and nothing more, as `docs/partial-impl-blocks.md` says, so the lint about its body's arguments stays the user's.
+expect: killed
+
+find:
+    let allow_unused = match derived || has_body {
+replace:
+    let allow_unused = match derived {

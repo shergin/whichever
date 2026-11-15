@@ -167,10 +167,12 @@ axis! {
         Future = "future",
         /// `impl Future<Output = Self>`.
         FutureThis = "future-self",
-        /// `Pin<Box<dyn Future<Output = u64> + '_>>`.
+        /// `Pin<Box<dyn Future<Output = u64> + Send + 'async_trait>>`, as
+        /// `#[async_trait]` writes it, the references the method takes
+        /// named and bound to outlive the future.
         BoxedFuture = "boxed-future",
-        /// `Pin<Box<dyn Future<Output = Self::Out> + '_>>`, overridden, so
-        /// the output is converted.
+        /// `Pin<Box<dyn Future<Output = Self::Out> + Send +
+        /// 'async_trait>>`, overridden, so the output is converted.
         BoxedFutureOut = "boxed-future-out",
         /// `impl Iterator<Item = u64>`.
         Iterator = "iterator",

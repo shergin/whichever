@@ -41,6 +41,20 @@ impl Method {
             Callee::Method | Callee::Value | Callee::Field => "m",
         }
     }
+
+    /// Returns whether the `match` takes the `Self` argument beside `self`,
+    /// as a pair, rather than handing the enum over as it is.
+    fn pairs(&self) -> bool {
+        self.argument.is_some() && !self.hands_enum
+    }
+
+    /// Returns whether the `match` reads the enum by place, with `ref`
+    /// bindings, for a receiver that binds as `binding`: over an enum that
+    /// may be empty, unless the receiver binds by value or the `match`
+    /// takes a pair.
+    fn matches_by_place(&self, binding: Binding) -> bool {
+        self.by_place && binding != Binding::Owned && !self.pairs()
+    }
 }
 
 impl Place {
@@ -141,6 +155,9 @@ impl Place {
         }
     }
 }
+
+/// The allowance of a fallback arm that some build leaves unreachable.
+const UNREACHABLE: &str = "#[allow(unreachable_patterns)]";
 
 /// What one forwarded method is.
 struct Method {
@@ -308,16 +325,40 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if context.item.deprecated {
         attributes.push(String::from("#[allow(deprecated)]"));
     }
+    // A pair keeps its fallback arm in every build, and in a build that
+    // holds one variant the arm is unreachable, so a hand allows it once on
+    // the method, as the golden `inherent` allows the catch-all of its
+    // `TryFrom` impls: wherever the enum declares one variant under no
+    // `#[cfg]`, or none.
+    //
+    // Open question: where a hand allows an arm that may be unreachable is
+    // a spelling the docs do not fix. The model follows the golden for the
+    // methods whose signature the attribute writes, and allows a body's
+    // arm, a method the user writes or marks, on the arm itself.
+    let unconditional = context
+        .declared
+        .iter()
+        .filter(|slot| slot.cfg.is_none())
+        .count();
+    let paired = context.path.form == PathForm::Forwarded
+        && !context.inherent()
+        && context.argument.kind.is_some()
+        && context.cell.needs_mismatch();
+    if paired && !context.path.in_block && unconditional <= 1 {
+        attributes.push(String::from(UNREACHABLE));
+    }
     // A partial block's or an inherent block's method over an enum whose
     // every variant is under `#[cfg]` allows its arguments to go unused, as
     // a hand's does, since a build may leave no arm to use them; the impl
     // the enum's attribute writes is `#[automatically_derived]` and needs
     // none (CHANGELOG, Unreleased; behaviour test
-    // `enums_with_every_variant_under_cfg`).
+    // `enums_with_every_variant_under_cfg`). A body for the variants a mark
+    // leaves out uses them in every build.
     let user_item = context.path.site != crate::model::path::Site::Attribute;
     let arguments = context.takes_x() || context.argument.kind.is_some();
     let may_be_empty = context.cell.every_under_cfg() && !is_struct(&context.slots);
-    let quiet = user_item && arguments && may_be_empty;
+    let bodiless = context.path.form == PathForm::Forwarded;
+    let quiet = user_item && arguments && may_be_empty && bodiless;
     if quiet {
         attributes.push(String::from("#[allow(unused_variables)]"));
     }
@@ -327,10 +368,12 @@ pub fn write(writer: &mut Writer, context: &Context) {
         // An inherent method's arms are written below, with the body it
         // takes for the variants its mark leaves out.
         PathForm::Forwarded | PathForm::First if context.inherent() => None,
+        // The pair of different variants is met in some build wherever the
+        // enum declares two, or a variant under `#[cfg]`.
         PathForm::Forwarded => context
             .argument
             .kind
-            .filter(|_| context.slots.len() > 1)
+            .filter(|_| context.cell.needs_mismatch())
             .map(|_| context.mismatch("E")),
         PathForm::First => Some(format!(
             "{{ {} {} }}",
@@ -373,7 +416,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let fallback = match context.path.form {
             PathForm::First => Some(format!(
                 "{{ {} {} }}",
-                context.unused(Site::Inherent, false),
+                context.unused(Site::Inherent, context.hands_the_enum()),
                 context.declared_constant()
             )),
             PathForm::Forwarded | PathForm::Default | PathForm::Written => None,
@@ -491,7 +534,8 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
     // `#[cfg]` allows its arguments to go unused, as `m`'s does.
     let user_item = context.path.site != crate::model::path::Site::Attribute;
     let may_be_empty = context.cell.every_under_cfg() && !is_struct(&context.slots);
-    let attributes = match user_item && may_be_empty {
+    let bodiless = context.path.form == PathForm::Forwarded;
+    let attributes = match user_item && may_be_empty && bodiless {
         true => vec![String::from("#[allow(unused_variables)]")],
         false => Vec::new(),
     };
@@ -605,9 +649,12 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     }
     // An enum whose every variant is under `#[cfg]` may be empty, and is
     // matched by place, with `ref` bindings, where the receiver binds by
-    // reference (golden `every_variant_under_cfg`).
-    let by_place = method.by_place && unwrap.binding != Binding::Owned;
-    let paired = method.argument.is_some() && !method.hands_enum;
+    // reference (golden `every_variant_under_cfg`); a method with a `Self`
+    // argument matches the pair, "whose tuple scrutinee has the fallback
+    // arm in every build"
+    // (docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md).
+    let by_place = method.matches_by_place(unwrap.binding);
+    let paired = method.pairs();
     let scrutinee = match (paired, by_place) {
         (true, _) => format!("({}, other)", unwrap.scrutinee),
         (false, true) => format!("*{}", unwrap.scrutinee),
@@ -629,8 +676,20 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
         );
         writer.line(arm);
     }
+    // Beside a variant under `#[cfg]` the fallback arm is unreachable in a
+    // build that leaves only variants the arms name, so a hand writing the
+    // arm for every build allows it, on the arm where the method does not
+    // allow it already.
+    let conditional = context.declared.iter().any(|slot| slot.cfg.is_some())
+        && !method
+            .attributes
+            .iter()
+            .any(|attribute| attribute == UNREACHABLE);
     if let Some(fallback) = &method.fallback {
-        writer.line(format!("_ => {fallback},"));
+        match conditional {
+            true => writer.line(format!("{UNREACHABLE} _ => {fallback},")),
+            false => writer.line(format!("_ => {fallback},")),
+        }
     }
     writer.close("}");
     match wrapping {
@@ -651,7 +710,7 @@ fn arm(
     conversion: &Conversion,
 ) -> String {
     let own = Place::of("inner", binding, target.route);
-    let by_place = method.by_place;
+    let by_place = method.matches_by_place(binding);
     let bound = match (by_place, binding) {
         (true, Binding::Shared) => "ref inner",
         (true, Binding::Exclusive) => "ref mut inner",
@@ -702,9 +761,18 @@ fn arm(
     if method.passes {
         arguments.push(String::from(method.parameter));
     }
+    // "Where the route names the target's type, the payload or what it
+    // dereferences to, the call is `<Square as Shape>::area(&inner.base)`;
+    // a field's or a method's type cannot be named, and the call is `<_ as
+    // Shape>::area(&inner.base)`, qualified by the trait alone" (routes.md).
+    let named = target.route.iter().all(|step| *step == Step::Deref);
+    let qualifier = match named {
+        true => slot.declared_payload(),
+        false => String::from("_"),
+    };
     let mut call = format!(
         "<{} as {}>::{}{}({})",
-        slot.declared_payload(),
+        qualifier,
         method.trait_path,
         method.name,
         method.turbofish,

@@ -171,6 +171,18 @@ recv=mut ret=self cfg=every-off
 recv=value cfg=every-off
 recv=box ret=future cfg=every-off
 s1=none cfg=first-off
+# A method with a `Self` argument over an enum that may be empty keeps its
+# pair and the fallback arm in every build (an-enum-that-may-be-empty-is-
+# matched-by-place), and a block's fallback arm beside a `Self` argument
+# by value binds nothing it does not use where a variant is compiled out
+# (unused-rebinding-in-a-partial-blocks-fallback-arm, its second
+# instance). A mark naming a variant compiled out takes the method's body
+# (behaviour test `inherent_list_naming_a_conditional_variant`).
+s1=none arg=ref-trait cfg=every-on
+arg=ref-enum cfg=second-off
+arg=value path=block-some cfg=second-off
+arg=value path=block-some cfg=first-off
+path=inherent-some cfg=first-off
 
 # A one-argument `Result` alias is mapped like `Result<Self, E>`, by the
 # name its path ends in (what-is-generated.md, `io::Result<Self>`), here on
@@ -179,6 +191,19 @@ ret=fallible-self
 s0=struct s1=none ret=fallible-self
 s0=deref-box recv=box ret=fallible-self
 ret=fallible-self path=block-star
+
+# A boxed future spelled as `#[async_trait]` writes it (golden
+# `boxed_futures`, behaviour test `async_trait_above_dispatchable`): under
+# `self` by value and `self: Box<Self>`, and converted with an overridden
+# `Out` beside a type parameter and a `Self` argument, which the old
+# spelling's `'_` made ill-formed or rejected; and its `+ Send` beside a
+# variant over an `Rc`, which a hand's converting block does not meet.
+recv=value ret=boxed-future
+s0=deref-box s1=deref-box recv=box ret=boxed-future-out
+ret=boxed-future-out arg=ref-trait qual=generic
+recv=value ret=boxed-future-out arg=ref-trait
+s1=deref-rc ret=boxed-future-out
+s1=deref-rc ret=boxed-future
 
 # A projection whose later segment has generic arguments, `F::Pair<F>`,
 # substituted at the instantiation named on the enum (options.md), through

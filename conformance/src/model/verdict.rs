@@ -175,12 +175,9 @@ fn malformed(cell: &Cell) -> Option<&'static str> {
     if node.borrows_from_the_call() && lends == Lends::Nothing && !borrowed_argument {
         return Some("a reference return under a receiver that holds no lifetime");
     }
-    if matches!(node.future(), Some((FutureKind::Boxed, _)))
-        && lends == Lends::Nothing
-        && !borrowed_argument
-    {
-        return Some("a boxed future's `'_` under a receiver that holds no lifetime");
-    }
+    // A boxed future is spelled as `#[async_trait]` writes it, its lifetime
+    // named and bound by what the method takes, so it is Rust under every
+    // receiver.
     None
 }
 
@@ -393,17 +390,13 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // reads; the subject's impl is `#[automatically_derived]` and is not
     // asked the same, and a partial block's or an inherent block's method
     // allows them itself, as a hand's does (CHANGELOG, Unreleased).
-    if cell.cfg != Cfg::Absent {
-        // Open question: whether a fallback arm is written beside a variant
-        // compiled out, and how a `Self` argument is matched by place, is
-        // not documented.
-        if argument.kind.is_some() {
-            return Some("a `Self` argument on an enum with variants under `#[cfg]`");
-        }
-        if path.form == PathForm::First {
-            return Some("an inherent or partial method naming variants under `#[cfg]`");
-        }
-    }
+    //
+    // A method with a `Self` argument keeps its tuple scrutinee, "which has
+    // the fallback arm in every build" (docs/decisions/an-enum-that-may-be-
+    // empty-is-matched-by-place.md), and a mark may name a variant under
+    // `#[cfg]`: "where it is compiled out, the method takes its body"
+    // (inherent-methods.md; partial-impl-blocks.md: a block's method names
+    // its variants "as an inherent method does").
     let inherent = path.site == PathSite::Inherent;
     if cell.s0.descriptor().is_struct() {
         // "Two values of the struct always hold the same field, and the
@@ -558,6 +551,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // variant that holds its payload by value.
         let nameable = argument.mismatch == MismatchSite::Enum
             && cell.s0.descriptor().storage == Storage::Payload
+            && cell.cfg.of(0) != Some("any()")
             && cell.generic != Generics::Payload
             && cell.owner == Owner::Local;
         if !output.has_constant(nameable) {
@@ -846,8 +840,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // to the body" (inherent-methods.md, `inherent_all_with_body`), and `*`
     // names a variant that holds no payload too
     // (`inherent_all_with_unforwardable`).
+    // "Naming every variant, the conditional one included, is exhaustive in
+    // every build, so the method takes no body" (behaviour test
+    // `inherent_list_naming_a_conditional_variant`): the mark names `A`,
+    // so the variants counted are those the enum declares.
     let unreachable = slots.iter().any(|slot| slot.target().is_none());
-    if path.form == PathForm::First && slots.len() == 1 {
+    if path.form == PathForm::First && cell.declared_slots().len() == 1 {
         expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
     }
     if path.mark == Some("*") && unreachable {
@@ -893,11 +891,13 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     }
 
     // `mismatch` in docs/options.md: a `Self` argument needs the result
-    // for two different variants, which one variant never meets.
+    // for two different variants, which one variant never meets. The
+    // variants counted are those the enum declares, since some build holds
+    // a variant compiled out in this one.
     if path.form == PathForm::Forwarded
         && argument.kind.is_some()
         && argument.mismatch == MismatchSite::Missing
-        && slots.len() > 1
+        && cell.needs_mismatch()
     {
         expect(Limit::SelfArgumentWithoutMismatch, Anchor::Method);
     }
@@ -1203,12 +1203,10 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     let qualifier = cell.qual.descriptor();
     let live = cell.method_slots();
     // The method's body is written wherever it is forwarded, even when every
-    // arm is a variant's sentence, so what the body itself captures is
-    // rejected whatever the variants hold.
+    // arm is a variant's sentence or no variant is left in the build, so
+    // what the body itself captures is rejected whatever the variants hold.
     let form = cell.path_descriptor().form;
-    let forwarded = cell.method_present()
-        && matches!(form, PathForm::Forwarded | PathForm::First)
-        && !cell.slots().is_empty();
+    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };
@@ -1219,9 +1217,25 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // that yields the target by value serves `self` by value. The other
     // pairing is a type error the hand's call gets as well.
     let owned = cell.recv == Receiver::Owned || argument.kind == Some(ArgumentKind::Owned);
+    // The call is qualified by the trait alone where the route ends in a
+    // method (routes.md), so under `self` by value its `Self` is inferred
+    // from the reference the method lends, which does not implement the
+    // trait; a `Self` argument by value beside a reference receiver is the
+    // reference where the payload was expected.
     if any(&|target| target.ends_in_loan()) && owned {
+        let code = match cell.recv {
+            Receiver::Owned => "E0277",
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::Boxed
+            | Receiver::PinShared
+            | Receiver::PinExclusive
+            | Receiver::Rc
+            | Receiver::Arc
+            | Receiver::PinBoxed => "E0308",
+        };
         reject(
-            "E0308",
+            code,
             "a lent target handed to a method that takes it by value",
             Forwarded::Method,
         );
@@ -1350,27 +1364,28 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     }
 
     // A boxed future whose output is converted is one `async move` block
-    // that captures every argument. `X` is not bound to outlive the
-    // future's `'_`, which is E0311, and a borrowed `Self` argument has a
-    // lifetime of its own beside the receiver's; under a receiver that
-    // holds none, `'_` is the argument's.
+    // that holds the receiver and the arguments across the arms' `.await`
+    // (docs/decisions/a-boxed-future-is-rewrapped-by-boxing.md), and the
+    // future is `+ Send`, as `#[async_trait]` writes it. The block is
+    // `Send` only where the enum is `Sync` under a shared receiver, and
+    // `Send` under any other; a variant over an `Rc` is neither, so a
+    // hand's block is refused too, with rustc's error for a future, which
+    // has no code. A boxed future forwarded as it is holds nothing of the
+    // enum.
     let converted = node.future().is_some_and(|(kind, output)| {
         kind == FutureKind::Boxed
             && output
                 .conversion()
                 .is_some_and(|conversion| !conversion.is_keep())
     });
-    if forwarded && converted && qualifier.generic == Some(Generic::Fixed) {
+    let unsendable = cell
+        .live_slots()
+        .iter()
+        .any(|(_, _, target)| target.pointer() == Some(Pointer::Rc));
+    if forwarded && converted && unsendable {
         reject(
-            "E0311",
-            "a converted boxed future that captures a type parameter without a lifetime bound",
-            Forwarded::Method,
-        );
-    }
-    if forwarded && converted && borrowed && receiver.lends != Lends::Nothing {
-        reject(
-            "lifetime may not live long enough",
-            "a converted boxed future that captures a `Self` argument of another lifetime",
+            "future cannot be sent between threads safely",
+            "a converted boxed future, `+ Send`, holding an enum with a variant over an `Rc`",
             Forwarded::Method,
         );
     }

@@ -48,8 +48,9 @@ pub enum Verdict {
     Malformed(&'static str),
     /// The forwarding cannot be written in Rust, a hand gets this rustc
     /// error, and no sentence is documented. Rendered with subject and hand
-    /// and checked only: the hand must fail with the code, the subject must
-    /// fail too, and no error of the subject may sit on an attribute.
+    /// and checked only: the hand must fail with the code, and the subject
+    /// with the same code and with nothing the hand does not get, no
+    /// sentence and no error of another code, none of it on an attribute.
     Rejected {
         /// The hand's error: a code such as `E0596`, or the message of an
         /// error that has none.
@@ -341,6 +342,24 @@ impl Cell {
             true => "`fmt`",
             false => "`m`",
         }
+    }
+
+    /// Returns whether a method taking a `Self` argument needs the result
+    /// for two different variants, its fallback arm: the enum declares two
+    /// variants, so some build holds both, those compiled out in this
+    /// build counted, or one under `#[cfg]`, whose pair keeps "the fallback
+    /// arm in every build"
+    /// (docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md).
+    ///
+    /// Open question: an enum of one variant under `#[cfg]` holds no two
+    /// variants in any build; the behaviour test `one_variant_without_mismatch`
+    /// leaves the mismatch out for "one variant that is always compiled
+    /// in", and the build that leaves no variant needs the fallback arm
+    /// for the pair to be exhaustive, so the mismatch is read as asked
+    /// for.
+    pub fn needs_mismatch(&self) -> bool {
+        let declared = self.declared_slots();
+        declared.len() > 1 || declared.iter().any(|slot| slot.cfg.is_some())
     }
 
     /// Returns whether every variant is under `#[cfg]`, so that the enum

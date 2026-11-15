@@ -369,7 +369,8 @@ which rustc takes as an erroneous type and checks nothing against. A
 method over an enum whose every variant is under `#[cfg]`, in an impl that
 is not `#[automatically_derived]`, a partial block's or an inherent
 block's, allows its arguments to go unused, as a hand's does, since a
-build that leaves no variant leaves no arm to use them. An option naming nothing in the trait, or a route through no
+build that leaves no variant leaves no arm to use them; a method with a
+body for the rest has that body as the arm, and its lint is the user's. An option naming nothing in the trait, or a route through no
 variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could

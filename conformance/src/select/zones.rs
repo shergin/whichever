@@ -107,6 +107,19 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("s0", "deref-box"), ("s1", "deref-box")],
     },
     Zone {
+        name: "boxed-futures",
+        summary: "a boxed future spelled as `#[async_trait]` writes it, forwarded as it is or converted, under every receiver that forwards, with the `Self` arguments and type parameters its lifetimes bound and a variant over an `Rc` its `+ Send` meets",
+        vary: &[
+            ("ret", &["boxed-future", "boxed-future-out"]),
+            ("s0", &["plain", "deref-rc", "deref-ref", "via-field", "struct"]),
+            ("s1", &["plain", "none", "deref-rc"]),
+            ("recv", FORWARDED),
+            ("arg", &["none", "ref-trait", "value", "mut"]),
+            ("qual", &["plain", "generic", "turbofish"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "qualifiers",
         summary: "every qualifier under every receiver and return type, over a few target kinds",
         vary: &[("qual", &[]), ("s0", SOME_TARGETS), ("recv", FORWARDED), ("ret", &[])],
@@ -278,6 +291,31 @@ pub const ZONES: &[Zone] = &[
             ("ret", &["u64", "ref", "self", "future"]),
         ],
         fixed: &[("path", "inherent")],
+    },
+    Zone {
+        name: "cfg-arguments",
+        summary: "a `Self` argument beside variants under `#[cfg]`, whose pair keeps its fallback arm in every build, through the enum's attribute, the blocks and the inherent paths",
+        vary: &[
+            ("cfg", &[]),
+            ("arg", &[]),
+            ("s1", &["plain", "none"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self"]),
+            ("path", &["attribute", "block-star", "block-some", "inherent", "inherent-some"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "cfg-marks",
+        summary: "a mark naming a variant under `#[cfg]`, which takes the method's body where it is compiled out, in a partial block and an inherent block, beside the variants and returns a body meets",
+        vary: &[
+            ("cfg", &[]),
+            ("path", &["block-some", "inherent-some"]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "unit", "ref", "self", "option-self"]),
+        ],
+        fixed: &[],
     },
     Zone {
         name: "homes",
