@@ -107,6 +107,19 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("s0", "deref-box"), ("s1", "deref-box")],
     },
     Zone {
+        name: "boxed-futures",
+        summary: "a boxed future spelled as `#[async_trait]` writes it, forwarded as it is or converted, under every receiver that forwards, with the `Self` arguments and type parameters its lifetimes bound and a variant over an `Rc` its `+ Send` meets",
+        vary: &[
+            ("ret", &["boxed-future", "boxed-future-out"]),
+            ("s0", &["plain", "deref-rc", "deref-ref", "via-field", "struct"]),
+            ("s1", &["plain", "none", "deref-rc"]),
+            ("recv", FORWARDED),
+            ("arg", &["none", "ref-trait", "value", "mut"]),
+            ("qual", &["plain", "generic", "turbofish"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "qualifiers",
         summary: "every qualifier under every receiver and return type, over a few target kinds",
         vary: &[("qual", &[]), ("s0", SOME_TARGETS), ("recv", FORWARDED), ("ret", &[])],

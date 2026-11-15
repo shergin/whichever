@@ -239,6 +239,7 @@ pub fn observe_test(outcome: &mut Outcome, test: &str, result: Option<&TestResul
 fn is_sentence(diagnostic: &Diagnostic) -> bool {
     const RUSTC: &[&str] = &[
         "lifetime may not live long enough",
+        "future cannot be sent between threads safely",
         "higher-ranked lifetime error",
         "implementation of",
         "cannot find",

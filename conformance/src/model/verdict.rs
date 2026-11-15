@@ -175,12 +175,9 @@ fn malformed(cell: &Cell) -> Option<&'static str> {
     if node.borrows_from_the_call() && lends == Lends::Nothing && !borrowed_argument {
         return Some("a reference return under a receiver that holds no lifetime");
     }
-    if matches!(node.future(), Some((FutureKind::Boxed, _)))
-        && lends == Lends::Nothing
-        && !borrowed_argument
-    {
-        return Some("a boxed future's `'_` under a receiver that holds no lifetime");
-    }
+    // A boxed future is spelled as `#[async_trait]` writes it, its lifetime
+    // named and bound by what the method takes, so it is Rust under every
+    // receiver.
     None
 }
 
@@ -1367,29 +1364,28 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     }
 
     // A boxed future whose output is converted is one `async move` block
-    // that captures what it uses. `X` is not bound to outlive the future's
-    // `'_`, which is E0311 where an arm passes it on, and a borrowed `Self`
-    // argument has a lifetime of its own beside the receiver's, which the
-    // pair's scrutinee captures in every build; under a receiver that holds
-    // none, `'_` is the argument's.
+    // that holds the receiver and the arguments across the arms' `.await`
+    // (docs/decisions/a-boxed-future-is-rewrapped-by-boxing.md), and the
+    // future is `+ Send`, as `#[async_trait]` writes it. The block is
+    // `Send` only where the enum is `Sync` under a shared receiver, and
+    // `Send` under any other; a variant over an `Rc` is neither, so a
+    // hand's block is refused too, with rustc's error for a future, which
+    // has no code. A boxed future forwarded as it is holds nothing of the
+    // enum.
     let converted = node.future().is_some_and(|(kind, output)| {
         kind == FutureKind::Boxed
             && output
                 .conversion()
                 .is_some_and(|conversion| !conversion.is_keep())
     });
-    let armed = !cell.slots().is_empty();
-    if forwarded && armed && converted && qualifier.generic == Some(Generic::Fixed) {
+    let unsendable = cell
+        .live_slots()
+        .iter()
+        .any(|(_, _, target)| target.pointer() == Some(Pointer::Rc));
+    if forwarded && converted && unsendable {
         reject(
-            "E0311",
-            "a converted boxed future that captures a type parameter without a lifetime bound",
-            Forwarded::Method,
-        );
-    }
-    if forwarded && converted && borrowed && receiver.lends != Lends::Nothing {
-        reject(
-            "lifetime may not live long enough",
-            "a converted boxed future that captures a `Self` argument of another lifetime",
+            "future cannot be sent between threads safely",
+            "a converted boxed future, `+ Send`, holding an enum with a variant over an `Rc`",
             Forwarded::Method,
         );
     }

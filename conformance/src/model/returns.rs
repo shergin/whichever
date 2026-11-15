@@ -29,7 +29,8 @@ impl Associated {
 pub enum FutureKind {
     /// `impl Future<Output = T>`.
     Opaque,
-    /// `Pin<Box<dyn Future<Output = T> + '_>>`.
+    /// `Pin<Box<dyn Future<Output = T> + Send + 'async_trait>>`, as
+    /// `#[async_trait]` writes it.
     Boxed,
 }
 

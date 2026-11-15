@@ -21,6 +21,15 @@ use super::writer::Writer;
 /// The trait every cell dispatches.
 pub const TRAIT: &str = "Probe";
 
+/// The lifetime `#[async_trait]` names a borrowing receiver's by.
+pub const RECEIVER_LIFETIME: &str = "'life0";
+
+/// The lifetime `#[async_trait]` names a borrowed `Self` argument's by.
+pub const ARGUMENT_LIFETIME: &str = "'life1";
+
+/// The lifetime of a boxed future, as `#[async_trait]` names it.
+pub const FUTURE_LIFETIME: &str = "'async_trait";
+
 /// The seed of a slot's fresh payload.
 pub fn seed(slot: usize) -> u64 {
     [11, 23, 37][slot]
@@ -517,11 +526,18 @@ impl Context {
 
     /// Returns a signature of the method under test, named `name` and
     /// returning `node`, with `Self` in the return type spelled `this`.
+    ///
+    /// A boxed future is spelled as `#[async_trait]` writes it, and as the
+    /// golden `boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send
+    /// + 'async_trait>>`, every reference the method takes named, `'life0`
+    /// for the receiver and `'life1` for a `Self` argument, each bound to
+    /// outlive the future, as are `Self` and the method's type parameters.
     pub fn signature_as(&self, site: Site, node: Node, name: &str, this: &str) -> String {
         let associates = match site {
             Site::Trait | Site::Impl => Associates::Projection,
             Site::Inherent | Site::Payload => Associates::Qualified,
         };
+        let boxed = matches!(node.future(), Some((FutureKind::Boxed, _)));
         let mut text = String::new();
         if self.qualifier.asyncness {
             text.push_str("async ");
@@ -531,27 +547,66 @@ impl Context {
         }
         text.push_str("fn ");
         text.push_str(name);
-        let mut parameters: Vec<&str> = Vec::new();
-        match self.qualifier.generic {
-            Some(Generic::Fixed) => parameters.push("X: Into<u64>"),
-            Some(Generic::Turbofish) => parameters.push("W: support::Weight"),
-            None => {}
-        }
+        let receiver = match (boxed, self.receiver.lifetime) {
+            (true, Some(named)) => named,
+            (true, None) | (false, _) => self.receiver.spelling,
+        };
         let enum_argument = site == Site::Payload && self.hands_the_enum();
+        let argument = self.argument.kind.map(|kind| {
+            let spelled = match boxed {
+                true => kind.lifetime_spelling(),
+                false => kind.spelling(),
+            };
+            match enum_argument {
+                true => spelled.replace("Self", "O"),
+                false => String::from(spelled),
+            }
+        });
+        let mut parameters: Vec<String> = Vec::new();
+        let mut bounds: Vec<String> = Vec::new();
+        if boxed {
+            if self.receiver.lifetime.is_some() {
+                parameters.push(String::from(RECEIVER_LIFETIME));
+                bounds.push(format!("{RECEIVER_LIFETIME}: {FUTURE_LIFETIME}"));
+            }
+            if self.argument.kind.is_some_and(ArgumentKind::borrows) {
+                parameters.push(String::from(ARGUMENT_LIFETIME));
+                bounds.push(format!("{ARGUMENT_LIFETIME}: {FUTURE_LIFETIME}"));
+            }
+            parameters.push(String::from(FUTURE_LIFETIME));
+        }
+        // A converted boxed future holds the arguments in its `async move`
+        // block, so a type parameter it holds is `Send`, as a trait under
+        // `#[async_trait]` declares it.
+        let (generic, generic_bound) = match self.qualifier.generic {
+            Some(Generic::Fixed) if boxed => (Some("X"), "Into<u64> + Send"),
+            Some(Generic::Fixed) => (Some("X"), "Into<u64>"),
+            Some(Generic::Turbofish) => (Some("W"), "support::Weight"),
+            None => (None, ""),
+        };
+        if let Some(generic) = generic {
+            parameters.push(format!("{generic}: {generic_bound}"));
+            if boxed {
+                bounds.push(format!("{generic}: {FUTURE_LIFETIME}"));
+            }
+        }
         if enum_argument {
-            parameters.push("O: Probe");
+            parameters.push(format!("O: {TRAIT}"));
+            if boxed {
+                bounds.push(format!("O: {FUTURE_LIFETIME}"));
+            }
+        }
+        if boxed {
+            bounds.push(format!("Self: {FUTURE_LIFETIME}"));
         }
         if !parameters.is_empty() {
             text.push_str(&format!("<{}>", parameters.join(", ")));
         }
         text.push('(');
-        text.push_str(self.receiver.spelling);
-        if let Some(kind) = self.argument.kind {
+        text.push_str(receiver);
+        if let Some(argument) = argument {
             text.push_str(", other: ");
-            match enum_argument {
-                true => text.push_str(&kind.spelling().replace("Self", "O")),
-                false => text.push_str(kind.spelling()),
-            }
+            text.push_str(&argument);
         }
         if self.takes_x() {
             let name = match site {
@@ -586,7 +641,10 @@ impl Context {
         }
         let declared = matches!(site, Site::Trait | Site::Impl);
         if self.needs_sized() && declared {
-            text.push_str(" where Self: Sized");
+            bounds.push(String::from("Self: Sized"));
+        }
+        if !bounds.is_empty() {
+            text.push_str(&format!(" where {}", bounds.join(", ")));
         }
         text
     }
@@ -736,7 +794,7 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
             format!("impl Future<Output = {}>", spell(output, this, associates))
         }
         Node::Future(FutureKind::Boxed, output) => format!(
-            "Pin<Box<dyn Future<Output = {}> + '_>>",
+            "Pin<Box<dyn Future<Output = {}> + Send + {FUTURE_LIFETIME}>>",
             spell(output, this, associates)
         ),
         Node::Iterator => String::from("impl Iterator<Item = u64>"),

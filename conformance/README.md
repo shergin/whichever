@@ -94,6 +94,13 @@ a block's mark on `m` included, carries the method's `#[cfg]` and its
 hold exists in no build: its sentences and rejections are dropped, the
 hand writes none of it, and the law checks the control method alone.
 
+A boxed future is spelled as `#[async_trait]` writes it, as the golden
+`boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +
+'async_trait>>`, the receiver's reference named `'life0` and a `Self`
+argument's `'life1`, each bound to outlive the future, as are `Self` and
+the method's type parameters, a parameter the converting block holds
+declared `Send`.
+
 Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
 the subject a struct: one field, a field marked `#[dispatch]` beside a
 label, or one named field, which the hand rebuilds by its braces and

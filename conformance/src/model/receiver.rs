@@ -56,6 +56,10 @@ pub enum Lends {
 pub struct ReceiverDescriptor {
     /// The receiver as the trait spells it.
     pub spelling: &'static str,
+    /// The receiver spelled with the lifetime `#[async_trait]` names a
+    /// borrowing receiver's by, `'life0`; `None` for one that borrows
+    /// nothing.
+    pub lifetime: Option<&'static str>,
     /// How the forwarding unwraps the enum; `None` for a receiver the
     /// docs reject.
     pub unwrap: Option<Unwrap>,
@@ -85,6 +89,7 @@ impl Receiver {
         match self {
             Receiver::Shared => ReceiverDescriptor {
                 spelling: "&self",
+                lifetime: Some("&'life0 self"),
                 unwrap: Some(shared),
                 handover: Handover::Borrow,
                 lends: Lends::Shared,
@@ -95,6 +100,7 @@ impl Receiver {
             },
             Receiver::Exclusive => ReceiverDescriptor {
                 spelling: "&mut self",
+                lifetime: Some("&'life0 mut self"),
                 unwrap: Some(Unwrap {
                     scrutinee: "self",
                     binding: Binding::Exclusive,
@@ -108,6 +114,7 @@ impl Receiver {
             },
             Receiver::Owned => ReceiverDescriptor {
                 spelling: "self",
+                lifetime: None,
                 unwrap: Some(Unwrap {
                     scrutinee: "self",
                     binding: Binding::Owned,
@@ -121,6 +128,7 @@ impl Receiver {
             },
             Receiver::Boxed => ReceiverDescriptor {
                 spelling: "self: Box<Self>",
+                lifetime: None,
                 unwrap: Some(Unwrap {
                     scrutinee: "*self",
                     binding: Binding::Owned,
@@ -134,6 +142,7 @@ impl Receiver {
             },
             Receiver::PinShared => ReceiverDescriptor {
                 spelling: "self: Pin<&Self>",
+                lifetime: Some("self: Pin<&'life0 Self>"),
                 unwrap: Some(Unwrap {
                     scrutinee: "Pin::get_ref(self)",
                     binding: Binding::Shared,
@@ -147,6 +156,7 @@ impl Receiver {
             },
             Receiver::PinExclusive => ReceiverDescriptor {
                 spelling: "self: Pin<&mut Self>",
+                lifetime: Some("self: Pin<&'life0 mut Self>"),
                 unwrap: Some(Unwrap {
                     scrutinee: "Pin::get_mut(self)",
                     binding: Binding::Exclusive,
@@ -160,6 +170,7 @@ impl Receiver {
             },
             Receiver::Rc => ReceiverDescriptor {
                 spelling: "self: Rc<Self>",
+                lifetime: None,
                 unwrap: None,
                 handover: Handover::Move,
                 lends: Lends::Nothing,
@@ -170,6 +181,7 @@ impl Receiver {
             },
             Receiver::Arc => ReceiverDescriptor {
                 spelling: "self: Arc<Self>",
+                lifetime: None,
                 unwrap: None,
                 handover: Handover::Move,
                 lends: Lends::Nothing,
@@ -180,6 +192,7 @@ impl Receiver {
             },
             Receiver::PinBoxed => ReceiverDescriptor {
                 spelling: "self: Pin<Box<Self>>",
+                lifetime: None,
                 unwrap: None,
                 handover: Handover::Move,
                 lends: Lends::Nothing,

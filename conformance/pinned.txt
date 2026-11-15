@@ -192,6 +192,19 @@ s0=struct s1=none ret=fallible-self
 s0=deref-box recv=box ret=fallible-self
 ret=fallible-self path=block-star
 
+# A boxed future spelled as `#[async_trait]` writes it (golden
+# `boxed_futures`, behaviour test `async_trait_above_dispatchable`): under
+# `self` by value and `self: Box<Self>`, and converted with an overridden
+# `Out` beside a type parameter and a `Self` argument, which the old
+# spelling's `'_` made ill-formed or rejected; and its `+ Send` beside a
+# variant over an `Rc`, which a hand's converting block does not meet.
+recv=value ret=boxed-future
+s0=deref-box s1=deref-box recv=box ret=boxed-future-out
+ret=boxed-future-out arg=ref-trait qual=generic
+recv=value ret=boxed-future-out arg=ref-trait
+s1=deref-rc ret=boxed-future-out
+s1=deref-rc ret=boxed-future
+
 # A projection whose later segment has generic arguments, `F::Pair<F>`,
 # substituted at the instantiation named on the enum (options.md), through
 # the enum's attribute, a block and with the trait in another crate.
