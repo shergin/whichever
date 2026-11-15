@@ -1,0 +1,12 @@
+file: macros/src/selection.rs
+breaks: `*` in a partial block over one instantiation of a generic struct names the field as the header instantiates it, as `docs/partial-impl-blocks.md` says of the impl header.
+expect: killed
+
+find:
+            Some(star) => vec![variants
+                .iter()
+                .find(|target| target.ident == star.ident)
+                .map(|target| (*target).clone())
+                .unwrap_or(star)],
+replace:
+            Some(star) => vec![star],

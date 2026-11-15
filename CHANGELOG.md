@@ -315,6 +315,12 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   It is now written holding its sentence, as an associated item no variant
   can supply is. The `tests/ui` case `undeclared_gat_keeps_the_impl` is
   new; no other snapshot and no golden changed.
+- Before, `#[dispatch(*)]` in a partial block implementing a trait for one
+  instantiation of a generic struct, `impl Area for Wrapper<Square>`, called
+  the trait on the struct's parameter, E0425, cannot find type `T`, where
+  the same block over a generic enum compiled. `*` now names the field as
+  the header instantiates it. The behaviour test `partial_block_methods`
+  holds it; no snapshot and no golden changed.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only
