@@ -147,6 +147,31 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   Format<Text>>::Value` for `F: Format<Text, Value = u64>`, which name the
   same type. `docs/options.md` says so. No golden and no `tests/ui`
   snapshot changed.
+- Before, three sentences named a receiver the method does not take, and
+  one gave advice that would not compile. `fn merge(&self, other: Self)`
+  over `#[dispatch(deref)] Shared(Rc<Square>)` was told that "`merge`
+  takes `self` by value", where `other` is what would move; it is now
+  "`merge` takes `other` by value, and `Shared` dereferences a
+  `Rc<Square>`, which a value cannot be moved out of". A route ending in
+  a method call under `self: Pin<&mut Self>`, or with a `&mut Self`
+  argument, was told that the method "takes `&mut self`"; it now names
+  `self: Pin<&mut Self>`, or `other: &mut Self`. `fn finish(self:
+  Box<Self>)` over a `deref` variant holding an `Rc<Square>` was told to
+  "hold `Box<Rc<Square>>` in a `#[dispatch(deref)]` variant", which
+  `Rc<Square>` does not implement the trait to make work; it is now
+  "`finish` takes `self: Box<Self>`, and `Shared` dereferences a
+  `Rc<Square>`, which is no `Box` to hand over; hold a `Box`, or
+  implement the method by hand". Beside them, a method that names its
+  variants and has a body for the rest was told to "give it a body" for a
+  variant it cannot be forwarded to; it is now offered that body, "or
+  leave `Borrowed` to the body", and a method without one keeps its
+  sentence. `docs/limits.md` says so. The `tests/ui` cases
+  `box_self_on_a_shared_pointer`,
+  `self_argument_moves_through_a_shared_pointer` and
+  `route_method_under_a_pinned_receiver_or_a_mut_argument` are new; the
+  snapshot `sentence_spells_a_type_with_its_spaces` moved, each of its
+  four sentences now ending "or leave `Borrowed` to the body" with its
+  own variant; no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

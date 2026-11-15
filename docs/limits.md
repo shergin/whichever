@@ -12,7 +12,8 @@
 - A variant reached through a route, `deref` included, cannot take part in
   a method returning `Self`: there is no way to put the result back behind
   the pointer or around the other fields. A route ending in a method call
-  cannot serve a `&mut self` method.
+  cannot serve a method that borrows mutably, through `&mut self`, `self:
+  Pin<&mut Self>` or a `&mut Self` argument, and the sentence names which.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
   default with `#[dispatch(default)]`.
@@ -45,10 +46,14 @@
   when every payload is `Unpin`. `Rc<Self>`, `Arc<Self>` and
   `Pin<Box<Self>>` would need a refcount or an allocation, so they are not.
 - A value cannot be moved out of a `deref` variant that holds anything but
-  a `Box`: a method taking `self` is reported on the payload, and so is an
-  inherent method's `value` or `field` under `self: Box<Self>` unless the
-  return type borrows the place. Hold a `Box`, or give the method a body,
-  or implement a trait method by hand.
+  a `Box`: a method taking `self` or a `Self` argument by value is reported
+  on the payload, naming the one that would move, and so is an inherent
+  method's `value` or `field` under `self: Box<Self>` unless the return
+  type borrows the place. A method taking `self: Box<Self>` on such a
+  variant is reported too, since there is no box to hand over. Hold a
+  `Box`, or give the method a body, or implement a trait method by hand; a
+  method that names its variants and has a body for the rest is offered
+  that body.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
