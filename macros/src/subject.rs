@@ -276,6 +276,17 @@ impl Target {
         }
     }
 
+    /// Returns the pattern that matches the variant, or the struct,
+    /// whatever it holds, binding nothing: the pattern of an arm that does
+    /// not reach the payload.
+    pub(crate) fn whole(&self, prefix: &Path, site: Span) -> TokenStream2 {
+        let ident = &self.ident;
+        match &self.place {
+            Place::Variant { .. } => quote_spanned!(site => #prefix::#ident { .. }),
+            Place::Field { .. } => quote_spanned!(site => #prefix { .. }),
+        }
+    }
+
     /// Returns the expression building the subject around `value`, or
     /// `None` when other fields would be missing.
     pub(crate) fn rebuild(

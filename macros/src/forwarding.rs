@@ -259,6 +259,50 @@ impl MethodPlan {
         !self.same_variant.is_empty()
     }
 
+    /// Returns `arm`, whose pattern matches the receiver alone, as an arm
+    /// of this method's `match`: where `Self` arguments are matched beside
+    /// the receiver the scrutinee is a tuple, and the pattern is the
+    /// receiver's beside whatever the arguments hold.
+    pub(crate) fn beside_arguments(&self, arm: Arm) -> Arm {
+        if self.same_variant.is_empty() {
+            return arm;
+        }
+        let Arm {
+            cfgs,
+            pattern,
+            value,
+            site,
+        } = arm;
+        Arm {
+            cfgs,
+            pattern: quote_spanned!(site => (#pattern, ..)),
+            value,
+            site,
+        }
+    }
+
+    /// Writes the arm for `target`, or, where the method cannot be
+    /// forwarded to it, the arm that says so: the variant whatever it
+    /// holds, with the sentence as its result, under the variant's own
+    /// attributes. A hand's arm sits under its variant's `cfg`, so a build
+    /// that compiles the variant out has neither the arm nor the sentence
+    /// and forwards the rest; and each variant the method cannot reach is
+    /// named, not the first alone.
+    pub(crate) fn arm_or_sentence(&self, target: &Target, context: &ArmContext) -> Arm {
+        let error = match self.arm(target, context) {
+            Ok(arm) => return arm,
+            Err(error) => error,
+        };
+        let site = context.site;
+        let sentence = error.to_compile_error();
+        self.beside_arguments(Arm {
+            cfgs: target.arm_attributes(site),
+            pattern: target.whole(&context.prefix, site),
+            value: quote_spanned!(site => { #sentence }),
+            site,
+        })
+    }
+
     /// Returns whether the method requires `Self: Sized`, so that a trait
     /// object payload cannot take it.
     pub(crate) fn requires_sized(&self) -> bool {

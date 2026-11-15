@@ -14,26 +14,7 @@ arg=mut path=block	warning:unused_variables@trait	A partial block's fallback arm
 arg=value path=block-star	warning:unused_variables@subject	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
 arg=mut path=block-star	warning:unused_variables@subject	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
 
-# `#[dispatch(*)]` over a variant holding no payload, for a method with a
-# `Self` argument: the sentence does not stand alone.
-s1=unit path=block-star	error:E0308@subject	`#[dispatch(*)]` over a variant holding no payload is answered by its sentence and, for a method with a `Self` argument, by an E0308 on the enum's name beside it.
-
-# A variant under `#[cfg]` is "decided where the enum is"
-# (what-is-generated.md), yet a sentence about it stands when it is compiled
-# out.
-cfg=second-off	sentence:route-self-return@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=second-off	sentence:deref-self-return@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=second-off	sentence:self-return-other-fields@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=second-off	sentence:method-route-on-mut-self@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=second-off	sentence:box-self-plain@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=second-off	sentence:moves-through-shared-pointer@variant-1	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:route-self-return@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:deref-self-return@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:self-return-other-fields@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:method-route-on-mut-self@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:box-self-plain@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	sentence:moves-through-shared-pointer@variant-0	A sentence about a variant compiled out by its `#[cfg]` is reported in the build that leaves it out, where a hand's arm under the same `#[cfg]` compiles.
-cfg=first-off	missing:sentence	The one sentence a method gets lands on the first variant even when it is compiled out, so the sentence about the variant present is missing.
+# A partial block's method that is all sentence uses none of its arguments.
 path=block cfg=first-off	warning:unused_variables@trait	A partial block's forwarding over an enum whose only variant in the build holds no payload leaves the method's arguments unused beside the sentence, which rustc warns of in generated code.
 
 # A mark, or a method a partial block writes, under the trait method's own

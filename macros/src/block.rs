@@ -239,12 +239,17 @@ pub(crate) fn forward_method(
     .over(entries);
     let selection = select_targets(&forwarding, entries, &context.prefix, method, subject)?;
     check_body(&selection, body, sig, noun)?;
-    let mut arms = selection
+    let mut arms: Vec<Arm> = selection
         .targets
         .iter()
-        .map(|target| plan.arm(target, &context))
-        .collect::<Result<Vec<_>>>()?;
-    arms.extend(selection.unforwardable_arms);
+        .map(|target| plan.arm_or_sentence(target, &context))
+        .collect();
+    arms.extend(
+        selection
+            .unforwardable_arms
+            .into_iter()
+            .map(|arm| plan.beside_arguments(arm)),
+    );
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,

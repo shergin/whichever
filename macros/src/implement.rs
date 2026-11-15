@@ -1266,13 +1266,13 @@ fn forward_trait_method(
     match &selection {
         Some(selection) => {
             for target in &selection.targets {
-                arms.push(plan.arm(target, &context)?);
+                arms.push(plan.arm_or_sentence(target, &context));
             }
         }
         None => {
             for entry in entries {
                 match entry {
-                    Entry::Target(target) => arms.push(plan.arm(target, &context)?),
+                    Entry::Target(target) => arms.push(plan.arm_or_sentence(target, &context)),
                     // The variant is reported elsewhere, under its `cfg`;
                     // this arm only keeps the `match` exhaustive while that
                     // error stands, which the fallback arm does when there
@@ -1298,7 +1298,12 @@ fn forward_trait_method(
         &plan, entries, subject, forwarded, mismatch, function, &context,
     )?;
     if let Some(selection) = selection {
-        arms.extend(selection.unforwardable_arms);
+        arms.extend(
+            selection
+                .unforwardable_arms
+                .into_iter()
+                .map(|arm| plan.beside_arguments(arm)),
+        );
     }
     let site = context.site;
     let allow_unreachable =
