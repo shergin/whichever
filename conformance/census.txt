@@ -175,12 +175,11 @@ suite struct-paths
   never 30 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite cfg
-  pass 1644
-  limit 1314
+  pass 2232
+  limit 1440
   rejected 0
-  malformed 10
-  never 170 non-canonical
-  never 102 unmodelled: an enum with no variant in this build
+  malformed 12
+  never 204 non-canonical
 
 suite homes
   pass 516
@@ -231,12 +230,11 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
-  pass 542
-  limit 334
+  pass 612
+  limit 474
   rejected 0
   malformed 0
-  never 174 non-canonical
-  never 30 unmodelled: an enum with no variant in this build
+  never 210 non-canonical
 
 suite agreement-paths
   pass 294
@@ -259,11 +257,11 @@ suite stacks
   never 32 unmodelled: an inherent method through a route whose method yields its target
 
 suite stack-homes
-  pass 168
+  pass 198
   limit 42
   rejected 0
   malformed 0
-  never 240 unmodelled: generics beside variants under `#[cfg]`
+  never 300 unmodelled: generics beside variants under `#[cfg]`
 
 suite deprecations
   pass 89
@@ -276,11 +274,11 @@ suite deprecations
   never 78 unmodelled: a mismatch or a body of the user's naming the deprecated variant
 
 suite deprecation-cfg
-  pass 288
-  limit 8
+  pass 336
+  limit 16
   rejected 0
   malformed 0
-  never 4 unmodelled: a supertrait beside an impl withheld for want of a supplier
+  never 8 unmodelled: a supertrait beside an impl withheld for want of a supplier
 
 suite lent-places
   pass 30
@@ -290,20 +288,20 @@ suite lent-places
   never 12 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite pinned
-  pass 52
+  pass 57
   limit 9
   rejected 2
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4456
+  pass 4590
   limit 0
   rejected 0
   malformed 0
-  rows 4456
-  covered 51454
-  unreached 31014
+  rows 4590
+  covered 53301
+  unreached 32328
 
 suite array-limits
   pass 0
@@ -311,8 +309,8 @@ suite array-limits
   rejected 0
   malformed 0
   rows 383
-  covered 6650
-  unreached 1220
+  covered 6734
+  unreached 1262
 
 suite array-rejected
   pass 0
@@ -320,8 +318,8 @@ suite array-rejected
   rejected 662
   malformed 0
   rows 662
-  covered 5750
-  unreached 2120
+  covered 5749
+  unreached 2247
 
 suite known
   pass 0

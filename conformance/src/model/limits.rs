@@ -192,12 +192,10 @@ impl Limit {
                 "which cannot be borrowed mutably; hold a `Box` or a `&mut`",
                 "mutable_borrow_through_a_shared_pointer",
             ),
-            // The case `mismatch_for_a_method_under_a_cfg` is to pin it; until
-            // it lands, `unknown_option_names` holds the same sentence.
             Limit::MismatchForAbsentMethod => entry(
                 "mismatch-for-absent-method",
                 "so there is no mismatch to decide",
-                "unknown_option_names",
+                "mismatch_for_a_method_under_a_cfg",
             ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",

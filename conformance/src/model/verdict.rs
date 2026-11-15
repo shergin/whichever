@@ -255,13 +255,15 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     if let Some(reason) = unpredicted_stack(cell) {
         return Some(reason);
     }
-    if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
-        // Open question: in a build that leaves no variant, a hand's
-        // `match *self {}` leaves the arguments unused, as the expansion
-        // does; whether that warning is the macro's to silence is not
-        // documented.
-        return Some("an enum with no variant in this build");
-    }
+    // An enum whose every variant is under `#[cfg]` "is matched as `match
+    // *self` with `ref` bindings where the receiver is a reference, so a
+    // build that leaves no variant still compiles, as a hand's does"
+    // (what-is-generated.md). In that build there is no value to build, so
+    // the law has nothing to run, and the cell passes when it compiles
+    // without a diagnostic. The hand's impl over the empty enum carries the
+    // `#[allow(unused_variables)]` a hand needs for the arguments no arm
+    // reads; the subject's impl is `#[automatically_derived]` and is not
+    // asked the same.
     if cell.cfg != Cfg::Absent {
         // Open question: whether a fallback arm is written beside a variant
         // compiled out, and how a `Self` argument is matched by place, is
@@ -1054,7 +1056,9 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // arm is a variant's sentence, so what the body itself captures is
     // rejected whatever the variants hold.
     let form = cell.path.descriptor().form;
-    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
+    let forwarded = cell.method_present()
+        && matches!(form, PathForm::Forwarded | PathForm::First)
+        && !cell.slots().is_empty();
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };

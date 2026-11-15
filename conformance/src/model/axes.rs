@@ -275,6 +275,9 @@ axis! {
         /// Every variant under `#[cfg(all())]`, so the enum may be empty in
         /// some build and is matched by place.
         EveryOn = "every-on",
+        /// Every variant under `#[cfg(any())]`, so the enum is empty in this
+        /// build and only compiles if it is matched by place.
+        EveryOff = "every-off",
     }
 }
 
@@ -416,7 +419,7 @@ impl Cfg {
         match (self, slot) {
             (Cfg::Absent, _) => None,
             (Cfg::SecondOn, 1) | (Cfg::EveryOn, _) => Some("all()"),
-            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) => Some("any()"),
+            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) | (Cfg::EveryOff, _) => Some("any()"),
             (Cfg::SecondOn | Cfg::SecondOff | Cfg::FirstOff, _) => None,
         }
     }

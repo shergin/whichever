@@ -150,3 +150,12 @@ s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=field
 s0=struct-named s1=none ret=self
 s0=struct-named s1=none ret=option-self
 s0=struct-named s1=none ret=tuple-self
+
+# An enum whose every variant is compiled out is matched by place, so the
+# build that leaves none compiles (all-variants-compiled-out-gives-e0004),
+# under a reference, a value and a boxed receiver, and with one variant.
+cfg=every-off
+recv=mut ret=self cfg=every-off
+recv=value cfg=every-off
+recv=box ret=future cfg=every-off
+s1=none cfg=first-off
