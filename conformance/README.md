@@ -88,11 +88,13 @@ attribute writes, which the hand writes for its own enum.
 
 The `item` axis is the attributes on the trait's method: a `#[cfg]` that
 holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature
-trips, and its own `#[inline(..)]`. Every impl that repeats the signature,
-a block's mark on `m` included, carries the method's `#[cfg]` and its
-`#[allow]`, as a hand writes them. A method under a `#[cfg]` that does not
-hold exists in no build: its sentences and rejections are dropped, the
-hand writes none of it, and the law checks the control method alone.
+trips, and its own `#[inline(..)]`; and `sized`, the bound `where Self:
+Sized`, which a trait object does not meet. Every impl that repeats the
+signature, a block's mark on `m` included, repeats the bound and carries
+the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
+under a `#[cfg]` that does not hold exists in no build: its sentences and
+rejections are dropped, the hand writes none of it, and the law checks the
+control method alone.
 
 A boxed future is spelled as `#[async_trait]` writes it, as the golden
 `boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +
@@ -114,6 +116,33 @@ steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
 behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
 holding a wrapper, and `via = .get().payload`, a field of what a method
 lends, which a hand can neither borrow mutably nor move out of.
+
+The `s1` value `deref-dyn` holds the second payload as a trait object,
+`#[dispatch(deref)] B(Box<dyn Probe>)`, the open set beside the sized
+payloads of `docs/routes.md`. The law builds it from a fresh `P1` and keeps
+the twin concrete; the hand names the target `dyn Probe`, and `seen` reads
+the payload's state through the control method, the one thing a trait
+object shows. The trait stays dyn-compatible beside it, so whatever would
+make it not, a `Self` in a signature, an `impl Trait` return, a generic or
+`async` method, an associated item, a generic or second trait, is
+non-canonical there, and so are the conversions, an inherent method and
+another crate's enum or trait. A method that requires `Self: Sized`, the
+`item` value `sized` or a default taking `self`, is the sentence of
+`dyn_payload_under_sized_method` on that variant's arm, and a block's
+`#[dispatch(default)]` leaves it to the trait's default; under `self` or
+a pinned receiver, the trait object is rustc's E0277 for the hand as well.
+
+Two values of `ret` return a generic associated type, `Self::Item<'_>`,
+declared `type Item<'v> where Self: 'v;`, its parameter named apart from
+the `'a` of a subject that borrows. Every payload gives it a loan of its
+state, `support::Loan0<'v>`, which converts into the
+`support::View<'v>` the enum declares, `type Item<'v> = support::View<'v>
+where Self: 'v;`, as `docs/partial-impl-blocks.md` and the golden
+`gat_in_a_partial_block` write it. Under `gat` a partial block declares it
+where the cell has one; under `gat-undeclared` the block leaves it out.
+Without the declaration, on the enum's attribute or in such a block, it is
+the sentence of `generic_associated_type` and `gat_undeclared_in_block`
+on the trait's declaration.
 
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
@@ -153,6 +182,21 @@ itself), or an inherent block forwarding to the payloads' own `m`. The law
 expects, per variant, what a twin of the payload answers, the body the
 block writes, or what the trait's default answers.
 
+A provided method's default body knows no payload. It answers a number
+made from the control method, a place it leaks for that number where the
+type borrows, `support::leak`, the `self` it owns where the method takes
+`self` or `self: Box<Self>`, and `None`, an `Err` or an empty `Vec` where
+nothing else of the type can be made; an associated type it would have
+to bound, and a `Self` a block leaves to the default, whose twin
+`Defaulted` cannot be, stay unmodelled.
+
+A mismatch answers a constant of the return type: a number, `None`, an
+`Err`, a place it leaks where the type borrows mutably, and for `Self`
+the first variant built around a fresh payload, what the variant stores
+built around it, a reference by leaking a box. Only the enum's attribute
+can name the variant, so a mismatch on the trait answering `Self` stays
+unmodelled.
+
 The `home` axis says where the trait and the payloads live: in the cell's
 module, in a sibling module the subject imports the trait from, or in
 another crate. There the cell is written as two files that keep its line
@@ -175,6 +219,17 @@ lifetime parameter the enum names, `Probe<'static>`. The law names a
 generic subject by an alias at the argument it takes it at, `type S =
 E<P0>;`, and builds and takes apart a generic tuple struct by its path,
 `Built::<P0>(..)`, which an alias cannot spell.
+
+Two more values of `generic` are a partial block's own header
+(`docs/partial-impl-blocks.md`, "The impl header"). Under `every` the
+trait is generic over a format and the block implements it for every
+`F`, `impl<F: support::Format<Value = u64>> Probe<F> for E {}`, with the
+bound the payloads' impls take so that their answers count the argument;
+under `instance` the enum is generic over its first payload, `enum E<T> {
+A(T), .. }`, and the block implements the trait for the instantiation the
+law takes, `impl Probe for E<P0> {}`, whose arms name `P0`. The enum's own
+options, `from = false` beside the parameter, stay on its attribute. Both
+are a block's alone.
 
 The `conv` axis checks the conversions the subject's attribute writes:
 `From` per payload, `from = false`, the three `try_from` forms, `into =

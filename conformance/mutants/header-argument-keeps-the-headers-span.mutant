@@ -1,0 +1,8 @@
+file: macros/src/substitution.rs
+breaks: A sentence about a variant holding a parameter a partial block's header instantiates is reported on the variant's payload, as `docs/limits.md` says a sentence is reported on the offending item.
+expect: killed
+
+find:
+        substitution.relocate = true;
+replace:
+        substitution.relocate = false;

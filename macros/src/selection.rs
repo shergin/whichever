@@ -96,9 +96,15 @@ pub(crate) fn select_targets(
             }
         }
         // On a struct `*` is the field marked bare, or the one field; on an
-        // enum, every variant.
+        // enum, every variant. The struct's field is taken from the entries
+        // where they hold it, since a partial block's header renames the
+        // payloads there and not in the struct the target is read from.
         match subject.star_target()? {
-            Some(target) => vec![target],
+            Some(star) => vec![variants
+                .iter()
+                .find(|target| target.ident == star.ident)
+                .map(|target| (*target).clone())
+                .unwrap_or(star)],
             None => variants.iter().map(|target| (*target).clone()).collect(),
         }
     } else {

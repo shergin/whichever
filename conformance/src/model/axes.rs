@@ -61,6 +61,10 @@ axis! {
         /// `#[dispatch(via = .get().payload)] A(W0)`: a field of what a
         /// method lends.
         ViaMethodField = "via-method-field",
+        /// `#[dispatch(deref)] A(Box<dyn Probe>)`: the payload held as a
+        /// trait object, the open set an enum holds beside its sized
+        /// payloads (routes.md).
+        DerefObject = "deref-dyn",
     }
 }
 
@@ -106,6 +110,9 @@ axis! {
         ViaIndexField = "via-index-field",
         /// `#[dispatch(via = .get().payload)] B(W1)`.
         ViaMethodField = "via-method-field",
+        /// `#[dispatch(deref)] B(Box<dyn Probe>)`, a `P1` held as a trait
+        /// object.
+        DerefObject = "deref-dyn",
     }
 }
 
@@ -187,6 +194,14 @@ axis! {
         /// `&'a u64`, borrowed for the subject's own lifetime, which an
         /// inherent place over a variant holding `&'a P0` answers.
         Lent = "lent",
+        /// `Self::Item<'_>`, a generic associated type, which the enum
+        /// declares in a partial block where it has one, `type Item<'v> =
+        /// support::View<'v> where Self: 'v;`, every payload's own
+        /// converting into it (partial-impl-blocks.md).
+        Gat = "gat",
+        /// `Self::Item<'_>` as `gat` declares it, which a partial block
+        /// leaves undeclared.
+        GatUndeclared = "gat-undeclared",
     }
 }
 
@@ -308,7 +323,8 @@ axis! {
 }
 
 axis! {
-    /// The attributes on the trait's method under test.
+    /// The attributes on the trait's method under test, and the bound it
+    /// declares.
     pub enum Item {
         /// No attribute.
         Bare = "none",
@@ -325,6 +341,9 @@ axis! {
         /// `#[inline(always)]`, which the forwarding takes instead of
         /// `#[inline]`.
         Inline = "inline-always",
+        /// `where Self: Sized`, which a trait object does not meet
+        /// (limits.md).
+        Sized = "sized",
     }
 }
 
@@ -367,6 +386,16 @@ axis! {
         /// enum names, `#[dispatch(Probe<'static>)]` (options.md: "Type,
         /// lifetime and const parameters are substituted").
         Lifetime = "lifetime",
+        /// A trait generic over a format implemented for every `F` by a
+        /// partial block's own header, `impl<F: support::Format<Value =
+        /// u64>> Probe<F> for E {}`, with the bound the payloads' impls take
+        /// (partial-impl-blocks.md, "The impl header"; golden
+        /// `impl_header`).
+        Every = "every",
+        /// A generic enum, `enum E<T> { A(T), .. }`, whose partial block
+        /// implements the trait for one instantiation, `impl Probe for
+        /// E<P0> {}` (partial-impl-blocks.md, "The impl header").
+        Instance = "instance",
     }
 }
 

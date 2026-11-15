@@ -34,6 +34,16 @@ pub fn write(writer: &mut Writer, context: &Context) {
             context.payload_generics(),
             context.trait_path()
         ));
+        // The types the return names are the enum's, so that what the
+        // default answers on either is one type.
+        for (associated, overridden) in context.associated() {
+            let ty = match (associated, overridden) {
+                (Associated::Out | Associated::Error, true) => "support::Wide",
+                (Associated::Out | Associated::Error, false) => "u64",
+                (Associated::Item, _) => super::context::VIEW,
+            };
+            writer.line(associated.definition(ty));
+        }
         for item in context.agreement.items {
             writer.line(item.definition(item.values[0]));
         }
@@ -172,12 +182,18 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
         context.trait_path()
     ));
     for (associated, overridden) in context.associated() {
-        let ty = match (associated, overridden) {
-            (Associated::Out, false) => String::from("u64"),
-            (Associated::Out | Associated::Error, true) => format!("support::Narrow{index}"),
+        let line = match (associated, overridden) {
+            (Associated::Out, false) => String::from("type Out = u64;"),
+            (Associated::Out | Associated::Error, true) => {
+                format!("type {} = support::Narrow{index};", associated.name())
+            }
             (Associated::Error, false) => unreachable!("an error type is only ever overridden"),
+            // A loan of the payload's state, which needs no bound of its
+            // own, as the golden `gat_in_a_partial_block` writes its
+            // payloads' items.
+            (Associated::Item, _) => format!("type Item<'v> = support::Loan{index}<'v>;"),
         };
-        writer.line(format!("type {} = {ty};", associated.name()));
+        writer.line(line);
     }
     for item in context.agreement.items {
         writer.line(item.definition(item.values[index]));
@@ -325,7 +341,71 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
         number.push_str(" + other.base() * 7");
     }
     writer.line(format!("let n = {number};"));
-    note_or_answer(writer, &context.node, "self", 3);
+    if context.node == Node::Unit {
+        writer.line("support::note(n);");
+        return;
+    }
+    // An answer that is no number, `self` or `None`, still uses it.
+    let value = default_value(&context.node, context.owned_self());
+    let uses = value
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|word| word == "n");
+    if !uses {
+        writer.line("let _ = n;");
+    }
+    writer.line(value);
+}
+
+/// Returns the value a default body answers, made from the number `n`: a
+/// place leaked for it where the type borrows, the `Self` the method owns,
+/// spelled `owned`, and `None`, an `Err` or an empty `Vec` where the inner
+/// type has no default.
+fn default_value(node: &Node, owned: Option<&str>) -> String {
+    let inner = |node: &Node| default_value(node, owned);
+    let has = |node: &Node| node.has_default(owned.is_some());
+    match node {
+        Node::Unit => String::from("()"),
+        Node::Tag => String::from("n"),
+        Node::Shared | Node::Exclusive => String::from("support::leak(n)"),
+        Node::This => {
+            String::from(owned.expect("the verdict answers `Self` only where it is owned"))
+        }
+        Node::Fault => String::from("support::Fault(n)"),
+        Node::Option(element) if has(element) => format!(
+            "if n % 2 == 0 {{ Some({}) }} else {{ None }}",
+            inner(element)
+        ),
+        Node::Option(_) => String::from("None"),
+        Node::Fallible(ok) => default_value(&Node::Result(ok, &Node::Fault), owned),
+        Node::Result(ok, error) => match (has(ok), has(error)) {
+            (true, true) => format!(
+                "if n % 2 == 0 {{ Ok({}) }} else {{ Err({}) }}",
+                inner(ok),
+                inner(error)
+            ),
+            (true, false) => format!("Ok({})", inner(ok)),
+            (false, _) => format!("Err({})", inner(error)),
+        },
+        Node::Tuple(elements) => {
+            let elements: Vec<String> = elements.iter().map(inner).collect();
+            format!("({})", elements.join(", "))
+        }
+        Node::Future(FutureKind::Opaque, output) => format!("async move {{ {} }}", inner(output)),
+        Node::Future(FutureKind::Boxed, output) => {
+            format!("Box::pin(async move {{ {} }})", inner(output))
+        }
+        Node::Iterator => String::from("core::iter::once(n)"),
+        Node::Vec(element) if has(element) => format!("vec![{}]", inner(element)),
+        Node::Vec(_) => String::from("Vec::new()"),
+        Node::Lent
+        | Node::Payload
+        | Node::PayloadShared
+        | Node::PayloadLent
+        | Node::PayloadExclusive
+        | Node::Assoc
+        | Node::Overridden(_)
+        | Node::Gat => unreachable!("the verdict leaves no default body for this type"),
+    }
 }
 
 /// Returns a value of the type: a true answer made from the number `n`
@@ -356,6 +436,13 @@ fn value(node: &Node, this: &str, index: usize, flavour: Flavour) -> String {
         },
         Node::This => format!("Self::new({number})"),
         Node::Overridden(_) => format!("support::Narrow{index}({number})"),
+        Node::Gat => match flavour {
+            Flavour::Answer => branch(
+                format!("support::Loan{index}(&{this}.state)"),
+                format!("support::Loan{index}(&{this}.spare)"),
+            ),
+            Flavour::Poison => format!("support::Loan{index}(&support::POISON_PLACE)"),
+        },
         Node::Fault => format!("support::Fault({number})"),
         Node::Option(inner_node) => {
             branch(format!("Some({})", inner(inner_node)), String::from("None"))

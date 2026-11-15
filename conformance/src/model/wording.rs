@@ -44,6 +44,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::Associated
         | Anchor::Anywhere => None,
     };
     let variant = slot.map(|slot| named(cell, &slot));
@@ -52,9 +53,15 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     // and has a body for the rest, it is that body
     // (`self_return_beside_the_other_fields_of_a_variant` holds the other
     // form), and the entry's own way out is not written.
+    //
+    // Open question: no snapshot holds the sentence on an inherent method;
+    // there the entry's way out, a `#[whichever::dispatch] impl` block, is
+    // where the method already is, so it is read as ending in the
+    // inherent method's own way out, a body.
     let body_for_the_rest = cell.path_descriptor().form == PathForm::First;
+    let inherent = cell.path_descriptor().site == PathSite::Inherent;
     let rebuild_left_to_the_body =
-        expected.limit == Limit::SelfReturnOtherFields && body_for_the_rest;
+        expected.limit == Limit::SelfReturnOtherFields && (body_for_the_rest || inherent);
     let mut fragments = Vec::new();
     if !rebuild_left_to_the_body {
         fragments.push(Fragment::one(String::from(entry.way_out)));
@@ -167,7 +174,9 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::FromOverlapTypeParameter
         | Limit::TryFromTypeParameter
         | Limit::ArmsDisagree
-        | Limit::MismatchForAbsentMethod => String::new(),
+        | Limit::MismatchForAbsentMethod
+        | Limit::SizedOnObject
+        | Limit::GenericAssociatedType => String::new(),
     }
 }
 
@@ -308,6 +317,38 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .map(|parameter| format!("`{parameter}` is a type parameter of `E`")),
         ),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
+        // The sentence is on the method and names the variant that holds
+        // the trait object, and the mark that leaves the method to the
+        // trait's default.
+        Limit::SizedOnObject => {
+            push(Some(format!("{method} requires `Self: Sized`")));
+            push(Some(format!(
+                "`#[dispatch(default)] fn {}(..);`",
+                method.trim_matches('`')
+            )));
+            let objects: Vec<String> = cell
+                .method_slots()
+                .into_iter()
+                .filter(|(_, _, target)| target.is_object())
+                .map(|(slot, _, _)| format!("`{}` holds a trait object", slot.name()))
+                .collect();
+            any = Some(Fragment(objects));
+        }
+        // The type, its declaration's parameter, and the block it goes in,
+        // with the header a block over the enum writes, the lifetime of a
+        // subject that borrows included.
+        Limit::GenericAssociatedType => {
+            push(Some(String::from("`Item` is a generic associated type")));
+            push(Some(String::from("`type Item<'v> = ..;`")));
+            let borrows = cell
+                .live_slots()
+                .iter()
+                .any(|(_, _, target)| target.borrows());
+            push(Some(match borrows {
+                true => String::from("impl<'a> Probe for E<'a>` block"),
+                false => String::from("impl Probe for E` block"),
+            }));
+        }
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));
     names

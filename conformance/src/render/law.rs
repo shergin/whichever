@@ -205,10 +205,14 @@ fn write_seen(writer: &mut Writer, context: &Context) {
             SlotVariant::Live(target) => {
                 let target = target.descriptor();
                 let pattern = super::context::pattern(&value_path(context), slot, &target, "inner");
-                format!(
-                    "{pattern} => format!(\"{index}:{{}}\", {}.state()),",
-                    reach("inner", target.route)
-                )
+                // A trait object shows its payload's state through the
+                // trait alone: the control method answers ten times the
+                // state, plus the slot.
+                let state = match target.is_object() {
+                    true => format!("{}.base() / 10", reach("inner", target.route)),
+                    false => format!("{}.state()", reach("inner", target.route)),
+                };
+                format!("{pattern} => format!(\"{index}:{{}}\", {state}),")
             }
             SlotVariant::Unit => format!("S::{name} => String::from(\"{index}:unit\"),"),
             SlotVariant::Pair => {
@@ -293,8 +297,14 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         false => output,
     };
     // The law has no lifetime of its own to name, so a return for the
-    // subject's lifetime is observed as an elided reference.
-    let subject_type = spell(&declared, "S", Associates::Qualified).replace("&'a ", "&");
+    // subject's lifetime is observed as an elided reference, and the
+    // generic associated type as what the enum declares it, since the
+    // projection would elide the lifetime of a subject that borrows apart
+    // from its own.
+    let subject_type = match declared == Node::Gat {
+        true => super::context::VIEW.replace("<'v>", "<'_>"),
+        false => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    };
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
     writer.line(observation(&declared, "answer", Side::Subject, 0));
@@ -339,6 +349,12 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
         Node::Overridden(_) => match side {
             Side::Subject => format!("format!(\"{{:?}}\", {value})"),
             Side::Payload(_) => format!("format!(\"{{:?}}\", support::Wide::from({value}))"),
+        },
+        // What a payload lends shows once converted into what the enum
+        // declares, which names the payload's slot and the place lent.
+        Node::Gat => match side {
+            Side::Subject => format!("format!(\"{{:?}}\", {value})"),
+            Side::Payload(_) => format!("format!(\"{{:?}}\", support::View::from({value}))"),
         },
         Node::Fault => format!("format!(\"{{:?}}\", {value})"),
         Node::Option(element) => format!(
@@ -415,6 +431,9 @@ fn write_subject(
         Storage::Pair => format!("({LABEL}, {payload})"),
         Storage::WrapperBehind(pointer) => point(writer, pointer, name, wrapper),
         Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
+        // The fresh payload is boxed, and coerced to the trait object where
+        // the variant takes it.
+        Storage::Object => point(writer, Pointer::Box, name, payload),
     };
     let value = match target.form {
         Form::Single => format!("{path}::{variant}({stored})"),
@@ -513,7 +532,7 @@ fn method_expectation(context: &Context, slot: &Slot) -> Expect {
         PathForm::Forwarded | PathForm::First | PathForm::Written if context.inherent() => {
             Expect::Constant(super::context::constant(
                 &context.cell.declared_node(),
-                "S::A(P0::new(424_242))",
+                &context.fresh(&value_path(context)),
             ))
         }
         PathForm::Forwarded | PathForm::First | PathForm::Written => {
@@ -563,6 +582,7 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 | Node::This
                 | Node::Assoc
                 | Node::Overridden(_)
+                | Node::Gat
                 | Node::Fault
                 | Node::Option(_)
                 | Node::Result(_, _)

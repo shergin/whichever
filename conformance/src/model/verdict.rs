@@ -22,7 +22,7 @@ use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
 use super::receiver::Lends;
-use super::returns::{FutureKind, Node};
+use super::returns::{Associated, FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
@@ -71,7 +71,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
         | Generics::Own
         | Generics::Defaulted
         | Generics::Paired
-        | Generics::Lifetime => true,
+        | Generics::Lifetime
+        | Generics::Every
+        | Generics::Instance => true,
     };
     if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
@@ -97,6 +99,21 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // a restatement, or a restated enum's real trait, would list it too.
     let returned = cell.agree.descriptor().returned;
     if returned && (cell.decl != Declaration::Dispatchable || cell.owner != Owner::Local) {
+        return Verdict::NonCanonical;
+    }
+    if !object_canonical(cell) {
+        return Verdict::NonCanonical;
+    }
+    // A block's own header is how the impl gets generics the enum does not
+    // have, or one instantiation of a generic enum (partial-impl-blocks.md,
+    // "The impl header"), which the enum's attribute writes neither of.
+    let header = matches!(cell.generic, Generics::Every | Generics::Instance);
+    if header && cell.path_descriptor().site != PathSite::Block {
+        return Verdict::NonCanonical;
+    }
+    // A generic associated type left undeclared is a partial block's way of
+    // leaving it out; nothing else declares it either way.
+    if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
     if let Some(verdict) = declared(cell) {
@@ -180,6 +197,43 @@ struct Rejection {
     code: &'static str,
     reason: &'static str,
     method: Forwarded,
+}
+
+/// Returns whether a cell whose subject holds a trait object is canonical.
+/// A `deref` variant holding a trait object is "how an enum holds an open
+/// set beside its sized payloads" (routes.md), so the second variant holds
+/// it, which way round the two stand being no matter; and the trait is
+/// dyn-compatible beside it, so what would make it not, a `Self` in a
+/// signature, an `impl Trait` return, a generic or `async` method, an
+/// associated item, a generic trait or a second trait, is the plain
+/// trait's, as are the conversions, which name the box, an inherent method,
+/// which calls a payload's own method that a trait object does not have,
+/// and another crate's enum or trait.
+fn object_canonical(cell: &Cell) -> bool {
+    if cell.s0 == Target::DerefObject {
+        return false;
+    }
+    if !cell.holds_object() {
+        return true;
+    }
+    let node = cell.ret.node();
+    let opaque = matches!(node.future(), Some((FutureKind::Opaque, _))) || node == Node::Iterator;
+    let signature = !node.holds_this()
+        && node.associated().is_empty()
+        && !opaque
+        && cell.arg == Argument::Absent
+        && matches!(
+            cell.qual,
+            Qualifier::Plain | Qualifier::Unsafe | Qualifier::Provided
+        );
+    let trait_alone = cell.generic == Generics::Bare
+        && cell.agree == Agreement::Absent
+        && cell.stack == Stack::Absent
+        && cell.conv == Conversion::Unchecked;
+    let place = cell.path_descriptor().site != PathSite::Inherent
+        && cell.decl != Declaration::Foreign
+        && cell.owner == Owner::Local;
+    signature && trait_alone && place
 }
 
 /// The signature itself, or every payload's impl of it, is ill-typed.
@@ -334,7 +388,8 @@ fn declared(cell: &Cell) -> Option<Verdict> {
     if path.site == PathSite::Inherent {
         return Some(Verdict::NonCanonical);
     }
-    if cell.item != Item::Bare {
+    // The bound is the signature's, which the restatement repeats.
+    if !matches!(cell.item, Item::Bare | Item::Sized) {
         return Some(Verdict::Unmodelled(
             "attributes on a restated method, whose home is the restatement's",
         ));
@@ -524,7 +579,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::BoxedFuture
             | Return::BoxedFutureOut
             | Return::VecThis
-            | Return::OptionTupleThis => false,
+            | Return::OptionTupleThis
+            | Return::Gat
+            | Return::GatUndeclared => false,
             // "A block on a dispatch struct forwards the same way [..]; a
             // return-position `impl Trait` is forwarded as it is"
             // (inherent-methods.md), which an enum's arms cannot.
@@ -536,16 +593,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if !supported {
             return Some("an inherent method with a return type the inherent docs do not describe for an enum");
         }
-        let routed_self = node.holds_this()
-            && cell
-                .method_slots()
-                .iter()
-                .any(|(_, _, target)| target.is_routed() || target.has_other_fields());
-        if routed_self {
-            return Some(
-                "an inherent `Self` return on a variant reached through a route or a marked field",
-            );
-        }
+        // "A method returning `Self`, `Option<Self>` or `Result<Self, E>`
+        // wraps the payload's result back into the variant, as trait
+        // dispatch does" (inherent-methods.md), so a variant reached
+        // through a route or a marked field gets the trait's sentences,
+        // below, ending in the inherent method's way out.
         let method_route = cell
             .method_slots()
             .iter()
@@ -600,14 +652,22 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             Some((_, output)) => *output,
             None => node,
         };
-        // A `Self` in the mismatch is a variant built around a fresh
-        // payload, which only the enum's attribute can name, and only for a
-        // variant that holds its payload by value.
+        // A `Self` in the mismatch is the first variant built around a
+        // fresh payload, which only the enum's attribute can name: "An
+        // expression on the trait method or on the enum may use the
+        // method's parameters, a `Self` argument included" (options.md),
+        // and the trait names no variant, nor can it make a `Self` of a
+        // reference to one. A place no payload holds is leaked.
         let nameable = argument.mismatch == MismatchSite::Enum
-            && cell.s0.descriptor().storage == Storage::Payload
             && cell.cfg.of(0) != Some("any()")
             && cell.generic != Generics::Payload
             && cell.owner == Owner::Local;
+        let on_trait = argument.mismatch == MismatchSite::Trait;
+        if on_trait && output.holds_this() && !output.has_constant(nameable) {
+            return Some(
+                "a mismatch on the trait answering `Self`, which the trait names no variant of",
+            );
+        }
         if !output.has_constant(nameable) {
             return Some("a mismatch expression for a return type that needs a payload to make");
         }
@@ -622,8 +682,16 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     if qualifier.provided && yielded {
         return Some("a default body that calls a control method taking `self`");
     }
-    if qualifier.provided && !node.has_default() {
+    // A default body may answer `self` where the method takes it by value
+    // or in a box; left to the default by a block, such an answer is the
+    // enum itself, which the law has no twin of, since `Defaulted` answers
+    // a `Defaulted`.
+    let owns = matches!(cell.recv, Receiver::Owned | Receiver::Boxed);
+    if qualifier.provided && !node.has_default(owns) {
         return Some("a default body that would need a payload to make its answer");
+    }
+    if qualifier.provided && path.form == PathForm::Default && node.holds_this() {
+        return Some("a default answering `Self` left to the default, whose twin is no enum");
     }
     None
 }
@@ -653,6 +721,15 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     // trait does not take.
     if stack.supertrait && cell.generic == Generics::Own {
         return Some("a supertrait generic over the enum's const parameter");
+    }
+    // The same for a parameter only a block's header declares, and the
+    // instantiation's `from = false` would have to be spelled on the
+    // second attribute.
+    if stack.supertrait && cell.generic == Generics::Every {
+        return Some("a supertrait over a trait whose parameter only a block's header declares");
+    }
+    if stack.present && cell.generic == Generics::Instance {
+        return Some("a block for one instantiation beside a second attribute");
     }
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
@@ -755,14 +832,21 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
     // Wrapper<T>` for `struct Wrapper<T>(T)`" (options.md); the law builds
     // and takes apart a tuple struct by its path with the argument spelled,
     // `E::<P0>(..)`, which an alias cannot.
-    if cell.generic != Generics::Payload {
+    if !matches!(cell.generic, Generics::Payload | Generics::Instance) {
         return None;
     }
     // "A payload that is a type parameter of the enum, or `Box<T>` under
     // `deref`, gives the impl the bound `Raw: Trait`" (options.md); a
     // partial block's header is the user's, and spells the bound itself.
+    // A wrapper or a pair the model writes holds the payload's own type,
+    // which would leave the parameter unused.
     if !matches!(cell.s0, Target::Plain | Target::DerefBox | Target::Struct) {
         return Some("a type-parameter payload reached through a route or a marked field");
+    }
+    // An impl for one instantiation names the payload's type, which needs
+    // no bound and is `Unpin`.
+    if cell.generic == Generics::Instance {
+        return None;
     }
     if cell.path != super::Path::Attribute {
         return Some(
@@ -822,7 +906,9 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 | Return::Iterator
                 | Return::VecThis
                 | Return::OptionTupleThis
-                | Return::Lent => false,
+                | Return::Lent
+                | Return::Gat
+                | Return::GatUndeclared => false,
             };
             let fits = match lift {
                 Lift::Bare | Lift::Some | Lift::Ok => true,
@@ -924,6 +1010,27 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let restated = cell.decl.descriptor().restated;
     if path.form == PathForm::Default && !cell.qual.descriptor().provided && !restated {
         expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
+    }
+
+    // "A method that requires `Self: Sized` cannot be forwarded to a
+    // `deref` variant holding a trait object; a partial block leaves it to
+    // the trait's default with `#[dispatch(default)]`" (limits.md,
+    // `dyn_payload_under_sized_method`). The sentence names the variant, so
+    // it is that variant's arm, under its `#[cfg]`: "A sentence about one
+    // variant, whether about its shape or about the way a method reaches
+    // it, is reported under that variant's `#[cfg]` [..] and each variant a
+    // method cannot reach is named in a sentence of its own" (limits.md).
+    //
+    // Open question: the snapshot holds the enum's attribute alone, the
+    // sentence on the trait's method; on a block that holds the method it
+    // is read as staying there, on "the offending trait item" (limits.md),
+    // the declaration whose bound the trait object does not meet.
+    if forwarded && cell.requires_sized() {
+        for (_, _, target) in &method_live {
+            if target.is_object() {
+                expect(Limit::SizedOnObject, Anchor::Method);
+            }
+        }
     }
 
     // "Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` [..],
@@ -1209,6 +1316,19 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // named, the sentence of `all_variants_conditional` is on the enum.
     // "An associated type or const comes from the first variant without a
     // `#[cfg]`", so only those can supply it.
+    // "A generic associated type is declared by the enum, in a partial impl
+    // block; it cannot come from the first variant" (limits.md,
+    // `generic_associated_type`), and a block that does not declare it gets
+    // the same sentence (`gat_undeclared_in_block`), on the trait's
+    // declaration of the type, which the enum reads.
+    let gat = node
+        .associated()
+        .iter()
+        .any(|(associated, _)| *associated == Associated::Item);
+    if gat && !cell.declares_gat() {
+        expect(Limit::GenericAssociatedType, Anchor::Associated);
+    }
+
     let items = cell.agree.descriptor().items;
     let taken = node.associated().iter().any(|(_, overridden)| !overridden)
         || items.iter().any(|item| item.overridden.is_none());
@@ -1245,7 +1365,16 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
                 ItemKind::Type => true,
-                ItemKind::Const => item.comparable && !cell.is_generic(),
+                // The second trait declares the same consts, and its impl,
+                // which the enum's attribute writes, has none of a block's
+                // header parameters, so its check runs where the enum has
+                // none of its own.
+                ItemKind::Const => {
+                    let enum_generic = cell.generic.descriptor().parameter.is_some()
+                        || cell.owner == Owner::Remote;
+                    let second = cell.stack.descriptor().present && !enum_generic;
+                    item.comparable && (!cell.is_generic() || second)
+                }
             };
             if !checked {
                 continue;
@@ -1409,6 +1538,22 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "E0046",
             "a method left to the real trait's default, which it does not have",
+            Forwarded::Method,
+        );
+    }
+    // A trait object has no size known to the call: moved out of its box
+    // for `self` by value, or pinned again for a pinned receiver, which
+    // "needs every payload to be `Unpin`" (what-is-generated.md), it is
+    // rustc's E0277 for a hand's call too. A method that requires `Self:
+    // Sized` has its sentence as that arm instead.
+    let unsized_handover = matches!(
+        cell.recv,
+        Receiver::Owned | Receiver::PinShared | Receiver::PinExclusive
+    );
+    if any(&|target| target.is_object()) && unsized_handover && !cell.requires_sized() {
+        reject(
+            "E0277",
+            "a trait object moved out of its box or pinned again, which its size or `Unpin` refuses",
             Forwarded::Method,
         );
     }

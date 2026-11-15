@@ -134,6 +134,67 @@ impl From<Narrow2> for Wide {
     }
 }
 
+/// What `P0`'s generic associated type is: a loan of its state.
+pub struct Loan0<'a>(pub &'a u64);
+
+/// What `P1`'s generic associated type is.
+pub struct Loan1<'a>(pub &'a u64);
+
+/// What `P2`'s generic associated type is.
+pub struct Loan2<'a>(pub &'a u64);
+
+/// What a partial block declares the enum's generic associated type as,
+/// which every payload's loan converts into: the slot of the payload and
+/// the place it lent.
+#[derive(Debug, PartialEq, Eq)]
+pub struct View<'a> {
+    /// The slot of the payload whose loan it was.
+    pub slot: u64,
+    /// The place lent.
+    pub value: &'a u64,
+}
+
+impl View<'static> {
+    /// The mismatch of a method returning the declared type.
+    pub const MISMATCH: View<'static> = View {
+        slot: 9,
+        value: &424_242,
+    };
+}
+
+impl<'a> From<Loan0<'a>> for View<'a> {
+    fn from(loan: Loan0<'a>) -> View<'a> {
+        View {
+            slot: 0,
+            value: loan.0,
+        }
+    }
+}
+
+impl<'a> From<Loan1<'a>> for View<'a> {
+    fn from(loan: Loan1<'a>) -> View<'a> {
+        View {
+            slot: 1,
+            value: loan.0,
+        }
+    }
+}
+
+impl<'a> From<Loan2<'a>> for View<'a> {
+    fn from(loan: Loan2<'a>) -> View<'a> {
+        View {
+            slot: 2,
+            value: loan.0,
+        }
+    }
+}
+
+/// Leaks a value, so that code with no place of its own, a default body,
+/// a mismatch or a block's body, can lend it for any lifetime.
+pub fn leak<T>(value: T) -> &'static mut T {
+    Box::leak(Box::new(value))
+}
+
 /// A type parameter no argument fixes.
 pub trait Weight {
     /// What the answer counts it as.

@@ -300,6 +300,33 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `const_disagreement_on_a_lifetime_enum` moved, rustc naming the item
   that failed `_::_` where it named `_`; the golden `associated_consts`
   shows the check as `const _: () = if ..;`.
+- Before, a method that requires `Self: Sized` forwarded beside a `deref`
+  variant holding a trait object was its sentence alone, in every build and
+  whatever else the method met: a trait object under `#[cfg(test)]` failed
+  the build that leaves it out, and the other variants' sentences, a plain
+  variant under `self: Box<Self>`, were never written. The sentence is now
+  the trait object's arm, under its variant's `cfg`, as every sentence
+  about one variant is. The behaviour test `trait_objects_in_deref_variants`
+  holds the first and the `tests/ui` case `trait_object_beside_a_plain_variant`
+  the second; no other snapshot and no golden changed.
+- Before, a generic associated type the enum does not declare withheld the
+  impl, and its sentence was followed by rustc's error at every call
+  through the trait, and the other methods' sentences were never written.
+  It is now written holding its sentence, as an associated item no variant
+  can supply is. The `tests/ui` case `undeclared_gat_keeps_the_impl` is
+  new; no other snapshot and no golden changed.
+- Before, `#[dispatch(*)]` in a partial block implementing a trait for one
+  instantiation of a generic struct, `impl Area for Wrapper<Square>`, called
+  the trait on the struct's parameter, E0425, cannot find type `T`, where
+  the same block over a generic enum compiled. `*` now names the field as
+  the header instantiates it. The behaviour test `partial_block_methods`
+  holds it; no snapshot and no golden changed.
+- Before, a sentence about a variant holding a parameter that a partial
+  block's header instantiates, `impl Shape for Any<Square>` over `enum
+  Any<T> { Plain(T), .. }`, was reported on the header's `Square`. It is
+  now on the variant's payload, where the parameter is. The `tests/ui` case
+  `instantiated_variant_keeps_its_sentence` is new; no other snapshot and
+  no golden changed.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only

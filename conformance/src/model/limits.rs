@@ -74,6 +74,12 @@ pub enum Limit {
     /// rustc's E0308 on the arms of a method returning an associated type
     /// the payloads give differently.
     ArmsDisagree,
+    /// A method that requires `Self: Sized` forwarded to a variant that
+    /// holds a trait object.
+    SizedOnObject,
+    /// A generic associated type the enum does not declare in a partial
+    /// block.
+    GenericAssociatedType,
 }
 
 /// A catalogue entry.
@@ -132,6 +138,8 @@ impl Limit {
         Limit::FromOverlapTypeParameter,
         Limit::TryFromTypeParameter,
         Limit::ArmsDisagree,
+        Limit::SizedOnObject,
+        Limit::GenericAssociatedType,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -296,6 +304,18 @@ impl Limit {
                 "so none can supply",
                 "all_variants_conditional",
             ),
+            Limit::SizedOnObject => entry(
+                "sized-on-object",
+                "holds a trait object, which is not; leave it to the trait's default with",
+                "dyn_payload_under_sized_method",
+            ),
+            // `gat_undeclared_in_block` holds the same sentence for a block
+            // that leaves the type out.
+            Limit::GenericAssociatedType => entry(
+                "generic-associated-type",
+                "is a generic associated type, which only the enum can declare; write `type",
+                "generic_associated_type",
+            ),
         };
         let (way_out, tail) = match self {
             Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
@@ -334,6 +354,11 @@ impl Limit {
             Limit::TryFromTypeParameter => ("add `#[dispatch(try_from = false)]` on this variant", false),
             Limit::ArmsDisagree => ("`match` arms have incompatible types", false),
             Limit::UnsuppliedType => ("fix it on the enum with", false),
+            Limit::SizedOnObject => (
+                "leave it to the trait's default with `#[dispatch(default)] fn",
+                true,
+            ),
+            Limit::GenericAssociatedType => (" = ..;` in a `#[whichever::dispatch] impl", false),
         };
         Entry {
             way_out,
@@ -359,7 +384,8 @@ impl Limit {
             | Limit::FromOverlapTypeParameter
             | Limit::TryFromTypeParameter
             | Limit::ArmsDisagree
-            | Limit::MismatchForAbsentMethod => false,
+            | Limit::MismatchForAbsentMethod
+            | Limit::GenericAssociatedType => false,
             Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
@@ -375,7 +401,8 @@ impl Limit {
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
-            | Limit::StarOverUnforwardable => true,
+            | Limit::StarOverUnforwardable
+            | Limit::SizedOnObject => true,
         }
     }
 
@@ -415,7 +442,9 @@ impl Limit {
             | Limit::ConstDisagreement
             | Limit::FromOverlapTypeParameter
             | Limit::TryFromTypeParameter
-            | Limit::ArmsDisagree => false,
+            | Limit::ArmsDisagree
+            | Limit::SizedOnObject
+            | Limit::GenericAssociatedType => false,
         }
     }
 
@@ -489,6 +518,9 @@ pub enum Anchor {
     BlockSignature,
     /// The `#[whichever::dispatch(..)]` on a partial impl block.
     BlockAttribute,
+    /// The declaration of the trait's generic associated type, in the
+    /// trait or in its restatement.
+    Associated,
     /// Anywhere in the cell: the span is not pinned yet.
     Anywhere,
 }
@@ -504,6 +536,7 @@ impl Anchor {
             Anchor::BlockMethod => String::from("block-method"),
             Anchor::BlockSignature => String::from("block-signature"),
             Anchor::BlockAttribute => String::from("block-attribute"),
+            Anchor::Associated => String::from("associated"),
             Anchor::Anywhere => String::from("anywhere"),
         }
     }

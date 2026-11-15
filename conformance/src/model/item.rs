@@ -1,6 +1,6 @@
 //! What the attributes on the trait's method under test are, and what each
 //! asks of the impls and of the forwarding (what-is-generated.md, the last
-//! rows of its table).
+//! rows of its table), and the bound the method declares.
 
 use super::axes::Item;
 
@@ -26,6 +26,8 @@ pub struct ItemDescriptor {
     /// The name of the method's `u64` argument: one the lint the method
     /// allows would warn of, or the plain `x`.
     pub parameter: &'static str,
+    /// Whether the method declares `where Self: Sized`.
+    pub sized: bool,
 }
 
 impl Item {
@@ -39,6 +41,7 @@ impl Item {
             deprecated: false,
             inline: "inline",
             parameter: "x",
+            sized: false,
         };
         match self {
             Item::Bare => bare,
@@ -67,6 +70,10 @@ impl Item {
             Item::Inline => ItemDescriptor {
                 attribute: Some("inline(always)"),
                 inline: "inline(always)",
+                ..bare
+            },
+            Item::Sized => ItemDescriptor {
+                sized: true,
                 ..bare
             },
         }

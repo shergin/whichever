@@ -393,13 +393,25 @@ impl Cell {
             .find(Slot::names_its_target)
     }
 
-    /// Returns whether the subject has a type or const parameter, so that
-    /// its associated consts are taken without a check: "on an enum with a
+    /// Returns whether the subject's impl has a type or const parameter, so
+    /// that its associated consts are taken without a check: "on an enum with a
     /// type or const parameter [..] taken from the first variant without a
     /// check" (limits.md); the lifetime the `deref` variants over a
     /// reference give it is no matter.
+    ///
+    /// The check is a free `const` item, which cannot evaluate a const a
+    /// type or const parameter decides
+    /// (docs/decisions/associated-consts-are-checked-unless-a-type-can-change-them.md):
+    /// one a block's own header declares is such a parameter too, and an
+    /// impl for one instantiation leaves none.
+    ///
+    /// Open question: limits.md speaks of "an enum with a type or const
+    /// parameter"; the decision's reason, and its refusal of "silence where
+    /// a check is possible", are read as deciding by the impl's parameters.
     pub fn is_generic(&self) -> bool {
-        self.generic.descriptor().parameter.is_some() || self.owner == Owner::Remote
+        let generics = self.generic.descriptor();
+        let parameter = generics.parameter.is_some() && !generics.instantiated;
+        parameter || generics.header.is_some() || self.owner == Owner::Remote
     }
 
     /// Returns the slots whose variant forwards to a payload.
@@ -459,6 +471,39 @@ impl Cell {
     /// trait declares it under no `#[cfg]` or under one that holds.
     pub fn method_present(&self) -> bool {
         self.item.descriptor().present
+    }
+
+    /// Returns whether the trait declares the method under test `where
+    /// Self: Sized`: where the method says so, where `Self` is a type
+    /// argument of its return type, or where a body, an `async fn`'s or a
+    /// default, holds a `Self` by value.
+    pub fn requires_sized(&self) -> bool {
+        let node = self.ret.node();
+        if self.item.descriptor().sized || node.holds_this_below() {
+            return true;
+        }
+        let qualifier = self.qual.descriptor();
+        let by_value = self.recv == Receiver::Owned
+            || self.arg.descriptor().kind == Some(argument::ArgumentKind::Owned);
+        if qualifier.asyncness && (by_value || node.holds_this()) {
+            return true;
+        }
+        qualifier.provided && (by_value || node.holds_this())
+    }
+
+    /// Returns whether the subject declares the trait's generic associated
+    /// type: in a partial block, the one place it can
+    /// (partial-impl-blocks.md), where the cell writes the declaration.
+    pub fn declares_gat(&self) -> bool {
+        self.ret == Return::Gat && self.path_descriptor().site == path::Site::Block
+    }
+
+    /// Returns whether the subject declares a variant that holds its
+    /// payload as a trait object, compiled out in this build or not.
+    pub fn holds_object(&self) -> bool {
+        self.declared_slots()
+            .iter()
+            .any(|slot| slot.target().is_some_and(|(_, target)| target.is_object()))
     }
 
     /// Returns the live slots the control method is forwarded to.

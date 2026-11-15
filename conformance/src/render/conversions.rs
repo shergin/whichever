@@ -48,6 +48,7 @@ pub fn stored_value(slot: &Slot, target: &TargetDescriptor, seed: u64) -> String
         Storage::Pair => format!("({LABEL}, {payload})"),
         Storage::WrapperBehind(pointer) => owned(pointer, wrapper),
         Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
+        Storage::Object => owned(Pointer::Box, payload),
     }
 }
 

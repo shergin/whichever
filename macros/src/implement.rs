@@ -20,7 +20,7 @@ use crate::options::{
     closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override, TraitSpec,
 };
 use crate::protocol::ImplementInput;
-use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod, Selection};
+use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{takes_self_argument, ReturnSite};
 use crate::subject::{
     allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
@@ -1018,16 +1018,26 @@ fn associated_type<'a>(
     site: Span,
 ) -> Result<TokenStream2> {
     let name = &assoc.ident;
-    if !assoc.generics.params.is_empty() {
-        let parameters = spelled(&assoc.generics);
-        return Err(Error::new_spanned(
-            assoc,
-            format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
-        ));
-    }
     let mut carried = carried_attributes(&assoc.attrs);
     if is_deprecated(&assoc.attrs) {
         carried.push(allow_deprecated(site));
+    }
+    // A generic associated type has no supplier: written holding its
+    // sentence, as an item no variant can supply is, the impl stays
+    // complete and the sentence stands alone. Its parameters and `where`
+    // clause are the trait's, which the impl may not strengthen.
+    if !assoc.generics.params.is_empty() {
+        let parameters = spelled(&assoc.generics);
+        let error = Error::new_spanned(
+            assoc,
+            format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
+        )
+        .to_compile_error();
+        let generics = &assoc.generics;
+        let where_clause = &assoc.generics.where_clause;
+        return Ok(quote_spanned! { site =>
+            #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
+        });
     }
     let cfgs = carried
         .iter()
@@ -1133,28 +1143,22 @@ fn expand_method(
     }))
 }
 
-/// Reports a method that requires `Self: Sized` forwarded to a trait object,
-/// which cannot take it; a hand leaves such a method to the trait's
-/// default, and the partial block says so with `#[dispatch(default)]`.
-fn check_trait_objects(
+/// Returns the sentence for a method that requires `Self: Sized`
+/// forwarded to a trait object, which cannot take it; a hand leaves such a
+/// method to the trait's default, and the partial block says so with
+/// `#[dispatch(default)]`. It is that variant's arm, under its `cfg`, as any
+/// other sentence about a variant is.
+fn trait_object_refusal(
     plan: &MethodPlan,
-    selection: Option<&Selection>,
-    entries: &[Entry],
+    target: &Target,
     function: &TraitItemFn,
     block_header: &str,
-) -> Result<()> {
-    if !plan.requires_sized() {
-        return Ok(());
+) -> Option<Error> {
+    if !plan.requires_sized() || !target.is_trait_object() {
+        return None;
     }
-    let forwarded_to: Vec<&Target> = match selection {
-        Some(selection) => selection.targets.iter().collect(),
-        None => targets(entries),
-    };
-    let Some(target) = forwarded_to.iter().find(|target| target.is_trait_object()) else {
-        return Ok(());
-    };
     let method = &function.sig.ident;
-    Err(Error::new_spanned(
+    Some(Error::new_spanned(
         &function.sig,
         format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident),
     ))
@@ -1355,18 +1359,22 @@ fn forward_trait_method(
         }
         None => None,
     };
-    check_trait_objects(&plan, selection.as_ref(), entries, function, block_header)?;
+    let arm_for =
+        |target: &Target| match trait_object_refusal(&plan, target, function, block_header) {
+            Some(error) => plan.sentence_arm(target, &context, error),
+            None => plan.arm_or_sentence(target, &context),
+        };
     let mut arms = Vec::with_capacity(entries.len());
     match &selection {
         Some(selection) => {
             for target in &selection.targets {
-                arms.push(plan.arm_or_sentence(target, &context));
+                arms.push(arm_for(target));
             }
         }
         None => {
             for entry in entries {
                 match entry {
-                    Entry::Target(target) => arms.push(plan.arm_or_sentence(target, &context)),
+                    Entry::Target(target) => arms.push(arm_for(target)),
                     // The variant is reported elsewhere, under its `cfg`;
                     // this arm only keeps the `match` exhaustive while that
                     // error stands, which the fallback arm does when there

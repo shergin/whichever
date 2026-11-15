@@ -68,3 +68,34 @@ fn sized_methods_take_the_default_and_the_rest_is_forwarded() {
     assert_eq!((boxed.area(), boxed.doubled()), (9, 18));
     assert_eq!(AnyShape::Plain(Square(2)).doubled(), 8);
 }
+
+/// A trait object whose variant is compiled out of this build is no error
+/// beside a method that requires `Self: Sized`: the sentence about it is
+/// its variant's arm, under the variant's `cfg`, as any sentence about one
+/// variant is, and the method is forwarded to the rest.
+mod compiled_out {
+    use super::Shape;
+
+    pub struct Square(pub u32);
+
+    impl Shape for Square {
+        fn area(&self) -> u32 {
+            self.0 * self.0
+        }
+    }
+
+    #[whichever::dispatch(Shape)]
+    pub enum Any {
+        Plain(Square),
+        #[cfg(not(test))]
+        #[dispatch(deref)]
+        Boxed(Box<dyn Shape>),
+    }
+
+    #[test]
+    fn a_sized_method_is_forwarded_where_the_trait_object_is_compiled_out() {
+        let plain = Any::Plain(Square(3));
+        assert_eq!(plain.area(), 9);
+        assert_eq!(plain.doubled(), 18);
+    }
+}

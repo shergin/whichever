@@ -38,6 +38,11 @@ pub fn seed(slot: usize) -> u64 {
 /// The seed of the payload a `Self` argument holds.
 pub const OTHER_SEED: u64 = 5;
 
+/// What the enum declares its generic associated type as, which every
+/// payload's own converts into. Its parameter is `'v`, which no subject
+/// declares, since an enum over `&'a P0` names `'a` already.
+pub const VIEW: &str = "support::View<'v>";
+
 /// The label every wrapper and marked variant carries beside its payload.
 pub const LABEL: u64 = 7;
 
@@ -378,17 +383,52 @@ impl Context {
 
     /// Returns the generics an impl of the trait for a payload declares:
     /// the trait's const parameter, which every payload implements it at.
-    pub fn payload_generics(&self) -> &'static str {
+    pub fn payload_generics(&self) -> String {
+        if let Some(header) = self.generics.header {
+            return format!("<{header}>");
+        }
         match self.generics.constant {
-            true => "<const N: u64>",
-            false => "",
+            true => String::from("<const N: u64>"),
+            false => String::new(),
         }
     }
 
-    /// Returns the subject's generics as an impl declares them, with the
-    /// bound a hand writes: `<'a>`, `<T: Probe>`.
+    /// Returns the subject's generics as an impl of the trait under test
+    /// declares them, with the bound a hand writes, `<'a>`, `<T: Probe>`,
+    /// and the parameter a block's own header declares beside them; an
+    /// impl for one instantiation declares none of the subject's.
     pub fn impl_generics(&self) -> String {
-        self.generics_with(|parameter| parameter.bounded, Some(&self.trait_path()))
+        if self.generics.instantiated {
+            return String::new();
+        }
+        let parameters =
+            self.generics_with(|parameter| parameter.bounded, Some(&self.trait_path()));
+        let Some(header) = self.generics.header else {
+            return parameters;
+        };
+        match parameters.strip_suffix('>') {
+            Some(open) => format!("{open}, {header}>"),
+            None => format!("<{header}>"),
+        }
+    }
+
+    /// Returns the subject's type as an impl of the trait under test names
+    /// it: with its parameters, or at the instantiation a block's header
+    /// implements, `E<P0>`.
+    pub fn impl_type_generics(&self) -> String {
+        match self.instance() {
+            Some(instance) => format!("<{instance}>"),
+            None => self.type_generics(),
+        }
+    }
+
+    /// Returns the type an arm names a payload by where the route names
+    /// it: the instantiation's own where the impl is for one.
+    pub fn instance(&self) -> Option<&'static str> {
+        self.generics
+            .parameter
+            .filter(|_| self.generics.instantiated)
+            .map(|parameter| parameter.instance)
     }
 
     /// Returns the subject's generics as an impl of the second trait
@@ -443,19 +483,28 @@ impl Context {
         self.generics_with(|parameter| parameter.declared, None)
     }
 
-    /// Returns whether the trait method needs `where Self: Sized`: `Self`
-    /// is a type argument in the return type, or the body of an `async fn`
-    /// or a default holds a `Self` by value.
+    /// Returns whether the trait method needs `where Self: Sized`: the
+    /// method declares it, `Self` is a type argument in the return type, or
+    /// the body of an `async fn` or a default holds a `Self` by value.
     pub fn needs_sized(&self) -> bool {
-        if self.node.holds_this_below() {
-            return true;
+        self.cell.requires_sized()
+    }
+
+    /// Returns how a default body names the `Self` it owns and may answer:
+    /// `self` taken by value, or what the box it is taken in holds; `None`
+    /// where it borrows its receiver.
+    pub fn owned_self(&self) -> Option<&'static str> {
+        match self.cell.recv {
+            Receiver::Owned => Some("self"),
+            Receiver::Boxed => Some("*self"),
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::PinShared
+            | Receiver::PinExclusive
+            | Receiver::Rc
+            | Receiver::Arc
+            | Receiver::PinBoxed => None,
         }
-        let by_value =
-            self.cell.recv == Receiver::Owned || self.argument.kind == Some(ArgumentKind::Owned);
-        if self.qualifier.asyncness && (by_value || self.node.holds_this()) {
-            return true;
-        }
-        self.qualifier.provided && by_value
     }
 
     /// Returns whether a call of the method yields a future to await.
@@ -695,16 +744,53 @@ impl Context {
     /// subject declares it: the supplier's, or the first's where no variant
     /// supplies it and the verdict reports so.
     pub fn supplier_payload(&self) -> String {
-        self.cell
-            .supplier()
-            .map_or_else(|| String::from("P0"), |slot| slot.declared_payload())
+        let Some(slot) = self.cell.supplier() else {
+            return String::from("P0");
+        };
+        match (slot.parameter, self.instance()) {
+            (Some(_), Some(instance)) => String::from(instance),
+            (Some(_), None) | (None, _) => slot.declared_payload(),
+        }
+    }
+
+    /// Returns the options of the enum's own, which go on its attribute
+    /// even where a partial block is the impl (partial-impl-blocks.md):
+    /// the conversions.
+    pub fn enum_options(&self) -> Vec<String> {
+        let mut options = Vec::new();
+        let live = self
+            .declared
+            .iter()
+            .filter(|slot| slot.target().is_some())
+            .count();
+        let unchecked = !self.cell.conv.descriptor().checked;
+        if self.generics.payload && live > 1 && unchecked {
+            options.push(String::from("from = false"));
+        }
+        if let Some(option) = self.cell.conv.descriptor().option {
+            options.push(String::from(option));
+        }
+        options
+    }
+
+    /// Returns the options of the trait's, which a partial block's
+    /// attribute takes where the block is the impl: the overrides and the
+    /// mismatch.
+    pub fn trait_options(&self) -> Vec<String> {
+        let enum_options = self.enum_options();
+        self.options()
+            .into_iter()
+            .filter(|option| !enum_options.contains(option))
+            .collect()
     }
 
     /// Returns the subject's attribute options after the trait's path.
     pub fn options(&self) -> Vec<String> {
         let mut options = Vec::new();
+        // A generic associated type is no option: only a block declares it
+        // (`gat_override_option`).
         for (associated, overridden) in self.associated() {
-            if overridden {
+            if overridden && associated != Associated::Item {
                 options.push(format!("{} = support::Wide", associated.name()));
             }
         }
@@ -783,16 +869,45 @@ impl Context {
     /// Returns the output the mismatch gives once a future is awaited, or
     /// the mismatch itself for any other return type.
     pub fn mismatched_output(&self, path: &str) -> String {
-        let payload = "P0::new(424_242)";
-        let this = match self.cell.s0.descriptor().form {
-            Form::Single => format!("{path}::A({payload})"),
-            Form::MarkedTuple => format!("{path}::A({payload}, {LABEL})"),
-            Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {payload} }}"),
-            Form::Struct => format!("{path}({payload})"),
-            Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {payload} }}"),
-            Form::StructNamed => format!("{path} {{ held: {payload} }}"),
+        constant(&self.output(), &self.fresh(path))
+    }
+
+    /// Returns the first variant built around a fresh payload, by `path`,
+    /// which a mismatch or a body answers for `Self`: what the variant
+    /// stores is built around the payload, a pointer by its constructor and
+    /// a reference by leaking a box, which code with no place of its own
+    /// may do.
+    pub fn fresh(&self, path: &str) -> String {
+        let slot = &self.declared[0];
+        let target = self.cell.s0.descriptor();
+        let payload = String::from("P0::new(424_242)");
+        let wrapper = format!(
+            "{} {{ label: {LABEL}, payload: {payload} }}",
+            slot.wrapper()
+        );
+        let pointed = |pointer: Pointer, value: String| match pointer {
+            Pointer::Box => format!("Box::new({value})"),
+            Pointer::Rc => format!("Rc::new({value})"),
+            Pointer::Arc => format!("Arc::new({value})"),
+            Pointer::Shared | Pointer::Exclusive => format!("support::leak({value})"),
         };
-        constant(&self.output(), &this)
+        let stored = match target.storage {
+            Storage::Payload => payload,
+            Storage::Pointer(pointer) => pointed(pointer, payload),
+            Storage::Wrapper => wrapper,
+            Storage::Pair => format!("({LABEL}, {payload})"),
+            Storage::WrapperBehind(pointer) => pointed(pointer, wrapper),
+            Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
+            Storage::Object => pointed(Pointer::Box, payload),
+        };
+        match target.form {
+            Form::Single => format!("{path}::A({stored})"),
+            Form::MarkedTuple => format!("{path}::A({stored}, {LABEL})"),
+            Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {stored} }}"),
+            Form::Struct => format!("{path}({stored})"),
+            Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
+            Form::StructNamed => format!("{path} {{ held: {stored} }}"),
+        }
     }
 }
 
@@ -811,6 +926,8 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
         Node::This => String::from(this),
         Node::Assoc => associated(Associated::Out, this, associates),
         Node::Overridden(name) => associated(*name, this, associates),
+        // At the lifetime of the call, which the receiver lends.
+        Node::Gat => format!("{}<'_>", associated(Associated::Item, this, associates)),
         Node::Fault => String::from("support::Fault"),
         Node::Option(inner) => format!("Option<{}>", spell(inner, this, associates)),
         Node::Result(ok, error) => format!(
@@ -854,6 +971,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::Tag | Node::Assoc => String::from("424_242"),
         Node::Shared | Node::Lent => String::from("&support::MISMATCH"),
         Node::Overridden(_) => String::from("support::Wide::MISMATCH"),
+        Node::Gat => String::from("support::View::MISMATCH"),
         Node::Fault => String::from("support::Fault(424_242)"),
         Node::Option(_) => String::from("None"),
         Node::Result(_, error) => format!("Err({})", constant(error, this)),
@@ -865,14 +983,15 @@ pub fn constant(node: &Node, this: &str) -> String {
                 .collect();
             format!("({})", elements.join(", "))
         }
-        Node::Exclusive
-        | Node::Payload
+        // A place no payload holds, leaked, and a vector of no `Self`.
+        Node::Exclusive => String::from("support::leak(424_242)"),
+        Node::Vec(_) => String::from("Vec::new()"),
+        Node::Payload
         | Node::PayloadShared
         | Node::PayloadLent
         | Node::PayloadExclusive
         | Node::Future(_, _)
-        | Node::Iterator
-        | Node::Vec(_) => {
+        | Node::Iterator => {
             unreachable!("the verdict leaves no mismatch for this type")
         }
     }
@@ -888,6 +1007,21 @@ pub fn storage(slot: &Slot, target: &TargetDescriptor) -> String {
         Storage::Pair => format!("(u64, {payload})"),
         Storage::WrapperBehind(pointer) => pointed(pointer, &slot.wrapper()),
         Storage::WrapperInPair => format!("(u64, {})", slot.wrapper()),
+        Storage::Object => pointed(Pointer::Box, &format!("dyn {TRAIT}")),
+    }
+}
+
+/// Returns the type of a slot's target where a route names it, the
+/// payload or what it dereferences to (routes.md): the payload as the
+/// subject declares it, the type an impl for one instantiation gives its
+/// parameter, `instance`, or the trait object a `Box<dyn Probe>` holds.
+pub fn target_type(slot: &Slot, target: &TargetDescriptor, instance: Option<&str>) -> String {
+    if target.is_object() {
+        return format!("dyn {TRAIT}");
+    }
+    match (slot.parameter, instance) {
+        (Some(_), Some(instance)) => String::from(instance),
+        (Some(_), None) | (None, _) => slot.declared_payload(),
     }
 }
 

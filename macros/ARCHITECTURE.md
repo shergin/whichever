@@ -938,6 +938,28 @@ golden and no other snapshot changed. Mutants
 `unsupplied-item-withholds-the-impl`, `empty-enum-arguments-left-unused` and
 `whole-method-way-out-ignores-the-body` revert them.
 
+The matrix's later axes found six more. The const agreement checks were
+one `const` block that stopped at its first failure; each is now an item
+of its own (`4803ac0`; compile-fail case `const_disagreement_on_two_variants`).
+An enum with lifetime parameters alone has its consts checked with each
+lifetime `'static` (`fd733f6`; the record "Associated consts are checked
+unless a type can change them"). A block method with a body for the rest
+gets no allowance over an empty enum, its body being the user's
+(`52ed853`; `block_body_keeps_the_users_lint`). `trait_object_refusal`
+gives the sentence for a trait object beside a `Self: Sized` method as
+that variant's arm, through `MethodPlan::sentence_arm`, where
+`check_trait_objects` failed the whole method (`a64866e`;
+`trait_object_beside_a_plain_variant`). A generic associated type the enum
+does not declare is written holding its sentence (`8dc025d`;
+`undeclared_gat_keeps_the_impl`). `select_targets` takes a struct's `*`
+field from the entries the header renamed (`287953a`), and
+`Substitution::of_subject` locates a type put in a parameter's place where
+the parameter was (`5946f83`; `instantiated_variant_keeps_its_sentence`).
+Snapshots `associated_const_disagreement` and
+`const_disagreement_on_a_lifetime_enum` moved by the item rustc names; the
+golden `associated_consts` shows the check as an item; no other golden or
+snapshot changed. Each has its mutant.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully

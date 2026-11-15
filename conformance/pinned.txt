@@ -268,3 +268,29 @@ ret=self owner=remote
 path=block owner=remote
 decl=remote owner=remote
 conv=from-off owner=remote
+
+# A trait object in a `deref` variant under a method that requires `Self:
+# Sized` reached rustc as E0277 on the enum's attribute before it had a
+# sentence (`dyn_payload_under_sized_method`); a block's
+# `#[dispatch(default)]` leaves the method to the trait's default and the
+# rest is forwarded (behaviour test `trait_objects_in_deref_variants`).
+s1=deref-dyn qual=provided item=sized
+s1=deref-dyn qual=provided path=block-default item=sized
+# The same sentence is the trait object's arm, under its `#[cfg]`, beside
+# the sentence of a plain variant under `self: Box<Self>`.
+s1=deref-dyn cfg=second-off item=sized
+s1=deref-dyn recv=box item=sized
+
+# A generic associated type an empty partial block declares, every payload's
+# own converting into it (golden `gat_in_a_partial_block`); on the enum's
+# attribute, and in a block that leaves it out, its sentence
+# (`generic_associated_type`, `gat_undeclared_in_block`).
+ret=gat path=block
+ret=gat
+ret=gat-undeclared path=block
+
+# An empty block's header giving the impl a parameter the enum does not
+# have (golden `impl_header`), and one instantiation of a generic enum
+# (partial-impl-blocks.md, "The impl header").
+path=block generic=every
+path=block generic=instance

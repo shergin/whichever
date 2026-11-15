@@ -102,3 +102,42 @@ fn the_named_variants_forward_and_the_body_answers_for_the_rest() {
     assert_eq!(book.to_string(), "book at 10");
     assert_eq!(Item::Gift.to_string(), "something else");
 }
+
+/// A partial block implementing a trait for one instantiation of a generic
+/// struct: `*` is the struct's one field, spelled as the header
+/// instantiates it, so the call is `<Square as Area>::area` and not a call
+/// on the struct's parameter.
+mod one_instantiation_of_a_struct {
+    #[whichever::dispatchable]
+    pub trait Area {
+        fn area(&self) -> u32;
+        fn name(&self) -> &'static str;
+    }
+
+    pub struct Square(pub u32);
+
+    impl Area for Square {
+        fn area(&self) -> u32 {
+            self.0 * self.0
+        }
+        fn name(&self) -> &'static str {
+            "square"
+        }
+    }
+
+    #[whichever::dispatch]
+    pub struct Wrapper<T>(pub T);
+
+    #[whichever::dispatch]
+    impl Area for Wrapper<Square> {
+        #[dispatch(*)]
+        fn area(&self) -> u32;
+    }
+
+    #[test]
+    fn the_star_field_follows_the_header() {
+        let wrapper = Wrapper(Square(3));
+        assert_eq!(wrapper.area(), 9);
+        assert_eq!(wrapper.name(), "square");
+    }
+}

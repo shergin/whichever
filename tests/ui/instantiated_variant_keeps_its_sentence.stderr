@@ -1,0 +1,5 @@
+error: `take` takes `self: Box<Self>`, and `Plain` holds a plain `Square`; hold `Box<Square>` in a `#[dispatch(deref)]` variant, or leave `Plain` to the body
+  --> tests/ui/instantiated_variant_keeps_its_sentence.rs:25:11
+   |
+25 |     Plain(T),
+   |           ^

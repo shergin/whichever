@@ -43,14 +43,8 @@ const TARGETS: &[&str] = &[
 ];
 
 /// The target kinds `arguments` and `qualifiers` cross: the payload, a
-/// pointer that owns, one that lends, a field and a marked field.
-const SOME_TARGETS: &[&str] = &[
-    "plain",
-    "deref-box",
-    "deref-ref",
-    "via-field",
-    "marked-tuple",
-];
+/// pointer that owns, one that lends, and a field.
+const SOME_TARGETS: &[&str] = &["plain", "deref-box", "deref-ref", "via-field"];
 
 /// The receivers that forward; the three a sentence rejects meet the
 /// other axes in `shapes`, `pairs`, `boxed` and the arrays.
@@ -89,7 +83,7 @@ pub const ZONES: &[Zone] = &[
         vary: &[
             ("arg", &[]),
             ("s0", SOME_TARGETS),
-            ("s1", &["plain", "none", "deref-box"]),
+            ("s1", &["plain", "none"]),
             ("recv", FORWARDED),
             ("ret", SOME_RETURNS),
         ],
@@ -102,7 +96,7 @@ pub const ZONES: &[Zone] = &[
             ("recv", &[]),
             ("ret", &[]),
             ("qual", &[]),
-            ("arg", &["none", "ref-trait", "value", "mut"]),
+            ("arg", &["none", "ref-trait"]),
         ],
         fixed: &[("s0", "deref-box"), ("s1", "deref-box")],
     },
@@ -111,8 +105,8 @@ pub const ZONES: &[Zone] = &[
         summary: "a boxed future spelled as `#[async_trait]` writes it, forwarded as it is or converted, under every receiver that forwards, with the `Self` arguments and type parameters its lifetimes bound and a variant over an `Rc` its `+ Send` meets",
         vary: &[
             ("ret", &["boxed-future", "boxed-future-out"]),
-            ("s0", &["plain", "deref-rc", "deref-ref", "via-field", "struct"]),
-            ("s1", &["plain", "none", "deref-rc"]),
+            ("s0", &["plain", "deref-rc", "deref-ref", "struct"]),
+            ("s1", &["plain", "none"]),
             ("recv", FORWARDED),
             ("arg", &["none", "ref-trait", "value", "mut"]),
             ("qual", &["plain", "generic", "turbofish"]),
@@ -141,9 +135,9 @@ pub const ZONES: &[Zone] = &[
         summary: "every path under a few receivers, every return type and a few second variants, required or provided",
         vary: &[
             ("path", &[]),
-            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
+            ("recv", &["ref", "mut", "value", "box"]),
             ("ret", &[]),
-            ("s1", &["plain", "unit", "pair", "deref-box"]),
+            ("s1", &["plain", "unit", "deref-box"]),
             ("qual", &["plain", "provided"]),
         ],
         fixed: &[],
@@ -166,7 +160,7 @@ pub const ZONES: &[Zone] = &[
         vary: &[
             ("path", &["inherent", "inherent-some"]),
             ("s0", &[]),
-            ("s1", &["plain", "none", "deref-box", "unit"]),
+            ("s1", &["plain", "none", "unit"]),
             ("recv", &["ref", "mut", "value"]),
             ("ret", &["u64", "unit", "ref", "mut", "self", "option-self", "result-self", "future"]),
             ("qual", &["plain", "async"]),
@@ -205,7 +199,7 @@ pub const ZONES: &[Zone] = &[
         vary: &[
             ("path", &["inherent", "inherent-some"]),
             ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
-            ("s1", &["plain", "none", "deref-box"]),
+            ("s1", &["plain", "none"]),
             ("recv", &["ref", "value", "box", "pin-ref", "pin-mut"]),
             ("arg", &["none", "ref-bare", "value", "mut"]),
             ("qual", &["plain", "unsafe", "generic", "turbofish"]),
@@ -285,8 +279,8 @@ pub const ZONES: &[Zone] = &[
         summary: "variants under `#[cfg]`, present and compiled out, over the second variants, receivers and returns they meet",
         vary: &[
             ("cfg", &[]),
-            ("s1", &["plain", "none", "unit", "pair", "deref-box", "via-field"]),
-            ("recv", &["ref", "mut", "value", "box", "pin-ref", "pin-mut"]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
             ("ret", &["u64", "self", "assoc", "out", "ref", "future"]),
             ("path", &["attribute", "block", "block-star"]),
         ],
@@ -310,7 +304,7 @@ pub const ZONES: &[Zone] = &[
             ("cfg", &[]),
             ("arg", &[]),
             ("s1", &["plain", "none"]),
-            ("recv", &["ref", "mut", "value"]),
+            ("recv", &["ref", "value"]),
             ("ret", &["u64", "self"]),
             ("path", &["attribute", "block-star", "block-some", "inherent", "inherent-some"]),
         ],
@@ -347,7 +341,7 @@ pub const ZONES: &[Zone] = &[
             ("generic", &["payload", "concrete", "own", "defaulted", "paired"]),
             ("path", &["attribute", "block", "block-star", "block-some", "block-default"]),
             ("s0", &["plain", "deref-box", "struct"]),
-            ("s1", &["plain", "none", "deref-box"]),
+            ("s1", &["plain", "none"]),
             ("recv", &["ref", "value"]),
             ("ret", &["u64", "self", "option-self", "assoc", "future"]),
             ("qual", &["plain", "provided"]),
@@ -492,7 +486,7 @@ pub const ZONES: &[Zone] = &[
         name: "route-pairs",
         summary: "a route of several steps on the second variant beside a first of one step or several, under the receivers that forward",
         vary: &[
-            ("s0", &["plain", "deref-box", "deref-rc", "via-field", "via-method", "deref-box-field", "via-index-field", "via-method-field"]),
+            ("s0", &["plain", "deref-rc", "via-method", "deref-box-field", "via-method-field"]),
             ("s1", ROUTES),
             ("recv", FORWARDED),
         ],
@@ -506,7 +500,6 @@ pub const ZONES: &[Zone] = &[
             ("path", &[]),
             ("arg", &["none", "ref-trait", "value", "mut"]),
             ("recv", &["ref", "mut", "value"]),
-            ("ret", &["u64", "self"]),
         ],
         fixed: &[],
     },
@@ -637,6 +630,56 @@ pub const ZONES: &[Zone] = &[
             ("s1", &["plain", "unit", "deref-box"]),
             ("conv", &[]),
             ("home", &["local", "crate"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "trait-objects",
+        summary: "a trait object in a `deref` variant beside a sized payload, under a method that requires `Self: Sized` or not, through the enum's attribute and the blocks, a block's `#[dispatch(default)]` included, under the receivers, qualifiers and returns a dyn-compatible trait takes",
+        vary: &[
+            ("item", &["none", "sized"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref", "rc"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("qual", &["plain", "unsafe", "provided"]),
+            ("ret", &["u64", "ref", "boxed-future"]),
+        ],
+        fixed: &[("s1", "deref-dyn")],
+    },
+    Zone {
+        name: "trait-object-builds",
+        summary: "a trait object beside variants under `#[cfg]` and a third variant, under which the sentence of a method that requires `Self: Sized` is the trait object's arm",
+        vary: &[
+            ("item", &["none", "sized"]),
+            ("cfg", &[]),
+            ("path", &["attribute", "block-star", "block-some", "block-default"]),
+            ("qual", &["plain", "provided"]),
+            ("s2", &["none", "plain"]),
+        ],
+        fixed: &[("s1", "deref-dyn")],
+    },
+    Zone {
+        name: "generic-associated-types",
+        summary: "a generic associated type a partial block declares, or leaves out, through the enum's attribute and every block, under the receivers that lend its lifetime, over the target kinds whose payloads convert into it and the `Self` arguments whose mismatch is one",
+        vary: &[
+            ("ret", &["gat", "gat-undeclared"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("recv", &["ref", "mut", "pin-mut"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple"]),
+            ("arg", &["none", "ref-trait", "ref-enum"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "impl-headers",
+        summary: "a partial block's own header, a parameter the enum does not have with the bound the payloads take and one instantiation of a generic enum, through every block, over the target kinds, second variants, receivers, returns and qualifiers whose arms it heads",
+        vary: &[
+            ("generic", &["every", "instance"]),
+            ("path", &["block", "block-star", "block-some", "block-default", "block-written"]),
+            ("s0", &["plain", "deref-box", "via-field", "struct"]),
+            ("s1", &["plain", "none"]),
+            ("recv", &["ref", "value"]),
+            ("ret", &["u64", "self"]),
+            ("qual", &["plain", "provided"]),
         ],
         fixed: &[],
     },

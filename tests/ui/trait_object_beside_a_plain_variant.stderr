@@ -1,0 +1,18 @@
+error: `take` takes `self: Box<Self>`, and `Plain` holds a plain `Square`; hold `Box<Square>` in a `#[dispatch(deref)]` variant, or implement the method by hand
+  --> tests/ui/trait_object_beside_a_plain_variant.rs:27:11
+   |
+27 |     Plain(Square),
+   |           ^^^^^^
+
+error: `take` requires `Self: Sized`, and `Object` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn take(..);` in a `#[whichever::dispatch] impl Shape for Both` block, or implement the method by hand
+  --> tests/ui/trait_object_beside_a_plain_variant.rs:9:5
+   |
+ 9 | /     fn take(self: Box<Self>) -> u32
+10 | |     where
+11 | |         Self: Sized;
+   | |___________________^
+...
+25 |   #[whichever::dispatch(Shape)]
+   |                         ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

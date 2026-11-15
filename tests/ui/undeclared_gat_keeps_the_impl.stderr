@@ -1,0 +1,18 @@
+error: `Item` is a generic associated type, which only the enum can declare; write `type Item<'a> = ..;` in a `#[whichever::dispatch] impl Lend for Kind` block
+  --> tests/ui/undeclared_gat_keeps_the_impl.rs:10:5
+   |
+10 | /     type Item<'a>
+11 | |     where
+12 | |         Self: 'a;
+   | |_________________^
+...
+34 |   #[whichever::dispatch(Lend)]
+   |                         ---- in this macro invocation
+   |
+   = note: this error originates in the macro `Lend` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `bump` takes `&mut self`, and `Shared` dereferences a `Rc<A>`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or implement the method by hand
+  --> tests/ui/undeclared_gat_keeps_the_impl.rs:38:12
+   |
+38 |     Shared(Rc<A>),
+   |            ^^^^^

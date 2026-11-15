@@ -7,7 +7,9 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site, HOLE};
+use super::context::{
+    constructor, is_struct, pattern, target_type, variant, write_struct, Context, Site, HOLE,
+};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
@@ -199,6 +201,9 @@ struct Method {
     hands_enum: bool,
     /// The trait as its arms name it.
     trait_path: String,
+    /// The type the impl gives the subject's parameter, where it is for
+    /// one instantiation.
+    instance: Option<&'static str>,
 }
 
 /// Writes `mod hand`.
@@ -262,7 +267,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
-        context.type_generics()
+        context.impl_type_generics()
     ));
     for (associated, overridden) in context.associated() {
         let name = associated.name();
@@ -273,8 +278,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 context.supplier_payload(),
                 context.trait_path()
             ),
+            // The enum declares it, as the block does.
+            (Associated::Item, _) => String::from(super::context::VIEW),
         };
-        writer.line(format!("type {name} = {ty};"));
+        writer.line(associated.definition(&ty));
     }
     // An item the enum fixes is the value fixed, and any other is the
     // supplier's (what-is-generated.md).
@@ -317,6 +324,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         passes: false,
         hands_enum: false,
         trait_path: context.trait_path(),
+        instance: context.instance(),
     };
     write_method(writer, context, &base);
     // The method returning the trait's own type is forwarded as the control
@@ -420,6 +428,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         passes: true,
         hands_enum: false,
         trait_path: context.trait_path(),
+        instance: context.instance(),
     };
     if method.inherent {
         writer.close("}");
@@ -524,6 +533,7 @@ fn write_other(writer: &mut Writer, context: &Context) {
         passes: false,
         hands_enum: false,
         trait_path: String::from(OTHER),
+        instance: None,
     };
     write_method(writer, context, &method);
     writer.close("}");
@@ -579,6 +589,7 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
         passes: true,
         hands_enum: false,
         trait_path: String::from(CORE_DISPLAY),
+        instance: None,
     };
     match context.path.form {
         PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
@@ -778,9 +789,10 @@ fn arm(
     // dereferences to, the call is `<Square as Shape>::area(&inner.base)`;
     // a field's or a method's type cannot be named, and the call is `<_ as
     // Shape>::area(&inner.base)`, qualified by the trait alone" (routes.md).
+    // What a `Box<dyn Probe>` dereferences to is the trait object.
     let named = target.route.iter().all(|step| *step == Step::Deref);
     let qualifier = match named {
-        true => slot.declared_payload(),
+        true => target_type(slot, target, method.instance),
         false => String::from("_"),
     };
     let mut call = format!(
@@ -829,6 +841,7 @@ fn inherent_value(
         | Node::This
         | Node::Assoc
         | Node::Overridden(_)
+        | Node::Gat
         | Node::Fault
         | Node::Option(_)
         | Node::Result(_, _)
