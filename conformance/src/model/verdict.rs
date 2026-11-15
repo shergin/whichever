@@ -628,8 +628,10 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         }
     }
     // A body a block writes, for the variants a mark leaves out or for
-    // every variant, is a constant of the return type.
+    // every variant, is a constant of the return type, which under a
+    // function lift is the lift's own.
     if matches!(path.form, PathForm::First | PathForm::Written) {
+        let node = arm_node(cell);
         if node.holds_future() {
             return Some("a block body for a future return");
         }
@@ -883,44 +885,8 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     }
     match cell.callee {
         Callee::Method | Callee::Renamed => {
-            // `with = Into::into` "rebuilds the enum through its `From`
-            // impls" (inherent-methods.md): the payload answers its own
-            // type, which converts into the enum named in the return type,
-            // or a value that converts into itself.
-            let into = match cell.ret {
-                Return::Tag | Return::Unit | Return::Shared | Return::Exclusive => true,
-                Return::This => cell.into_rebuilds(),
-                Return::OptionThis
-                | Return::ResultThis
-                | Return::FallibleThis
-                | Return::TupleThis
-                | Return::Assoc
-                | Return::Out
-                | Return::OptionOut
-                | Return::ResultError
-                | Return::ResultThisError
-                | Return::Future
-                | Return::FutureThis
-                | Return::BoxedFuture
-                | Return::BoxedFutureOut
-                | Return::Iterator
-                | Return::VecThis
-                | Return::OptionTupleThis
-                | Return::Lent
-                | Return::Gat
-                | Return::GatUndeclared => false,
-            };
-            let fits = match lift {
-                Lift::Bare | Lift::Some | Lift::Ok => true,
-                Lift::ByRef => cell.ret == Return::Shared,
-                Lift::ByValue => cell.ret == Return::Tag,
-                Lift::Into => into,
-            };
-            if !fits {
-                return Some("a lift over an answer the lift does not take");
-            }
-            if lift != Lift::Bare && cell.ret.node().future().is_some() {
-                return Some("a lift over a future");
+            if let Lifted::Unpredicted(reason) = lifted(cell) {
+                return Some(reason);
             }
         }
         Callee::Value | Callee::Field => {
@@ -956,6 +922,90 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     None
 }
 
+/// How a lift over an inherent method's call meets what the call answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lifted {
+    /// The lift takes the answer, or there is no lift.
+    Takes,
+    /// rustc refuses the lift's call, with the code, for the reason.
+    Refused(&'static str, &'static str),
+    /// The model does not predict it, for the reason.
+    Unpredicted(&'static str),
+}
+
+/// Returns how the cell's lift meets what its method's call answers.
+/// "`with = path` wraps each forwarded result in a call to `path`"
+/// (inherent-methods.md). A method returning `Self` or `Option<Self>`
+/// wraps the payload's result back into the variant, and "with `with`,
+/// the payload returns the plain value and `with` lifts the wrapped
+/// variant"; the arms are awaited where the method is `async` or returns
+/// `impl Future`. Under `support::by_ref` and `support::by_value` the
+/// declared type is theirs, `u64`, which names neither, so the function
+/// is handed the payload's answer as it is, the payload's own type or its
+/// future included; the payloads count as `support::Counted` there. Under
+/// the other lifts the awaited answer is not modelled yet.
+fn lifted(cell: &Cell) -> Lifted {
+    let future = cell.ret.node().future().is_some();
+    let unpredicted =
+        Lifted::Unpredicted("a lift over an answer whose type the model does not spell");
+    match cell.lift {
+        Lift::Bare => Lifted::Takes,
+        Lift::Some | Lift::Ok | Lift::Into if future => Lifted::Unpredicted("a lift over a future"),
+        Lift::Some | Lift::Ok => Lifted::Takes,
+        // `with = Into::into` "rebuilds the enum through its `From`
+        // impls": the payload answers its own type, which converts into
+        // the enum named in the return type, or a value that converts
+        // into itself.
+        Lift::Into => match cell.ret {
+            Return::Tag | Return::Unit | Return::Shared | Return::Exclusive => Lifted::Takes,
+            Return::This if cell.into_rebuilds() => Lifted::Takes,
+            Return::This | Return::OptionThis => Lifted::Refused(
+                "E0277",
+                "`Into::into` handed an answer no `From` impl converts into the declared type",
+            ),
+            _ => unpredicted,
+        },
+        // A function taking `&T` takes a shared reference, and a mutable
+        // one coerced to it.
+        Lift::ByRef => match cell.ret {
+            Return::Shared | Return::Exclusive | Return::Lent => Lifted::Takes,
+            Return::Tag | Return::Unit | Return::This | Return::OptionThis | Return::Future => {
+                Lifted::Refused(
+                    "E0308",
+                    "a function taking `&T` handed an answer that is no reference",
+                )
+            }
+            _ => unpredicted,
+        },
+        // `support::by_value` takes a `T: Counted`, which `u64` and the
+        // payloads are.
+        Lift::ByValue => match cell.ret {
+            Return::Tag | Return::This => Lifted::Takes,
+            Return::Unit
+            | Return::Shared
+            | Return::Exclusive
+            | Return::Lent
+            | Return::OptionThis
+            | Return::Future => Lifted::Refused(
+                "E0277",
+                "a function taking a `T: Counted` handed an answer that is not counted",
+            ),
+            _ => unpredicted,
+        },
+    }
+}
+
+/// Returns the return type the arms of the method under test meet. A
+/// function lift's declared type is its own, `u64`, which names no `Self`
+/// and no future, so its arms rewrap and await nothing and no limit of the
+/// payload's answer concerns them (`lifted`).
+fn arm_node(cell: &Cell) -> Node {
+    match cell.lift {
+        Lift::ByRef | Lift::ByValue => cell.declared_node(),
+        Lift::Bare | Lift::Some | Lift::Ok | Lift::Into => cell.ret.node(),
+    }
+}
+
 /// The sentences the docs promise for the cell, each with where it is
 /// reported.
 fn limits(cell: &Cell) -> Vec<Expected> {
@@ -966,7 +1016,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
             expected.push(entry);
         }
     };
-    let node = cell.ret.node();
+    let node = arm_node(cell);
     let receiver = cell.recv.descriptor();
     let argument = cell.reached_argument();
     let slots = cell.slots();
@@ -1112,7 +1162,13 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // Open question: a route of several steps that starts with `*`, `via =
     // *.payload`, is read as a route, whose sentence names it, rather than
     // as `deref`; `tests/ui` pins `deref` alone and a field alone.
-    if conversion.is_some() && node.holds_this() {
+    //
+    // Under `with = Into::into` the return type names the enum rather than
+    // `Self`, so the payload's answer reaches `Into::into` as it is and
+    // nothing is rewrapped; a variant without a `From` impl for it is a
+    // rejection (`lifted`).
+    let rewraps = cell.lift != Lift::Into;
+    if rewraps && conversion.is_some() && node.holds_this() {
         for (slot, _, target) in &method_live {
             let anchor = Anchor::Variant(slot.index);
             if target.is_deref() {
@@ -1132,6 +1188,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // wrapper.md).
     let named = cell.s0.descriptor().form == Form::StructNamed;
     if named
+        && rewraps
         && forwarded
         && node
             .conversion()
@@ -1628,6 +1685,14 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
             "a function taking `T` handed the reference the pattern binds",
             Forwarded::Method,
         );
+    }
+    // A lift over a call that does not take what the call answers is a
+    // type error the hand's call of the same function gets as well.
+    let called = matches!(cell.callee, Callee::Method | Callee::Renamed);
+    if let Lifted::Refused(code, reason) = lifted(cell) {
+        if called && forwarded && !live.is_empty() {
+            reject(code, reason, Forwarded::Method);
+        }
     }
 
     // A boxed future whose output is converted is one `async move` block

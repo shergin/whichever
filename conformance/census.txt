@@ -117,14 +117,13 @@ suite inherent-places
   never 80 unmodelled: a function lift handed a place reached through a route
 
 suite inherent-calls
-  pass 726
-  limit 614
-  rejected 0
+  pass 798
+  limit 822
+  rejected 588
   malformed 0
   never 192 non-canonical
   never 48 unmodelled: a block body for a return type that needs a payload to make
-  never 192 unmodelled: a lift over a future
-  never 916 unmodelled: a lift over an answer the lift does not take
+  never 240 unmodelled: a lift over a future
   never 192 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent-scope
@@ -148,11 +147,11 @@ suite inherent-struct-returns
 
 suite inherent-into
   pass 342
-  limit 270
-  rejected 0
+  limit 294
+  rejected 160
   malformed 0
   never 420 non-canonical
-  never 282 unmodelled: a lift over an answer the lift does not take
+  never 98 unmodelled: a limit beside a rejection the limit does not replace
   never 30 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 96 unmodelled: an inherent body for a return type that needs a payload to make
 
@@ -503,31 +502,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 7883
+  pass 7863
   limit 0
   rejected 0
   malformed 0
-  rows 7883
-  covered 83585
-  unreached 39646
+  rows 7863
+  covered 84374
+  unreached 38857
 
 suite array-limits
   pass 0
-  limit 525
+  limit 536
   rejected 0
   malformed 0
-  rows 525
-  covered 10585
-  unreached 1828
+  rows 536
+  covered 10620
+  unreached 1793
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 874
+  rejected 814
   malformed 0
-  rows 874
-  covered 10078
-  unreached 2335
+  rows 814
+  covered 10277
+  unreached 2136
 
 suite known
   pass 0

@@ -17,7 +17,7 @@ use crate::model::receiver::{Binding, Handover};
 use crate::model::returns::{Associated, Conversion, FutureKind, Node};
 use crate::model::stack::OTHER;
 use crate::model::target::{Step, TargetDescriptor};
-use crate::model::{Callee, Lift, Receiver, Slot};
+use crate::model::{Callee, Lift, Receiver, Slot, Target};
 
 /// A place expression, kept as a tree so that a borrow of it can be
 /// written the way a hand writes it.
@@ -237,18 +237,26 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.blank();
     super::conversions::write_hand(writer, context);
     // `with = Into::into` rebuilds the enum through the `From` impls the
-    // subject's attribute writes, which the hand writes for its own enum.
+    // subject's attribute writes, which the hand writes for its own enum:
+    // the one from a payload is a variant's that holds it as it is, the
+    // others take what their variant stores, which no rebuild from a
+    // payload uses; a struct's attribute writes none.
     let rebuilds = context.inherent()
         && context.cell.lift == Lift::Into
-        && context.cell.declared_node().holds_this();
+        && context.cell.declared_node().holds_this()
+        && !is_struct(&context.slots);
     if rebuilds {
-        for (slot, _, _) in context.cell.method_slots() {
+        let generics = context.generics();
+        for (slot, target, _) in context.cell.method_slots() {
+            if target != Target::Plain {
+                continue;
+            }
             let payload = slot.payload();
             if slot.deprecated {
                 writer.line("#[allow(deprecated)]");
             }
-            writer.open(format!("impl From<{payload}> for E {{"));
-            writer.open(format!("fn from(payload: {payload}) -> E {{"));
+            writer.open(format!("impl{generics} From<{payload}> for E{generics} {{"));
+            writer.open(format!("fn from(payload: {payload}) -> E{generics} {{"));
             writer.line(format!("E::{}(payload)", slot.name()));
             writer.close("}");
             writer.close("}");
@@ -449,8 +457,16 @@ pub fn write(writer: &mut Writer, context: &Context) {
             true => vec![String::from("#[allow(unused_variables)]")],
             false => Vec::new(),
         };
+        // A function lift's declared type is its own, `u64`, which names
+        // no `Self` and no future, so its arms are neither rewrapped nor
+        // awaited: the function is handed the payload's answer as it is.
+        let node = match context.cell.lift {
+            Lift::ByRef | Lift::ByValue => context.cell.declared_node(),
+            Lift::Bare | Lift::Some | Lift::Ok | Lift::Into => method.node,
+        };
         let method = Method {
             signature: context.declared_signature(),
+            node,
             fallback,
             hands_enum: context.hands_the_enum(),
             attributes,
