@@ -56,7 +56,10 @@ rest. A mark under `#[cfg]` follows the rule of a method written under
 one, `#[dispatch(default)]` included: the method is left to the default,
 or forwarded as marked, where the `cfg` holds; where it does not, it is
 forwarded as a mark of the same name without a `#[cfg]` says, or else to
-every variant.
+every variant. A variant no method can forward to, such as a unit variant,
+is reported in the builds in which some method is forwarded to every
+variant and in no other, so a mark under the trait method's own `#[cfg]`,
+which leaves the forwarding no build that has the method, reports nothing.
 The block's own header,
 generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells

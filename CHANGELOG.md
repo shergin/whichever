@@ -65,7 +65,8 @@ third while probing the first.
   `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
   changed, since none held such a type.
 
-Fixes the conformance matrix found, none of them from a survey.
+Fixes the conformance matrix found, and one the survey of 2026-11-13 of
+mp4-atom 0.17.1 found that the matrix showed to be wider.
 
 - Before, a rustc error inside an arm was reported on a span from the
   trait's `#[whichever::dispatchable]` to the enum's name, or from the
@@ -118,6 +119,23 @@ Fixes the conformance matrix found, none of them from a survey.
   method's arguments; the sentence now stands alone. The `tests/ui` case
   `block_over_a_variant_without_a_payload_alone_in_the_build` is new; no
   other snapshot and no golden changed.
+- Before, a partial impl block whose mark sat under the trait method's own
+  `#[cfg]`, `#[cfg(test)] #[dispatch(default)] fn extra(&self) -> u8;` for
+  a trait that declares `extra` under `#[cfg(test)]`, reported a variant no
+  method can forward to, `Other(u8, u8)`, in the build where the `cfg`
+  holds, so `cargo build` passed and `cargo test` failed. The mark leaves
+  the plain forwarding only the builds where the `cfg` does not hold, in
+  which the trait has no such method, and the variant was reported as
+  though the method were forwarded to every variant. A mark naming
+  variants, `#[dispatch(*)]` and a method the block writes, each under the
+  trait method's `#[cfg]`, did the same; mp4-atom 0.17.1's `Encode`, with a
+  `#[cfg(test)]` provided method, is the shape. The variant is now
+  reported in the builds in which some method is forwarded to every
+  variant and in no other, so a mark under a `cfg` the trait method does
+  not carry still leaves it reported where the `cfg` does not hold.
+  `docs/partial-impl-blocks.md` says so. The `tests/ui` case
+  `conditional_mark_leaves_builds_to_the_forwarding` is new; no other
+  snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

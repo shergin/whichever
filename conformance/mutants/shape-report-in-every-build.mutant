@@ -1,0 +1,10 @@
+file: macros/src/implement.rs
+breaks: A partial block reports a variant no method can forward to only in the builds in which some method forwards to every variant, so a mark under the trait method's own `#[cfg]` holds where that `cfg` does, as `docs/partial-impl-blocks.md` says.
+expect: killed
+
+find:
+            let builds = quote_spanned! { site => #[cfg(any(#(#predicates),*))] };
+            shape_errors(&entries, Some(&builds))
+replace:
+            let _ = predicates;
+            shape_errors(&entries, None)

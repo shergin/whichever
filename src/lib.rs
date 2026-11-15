@@ -564,7 +564,9 @@
 //! restatement is the real trait's. A mark under `#[cfg]`, that one
 //! included, holds where the `cfg` does, as a written method does, and the
 //! other builds go to a mark of the same name without a `#[cfg]`, or else
-//! to every variant. The block's own header, bounds included, becomes the
+//! to every variant. A variant no method can forward to is reported in the
+//! builds in which some method is forwarded to every variant and in no
+//! other. The block's own header, bounds included, becomes the
 //! impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,

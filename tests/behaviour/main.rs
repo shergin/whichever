@@ -37,6 +37,7 @@ mod inherent_methods_do_not_shadow;
 mod inherent_methods_on_dereferenced_payloads;
 mod kept_parameter_names;
 mod lifetimes_and_generic_enums;
+mod marks_under_the_trait_methods_cfg;
 mod method_attribute_spelled_with_the_crate_path;
 mod mismatch_with_moved_arguments;
 mod named_carrier_macros;
