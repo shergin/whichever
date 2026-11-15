@@ -287,6 +287,10 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   supersedes "Associated consts are checked for four types". The
   `tests/ui` case `const_disagreement_on_a_lifetime_enum` is new; no other
   snapshot and no golden changed.
+- `docs/partial-impl-blocks.md` says what a method a partial block writes
+  or marks carries: what is written on it, with `#[inline]` where nothing
+  else is, and nothing of the trait method's own attributes, which only
+  the plain forwarding repeats.
 
 ## 0.7.3 - 2026-11-13
 

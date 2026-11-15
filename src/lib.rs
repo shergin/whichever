@@ -166,7 +166,7 @@
 //! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. So is a sentence about the variant, which a method that cannot be forwarded to it has as that arm's result: a variant compiled out is no error, and each variant the method cannot reach is named. An associated type or const comes from the first variant without a `#[cfg]`. An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings where the receiver is a reference, so a build that leaves no variant still compiles, as a hand's does. |
 //! | `#[deprecated]` on a variant | Its arms and its conversions are written under `#[allow(deprecated)]`; the deprecation reaches the code that names the variant. |
 //! | `#[deprecated]` on a method or an associated item | Forwarded under `#[allow(deprecated)]`, as a hand writes it; the deprecation reaches the callers through the trait's item. |
-//! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
+//! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead, and a method a partial block writes or marks carries what is written on it. |
 //! | `#[allow(..)]` on a method or an associated item | Carried onto the generated item, which repeats the signature the lint was allowed on. `warn`, `deny` and `expect` stay the trait crate's, and so does an `#[allow]` another macro added. |
 //!
 //! # Generics
