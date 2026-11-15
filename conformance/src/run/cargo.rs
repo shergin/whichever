@@ -29,7 +29,10 @@ pub fn command(workspace: &Path, target: &Path) -> Command {
 }
 
 /// Returns whether a variable of the outer cargo's environment would change
-/// what the nested cargo builds.
+/// what the nested cargo builds. `CARGO_INCREMENTAL` changes only what is
+/// kept between builds, and passes: a run that starts cold, as in CI, turns
+/// the incremental cache off, which would otherwise fill the disk with
+/// state no later run reads.
 fn leaks(key: &str) -> bool {
     const FLAGS: &[&str] = &[
         "RUSTFLAGS",
@@ -48,7 +51,7 @@ fn leaks(key: &str) -> bool {
     if key.starts_with("__CARGO") {
         return true;
     }
-    key.starts_with("CARGO_") && key != "CARGO_HOME"
+    key.starts_with("CARGO_") && key != "CARGO_HOME" && key != "CARGO_INCREMENTAL"
 }
 
 /// The level of a diagnostic.
@@ -291,6 +294,7 @@ failures:
         assert_eq!(cell_module("pass-000/src/support.rs"), None);
         assert_eq!(cell_module("pass-000/src/c_01.rs"), None);
         assert!(leaks("CARGO_TARGET_DIR") && leaks("RUSTFLAGS") && !leaks("CARGO_HOME"));
+        assert!(!leaks("CARGO_INCREMENTAL"));
         assert!(!leaks("PATH") && !leaks("RUSTUP_TOOLCHAIN"));
     }
 }
