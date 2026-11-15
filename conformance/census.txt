@@ -393,6 +393,6 @@ suite array-rejected
 
 suite known
   pass 0
-  limit 2
+  limit 0
   rejected 0
   malformed 0
