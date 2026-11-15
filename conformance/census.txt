@@ -530,8 +530,7 @@ suite array-rejected
   unreached 2335
 
 suite known
-  pass 2
-  limit 7
+  pass 0
+  limit 0
   rejected 0
   malformed 0
-  never 3 non-canonical
