@@ -194,6 +194,14 @@ axis! {
         /// `&'a u64`, borrowed for the subject's own lifetime, which an
         /// inherent place over a variant holding `&'a P0` answers.
         Lent = "lent",
+        /// `Self::Item<'_>`, a generic associated type, which the enum
+        /// declares in a partial block where it has one, `type Item<'v> =
+        /// support::View<'v> where Self: 'v;`, every payload's own
+        /// converting into it (partial-impl-blocks.md).
+        Gat = "gat",
+        /// `Self::Item<'_>` as `gat` declares it, which a partial block
+        /// leaves undeclared.
+        GatUndeclared = "gat-undeclared",
     }
 }
 

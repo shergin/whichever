@@ -132,6 +132,18 @@ another crate's enum or trait. A method that requires `Self: Sized`, the
 `#[dispatch(default)]` leaves it to the trait's default; under `self` or
 a pinned receiver, the trait object is rustc's E0277 for the hand as well.
 
+Two values of `ret` return a generic associated type, `Self::Item<'_>`,
+declared `type Item<'v> where Self: 'v;`, its parameter named apart from
+the `'a` of a subject that borrows. Every payload gives it a loan of its
+state, `support::Loan0<'v>`, which converts into the
+`support::View<'v>` the enum declares, `type Item<'v> = support::View<'v>
+where Self: 'v;`, as `docs/partial-impl-blocks.md` and the golden
+`gat_in_a_partial_block` write it. Under `gat` a partial block declares it
+where the cell has one; under `gat-undeclared` the block leaves it out.
+Without the declaration, on the enum's attribute or in such a block, it is
+the sentence of `generic_associated_type` and `gat_undeclared_in_block`
+on the trait's declaration.
+
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
 variant. With it a `match` has three arms, a mismatch is checked between

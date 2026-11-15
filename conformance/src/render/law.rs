@@ -297,8 +297,14 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         false => output,
     };
     // The law has no lifetime of its own to name, so a return for the
-    // subject's lifetime is observed as an elided reference.
-    let subject_type = spell(&declared, "S", Associates::Qualified).replace("&'a ", "&");
+    // subject's lifetime is observed as an elided reference, and the
+    // generic associated type as what the enum declares it, since the
+    // projection would elide the lifetime of a subject that borrows apart
+    // from its own.
+    let subject_type = match declared == Node::Gat {
+        true => super::context::VIEW.replace("<'v>", "<'_>"),
+        false => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    };
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
     writer.line(observation(&declared, "answer", Side::Subject, 0));
@@ -343,6 +349,12 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
         Node::Overridden(_) => match side {
             Side::Subject => format!("format!(\"{{:?}}\", {value})"),
             Side::Payload(_) => format!("format!(\"{{:?}}\", support::Wide::from({value}))"),
+        },
+        // What a payload lends shows once converted into what the enum
+        // declares, which names the payload's slot and the place lent.
+        Node::Gat => match side {
+            Side::Subject => format!("format!(\"{{:?}}\", {value})"),
+            Side::Payload(_) => format!("format!(\"{{:?}}\", support::View::from({value}))"),
         },
         Node::Fault => format!("format!(\"{{:?}}\", {value})"),
         Node::Option(element) => format!(
@@ -570,6 +582,7 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 | Node::This
                 | Node::Assoc
                 | Node::Overridden(_)
+                | Node::Gat
                 | Node::Fault
                 | Node::Option(_)
                 | Node::Result(_, _)

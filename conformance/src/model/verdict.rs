@@ -22,7 +22,7 @@ use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
 use super::receiver::Lends;
-use super::returns::{FutureKind, Node};
+use super::returns::{Associated, FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
@@ -100,6 +100,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     if !object_canonical(cell) {
+        return Verdict::NonCanonical;
+    }
+    // A generic associated type left undeclared is a partial block's way of
+    // leaving it out; nothing else declares it either way.
+    if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
     if let Some(verdict) = declared(cell) {
@@ -565,7 +570,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::BoxedFuture
             | Return::BoxedFutureOut
             | Return::VecThis
-            | Return::OptionTupleThis => false,
+            | Return::OptionTupleThis
+            | Return::Gat
+            | Return::GatUndeclared => false,
             // "A block on a dispatch struct forwards the same way [..]; a
             // return-position `impl Trait` is forwarded as it is"
             // (inherent-methods.md), which an enum's arms cannot.
@@ -863,7 +870,9 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 | Return::Iterator
                 | Return::VecThis
                 | Return::OptionTupleThis
-                | Return::Lent => false,
+                | Return::Lent
+                | Return::Gat
+                | Return::GatUndeclared => false,
             };
             let fits = match lift {
                 Lift::Bare | Lift::Some | Lift::Ok => true,
@@ -1271,6 +1280,19 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // named, the sentence of `all_variants_conditional` is on the enum.
     // "An associated type or const comes from the first variant without a
     // `#[cfg]`", so only those can supply it.
+    // "A generic associated type is declared by the enum, in a partial impl
+    // block; it cannot come from the first variant" (limits.md,
+    // `generic_associated_type`), and a block that does not declare it gets
+    // the same sentence (`gat_undeclared_in_block`), on the trait's
+    // declaration of the type, which the enum reads.
+    let gat = node
+        .associated()
+        .iter()
+        .any(|(associated, _)| *associated == Associated::Item);
+    if gat && !cell.declares_gat() {
+        expect(Limit::GenericAssociatedType, Anchor::Associated);
+    }
+
     let items = cell.agree.descriptor().items;
     let taken = node.associated().iter().any(|(_, overridden)| !overridden)
         || items.iter().any(|item| item.overridden.is_none());

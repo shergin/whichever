@@ -6,6 +6,7 @@ use super::payload;
 use super::writer::{Part, Writer};
 use crate::model::argument::MismatchSite;
 use crate::model::path::{Form as PathForm, Site as PathSite};
+use crate::model::returns::Associated;
 use crate::model::stack::OTHER;
 use crate::model::Anchor;
 
@@ -72,7 +73,10 @@ fn write_probe_trait(writer: &mut Writer, context: &Context) {
         context.required()
     ));
     for (associated, _) in context.associated() {
-        writer.line(format!("type {};", associated.name()));
+        if associated == Associated::Item && !restated {
+            writer.anchor(Anchor::Associated.name());
+        }
+        writer.line(associated.declaration());
     }
     for item in context.agreement.items {
         writer.line(item.declaration());
@@ -123,7 +127,10 @@ pub fn write_restatement(writer: &mut Writer, context: &Context) {
     ));
     writer.open(format!("trait {TRAIT}{} {{", context.trait_parameters()));
     for (associated, _) in context.associated() {
-        writer.line(format!("type {};", associated.name()));
+        if associated == Associated::Item {
+            writer.anchor(Anchor::Associated.name());
+        }
+        writer.line(associated.declaration());
     }
     for item in context.agreement.items {
         writer.line(item.declaration());
@@ -268,6 +275,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         context.trait_path(),
         context.type_generics()
     ));
+    // The block declares the generic associated type, which no first
+    // variant can supply (partial-impl-blocks.md, golden
+    // `gat_in_a_partial_block`).
+    if context.cell.declares_gat() {
+        writer.line(Associated::Item.definition(super::context::VIEW));
+    }
     if !context.cell.base_reaches_all() && !context.foreign() {
         let named: Vec<&str> = context
             .cell

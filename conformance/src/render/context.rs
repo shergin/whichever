@@ -38,6 +38,11 @@ pub fn seed(slot: usize) -> u64 {
 /// The seed of the payload a `Self` argument holds.
 pub const OTHER_SEED: u64 = 5;
 
+/// What the enum declares its generic associated type as, which every
+/// payload's own converts into. Its parameter is `'v`, which no subject
+/// declares, since an enum over `&'a P0` names `'a` already.
+pub const VIEW: &str = "support::View<'v>";
+
 /// The label every wrapper and marked variant carries beside its payload.
 pub const LABEL: u64 = 7;
 
@@ -695,8 +700,10 @@ impl Context {
     /// Returns the subject's attribute options after the trait's path.
     pub fn options(&self) -> Vec<String> {
         let mut options = Vec::new();
+        // A generic associated type is no option: only a block declares it
+        // (`gat_override_option`).
         for (associated, overridden) in self.associated() {
-            if overridden {
+            if overridden && associated != Associated::Item {
                 options.push(format!("{} = support::Wide", associated.name()));
             }
         }
@@ -803,6 +810,8 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
         Node::This => String::from(this),
         Node::Assoc => associated(Associated::Out, this, associates),
         Node::Overridden(name) => associated(*name, this, associates),
+        // At the lifetime of the call, which the receiver lends.
+        Node::Gat => format!("{}<'_>", associated(Associated::Item, this, associates)),
         Node::Fault => String::from("support::Fault"),
         Node::Option(inner) => format!("Option<{}>", spell(inner, this, associates)),
         Node::Result(ok, error) => format!(
@@ -846,6 +855,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::Tag | Node::Assoc => String::from("424_242"),
         Node::Shared | Node::Lent => String::from("&support::MISMATCH"),
         Node::Overridden(_) => String::from("support::Wide::MISMATCH"),
+        Node::Gat => String::from("support::View::MISMATCH"),
         Node::Fault => String::from("support::Fault(424_242)"),
         Node::Option(_) => String::from("None"),
         Node::Result(_, error) => format!("Err({})", constant(error, this)),

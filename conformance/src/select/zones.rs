@@ -664,6 +664,18 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("s1", "deref-dyn")],
     },
     Zone {
+        name: "generic-associated-types",
+        summary: "a generic associated type a partial block declares, or leaves out, through the enum's attribute and every block, under the receivers that lend its lifetime, over the target kinds whose payloads convert into it and the `Self` arguments whose mismatch is one",
+        vary: &[
+            ("ret", &["gat", "gat-undeclared"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("recv", &["ref", "mut", "pin-mut"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple"]),
+            ("arg", &["none", "ref-trait", "ref-enum"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "third-stacks",
         summary: "a second trait and a supertrait over three variants, beside the block paths of the trait under test and the associated items both take",
         vary: &[

@@ -172,12 +172,18 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
         context.trait_path()
     ));
     for (associated, overridden) in context.associated() {
-        let ty = match (associated, overridden) {
-            (Associated::Out, false) => String::from("u64"),
-            (Associated::Out | Associated::Error, true) => format!("support::Narrow{index}"),
+        let line = match (associated, overridden) {
+            (Associated::Out, false) => String::from("type Out = u64;"),
+            (Associated::Out | Associated::Error, true) => {
+                format!("type {} = support::Narrow{index};", associated.name())
+            }
             (Associated::Error, false) => unreachable!("an error type is only ever overridden"),
+            // A loan of the payload's state, which needs no bound of its
+            // own, as the golden `gat_in_a_partial_block` writes its
+            // payloads' items.
+            (Associated::Item, _) => format!("type Item<'v> = support::Loan{index}<'v>;"),
         };
-        writer.line(format!("type {} = {ty};", associated.name()));
+        writer.line(line);
     }
     for item in context.agreement.items {
         writer.line(item.definition(item.values[index]));
@@ -356,6 +362,13 @@ fn value(node: &Node, this: &str, index: usize, flavour: Flavour) -> String {
         },
         Node::This => format!("Self::new({number})"),
         Node::Overridden(_) => format!("support::Narrow{index}({number})"),
+        Node::Gat => match flavour {
+            Flavour::Answer => branch(
+                format!("support::Loan{index}(&{this}.state)"),
+                format!("support::Loan{index}(&{this}.spare)"),
+            ),
+            Flavour::Poison => format!("support::Loan{index}(&support::POISON_PLACE)"),
+        },
         Node::Fault => format!("support::Fault({number})"),
         Node::Option(inner_node) => {
             branch(format!("Some({})", inner(inner_node)), String::from("None"))

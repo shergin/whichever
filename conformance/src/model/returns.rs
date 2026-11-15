@@ -12,6 +12,8 @@ pub enum Associated {
     Out,
     /// `type Error;`.
     Error,
+    /// `type Item<'v> where Self: 'v;`, a generic associated type.
+    Item,
 }
 
 impl Associated {
@@ -20,6 +22,25 @@ impl Associated {
         match self {
             Associated::Out => "Out",
             Associated::Error => "Error",
+            Associated::Item => "Item",
+        }
+    }
+
+    /// Returns the associated type as the trait declares it.
+    pub fn declaration(self) -> &'static str {
+        match self {
+            Associated::Out => "type Out;",
+            Associated::Error => "type Error;",
+            Associated::Item => "type Item<'v> where Self: 'v;",
+        }
+    }
+
+    /// Returns the associated type as an impl defines it, `value` being
+    /// its type there, which a generic one spells with its parameter `'a`.
+    pub fn definition(self, value: &str) -> String {
+        match self {
+            Associated::Out | Associated::Error => format!("type {} = {value};", self.name()),
+            Associated::Item => format!("type Item<'v> = {value} where Self: 'v;"),
         }
     }
 }
@@ -65,6 +86,10 @@ pub enum Node {
     /// `Self::Out` or `Self::Error`, overridden on the enum with `Wide`,
     /// which every payload's own type converts into.
     Overridden(Associated),
+    /// `Self::Item<'_>`, a generic associated type: a loan of the payload's
+    /// state in every payload, `support::Loan0<'a>`, which converts into
+    /// the `support::View<'v>` the enum declares.
+    Gat,
     /// `Fault`, an error type of the support module.
     Fault,
     /// `Option<T>`.
@@ -146,6 +171,7 @@ impl Node {
             | Node::This
             | Node::Assoc
             | Node::Overridden(_)
+            | Node::Gat
             | Node::Fault
             | Node::Iterator => false,
             Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.holds_this(),
@@ -161,14 +187,20 @@ impl Node {
     }
 
     /// Returns whether the type borrows from the receiver or an argument,
-    /// rather than for the subject's own lifetime.
+    /// rather than for the subject's own lifetime: a reference, or the
+    /// generic associated type at the call's lifetime, `Self::Item<'_>`.
     pub fn borrows_from_the_call(&self) -> bool {
-        self.any(&|node| matches!(node, Node::Shared | Node::Exclusive))
+        self.any(&|node| matches!(node, Node::Shared | Node::Exclusive | Node::Gat))
     }
 
     /// Returns whether the type borrows at all.
     pub fn borrows(&self) -> bool {
-        self.any(&|node| matches!(node, Node::Shared | Node::Lent | Node::Exclusive))
+        self.any(&|node| {
+            matches!(
+                node,
+                Node::Shared | Node::Lent | Node::Exclusive | Node::Gat
+            )
+        })
     }
 
     /// Returns the associated types the trait declares for this type, with
@@ -179,6 +211,8 @@ impl Node {
             let entry = match node {
                 Node::Assoc => (Associated::Out, false),
                 Node::Overridden(associated) => (*associated, true),
+                // The enum declares it, in a partial block, or nothing can.
+                Node::Gat => (Associated::Item, true),
                 Node::Payload
                 | Node::PayloadShared
                 | Node::PayloadLent
@@ -246,7 +280,7 @@ impl Node {
             | Node::Assoc
             | Node::Fault => Some(Conversion::Keep),
             Node::This => Some(Conversion::Rewrap),
-            Node::Overridden(_) => Some(Conversion::Into),
+            Node::Overridden(_) | Node::Gat => Some(Conversion::Into),
             Node::Option(inner) => {
                 let inner = inner.conversion()?;
                 if inner.is_keep() {
@@ -305,6 +339,7 @@ impl Node {
             | Node::Lent
             | Node::Assoc
             | Node::Overridden(_)
+            | Node::Gat
             | Node::Fault
             | Node::Option(_) => true,
             Node::This => this,
@@ -341,7 +376,8 @@ impl Node {
             | Node::PayloadExclusive
             | Node::This
             | Node::Assoc
-            | Node::Overridden(_) => false,
+            | Node::Overridden(_)
+            | Node::Gat => false,
         }
     }
 
@@ -366,6 +402,7 @@ impl Node {
             | Node::This
             | Node::Assoc
             | Node::Overridden(_)
+            | Node::Gat
             | Node::Fault
             | Node::Iterator => {}
             Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.visit(visitor),
@@ -415,6 +452,7 @@ impl Return {
             Return::Iterator => Node::Iterator,
             Return::VecThis => Node::Vec(&Node::This),
             Return::OptionTupleThis => Node::Option(&Node::Tuple(&[Node::This, Node::Tag])),
+            Return::Gat | Return::GatUndeclared => Node::Gat,
         }
     }
 }

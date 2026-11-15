@@ -280,3 +280,11 @@ s1=deref-dyn qual=provided path=block-default item=sized
 # the sentence of a plain variant under `self: Box<Self>`.
 s1=deref-dyn cfg=second-off item=sized
 s1=deref-dyn recv=box item=sized
+
+# A generic associated type an empty partial block declares, every payload's
+# own converting into it (golden `gat_in_a_partial_block`); on the enum's
+# attribute, and in a block that leaves it out, its sentence
+# (`generic_associated_type`, `gat_undeclared_in_block`).
+ret=gat path=block
+ret=gat
+ret=gat-undeclared path=block

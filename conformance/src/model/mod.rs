@@ -479,6 +479,13 @@ impl Cell {
         qualifier.provided && by_value
     }
 
+    /// Returns whether the subject declares the trait's generic associated
+    /// type: in a partial block, the one place it can
+    /// (partial-impl-blocks.md), where the cell writes the declaration.
+    pub fn declares_gat(&self) -> bool {
+        self.ret == Return::Gat && self.path_descriptor().site == path::Site::Block
+    }
+
     /// Returns whether the subject declares a variant that holds its
     /// payload as a trait object, compiled out in this build or not.
     pub fn holds_object(&self) -> bool {

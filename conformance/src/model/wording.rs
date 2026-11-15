@@ -44,6 +44,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::Associated
         | Anchor::Anywhere => None,
     };
     let variant = slot.map(|slot| named(cell, &slot));
@@ -168,7 +169,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::TryFromTypeParameter
         | Limit::ArmsDisagree
         | Limit::MismatchForAbsentMethod
-        | Limit::SizedOnObject => String::new(),
+        | Limit::SizedOnObject
+        | Limit::GenericAssociatedType => String::new(),
     }
 }
 
@@ -325,6 +327,21 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .map(|(slot, _, _)| format!("`{}` holds a trait object", slot.name()))
                 .collect();
             any = Some(Fragment(objects));
+        }
+        // The type, its declaration's parameter, and the block it goes in,
+        // with the header a block over the enum writes, the lifetime of a
+        // subject that borrows included.
+        Limit::GenericAssociatedType => {
+            push(Some(String::from("`Item` is a generic associated type")));
+            push(Some(String::from("`type Item<'v> = ..;`")));
+            let borrows = cell
+                .live_slots()
+                .iter()
+                .any(|(_, _, target)| target.borrows());
+            push(Some(match borrows {
+                true => String::from("impl<'a> Probe for E<'a>` block"),
+                false => String::from("impl Probe for E` block"),
+            }));
         }
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));

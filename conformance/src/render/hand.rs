@@ -275,8 +275,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 context.supplier_payload(),
                 context.trait_path()
             ),
+            // The enum declares it, as the block does.
+            (Associated::Item, _) => String::from(super::context::VIEW),
         };
-        writer.line(format!("type {name} = {ty};"));
+        writer.line(associated.definition(&ty));
     }
     // An item the enum fixes is the value fixed, and any other is the
     // supplier's (what-is-generated.md).
@@ -832,6 +834,7 @@ fn inherent_value(
         | Node::This
         | Node::Assoc
         | Node::Overridden(_)
+        | Node::Gat
         | Node::Fault
         | Node::Option(_)
         | Node::Result(_, _)
