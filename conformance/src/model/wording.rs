@@ -16,7 +16,6 @@ use crate::render::context::storage;
 /// in full.
 pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<String> {
     let entry = expected.limit.entry();
-    let mut fragments = vec![String::from(entry.way_out)];
     let slot = match expected.anchor {
         Anchor::Variant(index) => cell
             .declared_slots()
@@ -31,7 +30,19 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<String> {
         | Anchor::Anywhere => None,
     };
     let variant = slot.map(|slot| named(cell, &slot));
-    if entry.tail {
+    // The way out of a rebuild that would drop the other fields is the
+    // whole of the sentence's advice: where the method names its variants
+    // and has a body for the rest, it is that body
+    // (`self_return_beside_the_other_fields_of_a_variant` holds the other
+    // form), and the entry's own way out is not written.
+    let body_for_the_rest = cell.path.descriptor().form == PathForm::First;
+    let rebuild_left_to_the_body =
+        expected.limit == Limit::SelfReturnOtherFields && body_for_the_rest;
+    let mut fragments = Vec::new();
+    if !rebuild_left_to_the_body {
+        fragments.push(String::from(entry.way_out));
+    }
+    if entry.tail || rebuild_left_to_the_body {
         if let Some(tail) = tail(cell, variant.as_deref()) {
             fragments.push(tail);
         }

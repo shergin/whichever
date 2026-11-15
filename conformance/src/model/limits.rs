@@ -270,7 +270,8 @@ impl Limit {
             Limit::DerefSelfReturn => ("drop `deref` on it", true),
             Limit::RouteSelfReturn => ("drop `via` on it", true),
             Limit::SelfReturnOtherFields => ("write the method in a `#[whichever::dispatch] impl` block", false),
-            Limit::BoxSelfPlain => ("in a `#[dispatch(deref)]` variant", true),
+            // The noun is the variant's or, on a struct, the field's.
+            Limit::BoxSelfPlain => ("in a `#[dispatch(deref)]`", true),
             Limit::NamedFieldUnderWrapper => ("make it a tuple struct", false),
             Limit::BoxSelfOnSharedPointer => ("which is no `Box` to hand over; hold a `Box`", true),
             Limit::MovesThroughSharedPointer => ("which a value cannot be moved out of; hold a `Box`", true),

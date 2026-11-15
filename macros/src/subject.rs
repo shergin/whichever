@@ -337,6 +337,24 @@ impl Target {
         }
     }
 
+    /// Returns the name a sentence gives the target: the variant's, or on a
+    /// struct the struct's, since a field is no item of its own and the
+    /// error's span already points at it.
+    pub(crate) fn spoken<'a>(&'a self, subject: &'a Ident) -> &'a Ident {
+        match self.place {
+            Place::Variant { .. } => &self.ident,
+            Place::Field { .. } => subject,
+        }
+    }
+
+    /// Returns what a sentence calls the item that holds the payload.
+    pub(crate) fn noun(&self) -> &'static str {
+        match self.place {
+            Place::Variant { .. } => "variant",
+            Place::Field { .. } => "field",
+        }
+    }
+
     /// Returns whether the subject can be built around a payload and yet no
     /// path builds it: a struct whose one field is named.
     pub(crate) fn is_built_by_no_path(&self) -> bool {
