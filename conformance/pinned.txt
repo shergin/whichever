@@ -55,8 +55,10 @@ s0=via-method-field recv=value
 # (lint-attributes-do-not-reach-generated-code, the forest-filecoin survey).
 item=allow
 path=block-star item=allow
-# The trait method's own `#[inline(..)]` on the forwarding
-# (carried_attributes), through a mark.
+# A mark keeps the attributes written on it, here the `#[inline(always)]`
+# a hand repeating the signature writes, where the macro adds `#[inline]`
+# only to a mark that carries none (partial-impl-blocks.md;
+# carried_attributes).
 qual=provided path=block-star item=inline-always
 qual=provided path=block-some item=inline-always
 # A `#[dispatch(default)]` mark, or a method the block writes, under
@@ -125,7 +127,9 @@ conv=variant-from-off
 # over a variant that borrows, first or second, whose check failed with
 # E0794 or E0309 rather than its own error before 2026-11-02
 # (agreement-check-passes-late-bound-lifetimes, the polars-pipe survey;
-# agreement-check-misses-implied-outlives-bounds, the mrml survey).
+# agreement-check-misses-implied-outlives-bounds, the mrml survey). The
+# const that differs on `B` is its sentence, since an enum with lifetime
+# parameters alone is checked (const_disagreement_on_a_lifetime_enum).
 s1=deref-ref agree=type-differs
 s0=deref-ref agree=type-differs
 s1=deref-ref agree=const-differs

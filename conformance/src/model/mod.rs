@@ -325,20 +325,13 @@ impl Cell {
             .find(Slot::names_its_target)
     }
 
-    /// Returns whether the subject is generic, so that its associated
-    /// consts are taken without a check (what-is-generated.md, limits.md):
-    /// over a type, a const, or the lifetime the `deref` variants over a
-    /// reference give it.
-    ///
-    /// Open question: the docs say "a generic enum"; a lifetime alone is
-    /// read as making it generic, as it makes the enum's impl generic,
-    /// though no payload's const here depends on it.
+    /// Returns whether the subject has a type or const parameter, so that
+    /// its associated consts are taken without a check: "on an enum with a
+    /// type or const parameter [..] taken from the first variant without a
+    /// check" (limits.md); the lifetime the `deref` variants over a
+    /// reference give it is no matter.
     pub fn is_generic(&self) -> bool {
-        let borrows = self
-            .live_slots()
-            .iter()
-            .any(|(_, _, target)| target.borrows());
-        self.generic.descriptor().parameter.is_some() || borrows
+        self.generic.descriptor().parameter.is_some()
     }
 
     /// Returns the slots whose variant forwards to a payload.

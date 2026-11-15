@@ -29,7 +29,8 @@ pub struct AssociatedItem {
     pub overridden: Option<&'static str>,
     /// Whether the kind is one the macro checks the payloads agree on:
     /// every type, and a const of an integer, a float, `bool`, `char` or
-    /// `&str`. A const is checked on a non-generic enum only.
+    /// `&str`. A const is checked on an enum without a type or const parameter
+    /// only.
     pub comparable: bool,
 }
 

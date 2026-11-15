@@ -239,8 +239,8 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
-  pass 612
-  limit 474
+  pass 606
+  limit 480
   rejected 0
   malformed 0
   never 210 non-canonical
@@ -358,36 +358,36 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 64
-  limit 13
+  pass 63
+  limit 14
   rejected 4
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7497
+  pass 7498
   limit 0
   rejected 0
   malformed 0
-  rows 7497
-  covered 75067
-  unreached 34962
+  rows 7498
+  covered 75058
+  unreached 34971
 
 suite array-limits
   pass 0
-  limit 493
+  limit 491
   rejected 0
   malformed 0
-  rows 493
-  covered 8494
-  unreached 1415
+  rows 491
+  covered 8508
+  unreached 1401
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 938
+  rejected 935
   malformed 0
-  rows 938
+  rows 935
   covered 7520
   unreached 2389
 

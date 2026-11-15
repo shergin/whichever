@@ -217,11 +217,10 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         // The block's method is the user's item, which keeps the attributes
         // written on it: it repeats the signature the trait allows a lint
         // on, so it allows the lint too, and the trait method's own
-        // `#[inline(..)]`, which it would otherwise not carry.
-        //
-        // Open question: what-is-generated.md gives the forwarding "the
-        // trait method's own `#[inline(..)]`", which is read as the plain
-        // forwarding's; a mark's method takes what the user writes on it.
+        // `#[inline(..)]`, which it would otherwise not carry. "Only the
+        // methods the block leaves to the plain forwarding, whose
+        // signatures the attribute writes, carry the trait method's
+        // `#[inline(..)]` and `#[allow]`" (partial-impl-blocks.md).
         for attribute in context.block_attributes() {
             writer.line(attribute);
         }

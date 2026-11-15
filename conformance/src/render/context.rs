@@ -121,7 +121,10 @@ impl Context {
 
     /// Returns the attributes a block writes on its method under test
     /// after its mark: the lint the trait allows and the trait method's own
-    /// `#[inline(..)]`, as a hand repeating the signature writes them.
+    /// `#[inline(..)]`, as a hand repeating the signature writes them. "A
+    /// method written or marked in the block is yours, and so are its
+    /// attributes: it carries what you write on it, with `#[inline]` added
+    /// where you write no `#[inline(..)]`" (partial-impl-blocks.md).
     pub fn block_attributes(&self) -> Vec<String> {
         let mut attributes = Vec::new();
         if let Some(lint) = self.item.allowed {

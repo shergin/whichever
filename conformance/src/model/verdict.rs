@@ -975,10 +975,13 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     // "Every other variant is checked to agree; a disagreement is reported
     // on that variant", for a type and, "for an integer, a float, `bool`,
-    // `char` or `&str` const on a non-generic enum", for a const
+    // `char` or `&str` const on an enum without a type or const parameter,
+    // a lifetime's being no matter", for a const
     // (what-is-generated.md). A variant whose target has no nameable type
     // "takes no part in the agreement checks" (routes.md), nor does one
-    // that holds no payload.
+    // that holds no payload: a const "of a variant reached through a field
+    // or a method, is taken from the first variant without a check"
+    // (limits.md), so it disagrees silently.
     //
     // Open question: a variant under a `#[cfg]` that holds is read as
     // checked in the builds that hold it, its check carried under the

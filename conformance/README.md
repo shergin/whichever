@@ -153,7 +153,8 @@ the check does not compare, and consts fixed on the enum with `NAME =
 value`. A disagreement is a limit on the variant that disagrees with the
 supplier, the first variant without a `#[cfg]` whose target has a type; a
 variant reached through a field or a method takes no part, and a const on
-a generic enum, a lifetime included, is not checked. The hand takes each
+an enum with a type or const parameter is not checked; a lifetime is no
+matter. The hand takes each
 item from the supplier or as fixed, and the law reads every item through
 the subject.
 
