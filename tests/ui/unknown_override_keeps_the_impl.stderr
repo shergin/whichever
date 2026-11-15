@@ -4,7 +4,7 @@ error: `Shape` has no associated type or const `Eror`; it has none, and the othe
 17 | #[whichever::dispatch(Shape, Eror = u8, mismatch(congruent = false))]
    |                              ^^^^
 
-error: `Shape` has no method `congruent` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one
+error: `Shape` has no method `congruent` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one; a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`
   --> tests/ui/unknown_override_keeps_the_impl.rs:17:50
    |
 17 | #[whichever::dispatch(Shape, Eror = u8, mismatch(congruent = false))]

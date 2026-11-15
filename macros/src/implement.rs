@@ -312,10 +312,19 @@ fn unknown_names(
         if deciding.contains(&name) {
             continue;
         }
+        // A method the trait declares under a `#[cfg]` that does not hold
+        // is not in this build's trait, and nothing here tells it from a
+        // name the trait never had: the sentence names the way around both.
+        let elsewhere = "a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`";
         let hint = match closest(&name, deciding.iter().map(String::as_str)) {
             Some(near) => format!("did you mean `{near}`?"),
-            None if deciding.is_empty() => "none of its methods takes one".to_owned(),
-            None => format!("its methods taking one are {}", listed(&deciding)),
+            None if deciding.is_empty() => {
+                format!("none of its methods takes one; {elsewhere}")
+            }
+            None => format!(
+                "its methods taking one are {}; {elsewhere}",
+                listed(&deciding)
+            ),
         };
         errors.push(Error::new(
             method.span(),
