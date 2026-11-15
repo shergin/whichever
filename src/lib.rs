@@ -331,7 +331,8 @@
 //! answer. `#[dispatch]` on an inherent `impl` block of a dispatch enum
 //! forwards each method marked `#[dispatch(..)]` to the named variants'
 //! method of the same name, and the body is what every other variant
-//! returns. `*` names every variant, and the method then has no body:
+//! returns. `*` names every variant, and the method then has no body, nor
+//! has a method that names every variant one by one:
 //!
 //! ```
 //! #[whichever::dispatchable]

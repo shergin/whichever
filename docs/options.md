@@ -50,7 +50,10 @@ All options follow the trait path in `#[dispatch(..)]`.
   `crate::`. A method the trait declares under a `#[cfg]` takes its
   mismatch on the trait method, which travels under its `cfg`: on the
   enum it names nothing in a build where the `cfg` does not hold, and is
-  reported.
+  reported. For a method that returns a future, the expression is the
+  future's output where the arms are awaited, in an `async fn`, an `impl
+  Future` and a boxed future whose output is converted, and a value of the
+  declared future where a boxed future is forwarded as it is.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
   by two variants gets none either way, and a payload whose `From` is
