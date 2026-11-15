@@ -256,8 +256,7 @@ suite array-rejected
   unreached 1610
 
 suite known
-  pass 18
+  pass 10
   limit 3
-  rejected 1
+  rejected 0
   malformed 0
-  never 2 non-canonical

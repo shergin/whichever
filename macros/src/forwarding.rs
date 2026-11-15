@@ -16,8 +16,10 @@
 //! the crate reads the sources and says so.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote_spanned, ToTokens};
+use syn::spanned::Spanned;
 use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
+use crate::at;
 use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
@@ -28,9 +30,12 @@ use crate::spelling;
 use crate::subject::{Entry, Target, Unforwardable};
 
 /// Returns an identifier with `macro_rules`-style hygiene, which can never
-/// collide with one the user wrote.
-fn hygienic(name: &str) -> Ident {
-    Ident::new(name, Span::mixed_site())
+/// collide with one the user wrote, located at `site` as every other token
+/// of an arm is: a binding left at the proc macro's call site would stretch
+/// the span of the expression that holds it back to the attribute, and
+/// rustc's errors with it.
+fn hygienic(name: &str, site: Span) -> Ident {
+    Ident::new(name, at(site))
 }
 
 /// How the arguments after the receiver are bound in the generated
@@ -116,7 +121,7 @@ pub(crate) struct MethodPlan {
     /// The arguments matched on the same variant as the receiver, by index.
     same_variant: Vec<(usize, Access)>,
     /// The generic arguments a call spells out, when inference could not.
-    turbofish: Option<TokenStream2>,
+    turbofish: Option<Vec<Ident>>,
     return_model: Conversion,
     /// The future the method returns, when the `match` sits in one `async
     /// move` block and every arm is awaited inside it.
@@ -185,8 +190,8 @@ impl MethodPlan {
                     *pat_type.pat = plain(ident.clone());
                     ident
                 }
-                (_, ArgumentNames::WrittenOrGenerated) => {
-                    let ident = hygienic(&format!("__argument{index}"));
+                (pattern, ArgumentNames::WrittenOrGenerated) => {
+                    let ident = hygienic(&format!("__argument{index}"), pattern.span());
                     *pat_type.pat = plain(ident.clone());
                     ident
                 }
@@ -277,8 +282,8 @@ impl MethodPlan {
         quote_spanned! { site => (#receiver, #(#arguments),*) }
     }
 
-    fn same_binding(index: usize) -> Ident {
-        hygienic(&format!("__same{index}"))
+    fn same_binding(index: usize, site: Span) -> Ident {
+        hygienic(&format!("__same{index}"), site)
     }
 
     /// Returns the pattern binding `target`'s payload to `binding`, with the
@@ -306,7 +311,7 @@ impl MethodPlan {
         let same = self
             .same_variant
             .iter()
-            .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index), site));
+            .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index, site), site));
         quote_spanned! { site => (#own, #(#same),*) }
     }
 
@@ -318,9 +323,12 @@ impl MethodPlan {
             .enumerate()
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
-                    Some((_, access)) => {
-                        payload_expression(&target.route, *access, &Self::same_binding(index), site)
-                    }
+                    Some((_, access)) => payload_expression(
+                        &target.route,
+                        *access,
+                        &Self::same_binding(index, site),
+                        site,
+                    ),
                     None => quote_spanned!(site => #ident),
                 },
             )
@@ -403,7 +411,7 @@ impl MethodPlan {
                 format!("`{method}` takes {taken}, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
             ));
         }
-        let inner = hygienic("__inner");
+        let inner = hygienic("__inner", site);
         let receiver = match (callee, self.receiver) {
             // The route is followed through the binding's reference, as for
             // a qualified call, so that `deref` calls the method on what the
@@ -417,7 +425,13 @@ impl MethodPlan {
             _ => receiver_expression(self.receiver, target, &inner, method, site)?,
         };
         let arguments = self.call_arguments(target, site);
-        let turbofish = &self.turbofish;
+        // The angle brackets are the arm's own tokens: written where the
+        // trait's method is, they would stretch the call's span from there
+        // to the subject, across every attribute between.
+        let turbofish = self
+            .turbofish
+            .as_ref()
+            .map(|parameters| quote_spanned!(site => ::<#(#parameters),*>));
         let mut value = match callee {
             Callee::Qualified { trait_path, method } => {
                 // A field's or a method's type cannot be named; the call is
@@ -514,7 +528,7 @@ impl MethodPlan {
         }
         let positions = self.same_variant.iter().map(|(index, access)| {
             if moved(access) {
-                Self::same_binding(*index).into_token_stream()
+                Self::same_binding(*index, site).into_token_stream()
             } else {
                 quote_spanned!(site => _)
             }
@@ -525,7 +539,7 @@ impl MethodPlan {
             .filter(|(_, access)| moved(access))
             .map(|(index, _)| {
                 let name = &self.arguments[*index];
-                let binding = Self::same_binding(*index);
+                let binding = Self::same_binding(*index, site);
                 quote_spanned!(site => let #name = #binding;)
             });
         Arm {
@@ -731,7 +745,7 @@ fn convert(
         }
         Conversion::Tuple(items) => {
             let bindings: Vec<Ident> = (0..items.len())
-                .map(|index| hygienic(&format!("__element{index}")))
+                .map(|index| hygienic(&format!("__element{index}"), site))
                 .collect();
             let converted = items
                 .iter()

@@ -318,7 +318,7 @@ impl Target {
                 member,
                 rebuildable: true,
             } => {
-                let value = Ident::new("__value", Span::mixed_site());
+                let value = Ident::new("__value", at(site));
                 Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
             }
             Place::Field {
