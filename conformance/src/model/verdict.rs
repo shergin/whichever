@@ -107,27 +107,6 @@ pub fn verdict(cell: &Cell) -> Verdict {
         expected
             .retain(|expected| expected.limit.replaces_method() || !expected.limit.is_of_method());
     }
-    // With no variant to supply an associated item the impl is withheld,
-    // so no arm of it is written, and a block that is the impl reports
-    // nothing of the variants either; the subject's attribute, where it
-    // names a trait, still reports a variant that holds no payload. An
-    // inherent method is no arm of the trait's impl, and keeps its own.
-    let unsupplied = expected
-        .iter()
-        .any(|expected| expected.limit == Limit::UnsuppliedType);
-    if unsupplied {
-        let site = cell.path.descriptor().site;
-        let declared = site != PathSite::Block || cell.stack.descriptor().present;
-        expected.retain(|expected| {
-            let arm = expected.limit.is_of_method()
-                && matches!(expected.anchor, Anchor::Variant(_))
-                && site != PathSite::Inherent;
-            match expected.limit {
-                Limit::UnitVariant | Limit::TwoFields => declared,
-                _ => !arm,
-            }
-        });
-    }
     if !expected.is_empty() {
         // A method that cannot be forwarded is written with its sentence as
         // its body (macros/ARCHITECTURE.md 3.8), so a sentence on `m`
@@ -270,7 +249,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // without a diagnostic. The hand's impl over the empty enum carries the
     // `#[allow(unused_variables)]` a hand needs for the arguments no arm
     // reads; the subject's impl is `#[automatically_derived]` and is not
-    // asked the same.
+    // asked the same, and a partial block's or an inherent block's method
+    // allows them itself, as a hand's does (CHANGELOG, Unreleased).
     if cell.cfg != Cfg::Absent {
         // Open question: whether a fallback arm is written beside a variant
         // compiled out, and how a `Self` argument is matched by place, is
@@ -278,7 +258,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if argument.kind.is_some() {
             return Some("a `Self` argument on an enum with variants under `#[cfg]`");
         }
-        if path.site == PathSite::Inherent || path.form == PathForm::First {
+        if path.form == PathForm::First {
             return Some("an inherent or partial method naming variants under `#[cfg]`");
         }
     }
@@ -419,11 +399,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         }
     }
     if argument.kind.is_some() && argument.mismatch != MismatchSite::Missing && !inherent {
-        // Open question: the docs do not say what a mismatch is for a
-        // future. The `match` of an opaque future, and of a boxed one whose
-        // output is converted, is in one `async move` block, so the
-        // mismatch is read as the output there; a boxed future forwarded as
-        // it is has no block, so its mismatch is a boxed future itself.
+        // "For a method that returns a future, the expression is the
+        // future's output where the arms are awaited, in an `async fn`, an
+        // `impl Future` and a boxed future whose output is converted, and a
+        // value of the declared future where a boxed future is forwarded as
+        // it is" (options.md).
         let output = match node.future() {
             Some((_, output)) => *output,
             None => node,
@@ -473,23 +453,6 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     // trait does not take.
     if stack.supertrait && cell.generic == Generics::Own {
         return Some("a supertrait generic over the enum's const parameter");
-    }
-    // A supertrait's impl needs the trait's, which a type no variant can
-    // supply withholds, so the second impl fails as a hand's would.
-    let taken = cell
-        .ret
-        .node()
-        .associated()
-        .iter()
-        .any(|(_, overridden)| !overridden)
-        || cell
-            .agree
-            .descriptor()
-            .items
-            .iter()
-            .any(|item| item.overridden.is_none());
-    if stack.supertrait && taken && cell.supplier().is_none() {
-        return Some("a supertrait beside an impl withheld for want of a supplier");
     }
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
@@ -732,10 +695,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         false => Anchor::Method,
     };
 
-    // A mark naming every variant leaves no variant for the body, and `*`
-    // names a variant that holds no payload too (partial-impl-blocks.md,
-    // after inherent-methods.md: `inherent_all_with_body`,
-    // `inherent_all_with_unforwardable`).
+    // A method has no body when its mark names every variant, `*` or "a
+    // method that names every variant one by one, since no variant is left
+    // to the body" (inherent-methods.md, `inherent_all_with_body`), and `*`
+    // names a variant that holds no payload too
+    // (`inherent_all_with_unforwardable`).
     let unreachable = slots.iter().any(|slot| slot.target().is_none());
     if path.form == PathForm::First && slots.len() == 1 {
         expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
@@ -791,8 +755,9 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // "An enum cannot dispatch a return-position `impl Trait`, at any depth
     // of the return type, except `impl Future<Output = T>`."
     // With `with`, the payload returns the plain value and the lift wraps
-    // the variant (inherent-methods.md); a lift around a return that holds
-    // `Self` under a wrapper of its own is a `Self` the rewrap cannot reach.
+    // the variant (inherent-methods.md); "a declared return that wraps
+    // `Self` twice, `Option<Option<Self>>`, is reported" (limits.md,
+    // `lift_over_a_wrapped_self`).
     let lifted = matches!(cell.lift, Lift::Some | Lift::Ok);
     if lifted && node.holds_this() && node != Node::This {
         expect(Limit::SelfInReturn, on_method);
@@ -1194,9 +1159,11 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // `field` by value" (inherent-methods.md): a function taking `&T` is
     // handed a value where the binding owns or the place is a field, and
     // one taking `T` is handed a reference where the binding borrows.
+    // A build that compiles every variant out has no arm to hand anything
+    // over (an inherent `*` over an enum that may be empty).
     let by_reference = cell.recv.descriptor().lends != Lends::Nothing;
-    let value = cell.callee == Callee::Value;
-    let field = cell.callee == Callee::Field;
+    let value = cell.callee == Callee::Value && !live.is_empty();
+    let field = cell.callee == Callee::Field && !live.is_empty();
     if cell.lift == Lift::ByRef && ((value && !by_reference) || field) {
         reject(
             "E0308",

@@ -294,6 +294,19 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if context.item.deprecated {
         attributes.push(String::from("#[allow(deprecated)]"));
     }
+    // A partial block's or an inherent block's method over an enum whose
+    // every variant is under `#[cfg]` allows its arguments to go unused, as
+    // a hand's does, since a build may leave no arm to use them; the impl
+    // the enum's attribute writes is `#[automatically_derived]` and needs
+    // none (CHANGELOG, Unreleased; behaviour test
+    // `enums_with_every_variant_under_cfg`).
+    let user_item = context.path.site != crate::model::path::Site::Attribute;
+    let arguments = context.takes_x() || context.argument.kind.is_some();
+    let may_be_empty = context.cell.every_under_cfg() && !is_struct(&context.slots);
+    let quiet = user_item && arguments && may_be_empty;
+    if quiet {
+        attributes.push(String::from("#[allow(unused_variables)]"));
+    }
     let fallback = match context.path.form {
         // A method in no build has no arm to write.
         PathForm::Forwarded | PathForm::First if !context.cell.method_present() => None,
@@ -350,10 +363,17 @@ pub fn write(writer: &mut Writer, context: &Context) {
             )),
             PathForm::Forwarded | PathForm::Default | PathForm::Written => None,
         };
+        // An inherent method carries what the user wrote and the allowance
+        // over an enum that may be empty, and no `#[inline]`.
+        let attributes = match quiet {
+            true => vec![String::from("#[allow(unused_variables)]")],
+            false => Vec::new(),
+        };
         let method = Method {
             signature: context.declared_signature(),
             fallback,
             hands_enum: context.hands_the_enum(),
+            attributes,
             ..method
         };
         write_method(writer, context, &method);
@@ -493,10 +513,10 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     let conversion =
         conversion.expect("the verdict writes a hand only for a conversion that exists");
     writer.blank();
+    for attribute in &method.attributes {
+        writer.line(attribute);
+    }
     if !method.inherent {
-        for attribute in &method.attributes {
-            writer.line(attribute);
-        }
         writer.line(format!("#[{}]", method.inline));
     }
     writer.open(format!("{} {{", method.signature));

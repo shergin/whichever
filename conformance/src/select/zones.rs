@@ -269,6 +269,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "inherent-cfg",
+        summary: "an inherent `#[dispatch(*)]` method over variants under `#[cfg]`, an enum that may be empty included, whose method allows its arguments to go unused",
+        vary: &[
+            ("cfg", &[]),
+            ("s1", &["plain", "none", "deref-box"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "ref", "self", "future"]),
+        ],
+        fixed: &[("path", "inherent")],
+    },
+    Zone {
         name: "homes",
         summary: "the trait in a sibling module or another crate, through every path, over the target kinds, returns and qualifiers whose signatures it writes into the subject's module",
         vary: &[

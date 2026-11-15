@@ -182,6 +182,14 @@ suite cfg
   malformed 12
   never 204 non-canonical
 
+suite inherent-cfg
+  pass 186
+  limit 0
+  rejected 0
+  malformed 0
+  never 18 non-canonical
+  never 12 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+
 suite homes
   pass 516
   limit 136
@@ -248,14 +256,13 @@ suite agreement-paths
 
 suite stacks
   pass 150
-  limit 199
+  limit 204
   rejected 42
   malformed 0
   never 96 non-canonical
-  never 29 unmodelled: a limit beside a rejection the limit does not replace
+  never 36 unmodelled: a limit beside a rejection the limit does not replace
   never 12 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 16 unmodelled: a supertrait beside an impl withheld for want of a supplier
-  never 32 unmodelled: an inherent method through a route whose method yields its target
+  never 36 unmodelled: an inherent method through a route whose method yields its target
 
 suite stack-homes
   pass 198
@@ -276,10 +283,9 @@ suite deprecations
 
 suite deprecation-cfg
   pass 336
-  limit 16
+  limit 24
   rejected 0
   malformed 0
-  never 8 unmodelled: a supertrait beside an impl withheld for want of a supplier
 
 suite lent-places
   pass 30
@@ -359,31 +365,31 @@ suite pinned
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7622
+  pass 7497
   limit 0
   rejected 0
   malformed 0
-  rows 7622
-  covered 71642
-  unreached 38387
+  rows 7497
+  covered 75067
+  unreached 34962
 
 suite array-limits
   pass 0
-  limit 492
+  limit 493
   rejected 0
   malformed 0
-  rows 492
-  covered 8480
-  unreached 1429
+  rows 493
+  covered 8494
+  unreached 1415
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 904
+  rejected 938
   malformed 0
-  rows 904
-  covered 7419
-  unreached 2490
+  rows 938
+  covered 7520
+  unreached 2389
 
 suite known
   pass 0

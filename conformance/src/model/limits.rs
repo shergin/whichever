@@ -251,14 +251,13 @@ impl Limit {
                 "differs from the first variant's; set it on the enum with",
                 "associated_const_disagreement",
             ),
-            Limit::UnsuppliedType => Entry {
-                keeps_impl: false,
-                ..entry(
-                    "unsupplied-type",
-                    "so none can supply",
-                    "all_variants_conditional",
-                )
-            },
+            // The item holds its sentence and the impl is written beside it
+            // (`unsupplied_items_keep_the_impl`).
+            Limit::UnsuppliedType => entry(
+                "unsupplied-type",
+                "so none can supply",
+                "all_variants_conditional",
+            ),
         };
         let (way_out, tail) = match self {
             Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
@@ -393,11 +392,14 @@ pub enum Tail {
     /// A method that names its variants and has a body for the rest:
     /// "leave `A` to the body".
     LeaveToBody,
+    /// A sentence on the whole of a method that names its variants and has
+    /// a body for the rest: "drop its `#[dispatch(..)]`".
+    DropMark,
 }
 
 impl Tail {
     /// Every tail.
-    pub const ALL: &'static [Tail] = &[Tail::ByHand, Tail::Body, Tail::LeaveToBody];
+    pub const ALL: &'static [Tail] = &[Tail::ByHand, Tail::Body, Tail::LeaveToBody, Tail::DropMark];
 
     /// Returns the tail as a sentence spells it, `variant` being the
     /// variant it is about, in backticks.
@@ -406,6 +408,9 @@ impl Tail {
             Tail::ByHand => String::from("implement the method by hand"),
             Tail::Body => String::from("give it a body"),
             Tail::LeaveToBody => format!("leave {variant} to the body"),
+            Tail::DropMark => {
+                String::from("drop its `#[dispatch(..)]`, and the body answers for every variant")
+            }
         }
     }
 }
@@ -486,7 +491,9 @@ mod tests {
                 assert!(
                     Tail::ALL.iter().any(|tail| match tail {
                         Tail::LeaveToBody => stderr.contains(" to the body"),
-                        Tail::ByHand | Tail::Body => stderr.contains(tail.fragment("").as_str()),
+                        Tail::ByHand | Tail::Body | Tail::DropMark => {
+                            stderr.contains(tail.fragment("").as_str())
+                        }
                     }),
                     "the tail of `{}` is not in {}",
                     entry.key,

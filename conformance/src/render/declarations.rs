@@ -181,18 +181,6 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
 
 /// Writes the partial impl block a block path holds.
 fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
-    // A partial block is the user's impl, not `#[automatically_derived]`,
-    // so over an enum empty in this build it carries the
-    // `#[allow(unused_variables)]` the hand's impl does: no arm reads the
-    // arguments.
-    //
-    // Open question: the docs say a build that leaves no variant compiles,
-    // and that an `#[allow]` goes on a partial block; that the block needs
-    // it here, where the enum's attribute does not, is read from the
-    // block being the user's item.
-    if !is_struct(&context.slots) && context.slots.is_empty() {
-        writer.line("#[allow(unused_variables)]");
-    }
     writer.anchor(Anchor::BlockAttribute.name());
     match options.is_empty() {
         true => writer.line("#[whichever::dispatch]"),

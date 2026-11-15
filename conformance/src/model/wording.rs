@@ -85,11 +85,10 @@ fn named(cell: &Cell, slot: &Slot) -> String {
 /// Returns how the method's own way out ends the sentence: a body for an
 /// inherent method that has none (`place_moves_through_a_shared_pointer_
 /// under_a_boxed_receiver`), the body it has for a variant a method names,
-/// and by hand for a trait's method, a block's mark included. `None` where
-/// the snapshots say nothing.
-///
-/// Open question: a sentence on the whole method of a method that has a
-/// body is not pinned by a snapshot, so its tail is not held.
+/// the mark dropped for a sentence on the whole of a method that has a
+/// body (`lift_over_a_wrapped_self`), on the inherent path and a partial
+/// block's alike, and by hand for a trait's method, a block's bodiless
+/// mark included.
 fn tail(cell: &Cell, variant: Option<&str>) -> Option<String> {
     let path = cell.path.descriptor();
     let tail = match (path.form, path.site) {
@@ -103,9 +102,9 @@ fn tail(cell: &Cell, variant: Option<&str>) -> Option<String> {
         ) => Tail::ByHand,
     };
     match (tail, variant) {
-        (Tail::LeaveToBody, None) => None,
+        (Tail::LeaveToBody, None) => Some(Tail::DropMark.fragment("")),
         (Tail::LeaveToBody, Some(variant)) => Some(tail.fragment(variant)),
-        (Tail::ByHand | Tail::Body, _) => Some(tail.fragment("")),
+        (Tail::ByHand | Tail::Body | Tail::DropMark, _) => Some(tail.fragment("")),
     }
 }
 
