@@ -899,10 +899,19 @@ rebuild error its sentence, with the tuple struct as the way around
 Compile-fail case `named_field_under_a_wrapper` is new; the behaviour test
 `newtype_delegation` is extended; no golden or other snapshot changed.
 
+`Target::spoken` names the target in a sentence: the variant, or on a
+struct the struct, whose field the error's span points at, and
+`Target::noun` says variant or field in the `Box` advice (`c929504`). A
+`Self` return beside the other fields of a marked variant named the enum,
+and a struct's field was `_0`; the conformance matrix's check of a
+sentence's words found both. Compile-fail cases
+`self_return_beside_the_other_fields_of_a_variant` and
+`box_self_on_a_plain_field` are new; no golden or other snapshot changed.
+
 The mutants `box-self-advice-on-a-shared-pointer`,
 `borrowed-place-moved-under-self`, `absent-method-hint-dropped`,
-`mutable-borrow-left-to-rustc` and `named-field-rebuilt-with-a-closure`
-revert these five; they wait for the model's correction to be run.
+`mutable-borrow-left-to-rustc`, `named-field-rebuilt-with-a-closure` and
+`sentence-names-the-field-of-a-struct` revert these six.
 
 ## 5. Invariants every stage keeps
 
