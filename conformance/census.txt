@@ -196,18 +196,18 @@ suite homes
   never 8 unmodelled: an inherent opaque future that captures an argument its `+ '_` does not name
 
 suite generics
-  pass 784
-  limit 374
+  pass 1040
+  limit 496
   rejected 0
   malformed 0
-  never 800 non-canonical
-  never 72 unmodelled: a block body for a future return
-  never 36 unmodelled: a block body for a return type that needs a payload to make
-  never 398 unmodelled: a default body that would need a payload to make its answer
+  never 1000 non-canonical
+  never 96 unmodelled: a block body for a future return
+  never 48 unmodelled: a block body for a return type that needs a payload to make
+  never 528 unmodelled: a default body that would need a payload to make its answer
   never 160 unmodelled: a generic struct subject, which the law names by an alias
-  never 32 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 48 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 384 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 560 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 700 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite conversions
   pass 152
@@ -237,13 +237,13 @@ suite agreements
   never 210 non-canonical
 
 suite agreement-paths
-  pass 294
-  limit 135
+  pass 354
+  limit 165
   rejected 0
   malformed 0
-  never 144 non-canonical
+  never 180 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 72 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 90 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite stacks
   pass 150
@@ -288,38 +288,38 @@ suite lent-places
   never 12 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite pinned
-  pass 60
+  pass 63
   limit 10
   rejected 2
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4825
+  pass 4809
   limit 0
   rejected 0
   malformed 0
-  rows 4825
-  covered 54790
-  unreached 33025
+  rows 4809
+  covered 54877
+  unreached 33066
 
 suite array-limits
   pass 0
-  limit 413
+  limit 417
   rejected 0
   malformed 0
-  rows 413
-  covered 6845
-  unreached 1262
+  rows 417
+  covered 6928
+  unreached 1307
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 667
+  rejected 691
   malformed 0
-  rows 667
-  covered 5820
-  unreached 2287
+  rows 691
+  covered 5909
+  unreached 2326
 
 suite known
   pass 4

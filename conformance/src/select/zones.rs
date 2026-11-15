@@ -271,7 +271,7 @@ pub const ZONES: &[Zone] = &[
         name: "generics",
         summary: "a type-parameter payload and a generic trait at a concrete argument, at the enum's own parameter and with a default left out, over the paths, target kinds, receivers and returns that name them",
         vary: &[
-            ("generic", &["payload", "concrete", "own", "defaulted"]),
+            ("generic", &["payload", "concrete", "own", "defaulted", "paired"]),
             ("path", &["attribute", "block", "block-star", "block-some", "block-default"]),
             ("s0", &["plain", "deref-box", "struct"]),
             ("s1", &["plain", "none", "deref-box"]),

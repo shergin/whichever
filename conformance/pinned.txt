@@ -167,3 +167,10 @@ ret=fallible-self
 s0=struct s1=none ret=fallible-self
 s0=deref-box recv=box ret=fallible-self
 ret=fallible-self path=block-star
+
+# A projection whose later segment has generic arguments, `F::Pair<F>`,
+# substituted at the instantiation named on the enum (options.md), through
+# the enum's attribute, a block and with the trait in another crate.
+generic=paired
+path=block-star generic=paired
+home=crate generic=paired

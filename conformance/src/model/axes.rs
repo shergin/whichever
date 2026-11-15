@@ -337,6 +337,10 @@ axis! {
         /// A generic trait whose parameter has a default, left out,
         /// `#[dispatch(Probe)]` for `trait Probe<F = support::Json>`.
         Defaulted = "defaulted",
+        /// A generic trait whose argument is a projection with generic
+        /// arguments of its own, `F::Pair<F>`, dispatched at
+        /// `Probe<support::Json>`.
+        Paired = "paired",
     }
 }
 

@@ -17,9 +17,13 @@ pub struct GenericsDescriptor {
     /// The subject's parameter: as it declares it, as its type names it,
     /// as its impl declares it, and the argument the law takes it at.
     pub parameter: Option<Parameter>,
-    /// Whether the method's argument is spelled `F::Value`, a projection
-    /// through the trait's parameter that is `u64` at `support::Json`.
+    /// Whether the method's argument is a projection through the trait's
+    /// parameter, which is `u64` at `support::Json`.
     pub projected: bool,
+    /// The projection the trait's signature spells the argument with:
+    /// `F::Value`, or `F::Pair<F>`, whose later segment has generic
+    /// arguments that are substituted too (options.md, the last paragraph).
+    pub projection: &'static str,
     /// Whether the trait's bound fixes the projection to `u64` where a
     /// default body counts the argument.
     pub fixed: bool,
@@ -51,12 +55,21 @@ impl Generics {
             instance: "",
             parameter: None,
             projected: false,
+            projection: "",
             fixed: false,
             payload: false,
             constant: false,
         };
         match self {
             Generics::Bare => bare,
+            Generics::Paired => GenericsDescriptor {
+                declared: "<F: support::Format>",
+                argument: "<support::Json>",
+                instance: "<support::Json>",
+                projected: true,
+                projection: "F::Pair<F>",
+                ..bare
+            },
             Generics::Payload => GenericsDescriptor {
                 parameter: Some(Parameter {
                     declared: "T",
@@ -72,6 +85,7 @@ impl Generics {
                 argument: "<support::Json>",
                 instance: "<support::Json>",
                 projected: true,
+                projection: "F::Value",
                 fixed: true,
                 ..bare
             },
@@ -91,6 +105,7 @@ impl Generics {
             Generics::Defaulted => GenericsDescriptor {
                 declared: "<F: support::Format = support::Json>",
                 projected: true,
+                projection: "F::Value",
                 ..bare
             },
         }

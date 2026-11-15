@@ -117,8 +117,9 @@ subject's crate.
 
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over
-a const dispatched at the enum's own parameter, and a defaulted parameter
-left out. The law names a generic subject by an alias at the argument it
+a const dispatched at the enum's own parameter, a defaulted parameter
+left out, and a trait whose argument is `F::Pair<F>`, a projection whose
+later segment has generic arguments of its own. The law names a generic subject by an alias at the argument it
 takes it at, `type S = E<P0>;`.
 
 The `conv` axis checks the conversions the subject's attribute writes:

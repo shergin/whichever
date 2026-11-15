@@ -478,7 +478,7 @@ impl Context {
             // The trait names the argument's type as its home spells it, and
             // an impl by the alias its module imports.
             let ty = match (site, self.home.argument) {
-                (Site::Trait, _) if self.generics.projected => "F::Value",
+                (Site::Trait, _) if self.generics.projected => self.generics.projection,
                 (Site::Trait, argument) => argument,
                 (Site::Impl, "u64") | (Site::Inherent | Site::Payload, _) => "u64",
                 (Site::Impl, _) => "support::Count",
