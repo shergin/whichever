@@ -355,6 +355,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "parameter-conversions",
+        summary: "the conversions of an enum whose first payload is its type parameter, which overlap the other variants' `From` and fall foul of the orphan rules for `TryFrom`, and their ways out",
+        vary: &[
+            ("conv", &["from", "from-off", "try", "variant-from-off"]),
+            ("s1", &["plain", "none", "unit", "deref-box", "marked-struct"]),
+            ("recv", &["ref", "value", "box"]),
+            ("ret", &["u64", "self"]),
+        ],
+        fixed: &[("generic", "payload")],
+    },
+    Zone {
         name: "items",
         summary: "the attributes on the trait's method through every path, over the qualifiers, second variants and receivers a block's mark or a carried attribute meets",
         vary: &[

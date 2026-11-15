@@ -680,17 +680,17 @@ impl Context {
         // An inherent method has no mismatch: its `Self` argument is the
         // enum, handed over as it is.
         // Two variants of which one holds the subject's type parameter
-        // would get overlapping `From` impls, so the cell leaves them out,
-        // as the golden `generic_payloads` does.
-        //
-        // Open question: whether a type-parameter payload beside another
-        // gets `From` impls is not documented.
+        // would get overlapping `From` impls, the sentence of
+        // `from_overlap_type_parameter`, so a cell that does not check its
+        // conversions leaves them out, as the golden `generic_payloads`
+        // does; one that checks them spells its own.
         let live = self
             .declared
             .iter()
             .filter(|slot| slot.target().is_some())
             .count();
-        if self.generics.payload && live > 1 {
+        let unchecked = !self.cell.conv.descriptor().checked;
+        if self.generics.payload && live > 1 && unchecked {
             options.push(String::from("from = false"));
         }
         if let Some(option) = self.cell.conv.descriptor().option {

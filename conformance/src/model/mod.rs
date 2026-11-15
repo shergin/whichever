@@ -277,12 +277,20 @@ impl Cell {
             .collect()
     }
 
-    /// Returns the slots whose payload the subject's attribute writes
-    /// `TryFrom<Enum>` for.
+    /// Returns the slots whose stored type the subject's attribute writes
+    /// `TryFrom<Enum>` for: the variants of one unnamed field, as for
+    /// `From`, so a `deref` variant's pointer, as the golden `inherent`
+    /// writes `TryFrom<AnyShape> for Box<Square>`; a variant with other
+    /// fields gets none (routes.md).
+    ///
+    /// Open question: the golden holds a pointer alone; a variant reached
+    /// through a field or a method of what it stores, a wrapper or a pair,
+    /// is read as converting what it stores, the type its `From` takes.
     pub fn try_slots(&self) -> Vec<Slot> {
         let conversion = self.conv.descriptor();
         self.live_slots()
             .into_iter()
+            .filter(|(_, _, target)| target.form == target::Form::Single)
             .map(|(slot, _, _)| slot)
             .filter(|slot| match (conversion.try_from, conversion.first_try) {
                 (Some(_), _) => !(conversion.first_left_out && slot.index == 0),

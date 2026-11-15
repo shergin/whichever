@@ -164,6 +164,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::RestatedConversions
         | Limit::TypeDisagreement
         | Limit::ConstDisagreement
+        | Limit::FromOverlapTypeParameter
+        | Limit::TryFromTypeParameter
         | Limit::MismatchForAbsentMethod => String::new(),
     }
 }
@@ -297,6 +299,12 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             any = Some(Fragment(units));
         }
         Limit::ConstDisagreement => push(variant.map(|variant| format!("of variant {variant}"))),
+        // The parameter and the enum it is a parameter of, as the
+        // snapshots name `I` of `Adapter` and `T` of `Kind`.
+        Limit::FromOverlapTypeParameter | Limit::TryFromTypeParameter => push(
+            slot.and_then(|slot| slot.parameter)
+                .map(|parameter| format!("`{parameter}` is a type parameter of `E`")),
+        ),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));

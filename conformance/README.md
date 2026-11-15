@@ -176,10 +176,14 @@ The `conv` axis checks the conversions the subject's attribute writes:
 support::Sink`, and the variant's own `from = false` and `try_from = true`.
 The law builds the enum through each `From` and takes each payload back
 through `TryFrom`, its own variant answering the payload and another
-handing the enum back. An impl the docs say is not written, beside a
-variant with other fields, on a struct or under `from = false`, is written
-by hand beside the subject, which compiles only if the attribute wrote
-none.
+handing the enum back; both convert what a variant of one field stores, a
+`deref` variant's pointer included, as the golden `inherent` writes
+`TryFrom<AnyShape> for Box<Square>`. An impl the docs say is not written,
+beside a variant with other fields, on a struct or under `from = false`, is
+written by hand beside the subject, which compiles only if the attribute
+wrote none. A payload that is the enum's type parameter takes the
+conversions too: its `From` beside another variant's, and its `TryFrom`,
+are each a sentence on the variant.
 
 The `agree` axis gives the trait associated items of its own beside those
 the return types name: a type the payloads give differently, consts of

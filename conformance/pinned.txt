@@ -122,6 +122,13 @@ conv=try-mut
 home=crate conv=into
 conv=variant-try
 conv=variant-from-off
+# `TryFrom` for the type a `deref` variant stores (golden `inherent`,
+# `TryFrom<AnyShape> for Box<Square>`), and a type-parameter payload's
+# `From` beside another variant's and its `TryFrom`, each a sentence on the
+# variant (`from_overlap_type_parameter`, `try_from_type_parameter`).
+s0=deref-box conv=try
+generic=payload conv=from
+s1=none generic=payload conv=try
 
 # The agreement checks: an associated type and a const of a checked type
 # over a variant that borrows, first or second, whose check failed with

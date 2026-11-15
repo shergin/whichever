@@ -246,15 +246,20 @@ suite generics
   never 700 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite conversions
-  pass 152
-  limit 102
+  pass 264
+  limit 150
   rejected 0
   malformed 0
   never 90 non-canonical
-  never 208 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 44 unmodelled: `into` over a variant that stores more than its payload, or several fields
-  never 48 unmodelled: a variant's conversion option beside a variant option of its own
+  never 96 unmodelled: a variant's conversion option beside a variant option of its own
   never 4 unmodelled: a variant's conversion option on a struct, which has no variant
+
+suite parameter-conversions
+  pass 30
+  limit 90
+  rejected 0
+  malformed 0
 
 suite items
   pass 470
@@ -299,14 +304,13 @@ suite stack-homes
   never 300 unmodelled: generics beside variants under `#[cfg]`
 
 suite deprecations
-  pass 89
+  pass 97
   limit 47
   rejected 0
   malformed 0
   never 536 non-canonical
-  never 12 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
-  never 78 unmodelled: a mismatch or a body of the user's naming the deprecated variant
+  never 82 unmodelled: a mismatch or a body of the user's naming the deprecated variant
 
 suite deprecation-cfg
   pass 336
@@ -394,14 +398,13 @@ suite restated-enums
 
 suite restated-enum-items
   pass 36
-  limit 36
+  limit 60
   rejected 0
   malformed 0
-  never 48 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 48 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 72 unmodelled: a restated enum under a pinned receiver, which needs its parameters `Unpin`
   never 96 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
-  never 24 unmodelled: conversion options beside a second attribute
+  never 48 unmodelled: conversion options beside a second attribute
 
 suite thirds
   pass 187
@@ -424,11 +427,10 @@ suite third-items
   malformed 0
 
 suite third-conversions
-  pass 58
-  limit 78
+  pass 98
+  limit 102
   rejected 0
   malformed 0
-  never 64 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
 
 suite third-stacks
@@ -438,38 +440,37 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 80
-  limit 15
+  pass 82
+  limit 17
   rejected 5
   malformed 0
-  never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7375
+  pass 7356
   limit 0
   rejected 0
   malformed 0
-  rows 7375
-  covered 79247
-  unreached 31672
+  rows 7356
+  covered 79452
+  unreached 31467
 
 suite array-limits
   pass 0
-  limit 532
+  limit 485
   rejected 0
   malformed 0
-  rows 532
-  covered 9243
-  unreached 1556
+  rows 485
+  covered 9347
+  unreached 1452
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 879
+  rejected 830
   malformed 0
-  rows 879
-  covered 8797
-  unreached 2002
+  rows 830
+  covered 8954
+  unreached 1845
 
 suite known
   pass 0

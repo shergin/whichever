@@ -56,9 +56,20 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     // The conversions are options of the enum's own attribute; the model
-    // checks them where it names the trait, on a subject of no generics.
+    // checks them where it names the trait, on a subject of no generics or
+    // of a type-parameter payload, whose `From` and `TryFrom` the docs
+    // bound (`from_overlap_type_parameter`, `try_from_type_parameter`).
     let converted = cell.conv != Conversion::Unchecked;
-    if converted && (cell.path != super::Path::Attribute || cell.generic != Generics::Bare) {
+    let parameter_conversion = matches!(
+        cell.conv,
+        Conversion::From | Conversion::FromOff | Conversion::Try | Conversion::VariantFromOff
+    );
+    let generic = match cell.generic {
+        Generics::Bare => false,
+        Generics::Payload => !parameter_conversion,
+        Generics::Concrete | Generics::Own | Generics::Defaulted | Generics::Paired => true,
+    };
+    if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
     }
     // A struct subject has its one field and no second variant.
@@ -626,15 +637,19 @@ fn unpredicted_conversions(cell: &Cell) -> Option<&'static str> {
     if is_struct && conversion.variant_option.is_some() {
         return Some("a variant's conversion option on a struct, which has no variant");
     }
-    // Open question: the docs name `TryFrom` "for every payload type", and
-    // `into` converts "each payload"; for a variant that stores a pointer,
-    // a wrapper or a pair, whether that is the stored type or the target is
-    // not said.
-    let plain = live.iter().all(|(_, target, _)| *target == Target::Plain);
-    let tries = conversion.try_from.is_some() || conversion.first_try;
-    if tries && !plain && !is_struct {
-        return Some("`TryFrom` over a variant that stores more than its payload");
+    // `TryFrom` is written for the type a variant of one field stores, as
+    // `From` is: the golden `inherent` writes `TryFrom<AnyShape> for
+    // Box<Square>` for a `deref` variant over `Box<Square>`, and a variant
+    // with other fields gets none (routes.md); see `Cell::try_slots`.
+    //
+    // A type-parameter payload's conversions are the parameter's own,
+    // which the docs bound for the bare parameter alone.
+    if cell.generic == Generics::Payload && cell.s0 != Target::Plain {
+        return Some("conversions of a type-parameter payload behind a pointer");
     }
+    // Open question: `into` converts "each payload"; for a variant that
+    // stores a pointer, a wrapper or a pair, whether that is the stored
+    // type or the target is not said.
     if conversion.variant_option.is_some() && cell.s0 != Target::Plain {
         return Some("a variant's conversion option beside a variant option of its own");
     }
@@ -1100,6 +1115,30 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // none, is its sentence (`restated_enum_conversions`).
     if cell.owner == Owner::Remote && conversion.option.is_some() {
         expect(Limit::RestatedConversions, Anchor::Attribute);
+    }
+    // A variant whose payload is the enum's type parameter: "`I` is a type
+    // parameter of `Adapter`, so `From<I>` would overlap the other variants'
+    // `From` impls" (`from_overlap_type_parameter`), and "`TryFrom<Kind>
+    // for T` would implement a foreign trait for a type parameter, which
+    // the orphan rules forbid" (`try_from_type_parameter`), each on the
+    // variant. The unchecked default writes `from = false` beside another
+    // variant, as the golden `generic_payloads` does.
+    //
+    // Open question: the sentence names "the other variants' `From`
+    // impls"; it is read as standing where another variant gets one.
+    let parameter = cell.generic == Generics::Payload
+        && cell.conv != Conversion::Unchecked
+        && slots.first().is_some_and(|slot| slot.index == 0);
+    if parameter {
+        let from = cell.from_slots();
+        let own = from.iter().any(|slot| slot.index == 0);
+        let others = from.iter().any(|slot| slot.index != 0);
+        if own && others {
+            expect(Limit::FromOverlapTypeParameter, Anchor::Variant(0));
+        }
+        if conversion.try_from.is_some() && !conversion.first_left_out {
+            expect(Limit::TryFromTypeParameter, Anchor::Variant(0));
+        }
     }
     if conversion.into && !one_arm {
         for slot in &slots {

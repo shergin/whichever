@@ -9,7 +9,7 @@
 use super::context::{storage, Context, LABEL};
 use super::writer::Writer;
 use crate::model::conversion::TryForm;
-use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
+use crate::model::target::{Form, Pointer, Step, Storage, TargetDescriptor};
 use crate::model::{Slot, SlotVariant, Verdict};
 
 /// Returns `value` built into the slot's variant of the subject at `path`.
@@ -66,9 +66,24 @@ pub fn write_proofs(writer: &mut Writer, context: &Context) {
     if !conversion.checked || context.verdict != Verdict::Pass {
         return;
     }
+    let generics = context.generics();
     let from = context.cell.from_slots();
+    // The `From` of a type parameter takes every type, so no impl of
+    // another proves anything beside it.
+    let parameter_from = from.iter().any(|slot| {
+        slot.parameter.is_some()
+            && slot
+                .target()
+                .is_some_and(|(_, target)| target.storage == Storage::Payload)
+    });
     for (slot, _, target) in context.live() {
-        if from.iter().any(|other| other.index == slot.index) {
+        if parameter_from || from.iter().any(|other| other.index == slot.index) {
+            continue;
+        }
+        // A `From` of the type parameter itself would overlap every other
+        // impl of the enum's, written or proving, so its absence is left to
+        // the law.
+        if slot.parameter.is_some() && target.storage == Storage::Payload {
             continue;
         }
         let stored = storage(&slot, &target);
@@ -77,33 +92,57 @@ pub fn write_proofs(writer: &mut Writer, context: &Context) {
             slot.name()
         ));
         allow_deprecated(writer, slot.deprecated);
-        writer.open(format!("impl From<{stored}> for E {{"));
-        writer.open(format!("fn from(value: {stored}) -> E {{"));
+        writer.open(format!("impl{generics} From<{stored}> for E{generics} {{"));
+        writer.open(format!("fn from(value: {stored}) -> E{generics} {{"));
         writer.line(construct("E", &slot, &target, "value"));
         writer.close("}");
         writer.close("}");
         writer.blank();
     }
-    if !conversion.first_try {
+    if conversion.try_from.is_none() && !conversion.first_try {
         return;
     }
     let tried = context.cell.try_slots();
-    for (slot, _, _) in context.live() {
+    for (slot, _, target) in context.live() {
         if tried.iter().any(|other| other.index == slot.index) {
             continue;
         }
-        let payload = slot.payload();
+        let stored = storage(&slot, &target);
         writer.line(format!(
-            "/// No `TryFrom<E>` is written for `{payload}`, or this impl would conflict."
+            "/// No `TryFrom<E>` is written for `{stored}`, or this impl would conflict."
         ));
-        writer.open(format!("impl TryFrom<E> for {payload} {{"));
+        writer.open(format!("impl TryFrom<E> for {stored} {{"));
         writer.line("type Error = E;");
-        writer.open(format!("fn try_from(value: E) -> Result<{payload}, E> {{"));
+        writer.open(format!("fn try_from(value: E) -> Result<{stored}, E> {{"));
         writer.line("Err(value)");
         writer.close("}");
         writer.close("}");
         writer.blank();
     }
+}
+
+/// Returns a slot as the law names its types: a type parameter's payload
+/// by the type the law takes it at.
+fn as_the_law_names(slot: &Slot) -> Slot {
+    Slot {
+        parameter: None,
+        ..*slot
+    }
+}
+
+/// Returns an expression of the state of the payload a binding of a
+/// variant's stored value reaches, by method-call syntax, which
+/// dereferences on its own.
+fn reached_state(binding: &str, target: &TargetDescriptor) -> String {
+    let mut text = String::from(binding);
+    for step in target.route {
+        match step {
+            Step::Deref => {}
+            Step::Field(name) => text.push_str(&format!(".{name}")),
+            Step::Method(name) | Step::Yield(name) => text.push_str(&format!(".{name}()")),
+        }
+    }
+    format!("{text}.state()")
 }
 
 /// Writes the `From` impl a payload has into `support::Sink`, which
@@ -126,14 +165,15 @@ pub fn write_hand(writer: &mut Writer, context: &Context) {
     if !conversion.checked {
         return;
     }
+    let generics = context.generics();
     for slot in context.cell.from_slots() {
         let Some((_, target)) = slot.target() else {
             continue;
         };
         let stored = storage(&slot, &target);
         allow_deprecated(writer, slot.deprecated);
-        writer.open(format!("impl From<{stored}> for E {{"));
-        writer.open(format!("fn from(value: {stored}) -> E {{"));
+        writer.open(format!("impl{generics} From<{stored}> for E{generics} {{"));
+        writer.open(format!("fn from(value: {stored}) -> E{generics} {{"));
         writer.line(construct("E", &slot, &target, "value"));
         writer.close("}");
         writer.close("}");
@@ -146,7 +186,10 @@ pub fn write_hand(writer: &mut Writer, context: &Context) {
     };
     if let Some(form) = form {
         for slot in context.cell.try_slots() {
-            let payload = slot.payload();
+            let Some((_, target)) = slot.target() else {
+                continue;
+            };
+            let payload = storage(&slot, &target);
             let name = slot.name();
             let forms: &[(&str, &str)] = match form {
                 TryForm::Value => &[("", "")],
@@ -200,7 +243,7 @@ pub fn write_law(writer: &mut Writer, context: &Context) {
         let Some((_, target)) = slot.target() else {
             continue;
         };
-        let stored = storage(&slot, &target);
+        let stored = storage(&as_the_law_names(&slot), &target);
         let value = stored_value(&slot, &target, seed(&slot));
         writer.line(format!(
             "// `From<{stored}>` builds `{}` around it.",
@@ -228,7 +271,11 @@ pub fn write_law(writer: &mut Writer, context: &Context) {
         .map(|(slot, _, _)| slot)
         .collect();
     for slot in &tried {
-        let payload = slot.payload();
+        let Some((_, target)) = slot.target() else {
+            continue;
+        };
+        let payload = storage(&as_the_law_names(slot), &target);
+        let state = reached_state("payload", &target);
         for source in &live {
             let own = source.index == slot.index;
             writer.line(format!(
@@ -257,7 +304,7 @@ pub fn write_law(writer: &mut Writer, context: &Context) {
                 write_subject_value(writer, source, "value", seed(source), true);
                 let answer = match own {
                     true => format!(
-                        "match {call} {{ Ok(payload) => assert_eq!(payload.state(), {}), Err(_) => panic!(\"{payload} from its own variant\") }}",
+                        "match {call} {{ Ok(payload) => assert_eq!({state}, {}), Err(_) => panic!(\"{payload} from its own variant\") }}",
                         seed(source)
                     ),
                     false => format!(

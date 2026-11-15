@@ -66,6 +66,11 @@ pub enum Limit {
     /// An associated const of a checked type a variant gives otherwise
     /// than the first, with no override.
     ConstDisagreement,
+    /// `From` for a variant holding the enum's type parameter beside
+    /// another variant's `From`.
+    FromOverlapTypeParameter,
+    /// `TryFrom` for a variant holding the enum's type parameter.
+    TryFromTypeParameter,
 }
 
 /// A catalogue entry.
@@ -121,6 +126,8 @@ impl Limit {
         Limit::RestatedConversions,
         Limit::TypeDisagreement,
         Limit::ConstDisagreement,
+        Limit::FromOverlapTypeParameter,
+        Limit::TryFromTypeParameter,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -259,6 +266,16 @@ impl Limit {
                 "differs from the first variant's; set it on the enum with",
                 "associated_const_disagreement",
             ),
+            Limit::FromOverlapTypeParameter => entry(
+                "from-overlap-type-parameter",
+                "would overlap the other variants' `From` impls",
+                "from_overlap_type_parameter",
+            ),
+            Limit::TryFromTypeParameter => entry(
+                "try-from-type-parameter",
+                "would implement a foreign trait for a type parameter, which the orphan rules forbid",
+                "try_from_type_parameter",
+            ),
             // The item holds its sentence and the impl is written beside it
             // (`unsupplied_items_keep_the_impl`).
             Limit::UnsuppliedType => entry(
@@ -297,6 +314,11 @@ impl Limit {
             ),
             Limit::TypeDisagreement => ("type mismatch resolving", false),
             Limit::ConstDisagreement => ("set it on the enum with", false),
+            Limit::FromOverlapTypeParameter => (
+                "add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant",
+                false,
+            ),
+            Limit::TryFromTypeParameter => ("add `#[dispatch(try_from = false)]` on this variant", false),
             Limit::UnsuppliedType => ("fix it on the enum with", false),
         };
         Entry {
@@ -320,6 +342,8 @@ impl Limit {
             | Limit::RestatedConversions
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement
+            | Limit::FromOverlapTypeParameter
+            | Limit::TryFromTypeParameter
             | Limit::MismatchForAbsentMethod => false,
             Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
@@ -373,7 +397,9 @@ impl Limit {
             | Limit::MismatchForAbsentMethod
             | Limit::MethodRouteOnMutSelf
             | Limit::TypeDisagreement
-            | Limit::ConstDisagreement => false,
+            | Limit::ConstDisagreement
+            | Limit::FromOverlapTypeParameter
+            | Limit::TryFromTypeParameter => false,
         }
     }
 
