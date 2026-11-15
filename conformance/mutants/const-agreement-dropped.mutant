@@ -1,7 +1,7 @@
 file: macros/src/agreement.rs
 breaks: Every other variant's associated const is checked at compile time to agree with the first's, as `docs/what-is-generated.md` says.
 expect: survives
-reason: No cell declares an associated const, so the const agreement check is not modelled.
+reason: No trait of a cell declares an associated const, so no cell has consts to agree or disagree.
 
 find:
                     #(#cfgs)* assert!(#equal, #message);

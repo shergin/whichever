@@ -1,7 +1,6 @@
 file: macros/src/implement.rs
 breaks: Every forwarded method carries `#[inline]` or the trait method's own `#[inline(..)]`, as `docs/what-is-generated.md` says.
-expect: survives
-reason: The shape check reads the bodies of the forwarded methods and no attribute, and no check reads the impl's attributes.
+expect: killed
 
 find:
         .unwrap_or_else(|| quote_spanned! { site => #[inline] });
