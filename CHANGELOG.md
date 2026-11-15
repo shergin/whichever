@@ -182,6 +182,18 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   the arm hands over the reference the variant holds. A method call under
   `self` is refused as before. `docs/inherent-methods.md` and
   `docs/limits.md` say so. No golden and no `tests/ui` snapshot changed.
+- A `mismatch` on the enum naming a method the trait declares under a
+  `#[cfg]` that does not hold, `mismatch(same = false)` for a `same` under
+  a feature that is off, is still reported, as a name the trait lacks,
+  since that build's trait has no such method; the enum built only with
+  the feature on. The sentence now ends with the way around it: "a method
+  under a `#[cfg]` that does not hold in this build takes its mismatch on
+  the trait method, `#[dispatch(mismatch = ..)]`", which travels under the
+  method's `cfg`. The decision record "An option names an item of every
+  build" weighs the alternative; `docs/limits.md` and `docs/options.md`
+  say so. The `tests/ui` case `mismatch_for_a_method_under_a_cfg` is new,
+  with both forms of the hint; the snapshots `unknown_option_names` and
+  `unknown_override_keeps_the_impl` gained the clause; no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

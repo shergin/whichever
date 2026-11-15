@@ -1,0 +1,11 @@
+error: `Compare` has no method `ordered_before` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; its methods taking one are `equal`; a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`
+  --> tests/ui/mismatch_for_a_method_under_a_cfg.rs:35:41
+   |
+35 | #[whichever::dispatch(Compare, mismatch(ordered_before = false))]
+   |                                         ^^^^^^^^^^^^^^
+
+error: `Same` has no method `same` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one; a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`
+  --> tests/ui/mismatch_for_a_method_under_a_cfg.rs:30:38
+   |
+30 | #[whichever::dispatch(Same, mismatch(same = false))]
+   |                                      ^^^^

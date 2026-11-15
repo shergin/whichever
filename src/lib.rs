@@ -105,7 +105,9 @@
 //! - `mismatch(method = expr, ..)` gives the result of `method` when its
 //!   `Self` arguments hold a different variant than `self`. The trait author
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
-//!   the method. See [`Self` arguments](#self-arguments).
+//!   the method, which is where a method under a `#[cfg]` takes it: on the
+//!   enum, an option names a method of every build. See
+//!   [`Self` arguments](#self-arguments).
 //! - `from = false` suppresses the `From<Payload>` impls. A payload type
 //!   held by two variants gets none either way, and a payload whose `From`
 //!   is written by hand, or that a derive supplies, stays out with

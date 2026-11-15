@@ -28,6 +28,12 @@
 - A projection through a trait parameter with several bounds, `F::Value`
   with `F: Format + Clone`, cannot be qualified at the enum; the trait
   writes `<F as Format>::Value`.
+- A `mismatch` on the enum names a method the trait has in every build: one
+  the trait declares under a `#[cfg]` that does not hold is not in that
+  build's trait, and the option is reported as naming nothing. Put the
+  answer on the trait method, `#[dispatch(mismatch = ..)]`, which travels
+  under its `cfg`; for another crate's trait, write the enum's attribute
+  twice under `cfg_attr` with the trait's predicate.
 - An associated type or const a partial impl block declares under `#[cfg]`
   is an error: the forwarded methods convert into the type in every build.
   Put the whole block under the `cfg`, with a second block for the other

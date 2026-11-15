@@ -47,7 +47,10 @@ All options follow the trait path in `#[dispatch(..)]`.
   takes `&self`; `&mut self` and `self` are moved into the `match`.
   A path in an expression on the trait method resolves where the enum is,
   as the signature types do, so a helper beside the trait is spelled from
-  `crate::`.
+  `crate::`. A method the trait declares under a `#[cfg]` takes its
+  mismatch on the trait method, which travels under its `cfg`: on the
+  enum it names nothing in a build where the `cfg` does not hold, and is
+  reported.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
   by two variants gets none either way, and a payload whose `From` is
