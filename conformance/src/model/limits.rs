@@ -66,6 +66,14 @@ pub enum Limit {
     /// An associated const of a checked type a variant gives otherwise
     /// than the first, with no override.
     ConstDisagreement,
+    /// `From` for a variant holding the enum's type parameter beside
+    /// another variant's `From`.
+    FromOverlapTypeParameter,
+    /// `TryFrom` for a variant holding the enum's type parameter.
+    TryFromTypeParameter,
+    /// rustc's E0308 on the arms of a method returning an associated type
+    /// the payloads give differently.
+    ArmsDisagree,
 }
 
 /// A catalogue entry.
@@ -121,6 +129,9 @@ impl Limit {
         Limit::RestatedConversions,
         Limit::TypeDisagreement,
         Limit::ConstDisagreement,
+        Limit::FromOverlapTypeParameter,
+        Limit::TryFromTypeParameter,
+        Limit::ArmsDisagree,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -259,6 +270,25 @@ impl Limit {
                 "differs from the first variant's; set it on the enum with",
                 "associated_const_disagreement",
             ),
+            Limit::FromOverlapTypeParameter => entry(
+                "from-overlap-type-parameter",
+                "would overlap the other variants' `From` impls",
+                "from_overlap_type_parameter",
+            ),
+            Limit::TryFromTypeParameter => entry(
+                "try-from-type-parameter",
+                "would implement a foreign trait for a type parameter, which the orphan rules forbid",
+                "try_from_type_parameter",
+            ),
+            // rustc's, not the macro's: each arm of a method returning the
+            // type hands over the payload's own, and no expansion can make
+            // `u32` and `u64` one type while the payloads give them; the
+            // snapshot holds it beside the agreement check's E0271.
+            Limit::ArmsDisagree => entry(
+                "arms-disagree",
+                "`match` arms have incompatible types",
+                "associated_type_disagreement",
+            ),
             // The item holds its sentence and the impl is written beside it
             // (`unsupplied_items_keep_the_impl`).
             Limit::UnsuppliedType => entry(
@@ -297,6 +327,12 @@ impl Limit {
             ),
             Limit::TypeDisagreement => ("type mismatch resolving", false),
             Limit::ConstDisagreement => ("set it on the enum with", false),
+            Limit::FromOverlapTypeParameter => (
+                "add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant",
+                false,
+            ),
+            Limit::TryFromTypeParameter => ("add `#[dispatch(try_from = false)]` on this variant", false),
+            Limit::ArmsDisagree => ("`match` arms have incompatible types", false),
             Limit::UnsuppliedType => ("fix it on the enum with", false),
         };
         Entry {
@@ -320,6 +356,9 @@ impl Limit {
             | Limit::RestatedConversions
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement
+            | Limit::FromOverlapTypeParameter
+            | Limit::TryFromTypeParameter
+            | Limit::ArmsDisagree
             | Limit::MismatchForAbsentMethod => false,
             Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
@@ -373,7 +412,10 @@ impl Limit {
             | Limit::MismatchForAbsentMethod
             | Limit::MethodRouteOnMutSelf
             | Limit::TypeDisagreement
-            | Limit::ConstDisagreement => false,
+            | Limit::ConstDisagreement
+            | Limit::FromOverlapTypeParameter
+            | Limit::TryFromTypeParameter
+            | Limit::ArmsDisagree => false,
         }
     }
 
@@ -514,7 +556,14 @@ mod tests {
                     path.display()
                 );
             }
-            assert_eq!(Limit::of_message(&stderr), Some(*limit), "{}", entry.key);
+            // A snapshot may hold several sentences, as
+            // `associated_type_disagreement` holds rustc's E0308 beside its
+            // E0271, so the line that holds the needle is the one read.
+            let line = stderr
+                .lines()
+                .find(|line| line.contains(entry.needle))
+                .expect("the needle is on a line of its snapshot");
+            assert_eq!(Limit::of_message(line), Some(*limit), "{}", entry.key);
             assert!(ui.join(format!("{}.rs", entry.case)).exists());
         }
     }

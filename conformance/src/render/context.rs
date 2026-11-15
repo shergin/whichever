@@ -246,6 +246,24 @@ impl Context {
         )
     }
 
+    /// Returns the signature of the method that returns the trait's own
+    /// associated type, with the control method's receiver, where the
+    /// trait declares it: `fn kind(&self) -> Self::Kind`, or the type a
+    /// payload gives it.
+    pub fn kind_signature(&self, ty: &str) -> String {
+        format!(
+            "fn kind({}) -> {ty}",
+            self.base_receiver().descriptor().spelling
+        )
+    }
+
+    /// Returns a call of the method returning the trait's own associated
+    /// type through the trait as `path` implements it, on `value`.
+    pub fn kind_call(&self, path: &str, value: &str) -> String {
+        let argument = self.base_receiver().descriptor().call.replace("{}", value);
+        format!("<{path} as {}>::kind({argument})", self.trait_instance())
+    }
+
     /// Returns a call of the control method through the trait as `path`
     /// implements it, on `value`, which it borrows or takes.
     pub fn base_call(&self, path: &str, value: &str) -> String {
@@ -269,6 +287,24 @@ impl Context {
             return String::from(DISPLAY);
         }
         format!("{TRAIT}{}", self.generics.argument)
+    }
+
+    /// Returns how an impl of the trait under test begins: `unsafe impl`
+    /// for an `unsafe trait` (what-is-generated.md), `impl` otherwise.
+    pub fn impl_keyword(&self) -> &'static str {
+        match self.declaration.unsafety {
+            true => "unsafe impl",
+            false => "impl",
+        }
+    }
+
+    /// Returns the bound the trait under test declares on itself: `:
+    /// Other` where it requires the second trait.
+    pub fn required(&self) -> &'static str {
+        match self.stack.required {
+            true => ": Other",
+            false => "",
+        }
     }
 
     /// Returns whether the trait under test is `whichever::foreign::Display`.
@@ -680,17 +716,17 @@ impl Context {
         // An inherent method has no mismatch: its `Self` argument is the
         // enum, handed over as it is.
         // Two variants of which one holds the subject's type parameter
-        // would get overlapping `From` impls, so the cell leaves them out,
-        // as the golden `generic_payloads` does.
-        //
-        // Open question: whether a type-parameter payload beside another
-        // gets `From` impls is not documented.
+        // would get overlapping `From` impls, the sentence of
+        // `from_overlap_type_parameter`, so a cell that does not check its
+        // conversions leaves them out, as the golden `generic_payloads`
+        // does; one that checks them spells its own.
         let live = self
             .declared
             .iter()
             .filter(|slot| slot.target().is_some())
             .count();
-        if self.generics.payload && live > 1 {
+        let unchecked = !self.cell.conv.descriptor().checked;
+        if self.generics.payload && live > 1 && unchecked {
             options.push(String::from("from = false"));
         }
         if let Some(option) = self.cell.conv.descriptor().option {

@@ -136,6 +136,17 @@ suite inherent-scope
   never 80 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 360 unmodelled: an inherent turbofish beside a `Self` argument the payload takes as a type parameter
 
+suite inherent-struct-returns
+  pass 102
+  limit 27
+  rejected 0
+  malformed 0
+  never 18 non-canonical
+  never 36 unmodelled: a lift over a future
+  never 18 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 24 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 171 unmodelled: an inherent method with a return type the inherent docs do not describe for a struct
+
 suite inherent-into
   pass 326
   limit 254
@@ -232,29 +243,33 @@ suite homes
   never 8 unmodelled: an inherent opaque future that captures an argument its `+ '_` does not name
 
 suite generics
-  pass 1040
-  limit 496
+  pass 1092
+  limit 504
   rejected 0
   malformed 0
   never 1000 non-canonical
   never 96 unmodelled: a block body for a future return
   never 48 unmodelled: a block body for a return type that needs a payload to make
-  never 528 unmodelled: a default body that would need a payload to make its answer
-  never 160 unmodelled: a generic struct subject, which the law names by an alias
-  never 48 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 384 unmodelled: a type-parameter payload through a partial block, whose header is the user's
+  never 548 unmodelled: a default body that would need a payload to make its answer
+  never 64 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 448 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 700 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite conversions
-  pass 152
-  limit 102
+  pass 264
+  limit 150
   rejected 0
   malformed 0
   never 90 non-canonical
-  never 208 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 44 unmodelled: `into` over a variant that stores more than its payload, or several fields
-  never 48 unmodelled: a variant's conversion option beside a variant option of its own
+  never 96 unmodelled: a variant's conversion option beside a variant option of its own
   never 4 unmodelled: a variant's conversion option on a struct, which has no variant
+
+suite parameter-conversions
+  pass 30
+  limit 90
+  rejected 0
+  malformed 0
 
 suite items
   pass 470
@@ -266,20 +281,29 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
-  pass 606
-  limit 480
+  pass 654
+  limit 610
   rejected 0
   malformed 0
-  never 210 non-canonical
+  never 245 non-canonical
+  never 3 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
+
+suite returned-types
+  pass 237
+  limit 189
+  rejected 0
+  malformed 0
+  never 162 non-canonical
+  never 12 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
 
 suite agreement-paths
-  pass 354
-  limit 165
+  pass 414
+  limit 219
   rejected 0
   malformed 0
-  never 180 non-canonical
+  never 252 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 90 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 216 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite stacks
   pass 150
@@ -292,25 +316,23 @@ suite stacks
   never 36 unmodelled: an inherent method through a route whose method yields its target
 
 suite stack-homes
-  pass 198
-  limit 42
+  pass 450
+  limit 90
   rejected 0
   malformed 0
-  never 300 unmodelled: generics beside variants under `#[cfg]`
 
 suite deprecations
-  pass 89
+  pass 97
   limit 47
   rejected 0
   malformed 0
   never 536 non-canonical
-  never 12 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
-  never 78 unmodelled: a mismatch or a body of the user's naming the deprecated variant
+  never 82 unmodelled: a mismatch or a body of the user's naming the deprecated variant
 
 suite deprecation-cfg
-  pass 336
-  limit 24
+  pass 448
+  limit 32
   rejected 0
   malformed 0
 
@@ -350,6 +372,16 @@ suite route-paths
   never 36 unmodelled: an inherent body for a return type that needs a payload to make
   never 12 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
+suite trait-shapes
+  pass 282
+  limit 84
+  rejected 0
+  malformed 0
+  never 360 non-canonical
+  never 24 unmodelled: a block body for a return type that needs a payload to make
+  never 108 unmodelled: a default body that would need a payload to make its answer
+  never 6 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+
 suite restatements
   pass 117
   limit 0
@@ -364,7 +396,8 @@ suite restatement-shapes
   limit 33
   rejected 0
   malformed 0
-  never 60 non-canonical
+  never 80 non-canonical
+  never 60 unmodelled: a restated trait that requires a supertrait
   never 15 unmodelled: a supertrait generic over the enum's const parameter
 
 suite foreign
@@ -394,14 +427,13 @@ suite restated-enums
 
 suite restated-enum-items
   pass 36
-  limit 36
+  limit 60
   rejected 0
   malformed 0
-  never 48 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 48 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 72 unmodelled: a restated enum under a pinned receiver, which needs its parameters `Unpin`
   never 96 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
-  never 24 unmodelled: conversion options beside a second attribute
+  never 48 unmodelled: conversion options beside a second attribute
 
 suite thirds
   pass 187
@@ -418,17 +450,16 @@ suite third-paths
   never 64 non-canonical
 
 suite third-items
-  pass 160
-  limit 272
+  pass 169
+  limit 335
   rejected 0
   malformed 0
 
 suite third-conversions
-  pass 58
-  limit 78
+  pass 98
+  limit 102
   rejected 0
   malformed 0
-  never 64 unmodelled: `TryFrom` over a variant that stores more than its payload
   never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
 
 suite third-stacks
@@ -438,38 +469,37 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 80
-  limit 15
+  pass 87
+  limit 19
   rejected 5
   malformed 0
-  never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7375
+  pass 7354
   limit 0
   rejected 0
   malformed 0
-  rows 7375
-  covered 79247
-  unreached 31672
+  rows 7354
+  covered 79997
+  unreached 31521
 
 suite array-limits
   pass 0
-  limit 532
+  limit 472
   rejected 0
   malformed 0
-  rows 532
-  covered 9243
-  unreached 1556
+  rows 472
+  covered 9925
+  unreached 1473
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 879
+  rejected 828
   malformed 0
-  rows 879
-  covered 8797
-  unreached 2002
+  rows 828
+  covered 9492
+  unreached 1906
 
 suite known
   pass 0

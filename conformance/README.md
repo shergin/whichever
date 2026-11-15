@@ -134,6 +134,8 @@ is `whichever::foreign::Display`: the payloads implement
 `core::fmt::Display`, beside an inherent `fmt` that prints a poison, the
 hand implements `core::fmt::Display` with the same `match`, and the law
 compares what the subject prints with what a twin of its payload prints.
+Under `unsafe` the trait is an `unsafe trait`, and every impl of it, the
+payloads', the hand's and a block's, is an `unsafe impl`.
 
 The `owner` axis says which crate declares the enum. Under `remote` the
 trait's crate shard declares `E` generic over what its variants hold, as
@@ -167,19 +169,26 @@ subject's crate.
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over
 a const dispatched at the enum's own parameter, a defaulted parameter
-left out, and a trait whose argument is `F::Pair<F>`, a projection whose
-later segment has generic arguments of its own. The law names a generic subject by an alias at the argument it
-takes it at, `type S = E<P0>;`.
+left out, a trait whose argument is `F::Pair<F>`, a projection whose
+later segment has generic arguments of its own, and a trait with a
+lifetime parameter the enum names, `Probe<'static>`. The law names a
+generic subject by an alias at the argument it takes it at, `type S =
+E<P0>;`, and builds and takes apart a generic tuple struct by its path,
+`Built::<P0>(..)`, which an alias cannot spell.
 
 The `conv` axis checks the conversions the subject's attribute writes:
 `From` per payload, `from = false`, the three `try_from` forms, `into =
 support::Sink`, and the variant's own `from = false` and `try_from = true`.
 The law builds the enum through each `From` and takes each payload back
 through `TryFrom`, its own variant answering the payload and another
-handing the enum back. An impl the docs say is not written, beside a
-variant with other fields, on a struct or under `from = false`, is written
-by hand beside the subject, which compiles only if the attribute wrote
-none.
+handing the enum back; both convert what a variant of one field stores, a
+`deref` variant's pointer included, as the golden `inherent` writes
+`TryFrom<AnyShape> for Box<Square>`. An impl the docs say is not written,
+beside a variant with other fields, on a struct or under `from = false`, is
+written by hand beside the subject, which compiles only if the attribute
+wrote none. A payload that is the enum's type parameter takes the
+conversions too: its `From` beside another variant's, and its `TryFrom`,
+are each a sentence on the variant.
 
 The `agree` axis gives the trait associated items of its own beside those
 the return types name: a type the payloads give differently, consts of
@@ -191,10 +200,15 @@ variant reached through a field or a method takes no part, and a const on
 an enum with a type or const parameter is not checked; a lifetime is no
 matter. The hand takes each
 item from the supplier or as fixed, and the law reads every item through
-the subject.
+the subject. Under `type-returned` the type that differs is returned by a
+method every subject forwards as it forwards the control method, `fn
+kind(&self) -> Self::Kind`, whose arms are rustc's E0308 on the enum where
+two of them differ, beside the check's E0271 or alone where the variant
+takes no part in the check.
 
-The `stack` axis dispatches a second trait, `Other`, or a supertrait
-`Other: Probe`, on the same subject through an attribute of its own. Its
+The `stack` axis dispatches a second trait, `Other`, a subtrait `Other:
+Probe`, or a supertrait the trait under test requires, `Probe: Other`, on
+the same subject through an attribute of its own. Its
 one method takes the control method's receiver and is checked by the law
 as `base` is; it declares the associated items the `agree` axis gives
 `Probe` and takes the same overrides. In a block path the subject's

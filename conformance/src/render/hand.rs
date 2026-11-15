@@ -258,7 +258,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
     }
     allow_unread(writer, context);
     writer.open(format!(
-        "impl{} {} for E{} {{",
+        "{}{} {} for E{} {{",
+        context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
         context.type_generics()
@@ -318,6 +319,18 @@ pub fn write(writer: &mut Writer, context: &Context) {
         trait_path: context.trait_path(),
     };
     write_method(writer, context, &base);
+    // The method returning the trait's own type is forwarded as the control
+    // method is, its answer kept as it is.
+    if context.agreement.returned {
+        let kind = Method {
+            name: "kind",
+            signature: context.kind_signature("Self::Kind"),
+            node: Node::Assoc,
+            target: Node::Assoc,
+            ..base
+        };
+        write_method(writer, context, &kind);
+    }
     // The forwarding of a deprecated method calls it, so it is written
     // under `#[allow(deprecated)]`, as a hand writes it
     // (what-is-generated.md).

@@ -122,6 +122,13 @@ conv=try-mut
 home=crate conv=into
 conv=variant-try
 conv=variant-from-off
+# `TryFrom` for the type a `deref` variant stores (golden `inherent`,
+# `TryFrom<AnyShape> for Box<Square>`), and a type-parameter payload's
+# `From` beside another variant's and its `TryFrom`, each a sentence on the
+# variant (`from_overlap_type_parameter`, `try_from_type_parameter`).
+s0=deref-box conv=try
+generic=payload conv=from
+s1=none generic=payload conv=try
 
 # The agreement checks: an associated type and a const of a checked type
 # over a variant that borrows, first or second, whose check failed with
@@ -132,6 +139,11 @@ conv=variant-from-off
 # parameters alone is checked (const_disagreement_on_a_lifetime_enum).
 s1=deref-ref agree=type-differs
 s0=deref-ref agree=type-differs
+# A type that disagrees, returned by a method: rustc's E0308 on the arms
+# beside the check's E0271 on the variant (`associated_type_disagreement`),
+# and alone where the variant is reached through a field (routes.md).
+agree=type-returned
+s1=via-field agree=type-returned
 s1=deref-ref agree=const-differs
 s0=deref-ref s1=none agree=const-agrees
 
@@ -204,6 +216,16 @@ ret=boxed-future-out arg=ref-trait qual=generic
 recv=value ret=boxed-future-out arg=ref-trait
 s1=deref-rc ret=boxed-future-out
 s1=deref-rc ret=boxed-future
+
+# Trait-level shapes: an `unsafe trait`, whose impl is an `unsafe impl`
+# (what-is-generated.md; golden `carried_attributes`), a lifetime parameter
+# the enum names (behaviour test `lifetimes_and_generic_enums`), and a
+# supertrait the trait under test requires, one more attribute.
+decl=unsafe
+path=block decl=unsafe
+generic=lifetime
+stack=required
+path=block stack=required
 
 # A projection whose later segment has generic arguments, `F::Pair<F>`,
 # substituted at the instantiation named on the enum (options.md), through

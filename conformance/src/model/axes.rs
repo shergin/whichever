@@ -363,6 +363,10 @@ axis! {
         /// arguments of its own, `F::Pair<F>`, dispatched at
         /// `Probe<support::Json>`.
         Paired = "paired",
+        /// A trait with a lifetime parameter, `trait Probe<'t>`, which the
+        /// enum names, `#[dispatch(Probe<'static>)]` (options.md: "Type,
+        /// lifetime and const parameters are substituted").
+        Lifetime = "lifetime",
     }
 }
 
@@ -413,6 +417,10 @@ axis! {
         /// fixed on the enum with `NAME = "any"` and `RANGE = (support::LOW,
         /// support::HIGH)`.
         ConstOverride = "const-override",
+        /// `type Kind;` as `type-differs` gives it, returned by a method
+        /// every subject forwards, `fn kind(&self) -> Self::Kind`, whose
+        /// arms meet the types the payloads give.
+        TypeReturned = "type-returned",
     }
 }
 
@@ -427,6 +435,9 @@ axis! {
         Second = "second",
         /// `trait Other: Probe`, a supertrait of the trait under test.
         Supertrait = "supertrait",
+        /// `trait Probe: Other`, a supertrait the trait under test requires,
+        /// dispatched by one more attribute (options.md).
+        Required = "required",
     }
 }
 
@@ -460,6 +471,9 @@ axis! {
         /// `whichever::foreign::Display`, whose `fmt` takes `&self` and an
         /// argument; the payloads implement `core::fmt::Display`.
         Foreign = "foreign",
+        /// `#[whichever::dispatchable] pub unsafe trait Probe`, whose every
+        /// impl is an `unsafe impl` (what-is-generated.md).
+        Unsafe = "unsafe",
     }
 }
 

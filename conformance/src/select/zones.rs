@@ -213,6 +213,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "inherent-struct-returns",
+        summary: "an inherent method of a struct subject over every return type, a return-position `impl Trait` forwarded as it is, under the lifts that wrap it",
+        vary: &[
+            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("ret", &[]),
+            ("recv", &["ref", "mut", "value"]),
+            ("lift", &["none", "some"]),
+        ],
+        fixed: &[("path", "inherent"), ("s1", "none")],
+    },
+    Zone {
         name: "inherent-into",
         summary: "`with = Into::into` over the answers it converts, through the enum's `From` impls or into themselves",
         vary: &[
@@ -355,6 +366,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "parameter-conversions",
+        summary: "the conversions of an enum whose first payload is its type parameter, which overlap the other variants' `From` and fall foul of the orphan rules for `TryFrom`, and their ways out",
+        vary: &[
+            ("conv", &["from", "from-off", "try", "variant-from-off"]),
+            ("s1", &["plain", "none", "unit", "deref-box", "marked-struct"]),
+            ("recv", &["ref", "value", "box"]),
+            ("ret", &["u64", "self"]),
+        ],
+        fixed: &[("generic", "payload")],
+    },
+    Zone {
         name: "items",
         summary: "the attributes on the trait's method through every path, over the qualifiers, second variants and receivers a block's mark or a carried attribute meets",
         vary: &[
@@ -374,6 +396,19 @@ pub const ZONES: &[Zone] = &[
             ("s0", &["plain", "deref-box", "deref-ref", "via-field", "marked-tuple", "struct"]),
             ("s1", &["plain", "none", "unit", "deref-rc", "via-field", "marked-struct"]),
             ("cfg", &[]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "returned-types",
+        summary: "an associated type the payloads give differently, returned by a method every subject forwards, over the variants that take part in the check and those that do not, through the enum's attribute and the blocks, under `#[cfg]` or not",
+        vary: &[
+            ("agree", &["type-differs", "type-returned"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "unit", "via-field", "deref-box"]),
+            ("s2", &["none", "plain"]),
+            ("path", &["attribute", "block", "block-star"]),
+            ("cfg", &["none", "second-off"]),
         ],
         fixed: &[],
     },
@@ -472,6 +507,20 @@ pub const ZONES: &[Zone] = &[
             ("arg", &["none", "ref-trait", "value", "mut"]),
             ("recv", &["ref", "mut", "value"]),
             ("ret", &["u64", "self"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "trait-shapes",
+        summary: "an `unsafe trait`, a trait with a lifetime parameter the enum names and a trait that requires a supertrait dispatched by one more attribute, through every path, over the target kinds, receivers and returns whose impls they head",
+        vary: &[
+            ("decl", &["dispatchable", "unsafe"]),
+            ("generic", &["none", "lifetime"]),
+            ("stack", &["none", "second", "required"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "inherent"]),
+            ("s0", &["plain", "deref-box", "struct"]),
+            ("ret", &["u64", "self"]),
+            ("qual", &["plain", "provided"]),
         ],
         fixed: &[],
     },

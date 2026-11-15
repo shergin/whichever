@@ -56,9 +56,24 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     // The conversions are options of the enum's own attribute; the model
-    // checks them where it names the trait, on a subject of no generics.
+    // checks them where it names the trait, on a subject of no generics or
+    // of a type-parameter payload, whose `From` and `TryFrom` the docs
+    // bound (`from_overlap_type_parameter`, `try_from_type_parameter`).
     let converted = cell.conv != Conversion::Unchecked;
-    if converted && (cell.path != super::Path::Attribute || cell.generic != Generics::Bare) {
+    let parameter_conversion = matches!(
+        cell.conv,
+        Conversion::From | Conversion::FromOff | Conversion::Try | Conversion::VariantFromOff
+    );
+    let generic = match cell.generic {
+        Generics::Bare => false,
+        Generics::Payload => !parameter_conversion,
+        Generics::Concrete
+        | Generics::Own
+        | Generics::Defaulted
+        | Generics::Paired
+        | Generics::Lifetime => true,
+    };
+    if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
     }
     // A struct subject has its one field and no second variant.
@@ -76,6 +91,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // second variant.
     let deprecated_absent = cell.deprecated == Deprecation::Second && cell.s1 == Second::Absent;
     if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
+        return Verdict::NonCanonical;
+    }
+    // The method returning the trait's own type is the dispatchable trait's;
+    // a restatement, or a restated enum's real trait, would list it too.
+    let returned = cell.agree.descriptor().returned;
+    if returned && (cell.decl != Declaration::Dispatchable || cell.owner != Owner::Local) {
         return Verdict::NonCanonical;
     }
     if let Some(verdict) = declared(cell) {
@@ -318,6 +339,13 @@ fn declared(cell: &Cell) -> Option<Verdict> {
             "attributes on a restated method, whose home is the restatement's",
         ));
     }
+    // Open question: whether a restatement repeats the supertrait the real
+    // trait requires is not documented.
+    if cell.stack == Stack::Required {
+        return Some(Verdict::Unmodelled(
+            "a restated trait that requires a supertrait",
+        ));
+    }
     if declaration.lists_method {
         return None;
     }
@@ -379,6 +407,26 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     if let Some(reason) = unpredicted_stack(cell) {
         return Some(reason);
+    }
+    // Where the first arm of the method returning the trait's own type is
+    // not of the type the enum takes, the supplier's, rustc reports the
+    // arm as `mismatched types` rather than the arms as incompatible, an
+    // E0308 the catalogue cannot tell from any other.
+    let kinds = returned_kinds(cell);
+    let supplied = cell.supplier().and_then(|supplier| {
+        cell.agree
+            .descriptor()
+            .items
+            .iter()
+            .find(|item| item.kind == ItemKind::Type)
+            .map(|item| item.values[supplier.holds])
+    });
+    if let (Some(first), Some(supplied)) = (kinds.first(), supplied) {
+        if *first != supplied {
+            return Some(
+                "a returned associated type whose first arm is not the supplier's, a bare E0308",
+            );
+        }
     }
     // An enum whose every variant is under `#[cfg]` "is matched as `match
     // *self` with `ref` bindings where the receiver is a reference, so a
@@ -475,10 +523,16 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::FutureThis
             | Return::BoxedFuture
             | Return::BoxedFutureOut
-            | Return::Iterator
             | Return::VecThis
             | Return::OptionTupleThis => false,
+            // "A block on a dispatch struct forwards the same way [..]; a
+            // return-position `impl Trait` is forwarded as it is"
+            // (inherent-methods.md), which an enum's arms cannot.
+            Return::Iterator => cell.s0.descriptor().is_struct(),
         };
+        if !supported && cell.s0.descriptor().is_struct() {
+            return Some("an inherent method with a return type the inherent docs do not describe for a struct");
+        }
         if !supported {
             return Some("an inherent method with a return type the inherent docs do not describe for an enum");
         }
@@ -589,6 +643,12 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     if stack.present && cell.generic == Generics::Payload {
         return Some("a type-parameter payload beside a second attribute");
     }
+    // The second trait declares the associated items `Probe` does, so a
+    // `Self::Kind` in a signature of a trait that requires it finds the
+    // name twice, rustc's E0221 in the trait itself.
+    if stack.required && cell.agree.descriptor().returned {
+        return Some("a returned associated type a required supertrait declares too");
+    }
     // A supertrait would name the trait's const parameter, which the second
     // trait does not take.
     if stack.supertrait && cell.generic == Generics::Own {
@@ -626,15 +686,19 @@ fn unpredicted_conversions(cell: &Cell) -> Option<&'static str> {
     if is_struct && conversion.variant_option.is_some() {
         return Some("a variant's conversion option on a struct, which has no variant");
     }
-    // Open question: the docs name `TryFrom` "for every payload type", and
-    // `into` converts "each payload"; for a variant that stores a pointer,
-    // a wrapper or a pair, whether that is the stored type or the target is
-    // not said.
-    let plain = live.iter().all(|(_, target, _)| *target == Target::Plain);
-    let tries = conversion.try_from.is_some() || conversion.first_try;
-    if tries && !plain && !is_struct {
-        return Some("`TryFrom` over a variant that stores more than its payload");
+    // `TryFrom` is written for the type a variant of one field stores, as
+    // `From` is: the golden `inherent` writes `TryFrom<AnyShape> for
+    // Box<Square>` for a `deref` variant over `Box<Square>`, and a variant
+    // with other fields gets none (routes.md); see `Cell::try_slots`.
+    //
+    // A type-parameter payload's conversions are the parameter's own,
+    // which the docs bound for the bare parameter alone.
+    if cell.generic == Generics::Payload && cell.s0 != Target::Plain {
+        return Some("conversions of a type-parameter payload behind a pointer");
     }
+    // Open question: `into` converts "each payload"; for a variant that
+    // stores a pointer, a wrapper or a pair, whether that is the stored
+    // type or the target is not said.
     if conversion.variant_option.is_some() && cell.s0 != Target::Plain {
         return Some("a variant's conversion option beside a variant option of its own");
     }
@@ -681,16 +745,16 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
             "an associated type beside generics, which the model spells for the plain trait",
         );
     }
-    // A variant compiled out may leave the subject's parameter unused.
-    if cell.cfg != Cfg::Absent {
-        return Some("generics beside variants under `#[cfg]`");
-    }
-    // The law names a generic subject by an alias, which a tuple struct's
-    // constructor and pattern cannot be spelled through.
+    // A variant compiled out may leave the subject's parameter unused; a
+    // trait's parameter is the trait's, which the subject only names.
     let parameter = cell.generic.descriptor().parameter.is_some();
-    if parameter && cell.s0.descriptor().is_struct() {
-        return Some("a generic struct subject, which the law names by an alias");
+    if parameter && cell.cfg != Cfg::Absent {
+        return Some("a subject's generic parameter beside variants under `#[cfg]`");
     }
+    // A generic struct is documented, "`impl<T: Shape> Shape for
+    // Wrapper<T>` for `struct Wrapper<T>(T)`" (options.md); the law builds
+    // and takes apart a tuple struct by its path with the argument spelled,
+    // `E::<P0>(..)`, which an alias cannot.
     if cell.generic != Generics::Payload {
         return None;
     }
@@ -1101,6 +1165,30 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     if cell.owner == Owner::Remote && conversion.option.is_some() {
         expect(Limit::RestatedConversions, Anchor::Attribute);
     }
+    // A variant whose payload is the enum's type parameter: "`I` is a type
+    // parameter of `Adapter`, so `From<I>` would overlap the other variants'
+    // `From` impls" (`from_overlap_type_parameter`), and "`TryFrom<Kind>
+    // for T` would implement a foreign trait for a type parameter, which
+    // the orphan rules forbid" (`try_from_type_parameter`), each on the
+    // variant. The unchecked default writes `from = false` beside another
+    // variant, as the golden `generic_payloads` does.
+    //
+    // Open question: the sentence names "the other variants' `From`
+    // impls"; it is read as standing where another variant gets one.
+    let parameter = cell.generic == Generics::Payload
+        && cell.conv != Conversion::Unchecked
+        && slots.first().is_some_and(|slot| slot.index == 0);
+    if parameter {
+        let from = cell.from_slots();
+        let own = from.iter().any(|slot| slot.index == 0);
+        let others = from.iter().any(|slot| slot.index != 0);
+        if own && others {
+            expect(Limit::FromOverlapTypeParameter, Anchor::Variant(0));
+        }
+        if conversion.try_from.is_some() && !conversion.first_left_out {
+            expect(Limit::TryFromTypeParameter, Anchor::Variant(0));
+        }
+    }
     if conversion.into && !one_arm {
         for slot in &slots {
             match slot.variant {
@@ -1142,6 +1230,17 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // Open question: a variant under a `#[cfg]` that holds is read as
     // checked in the builds that hold it, its check carried under the
     // `cfg` as its arm is.
+    // "A type that disagrees shows in the arm of a method that returns it"
+    // (routes.md): the arms of `kind` hand over each payload's own type, so
+    // where two of them differ the `match` is rustc's E0308, on the enum
+    // (`associated_type_disagreement`), beside the agreement check's E0271
+    // on the variant, or alone where the variant takes no part in the
+    // check. A type no variant supplies holds its sentence, which the arms
+    // meet as no type of theirs.
+    let kinds = returned_kinds(cell);
+    if supplier.is_some() && kinds.iter().any(|kind| *kind != kinds[0]) {
+        expect(Limit::ArmsDisagree, Anchor::Enum);
+    }
     if let Some(supplier) = supplier {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
@@ -1166,6 +1265,29 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     expected.sort();
     expected
+}
+
+/// Returns the type each arm of the method returning the trait's own type
+/// hands over, in the order of the arms: the type of the payload each
+/// variant the control method reaches holds; none where the trait has no
+/// such method.
+fn returned_kinds(cell: &Cell) -> Vec<&'static str> {
+    if !cell.agree.descriptor().returned {
+        return Vec::new();
+    }
+    let Some(kind) = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .find(|item| item.kind == ItemKind::Type)
+    else {
+        return Vec::new();
+    };
+    cell.base_slots()
+        .iter()
+        .map(|(slot, _, _)| kind.values[slot.holds])
+        .collect()
 }
 
 /// Returns whether a conversion rebuilds `Self` through a path that
