@@ -386,6 +386,16 @@ axis! {
         /// enum names, `#[dispatch(Probe<'static>)]` (options.md: "Type,
         /// lifetime and const parameters are substituted").
         Lifetime = "lifetime",
+        /// A trait generic over a format implemented for every `F` by a
+        /// partial block's own header, `impl<F: support::Format<Value =
+        /// u64>> Probe<F> for E {}`, with the bound the payloads' impls take
+        /// (partial-impl-blocks.md, "The impl header"; golden
+        /// `impl_header`).
+        Every = "every",
+        /// A generic enum, `enum E<T> { A(T), .. }`, whose partial block
+        /// implements the trait for one instantiation, `impl Probe for
+        /// E<P0> {}` (partial-impl-blocks.md, "The impl header").
+        Instance = "instance",
     }
 }
 

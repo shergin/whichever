@@ -31,6 +31,13 @@ pub struct GenericsDescriptor {
     pub payload: bool,
     /// Whether the answers count the trait's const parameter.
     pub constant: bool,
+    /// The parameter a partial block's own header declares, with its
+    /// bound, which the enum does not have, and which the payloads' impls
+    /// declare too: `F: support::Format<Value = u64>`.
+    pub header: Option<&'static str>,
+    /// Whether the impl is for one instantiation of the subject, the one
+    /// the law takes it at, `impl Probe for E<P0>`.
+    pub instantiated: bool,
 }
 
 /// A parameter of the subject.
@@ -59,6 +66,8 @@ impl Generics {
             fixed: false,
             payload: false,
             constant: false,
+            header: None,
+            instantiated: false,
         };
         match self {
             Generics::Bare => bare,
@@ -112,6 +121,26 @@ impl Generics {
                 declared: "<F: support::Format = support::Json>",
                 projected: true,
                 projection: "F::Value",
+                ..bare
+            },
+            Generics::Every => GenericsDescriptor {
+                declared: "<F: support::Format>",
+                argument: "<F>",
+                instance: "<support::Json>",
+                projected: true,
+                projection: "F::Value",
+                header: Some("F: support::Format<Value = u64>"),
+                ..bare
+            },
+            Generics::Instance => GenericsDescriptor {
+                parameter: Some(Parameter {
+                    declared: "T",
+                    named: "T",
+                    bounded: "T",
+                    instance: "P0",
+                }),
+                payload: true,
+                instantiated: true,
                 ..bare
             },
         }

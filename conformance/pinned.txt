@@ -288,3 +288,9 @@ s1=deref-dyn recv=box item=sized
 ret=gat path=block
 ret=gat
 ret=gat-undeclared path=block
+
+# An empty block's header giving the impl a parameter the enum does not
+# have (golden `impl_header`), and one instantiation of a generic enum
+# (partial-impl-blocks.md, "The impl header").
+path=block generic=every
+path=block generic=instance

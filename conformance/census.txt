@@ -297,13 +297,13 @@ suite returned-types
   never 12 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
 
 suite agreement-paths
-  pass 414
-  limit 219
+  pass 522
+  limit 261
   rejected 0
   malformed 0
-  never 252 non-canonical
+  never 378 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 216 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 276 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite stacks
   pass 150
@@ -480,6 +480,17 @@ suite generic-associated-types
   malformed 0
   never 36 non-canonical
 
+suite impl-headers
+  pass 228
+  limit 96
+  rejected 0
+  malformed 0
+  never 80 non-canonical
+  never 48 unmodelled: a block body for a return type that needs a payload to make
+  never 92 unmodelled: a default body that would need a payload to make its answer
+  never 16 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 80 unmodelled: a type-parameter payload reached through a route or a marked field
+
 suite third-stacks
   pass 24
   limit 168
@@ -487,41 +498,41 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 90
+  pass 92
   limit 23
   rejected 5
   malformed 0
 
 suite array
-  pass 7884
+  pass 7867
   limit 0
   rejected 0
   malformed 0
-  rows 7884
-  covered 82477
-  unreached 40444
+  rows 7867
+  covered 82691
+  unreached 40540
 
 suite array-limits
   pass 0
-  limit 533
+  limit 548
   rejected 0
   malformed 0
-  rows 533
-  covered 10358
-  unreached 1745
+  rows 548
+  covered 10564
+  unreached 1849
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 856
+  rejected 877
   malformed 0
-  rows 856
-  covered 9828
-  unreached 2275
+  rows 877
+  covered 10040
+  unreached 2373
 
 suite known
   pass 2
   limit 6
   rejected 0
   malformed 0
-  never 2 non-canonical
+  never 3 non-canonical

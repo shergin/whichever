@@ -205,6 +205,17 @@ generic subject by an alias at the argument it takes it at, `type S =
 E<P0>;`, and builds and takes apart a generic tuple struct by its path,
 `Built::<P0>(..)`, which an alias cannot spell.
 
+Two more values of `generic` are a partial block's own header
+(`docs/partial-impl-blocks.md`, "The impl header"). Under `every` the
+trait is generic over a format and the block implements it for every
+`F`, `impl<F: support::Format<Value = u64>> Probe<F> for E {}`, with the
+bound the payloads' impls take so that their answers count the argument;
+under `instance` the enum is generic over its first payload, `enum E<T> {
+A(T), .. }`, and the block implements the trait for the instantiation the
+law takes, `impl Probe for E<P0> {}`, whose arms name `P0`. The enum's own
+options, `from = false` beside the parameter, stay on its attribute. Both
+are a block's alone.
+
 The `conv` axis checks the conversions the subject's attribute writes:
 `From` per payload, `from = false`, the three `try_from` forms, `into =
 support::Sink`, and the variant's own `from = false` and `try_from = true`.

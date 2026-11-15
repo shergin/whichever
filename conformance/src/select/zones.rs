@@ -676,6 +676,20 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "impl-headers",
+        summary: "a partial block's own header, a parameter the enum does not have with the bound the payloads take and one instantiation of a generic enum, through every block, over the target kinds, second variants, receivers, returns and qualifiers whose arms it heads",
+        vary: &[
+            ("generic", &["every", "instance"]),
+            ("path", &["block", "block-star", "block-some", "block-default", "block-written"]),
+            ("s0", &["plain", "deref-box", "via-field", "struct"]),
+            ("s1", &["plain", "none"]),
+            ("recv", &["ref", "value"]),
+            ("ret", &["u64", "self"]),
+            ("qual", &["plain", "provided"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "third-stacks",
         summary: "a second trait and a supertrait over three variants, beside the block paths of the trait under test and the associated items both take",
         vary: &[

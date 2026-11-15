@@ -201,6 +201,9 @@ struct Method {
     hands_enum: bool,
     /// The trait as its arms name it.
     trait_path: String,
+    /// The type the impl gives the subject's parameter, where it is for
+    /// one instantiation.
+    instance: Option<&'static str>,
 }
 
 /// Writes `mod hand`.
@@ -264,7 +267,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
-        context.type_generics()
+        context.impl_type_generics()
     ));
     for (associated, overridden) in context.associated() {
         let name = associated.name();
@@ -321,6 +324,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         passes: false,
         hands_enum: false,
         trait_path: context.trait_path(),
+        instance: context.instance(),
     };
     write_method(writer, context, &base);
     // The method returning the trait's own type is forwarded as the control
@@ -424,6 +428,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         passes: true,
         hands_enum: false,
         trait_path: context.trait_path(),
+        instance: context.instance(),
     };
     if method.inherent {
         writer.close("}");
@@ -528,6 +533,7 @@ fn write_other(writer: &mut Writer, context: &Context) {
         passes: false,
         hands_enum: false,
         trait_path: String::from(OTHER),
+        instance: None,
     };
     write_method(writer, context, &method);
     writer.close("}");
@@ -583,6 +589,7 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
         passes: true,
         hands_enum: false,
         trait_path: String::from(CORE_DISPLAY),
+        instance: None,
     };
     match context.path.form {
         PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
@@ -785,7 +792,7 @@ fn arm(
     // What a `Box<dyn Probe>` dereferences to is the trait object.
     let named = target.route.iter().all(|step| *step == Step::Deref);
     let qualifier = match named {
-        true => target_type(slot, target),
+        true => target_type(slot, target, method.instance),
         false => String::from("_"),
     };
     let mut call = format!(

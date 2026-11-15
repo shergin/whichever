@@ -393,13 +393,25 @@ impl Cell {
             .find(Slot::names_its_target)
     }
 
-    /// Returns whether the subject has a type or const parameter, so that
-    /// its associated consts are taken without a check: "on an enum with a
+    /// Returns whether the subject's impl has a type or const parameter, so
+    /// that its associated consts are taken without a check: "on an enum with a
     /// type or const parameter [..] taken from the first variant without a
     /// check" (limits.md); the lifetime the `deref` variants over a
     /// reference give it is no matter.
+    ///
+    /// The check is a free `const` item, which cannot evaluate a const a
+    /// type or const parameter decides
+    /// (docs/decisions/associated-consts-are-checked-unless-a-type-can-change-them.md):
+    /// one a block's own header declares is such a parameter too, and an
+    /// impl for one instantiation leaves none.
+    ///
+    /// Open question: limits.md speaks of "an enum with a type or const
+    /// parameter"; the decision's reason, and its refusal of "silence where
+    /// a check is possible", are read as deciding by the impl's parameters.
     pub fn is_generic(&self) -> bool {
-        self.generic.descriptor().parameter.is_some() || self.owner == Owner::Remote
+        let generics = self.generic.descriptor();
+        let parameter = generics.parameter.is_some() && !generics.instantiated;
+        parameter || generics.header.is_some() || self.owner == Owner::Remote
     }
 
     /// Returns the slots whose variant forwards to a payload.

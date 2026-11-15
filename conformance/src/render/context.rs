@@ -383,17 +383,52 @@ impl Context {
 
     /// Returns the generics an impl of the trait for a payload declares:
     /// the trait's const parameter, which every payload implements it at.
-    pub fn payload_generics(&self) -> &'static str {
+    pub fn payload_generics(&self) -> String {
+        if let Some(header) = self.generics.header {
+            return format!("<{header}>");
+        }
         match self.generics.constant {
-            true => "<const N: u64>",
-            false => "",
+            true => String::from("<const N: u64>"),
+            false => String::new(),
         }
     }
 
-    /// Returns the subject's generics as an impl declares them, with the
-    /// bound a hand writes: `<'a>`, `<T: Probe>`.
+    /// Returns the subject's generics as an impl of the trait under test
+    /// declares them, with the bound a hand writes, `<'a>`, `<T: Probe>`,
+    /// and the parameter a block's own header declares beside them; an
+    /// impl for one instantiation declares none of the subject's.
     pub fn impl_generics(&self) -> String {
-        self.generics_with(|parameter| parameter.bounded, Some(&self.trait_path()))
+        if self.generics.instantiated {
+            return String::new();
+        }
+        let parameters =
+            self.generics_with(|parameter| parameter.bounded, Some(&self.trait_path()));
+        let Some(header) = self.generics.header else {
+            return parameters;
+        };
+        match parameters.strip_suffix('>') {
+            Some(open) => format!("{open}, {header}>"),
+            None => format!("<{header}>"),
+        }
+    }
+
+    /// Returns the subject's type as an impl of the trait under test names
+    /// it: with its parameters, or at the instantiation a block's header
+    /// implements, `E<P0>`.
+    pub fn impl_type_generics(&self) -> String {
+        match self.instance() {
+            Some(instance) => format!("<{instance}>"),
+            None => self.type_generics(),
+        }
+    }
+
+    /// Returns the type an arm names a payload by where the route names
+    /// it: the instantiation's own where the impl is for one.
+    pub fn instance(&self) -> Option<&'static str> {
+        self.generics
+            .parameter
+            .filter(|_| self.generics.instantiated)
+            .map(|parameter| parameter.instance)
     }
 
     /// Returns the subject's generics as an impl of the second trait
@@ -692,9 +727,44 @@ impl Context {
     /// subject declares it: the supplier's, or the first's where no variant
     /// supplies it and the verdict reports so.
     pub fn supplier_payload(&self) -> String {
-        self.cell
-            .supplier()
-            .map_or_else(|| String::from("P0"), |slot| slot.declared_payload())
+        let Some(slot) = self.cell.supplier() else {
+            return String::from("P0");
+        };
+        match (slot.parameter, self.instance()) {
+            (Some(_), Some(instance)) => String::from(instance),
+            (Some(_), None) | (None, _) => slot.declared_payload(),
+        }
+    }
+
+    /// Returns the options of the enum's own, which go on its attribute
+    /// even where a partial block is the impl (partial-impl-blocks.md):
+    /// the conversions.
+    pub fn enum_options(&self) -> Vec<String> {
+        let mut options = Vec::new();
+        let live = self
+            .declared
+            .iter()
+            .filter(|slot| slot.target().is_some())
+            .count();
+        let unchecked = !self.cell.conv.descriptor().checked;
+        if self.generics.payload && live > 1 && unchecked {
+            options.push(String::from("from = false"));
+        }
+        if let Some(option) = self.cell.conv.descriptor().option {
+            options.push(String::from(option));
+        }
+        options
+    }
+
+    /// Returns the options of the trait's, which a partial block's
+    /// attribute takes where the block is the impl: the overrides and the
+    /// mismatch.
+    pub fn trait_options(&self) -> Vec<String> {
+        let enum_options = self.enum_options();
+        self.options()
+            .into_iter()
+            .filter(|option| !enum_options.contains(option))
+            .collect()
     }
 
     /// Returns the subject's attribute options after the trait's path.
@@ -896,11 +966,15 @@ pub fn storage(slot: &Slot, target: &TargetDescriptor) -> String {
 
 /// Returns the type of a slot's target where a route names it, the
 /// payload or what it dereferences to (routes.md): the payload as the
-/// subject declares it, or the trait object a `Box<dyn Probe>` holds.
-pub fn target_type(slot: &Slot, target: &TargetDescriptor) -> String {
-    match target.is_object() {
-        true => format!("dyn {TRAIT}"),
-        false => slot.declared_payload(),
+/// subject declares it, the type an impl for one instantiation gives its
+/// parameter, `instance`, or the trait object a `Box<dyn Probe>` holds.
+pub fn target_type(slot: &Slot, target: &TargetDescriptor, instance: Option<&str>) -> String {
+    if target.is_object() {
+        return format!("dyn {TRAIT}");
+    }
+    match (slot.parameter, instance) {
+        (Some(_), Some(instance)) => String::from(instance),
+        (Some(_), None) | (None, _) => slot.declared_payload(),
     }
 }
 

@@ -71,7 +71,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
         | Generics::Own
         | Generics::Defaulted
         | Generics::Paired
-        | Generics::Lifetime => true,
+        | Generics::Lifetime
+        | Generics::Every
+        | Generics::Instance => true,
     };
     if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
@@ -100,6 +102,13 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     if !object_canonical(cell) {
+        return Verdict::NonCanonical;
+    }
+    // A block's own header is how the impl gets generics the enum does not
+    // have, or one instantiation of a generic enum (partial-impl-blocks.md,
+    // "The impl header"), which the enum's attribute writes neither of.
+    let header = matches!(cell.generic, Generics::Every | Generics::Instance);
+    if header && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
     // A generic associated type left undeclared is a partial block's way of
@@ -702,6 +711,15 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     if stack.supertrait && cell.generic == Generics::Own {
         return Some("a supertrait generic over the enum's const parameter");
     }
+    // The same for a parameter only a block's header declares, and the
+    // instantiation's `from = false` would have to be spelled on the
+    // second attribute.
+    if stack.supertrait && cell.generic == Generics::Every {
+        return Some("a supertrait over a trait whose parameter only a block's header declares");
+    }
+    if stack.present && cell.generic == Generics::Instance {
+        return Some("a block for one instantiation beside a second attribute");
+    }
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
     // the first variant, and would be warned of as the user's own code.
@@ -803,14 +821,21 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
     // Wrapper<T>` for `struct Wrapper<T>(T)`" (options.md); the law builds
     // and takes apart a tuple struct by its path with the argument spelled,
     // `E::<P0>(..)`, which an alias cannot.
-    if cell.generic != Generics::Payload {
+    if !matches!(cell.generic, Generics::Payload | Generics::Instance) {
         return None;
     }
     // "A payload that is a type parameter of the enum, or `Box<T>` under
     // `deref`, gives the impl the bound `Raw: Trait`" (options.md); a
     // partial block's header is the user's, and spells the bound itself.
+    // A wrapper or a pair the model writes holds the payload's own type,
+    // which would leave the parameter unused.
     if !matches!(cell.s0, Target::Plain | Target::DerefBox | Target::Struct) {
         return Some("a type-parameter payload reached through a route or a marked field");
+    }
+    // An impl for one instantiation names the payload's type, which needs
+    // no bound and is `Unpin`.
+    if cell.generic == Generics::Instance {
+        return None;
     }
     if cell.path != super::Path::Attribute {
         return Some(
@@ -1329,7 +1354,16 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
                 ItemKind::Type => true,
-                ItemKind::Const => item.comparable && !cell.is_generic(),
+                // The second trait declares the same consts, and its impl,
+                // which the enum's attribute writes, has none of a block's
+                // header parameters, so its check runs where the enum has
+                // none of its own.
+                ItemKind::Const => {
+                    let enum_generic = cell.generic.descriptor().parameter.is_some()
+                        || cell.owner == Owner::Remote;
+                    let second = cell.stack.descriptor().present && !enum_generic;
+                    item.comparable && (!cell.is_generic() || second)
+                }
             };
             if !checked {
                 continue;

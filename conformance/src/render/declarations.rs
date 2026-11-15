@@ -179,9 +179,16 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
     writer.anchor(Anchor::Attribute.name());
     // In a block path the second trait is the subject's attribute, and the
     // block is the impl of the first.
+    // The enum's own options stay on its attribute where a block is the
+    // impl (partial-impl-blocks.md).
+    let enum_options = context.enum_options();
     match (block, context.stack.present) {
         (true, true) => writer.line(context.other_attribute()),
         (true, false) if restated => {}
+        (true, false) if !enum_options.is_empty() => writer.line(format!(
+            "#[whichever::dispatch({})]",
+            enum_options.join(", ")
+        )),
         (true, false) => writer.line("#[whichever::dispatch]"),
         (false, stacked) => {
             writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));
@@ -227,7 +234,7 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
     super::conversions::write_proofs(writer, context);
     if block {
         writer.blank();
-        write_block(writer, context, &arguments[1..]);
+        write_block(writer, context, &context.trait_options());
     }
     if context.inherent() {
         writer.blank();
@@ -273,7 +280,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
-        context.type_generics()
+        context.impl_type_generics()
     ));
     // The block declares the generic associated type, which no first
     // variant can supply (partial-impl-blocks.md, golden
