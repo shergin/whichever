@@ -19,7 +19,8 @@ the planning notes, the note holds the long form and the record names it.
 - [Receivers that would allocate are rejected](receivers-that-allocate-are-rejected.md)
 - [`impl Trait` returns: an enum forwards futures, a struct forwards them all](impl-trait-returns-are-forwarded-through-a-struct.md),
   superseding [`impl Trait` returns are rejected, except futures](impl-trait-returns-are-rejected-except-futures.md)
-- [Associated consts are checked for four types](associated-consts-are-checked-for-four-types.md)
+- [Associated consts are checked unless a type can change them](associated-consts-are-checked-unless-a-type-can-change-them.md),
+  superseding [Associated consts are checked for four types](associated-consts-are-checked-for-four-types.md)
 - [A rejected enum is still emitted](a-rejected-enum-is-still-emitted.md)
 - [Foreign traits are restated, and the common ones ship](foreign-traits-are-restated.md)
 - [`From` is opt-out and `TryFrom` is opt-in](from-is-opt-out-and-try-from-is-opt-in.md)

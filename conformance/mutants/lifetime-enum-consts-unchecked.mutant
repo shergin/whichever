@@ -1,0 +1,8 @@
+file: macros/src/agreement.rs
+breaks: The associated consts of an enum with lifetime parameters alone are checked to agree, as `docs/what-is-generated.md` says in its row for `const N: T;`.
+expect: killed
+
+find:
+                GenericParam::Lifetime(param) => lifetimes.push(param.lifetime.ident.clone()),
+replace:
+                GenericParam::Lifetime(_) => return TokenStream2::new(),

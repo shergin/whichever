@@ -272,6 +272,21 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   that wraps `Self` twice under `with = Some` or `with = Ok`. The
   `tests/ui` case `lift_over_a_wrapped_self` is new; no other snapshot and
   no golden changed.
+- The associated consts of an enum with lifetime parameters alone are
+  checked to agree, as those of an enum without parameters are: no
+  lifetime changes a const's value, so the check compares the payloads
+  with each lifetime `'static`. Before, such an enum took the first
+  variant's const without a check, so `enum E<'a> { A(P0),
+  #[dispatch(deref)] B(&'a P1) }` answered `P0`'s `LEVEL` for `B` as well.
+  This breaks an enum that compiled: one whose variants disagree on such a
+  const, which now is an error on the variant that differs; set the const
+  on the enum with `LEVEL = value`. An enum with a type or const parameter,
+  and a variant reached through a field or a method, still take the first
+  variant's value, and `docs/limits.md` says so. The decision record
+  "Associated consts are checked unless a type can change them"
+  supersedes "Associated consts are checked for four types". The
+  `tests/ui` case `const_disagreement_on_a_lifetime_enum` is new; no other
+  snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

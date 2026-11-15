@@ -1,9 +1,12 @@
 //! The checks that every variant agrees with the first on the associated
 //! types and consts the impl takes from it.
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::quote_spanned;
+use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{parse_quote_spanned, GenericArgument, Ident, Path, PathArguments, Type};
+use syn::visit_mut::{self, VisitMut};
+use syn::{
+    parse_quote_spanned, GenericArgument, GenericParam, Ident, Lifetime, Path, PathArguments, Type,
+};
 
 use crate::at;
 use crate::shape::bare_ident;
@@ -56,6 +59,26 @@ pub(crate) struct Agreement<'a> {
     pub(crate) deprecated: bool,
 }
 
+/// Replaces the named lifetimes of a type with `'static`.
+struct Static<'a>(&'a [Ident]);
+
+impl VisitMut for Static<'_> {
+    fn visit_lifetime_mut(&mut self, lifetime: &mut Lifetime) {
+        if self.0.contains(&lifetime.ident) {
+            *lifetime = Lifetime::new("'static", lifetime.span());
+        }
+        visit_mut::visit_lifetime_mut(self, lifetime);
+    }
+}
+
+/// Returns `payload` with `lifetimes` replaced by `'static`, or `None` when
+/// it does not read as a type.
+fn at_static(payload: &TokenStream2, lifetimes: &[Ident]) -> Option<TokenStream2> {
+    let mut ty: Type = syn::parse2(payload.clone()).ok()?;
+    Static(lifetimes).visit_type_mut(&mut ty);
+    Some(ty.into_token_stream())
+}
+
 impl Agreement<'_> {
     /// Returns the `#[allow(deprecated)]` a check block carries when the
     /// trait deprecates an associated item the block names.
@@ -73,8 +96,12 @@ impl Agreement<'_> {
 
     /// Checks at compile time that every variant's associated consts of a
     /// comparable type equal the first variant's, with the failure reported
-    /// on the variant. Const evaluation happens after monomorphisation, so
-    /// a generic enum gets no check.
+    /// on the variant. Const evaluation happens after monomorphisation, and
+    /// a check inside a generic item is never evaluated, so the check is a
+    /// free `const`: an enum with a type or const parameter, on which a
+    /// const may depend, gets none, and one with lifetime parameters alone
+    /// is checked with each of them `'static`, since no lifetime changes a
+    /// const's value.
     pub(crate) fn consts(&self, consts: &[(&Ident, Type)]) -> TokenStream2 {
         let Agreement {
             variants,
@@ -85,9 +112,19 @@ impl Agreement<'_> {
             site,
             ..
         } = *self;
-        if variants.len() < 2 || !generics.params.is_empty() {
+        if variants.len() < 2 {
             return TokenStream2::new();
         }
+        let mut lifetimes = vec![];
+        for param in &generics.params {
+            match param {
+                GenericParam::Lifetime(param) => lifetimes.push(param.lifetime.ident.clone()),
+                GenericParam::Type(_) | GenericParam::Const(_) => return TokenStream2::new(),
+            }
+        }
+        let Some(first_payload) = at_static(first_payload, &lifetimes) else {
+            return TokenStream2::new();
+        };
         let mut checks = TokenStream2::new();
         let mut needs_str_eq = false;
         for (name, ty) in consts {
@@ -98,7 +135,10 @@ impl Agreement<'_> {
                 // A target reached through a field or a method has no type
                 // to name here; a disagreement shows in the method's arm
                 // instead.
-                let Some(payload) = variant.target_type_outside(self_type) else {
+                let Some(payload) = variant
+                    .target_type_outside(self_type)
+                    .and_then(|payload| at_static(&payload, &lifetimes))
+                else {
                     continue;
                 };
                 let cfgs = &variant.cfgs;
