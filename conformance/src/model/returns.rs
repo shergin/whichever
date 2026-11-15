@@ -358,23 +358,31 @@ impl Node {
     }
 
     /// Returns whether a trait's default body can make a value of the type
-    /// from `self.base()` alone, knowing no payload: no reference to a
-    /// payload's state, no `Self`, no associated type.
-    pub fn has_default(&self) -> bool {
+    /// knowing no payload: from `self.base()`, a number it leaks a place
+    /// for where the type borrows, `self` itself where the method `owns`
+    /// it, `None`, an `Err` or an empty `Vec` where the inner type has no
+    /// default; an associated type, which the trait would have to bound to
+    /// make, and the payload's own lifetime are no default's.
+    pub fn has_default(&self, owns: bool) -> bool {
         match self {
-            Node::Unit | Node::Tag | Node::Fault | Node::Iterator => true,
-            Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.has_default(),
-            Node::Result(ok, error) => ok.has_default() && error.has_default(),
-            Node::Fallible(ok) => ok.has_default(),
-            Node::Tuple(elements) => elements.iter().all(Node::has_default),
-            Node::Shared
-            | Node::Lent
+            Node::Unit
+            | Node::Tag
+            | Node::Fault
+            | Node::Iterator
+            | Node::Shared
             | Node::Exclusive
+            | Node::Option(_)
+            | Node::Fallible(_)
+            | Node::Vec(_) => true,
+            Node::This => owns,
+            Node::Future(_, inner) => inner.has_default(owns),
+            Node::Result(ok, error) => ok.has_default(owns) || error.has_default(owns),
+            Node::Tuple(elements) => elements.iter().all(|element| element.has_default(owns)),
+            Node::Lent
             | Node::Payload
             | Node::PayloadShared
             | Node::PayloadLent
             | Node::PayloadExclusive
-            | Node::This
             | Node::Assoc
             | Node::Overridden(_)
             | Node::Gat => false,

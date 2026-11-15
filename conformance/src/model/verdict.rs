@@ -679,8 +679,16 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     if qualifier.provided && yielded {
         return Some("a default body that calls a control method taking `self`");
     }
-    if qualifier.provided && !node.has_default() {
+    // A default body may answer `self` where the method takes it by value
+    // or in a box; left to the default by a block, such an answer is the
+    // enum itself, which the law has no twin of, since `Defaulted` answers
+    // a `Defaulted`.
+    let owns = matches!(cell.recv, Receiver::Owned | Receiver::Boxed);
+    if qualifier.provided && !node.has_default(owns) {
         return Some("a default body that would need a payload to make its answer");
+    }
+    if qualifier.provided && path.form == PathForm::Default && node.holds_this() {
+        return Some("a default answering `Self` left to the default, whose twin is no enum");
     }
     None
 }

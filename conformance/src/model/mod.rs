@@ -488,7 +488,7 @@ impl Cell {
         if qualifier.asyncness && (by_value || node.holds_this()) {
             return true;
         }
-        qualifier.provided && by_value
+        qualifier.provided && (by_value || node.holds_this())
     }
 
     /// Returns whether the subject declares the trait's generic associated

@@ -182,6 +182,14 @@ itself), or an inherent block forwarding to the payloads' own `m`. The law
 expects, per variant, what a twin of the payload answers, the body the
 block writes, or what the trait's default answers.
 
+A provided method's default body knows no payload. It answers a number
+made from the control method, a place it leaks for that number where the
+type borrows, `support::leak`, the `self` it owns where the method takes
+`self` or `self: Box<Self>`, and `None`, an `Err` or an empty `Vec` where
+nothing else of the type can be made; an associated type it would have
+to bound, and a `Self` a block leaves to the default, whose twin
+`Defaulted` cannot be, stay unmodelled.
+
 The `home` axis says where the trait and the payloads live: in the cell's
 module, in a sibling module the subject imports the trait from, or in
 another crate. There the cell is written as two files that keep its line

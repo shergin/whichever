@@ -490,6 +490,23 @@ impl Context {
         self.cell.requires_sized()
     }
 
+    /// Returns how a default body names the `Self` it owns and may answer:
+    /// `self` taken by value, or what the box it is taken in holds; `None`
+    /// where it borrows its receiver.
+    pub fn owned_self(&self) -> Option<&'static str> {
+        match self.cell.recv {
+            Receiver::Owned => Some("self"),
+            Receiver::Boxed => Some("*self"),
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::PinShared
+            | Receiver::PinExclusive
+            | Receiver::Rc
+            | Receiver::Arc
+            | Receiver::PinBoxed => None,
+        }
+    }
+
     /// Returns whether a call of the method yields a future to await.
     pub fn awaited(&self) -> bool {
         self.qualifier.asyncness || self.node.future().is_some()

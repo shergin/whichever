@@ -189,6 +189,12 @@ impl<'a> From<Loan2<'a>> for View<'a> {
     }
 }
 
+/// Leaks a value, so that code with no place of its own, a default body,
+/// a mismatch or a block's body, can lend it for any lifetime.
+pub fn leak<T>(value: T) -> &'static mut T {
+    Box::leak(Box::new(value))
+}
+
 /// A type parameter no argument fixes.
 pub trait Weight {
     /// What the answer counts it as.
