@@ -1022,12 +1022,22 @@ fn associated_type<'a>(
     if is_deprecated(&assoc.attrs) {
         carried.push(allow_deprecated(site));
     }
+    // A generic associated type has no supplier: written holding its
+    // sentence, as an item no variant can supply is, the impl stays
+    // complete and the sentence stands alone. Its parameters and `where`
+    // clause are the trait's, which the impl may not strengthen.
     if !assoc.generics.params.is_empty() {
         let parameters = spelled(&assoc.generics);
-        return Err(Error::new_spanned(
+        let error = Error::new_spanned(
             assoc,
             format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
-        ));
+        )
+        .to_compile_error();
+        let generics = &assoc.generics;
+        let where_clause = &assoc.generics.where_clause;
+        return Ok(quote_spanned! { site =>
+            #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
+        });
     }
     let cfgs = carried
         .iter()

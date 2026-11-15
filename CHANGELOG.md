@@ -309,6 +309,12 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   about one variant is. The behaviour test `trait_objects_in_deref_variants`
   holds the first and the `tests/ui` case `trait_object_beside_a_plain_variant`
   the second; no other snapshot and no golden changed.
+- Before, a generic associated type the enum does not declare withheld the
+  impl, and its sentence was followed by rustc's error at every call
+  through the trait, and the other methods' sentences were never written.
+  It is now written holding its sentence, as an associated item no variant
+  can supply is. The `tests/ui` case `undeclared_gat_keeps_the_impl` is
+  new; no other snapshot and no golden changed.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only
