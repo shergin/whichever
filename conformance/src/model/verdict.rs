@@ -23,7 +23,7 @@ use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
 use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
-use super::target::{Form, Pointer, Step, Storage};
+use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
     Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
@@ -383,6 +383,13 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             .any(|(_, _, target)| target.ends_in_method());
         if method_route && cell.recv != Receiver::Shared {
             return Some("an inherent method through a route ending in a method call under a receiver other than `&self`");
+        }
+        let loan_route = cell
+            .method_slots()
+            .iter()
+            .any(|(_, _, target)| target.reads_through_a_loan());
+        if loan_route && cell.recv != Receiver::Shared {
+            return Some("an inherent method through a field of what a method lends under a receiver other than `&self`");
         }
         let lifetime = cell
             .live_slots()
@@ -815,10 +822,14 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // rebuild would drop the other fields (docs/structs.md); a marked field
     // with a route of its own gets the route's. Open question:
     // `docs/limits.md` and `tests/ui` hold the struct's case only.
+    //
+    // Open question: a route of several steps that starts with `*`, `via =
+    // *.payload`, is read as a route, whose sentence names it, rather than
+    // as `deref`; `tests/ui` pins `deref` alone and a field alone.
     if conversion.is_some() && node.holds_this() {
         for (slot, _, target) in &method_live {
             let anchor = Anchor::Variant(slot.index);
-            if target.pointer().is_some() {
+            if target.is_deref() {
                 expect(Limit::DerefSelfReturn, anchor);
             } else if target.is_routed() {
                 expect(Limit::RouteSelfReturn, anchor);
@@ -849,19 +860,25 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // (`box_self_on_a_shared_pointer`).
     //
     // Open question: a variant reached through a field is read as getting
-    // the plain variant's sentence.
+    // the plain variant's sentence. A route that dereferences a pointer and
+    // reads a field of what it points at, `*.payload`, holds a pointer but
+    // none of the target, so it gets the sentence of a pointer that is no
+    // `Box`: "there is no box to hand over" (limits.md), whatever the
+    // pointer is.
     let place = matches!(cell.callee, Callee::Value | Callee::Field);
     if cell.recv == Receiver::Boxed && !place {
         for (slot, _, target) in &method_live {
-            let deref = target.route == [Step::Deref];
+            let deref = target.is_deref();
             let limit = match target.pointer() {
                 Some(Pointer::Box) if deref => continue,
-                Some(Pointer::Rc | Pointer::Arc | Pointer::Shared | Pointer::Exclusive)
-                    if deref =>
-                {
-                    Limit::BoxSelfOnSharedPointer
-                }
-                Some(_) | None => Limit::BoxSelfPlain,
+                Some(
+                    Pointer::Box
+                    | Pointer::Rc
+                    | Pointer::Arc
+                    | Pointer::Shared
+                    | Pointer::Exclusive,
+                ) => Limit::BoxSelfOnSharedPointer,
+                None => Limit::BoxSelfPlain,
             };
             expect(limit, Anchor::Variant(slot.index));
         }
@@ -1114,6 +1131,30 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "E0308",
             "a lent target read by value, which hands the reference over as it is",
+            Forwarded::Method,
+        );
+    }
+    // A route that reads a field of what a method lends, `via =
+    // .get().payload`, reaches a place behind the shared reference the call
+    // returned (routes.md: `.method()` for what a method returns, "in any
+    // sequence"), which can be neither borrowed mutably nor moved out of.
+    // The sentence for a route through a method concerns one that ends in
+    // the call (limits.md), so a hand's call gets rustc's error, and so
+    // does the attribute's.
+    let through_loan = any(&|target| target.reads_through_a_loan());
+    let exclusive =
+        receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive);
+    if through_loan && exclusive {
+        reject(
+            "E0596",
+            "a field of what a method lends, borrowed mutably",
+            Forwarded::Method,
+        );
+    }
+    if through_loan && owned {
+        reject(
+            "E0507",
+            "a field of what a method lends, moved out of the loan",
             Forwarded::Method,
         );
     }

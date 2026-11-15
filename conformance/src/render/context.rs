@@ -706,13 +706,22 @@ pub fn storage(slot: &Slot, target: &TargetDescriptor) -> String {
     let payload = slot.declared_payload();
     match target.storage {
         Storage::Payload => payload,
-        Storage::Pointer(Pointer::Box) => format!("Box<{payload}>"),
-        Storage::Pointer(Pointer::Rc) => format!("Rc<{payload}>"),
-        Storage::Pointer(Pointer::Arc) => format!("Arc<{payload}>"),
-        Storage::Pointer(Pointer::Shared) => format!("&'a {payload}"),
-        Storage::Pointer(Pointer::Exclusive) => format!("&'a mut {payload}"),
+        Storage::Pointer(pointer) => pointed(pointer, &payload),
         Storage::Wrapper => slot.wrapper(),
         Storage::Pair => format!("(u64, {payload})"),
+        Storage::WrapperBehind(pointer) => pointed(pointer, &slot.wrapper()),
+        Storage::WrapperInPair => format!("(u64, {})", slot.wrapper()),
+    }
+}
+
+/// Returns the type of a pointer to `inner`.
+fn pointed(pointer: Pointer, inner: &str) -> String {
+    match pointer {
+        Pointer::Box => format!("Box<{inner}>"),
+        Pointer::Rc => format!("Rc<{inner}>"),
+        Pointer::Arc => format!("Arc<{inner}>"),
+        Pointer::Shared => format!("&'a {inner}"),
+        Pointer::Exclusive => format!("&'a mut {inner}"),
     }
 }
 

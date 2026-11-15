@@ -95,6 +95,12 @@ has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
 
+Four values of `s0` and `s1` reach their target by a route of several
+steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
+behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
+holding a wrapper, and `via = .get().payload`, a field of what a method
+lends, which a hand can neither borrow mutably nor move out of.
+
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
 variant. With it a `match` has three arms, a mismatch is checked between

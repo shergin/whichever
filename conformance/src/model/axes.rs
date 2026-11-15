@@ -49,6 +49,18 @@ axis! {
         /// `pub struct E { held: P0 }`: a struct subject with one named
         /// field.
         StructNamed = "struct-named",
+        /// `#[dispatch(via = *.payload)] A(Box<W0>)`: what the payload
+        /// dereferences to, then a field of it, a route of two steps.
+        DerefBoxField = "deref-box-field",
+        /// `#[dispatch(via = *.payload)] A(Rc<W0>)`: the same behind a
+        /// pointer that lends what it points at shared only.
+        DerefRcField = "deref-rc-field",
+        /// `#[dispatch(via = .1.payload)] A((u64, W0))`: a field of a
+        /// field.
+        ViaIndexField = "via-index-field",
+        /// `#[dispatch(via = .get().payload)] A(W0)`: a field of what a
+        /// method lends.
+        ViaMethodField = "via-method-field",
     }
 }
 
@@ -86,6 +98,14 @@ axis! {
         Unit = "unit",
         /// `B(P1, u64)`, two fields of which none is marked.
         Pair = "pair",
+        /// `#[dispatch(via = *.payload)] B(Box<W1>)`.
+        DerefBoxField = "deref-box-field",
+        /// `#[dispatch(via = *.payload)] B(Rc<W1>)`.
+        DerefRcField = "deref-rc-field",
+        /// `#[dispatch(via = .1.payload)] B((u64, W1))`.
+        ViaIndexField = "via-index-field",
+        /// `#[dispatch(via = .get().payload)] B(W1)`.
+        ViaMethodField = "via-method-field",
     }
 }
 

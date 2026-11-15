@@ -299,24 +299,17 @@ fn write_subject(
             return;
         }
     };
+    let wrapper = format!(
+        "{} {{ label: {LABEL}, payload: {payload} }}",
+        slot.wrapper()
+    );
     let stored = match target.storage {
         Storage::Payload => payload,
-        Storage::Pointer(Pointer::Box) => format!("Box::new({payload})"),
-        Storage::Pointer(Pointer::Rc) => format!("Rc::new({payload})"),
-        Storage::Pointer(Pointer::Arc) => format!("Arc::new({payload})"),
-        Storage::Pointer(Pointer::Shared) => {
-            writer.line(format!("let {name}_held = {payload};"));
-            format!("&{name}_held")
-        }
-        Storage::Pointer(Pointer::Exclusive) => {
-            writer.line(format!("let mut {name}_held = {payload};"));
-            format!("&mut {name}_held")
-        }
-        Storage::Wrapper => format!(
-            "{} {{ label: {LABEL}, payload: {payload} }}",
-            slot.wrapper()
-        ),
+        Storage::Pointer(pointer) => point(writer, pointer, name, payload),
+        Storage::Wrapper => wrapper,
         Storage::Pair => format!("({LABEL}, {payload})"),
+        Storage::WrapperBehind(pointer) => point(writer, pointer, name, wrapper),
+        Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
     };
     let value = match target.form {
         Form::Single => format!("{path}::{variant}({stored})"),
@@ -327,6 +320,24 @@ fn write_subject(
         Form::StructNamed => format!("{path} {{ held: {stored} }}"),
     };
     writer.line(format!("{binding} {name} = {value};"));
+}
+
+/// Returns a pointer to `value`, which the binding `name` is built around:
+/// a reference points at a binding of its own, written before it.
+fn point(writer: &mut Writer, pointer: Pointer, name: &str, value: String) -> String {
+    match pointer {
+        Pointer::Box => format!("Box::new({value})"),
+        Pointer::Rc => format!("Rc::new({value})"),
+        Pointer::Arc => format!("Arc::new({value})"),
+        Pointer::Shared => {
+            writer.line(format!("let {name}_held = {value};"));
+            format!("&{name}_held")
+        }
+        Pointer::Exclusive => {
+            writer.line(format!("let mut {name}_held = {value};"));
+            format!("&mut {name}_held")
+        }
+    }
 }
 
 /// Returns a call of the method under test on `receiver`, with `other`

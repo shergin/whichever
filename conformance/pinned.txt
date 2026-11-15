@@ -42,6 +42,14 @@ s1=via-method recv=value ret=assoc qual=turbofish
 # A sentence about the second variant, compiled out, under `self:
 # Box<Self>`, where the first variant holds a `Box` and takes no sentence.
 s0=deref-box recv=box cfg=second-off
+# A route of several steps through a pointer that is no `Box`, under `self`
+# by value (`route_moves_through_a_shared_pointer`, `via = *.base` over an
+# `Rc`), and a field of what a method lends, whose rustc error under `&mut
+# self` or `self` landed on the attribute before the bindings were placed
+# at the arm (generated-bindings-are-located-at-the-attribute).
+s0=deref-rc-field recv=value
+s0=via-method-field recv=mut
+s0=via-method-field recv=value
 
 # An `#[allow]` on the trait method reaches the generated method
 # (lint-attributes-do-not-reach-generated-code, the forest-filecoin survey).

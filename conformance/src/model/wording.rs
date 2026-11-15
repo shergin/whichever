@@ -169,14 +169,25 @@ fn takes(cell: &Cell, limit: Limit) -> String {
 }
 
 /// Returns the route a target is reached by, as the variant's option
-/// spells it: `.payload`, `.lend()`.
+/// spells it, every step: `.payload`, `.lend()`, `*.payload`; `None` for
+/// `deref` alone, which a sentence names as `deref`.
+///
+/// Open question: no snapshot holds a sentence about a route of several
+/// steps; it is read as naming the route as the option spells it.
 fn route(target: &TargetDescriptor) -> Option<String> {
-    let step = target.route.last()?;
-    match step {
-        Step::Deref => None,
-        Step::Field(name) => Some(format!(".{name}")),
-        Step::Method(name) | Step::Yield(name) => Some(format!(".{name}()")),
+    if target.route.is_empty() || target.is_deref() {
+        return None;
     }
+    let steps: Vec<String> = target
+        .route
+        .iter()
+        .map(|step| match step {
+            Step::Deref => String::from("*"),
+            Step::Field(name) => format!(".{name}"),
+            Step::Method(name) | Step::Yield(name) => format!(".{name}()"),
+        })
+        .collect();
+    Some(steps.concat())
 }
 
 /// Returns the names a sentence interpolates for the cell.
