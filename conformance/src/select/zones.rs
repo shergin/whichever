@@ -484,6 +484,30 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("decl", "foreign")],
     },
     Zone {
+        name: "restated-enums",
+        summary: "an enum of another crate restated beside the subject, over its payloads, boxed payloads and unit variants, through the enum's attribute and the blocks, with the returns that rewrap it",
+        vary: &[
+            ("s0", &["plain", "deref-box"]),
+            ("s1", &["plain", "none", "deref-box", "unit"]),
+            ("s2", &["none", "plain", "unit"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-written"]),
+            ("ret", &["u64", "self", "assoc"]),
+        ],
+        fixed: &[("owner", "remote")],
+    },
+    Zone {
+        name: "restated-enum-items",
+        summary: "a restated enum with the receivers, the `Self` arguments, the conversion options it refuses, the associated items and a second trait",
+        vary: &[
+            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
+            ("arg", &["none", "ref-trait", "value"]),
+            ("conv", &["none", "from-off", "try", "into"]),
+            ("agree", &["none", "type-differs", "const-differs"]),
+            ("stack", &["none", "second"]),
+        ],
+        fixed: &[("owner", "remote"), ("s1", "deref-box")],
+    },
+    Zone {
         name: "thirds",
         summary: "a third variant beside a second, over the target kinds of the first, the receivers that hand each arm over and the returns that rewrap it",
         vary: &[

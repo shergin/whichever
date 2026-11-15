@@ -212,3 +212,12 @@ qual=provided decl=remote-base
 recv=pin-mut qual=provided path=block decl=remote-base
 home=crate decl=remote
 path=block-written decl=foreign
+# An enum of another crate restated beside the subject, the impl written
+# for the real path (golden `restated_enum`), with a partial block over the
+# real enum imported under the restatement's name and a restated trait
+# (behaviour test `restated_enum`), and a conversion option it refuses
+# (`restated_enum_conversions`).
+ret=self owner=remote
+path=block owner=remote
+decl=remote owner=remote
+conv=from-off owner=remote

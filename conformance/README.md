@@ -121,6 +121,15 @@ is `whichever::foreign::Display`: the payloads implement
 hand implements `core::fmt::Display` with the same `match`, and the law
 compares what the subject prints with what a twin of its payload prints.
 
+The `owner` axis says which crate declares the enum. Under `remote` the
+trait's crate shard declares `E` generic over what its variants hold, as
+another crate declares `either::Either`, and the subject's crate restates
+it with `#[whichever::dispatch(remote = path)]` beside the trait's
+attribute; the impl is written for the real path, with the bound `Tk:
+Probe` per payload parameter, the hand is the same generic enum with that
+bound, and the law takes both at the payloads, `type S = E<P0, P1>;`. A
+conversion option on a restated enum is its sentence.
+
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`

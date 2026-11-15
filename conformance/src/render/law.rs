@@ -145,9 +145,12 @@ fn write_tests(writer: &mut Writer, context: &Context, tests: &[&str]) {
         writer.line("#[test]");
         writer.open(format!("fn {test}() {{"));
         // A generic subject is named at the argument the law takes it at.
-        match context.generics.parameter {
-            Some(_) => writer.line(format!("type S = {};", context.subject_instance(path))),
-            None => writer.line(format!("use {path} as S;")),
+        // A restated enum is generic over what its variants hold.
+        let generic = context.generics.parameter.is_some()
+            || context.cell.owner == crate::model::Owner::Remote;
+        match generic {
+            true => writer.line(format!("type S = {};", context.subject_instance(path))),
+            false => writer.line(format!("use {path} as S;")),
         }
         writer.anchor(format!("law-{test}"));
         writer.line("law!();");

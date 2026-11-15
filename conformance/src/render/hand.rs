@@ -431,7 +431,7 @@ fn write_other(writer: &mut Writer, context: &Context) {
     allow_unread(writer, context);
     writer.open(format!(
         "impl{} {OTHER} for E{} {{",
-        context.impl_generics(),
+        context.other_impl_generics(),
         context.type_generics()
     ));
     for item in context.agreement.items {

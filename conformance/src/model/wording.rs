@@ -161,6 +161,7 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::StructConversion
         | Limit::IntoOtherFields
         | Limit::IntoWithoutPayload
+        | Limit::RestatedConversions
         | Limit::TypeDisagreement
         | Limit::ConstDisagreement
         | Limit::MismatchForAbsentMethod => String::new(),
@@ -282,7 +283,7 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .collect();
             any = Some(Fragment(held));
         }
-        Limit::IntoOtherFields => {}
+        Limit::IntoOtherFields | Limit::RestatedConversions => {}
         // Open question: whether `into` reports each variant that holds no
         // payload or the first alone is not pinned; a sentence is read as
         // naming any of them.

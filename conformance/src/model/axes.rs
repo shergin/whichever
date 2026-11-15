@@ -462,6 +462,19 @@ axis! {
 }
 
 axis! {
+    /// Which crate declares the enum the subject dispatches over
+    /// (restatements.md, "Enums from other crates").
+    pub enum Owner {
+        /// The subject's crate: the subject is the enum.
+        Local = "local",
+        /// Another crate, the trait's crate shard, declares the enum generic
+        /// over its payloads, and the subject restates it with
+        /// `#[whichever::dispatch(remote = path)]`.
+        Remote = "remote",
+    }
+}
+
+axis! {
     /// The third variant, beside a second: a target kind over `P2`, or a
     /// variant no trait method can be forwarded to. A `match` of three
     /// arms, a mismatch over three variants, an agreement check across

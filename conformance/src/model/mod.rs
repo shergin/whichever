@@ -25,7 +25,7 @@ pub mod wording;
 
 pub use axes::{
     Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -110,6 +110,10 @@ impl Verdict {
     }
 }
 
+/// The type parameters a restated enum declares its payloads as, by slot:
+/// the real enum is another crate's, generic over what its variants hold.
+pub const RESTATED_PARAMETERS: [&str; 3] = ["T0", "T1", "T2"];
+
 /// What a slot's variant is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotVariant {
@@ -133,8 +137,8 @@ pub struct Slot {
     /// The slot whose payload type the variant holds: its own, or the
     /// first slot's where two variants hold one type.
     pub holds: usize,
-    /// Whether the subject declares the payload as its type parameter.
-    pub parameter: bool,
+    /// The type parameter the subject declares the payload as, if any.
+    pub parameter: Option<&'static str>,
     /// Whether the variant is `#[deprecated]`.
     pub deprecated: bool,
 }
@@ -154,8 +158,8 @@ impl Slot {
     /// parameter, or the payload's name.
     pub fn declared_payload(&self) -> String {
         match self.parameter {
-            true => String::from("T"),
-            false => self.payload(),
+            Some(parameter) => String::from(parameter),
+            None => self.payload(),
         }
     }
 
@@ -204,7 +208,11 @@ impl Cell {
             variant: SlotVariant::Live(self.s0),
             cfg: self.cfg.of(0),
             holds: 0,
-            parameter: self.generic.descriptor().payload,
+            parameter: match (self.owner, self.generic.descriptor().payload) {
+                (Owner::Remote, _) => Some(RESTATED_PARAMETERS[0]),
+                (Owner::Local, true) => Some("T"),
+                (Owner::Local, false) => None,
+            },
             deprecated: self.deprecated.slot() == Some(0),
         }];
         for (index, later) in [(1, self.s1.slot()), (2, self.s2.slot())] {
@@ -223,7 +231,12 @@ impl Cell {
                 variant,
                 cfg: self.cfg.of(index),
                 holds,
-                parameter: false,
+                parameter: match (self.owner, variant) {
+                    (Owner::Remote, SlotVariant::Live(_)) => Some(RESTATED_PARAMETERS[index]),
+                    (Owner::Local, _) | (Owner::Remote, SlotVariant::Unit | SlotVariant::Pair) => {
+                        None
+                    }
+                },
                 deprecated: self.deprecated.slot() == Some(index),
             });
         }
@@ -359,7 +372,7 @@ impl Cell {
     /// check" (limits.md); the lifetime the `deref` variants over a
     /// reference give it is no matter.
     pub fn is_generic(&self) -> bool {
-        self.generic.descriptor().parameter.is_some()
+        self.generic.descriptor().parameter.is_some() || self.owner == Owner::Remote
     }
 
     /// Returns the slots whose variant forwards to a payload.

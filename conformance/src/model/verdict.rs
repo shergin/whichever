@@ -26,7 +26,7 @@ use super::returns::{FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
@@ -79,6 +79,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     if let Some(verdict) = declared(cell) {
+        return verdict;
+    }
+    if let Some(verdict) = owned(cell) {
         return verdict;
     }
     if let Some(reason) = malformed(cell) {
@@ -200,6 +203,82 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.deprecated == Deprecation::Absent
         && cell.s2 == Third::Absent
         && cell.decl == Declaration::Dispatchable
+        && cell.owner == Owner::Local
+}
+
+/// The shapes a restated enum takes (restatements.md, "Enums from other
+/// crates"), or `None` where the cell is judged as any other. The real
+/// enum is another crate's, generic over what its variants hold, as the
+/// golden `restated_enum` and the behaviour test `restated_enum` write it.
+fn owned(cell: &Cell) -> Option<Verdict> {
+    if cell.owner == Owner::Local {
+        return None;
+    }
+    if cell.s0.descriptor().is_struct() {
+        return Some(Verdict::NonCanonical);
+    }
+    let first = matches!(cell.s0, Target::Plain | Target::DerefBox);
+    let second = matches!(
+        cell.s1,
+        Second::Plain | Second::Absent | Second::DerefBox | Second::Unit
+    );
+    let third = matches!(
+        cell.s2,
+        Third::Absent | Third::Plain | Third::DerefBox | Third::Unit
+    );
+    if !(first && second && third) {
+        return Some(Verdict::Unmodelled(
+            "a restated enum over a variant other than a payload, a boxed payload or a unit",
+        ));
+    }
+    if cell.home == Home::Crate || cell.decl == Declaration::Foreign {
+        return Some(Verdict::Unmodelled(
+            "a restated enum beside a trait of another crate, an impl the orphan rules refuse",
+        ));
+    }
+    if cell.path.descriptor().site == PathSite::Inherent {
+        return Some(Verdict::Unmodelled(
+            "an inherent block over a restated enum, which is its sentence",
+        ));
+    }
+    let plain = cell.generic == Generics::Bare
+        && cell.cfg == Cfg::Absent
+        && cell.deprecated == Deprecation::Absent;
+    if !plain {
+        return Some(Verdict::Unmodelled(
+            "a restated enum with generics, `#[cfg]` or `#[deprecated]` the real enum would share",
+        ));
+    }
+    // The enum's own conversion options are the sentence; the checked
+    // default and a variant's options would ask the law for conversions
+    // the restatement does not get.
+    let conversion = cell.conv.descriptor();
+    if conversion.checked && conversion.option.is_none() {
+        return Some(Verdict::Unmodelled(
+            "the conversions a restated enum does not get, which no impl beside it can prove",
+        ));
+    }
+    // The payloads are type parameters, so a pinned receiver needs each to
+    // be `Unpin`, and an associated type taken from the first needs every
+    // other bound to agree, bounds the model spells for no generic subject
+    // (as `unpredicted_generics` says of a type-parameter payload).
+    if matches!(cell.recv, Receiver::PinShared | Receiver::PinExclusive) {
+        return Some(Verdict::Unmodelled(
+            "a restated enum under a pinned receiver, which needs its parameters `Unpin`",
+        ));
+    }
+    let typed = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .any(|item| item.kind == ItemKind::Type);
+    if typed || !cell.ret.node().associated().is_empty() {
+        return Some(Verdict::Unmodelled(
+            "an associated type over a restated enum, which its parameters would have to agree on",
+        ));
+    }
+    None
 }
 
 /// The shapes a trait restated beside the subject or shipped in
@@ -455,8 +534,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if node.holds_future() {
             return Some("a block body for a future return");
         }
-        let nameable =
-            cell.s0.descriptor().storage == Storage::Payload && cell.cfg.of(0) != Some("any()");
+        // A restated enum's variant around a fresh payload is of another
+        // instantiation than `Self`.
+        let nameable = cell.s0.descriptor().storage == Storage::Payload
+            && cell.cfg.of(0) != Some("any()")
+            && cell.owner == Owner::Local;
         if !node.has_constant(nameable) {
             return Some("a block body for a return type that needs a payload to make");
         }
@@ -476,7 +558,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // variant that holds its payload by value.
         let nameable = argument.mismatch == MismatchSite::Enum
             && cell.s0.descriptor().storage == Storage::Payload
-            && cell.generic != Generics::Payload;
+            && cell.generic != Generics::Payload
+            && cell.owner == Owner::Local;
         if !output.has_constant(nameable) {
             return Some("a mismatch expression for a return type that needs a payload to make");
         }
@@ -1011,6 +1094,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let conversion = cell.conv.descriptor();
     if one_arm && conversion.option.is_some() {
         expect(Limit::StructConversion, Anchor::Attribute);
+    }
+    // "A restated enum gets no conversions, which the orphan rules [..]
+    // refuse" (restatements.md), and an option asking for one, or for
+    // none, is its sentence (`restated_enum_conversions`).
+    if cell.owner == Owner::Remote && conversion.option.is_some() {
+        expect(Limit::RestatedConversions, Anchor::Attribute);
     }
     if conversion.into && !one_arm {
         for slot in &slots {

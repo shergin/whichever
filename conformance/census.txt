@@ -357,6 +357,26 @@ suite foreign-conversions
   malformed 0
   never 18 non-canonical
 
+suite restated-enums
+  pass 77
+  limit 83
+  rejected 0
+  malformed 0
+  never 60 non-canonical
+  never 40 unmodelled: a block body for a return type that needs a payload to make
+  never 100 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
+
+suite restated-enum-items
+  pass 36
+  limit 36
+  rejected 0
+  malformed 0
+  never 48 unmodelled: `TryFrom` over a variant that stores more than its payload
+  never 48 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 72 unmodelled: a restated enum under a pinned receiver, which needs its parameters `Unpin`
+  never 96 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
+  never 24 unmodelled: conversion options beside a second attribute
+
 suite thirds
   pass 187
   limit 709
@@ -392,38 +412,38 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 67
-  limit 14
+  pass 70
+  limit 15
   rejected 4
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7552
+  pass 7572
   limit 0
   rejected 0
   malformed 0
-  rows 7552
-  covered 75473
-  unreached 35144
+  rows 7572
+  covered 75742
+  unreached 35177
 
 suite array-limits
   pass 0
-  limit 531
+  limit 539
   rejected 0
   malformed 0
-  rows 531
-  covered 8952
-  unreached 1545
+  rows 539
+  covered 9169
+  unreached 1630
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 895
+  rejected 915
   malformed 0
-  rows 895
-  covered 8614
-  unreached 1883
+  rows 915
+  covered 8819
+  unreached 1980
 
 suite known
   pass 0

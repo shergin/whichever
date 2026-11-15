@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 pub enum Part {
     /// The header comment and the imports.
     Header,
+    /// The enum another crate declares, which the subject restates.
+    Real,
     /// The trait.
     Trait,
     /// The payloads, their wrappers and their impls.
@@ -32,6 +34,7 @@ impl Part {
     pub fn name(self) -> &'static str {
         match self {
             Part::Header => "header",
+            Part::Real => "real",
             Part::Trait => "trait",
             Part::Payloads => "payloads",
             Part::Restatement => "restatement",

@@ -9,7 +9,7 @@
 use crate::axis::Axis;
 use crate::model::{
     Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 
 /// The id of the neutral cell.
@@ -192,6 +192,8 @@ cell! {
     s2: Third,
     /// How the trait under test is declared.
     decl: Declaration,
+    /// Which crate declares the enum.
+    owner: Owner,
 }
 
 impl Cell {

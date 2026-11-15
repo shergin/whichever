@@ -14,7 +14,7 @@ use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::stack::{StackDescriptor, OTHER};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
-use crate::model::{Anchor, Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
+use crate::model::{Anchor, Callee, Lift, Owner, Receiver, Slot, SlotVariant, Target, Verdict};
 
 use super::writer::Writer;
 
@@ -316,6 +316,15 @@ impl Context {
     /// Returns the subject at the argument the law takes it at, `E<P0>`,
     /// by `path`.
     pub fn subject_instance(&self, path: &str) -> String {
+        if self.cell.owner == Owner::Remote {
+            let payloads: Vec<String> = self
+                .declared
+                .iter()
+                .filter(|slot| slot.parameter.is_some())
+                .map(Slot::payload)
+                .collect();
+            return format!("{path}<{}>", payloads.join(", "));
+        }
         match self.generics.parameter {
             Some(parameter) => format!("{path}<{}>", parameter.instance),
             None => String::from(path),
@@ -334,25 +343,43 @@ impl Context {
     /// Returns the subject's generics as an impl declares them, with the
     /// bound a hand writes: `<'a>`, `<T: Probe>`.
     pub fn impl_generics(&self) -> String {
-        self.generics_with(|parameter| parameter.bounded)
+        self.generics_with(|parameter| parameter.bounded, Some(&self.trait_path()))
+    }
+
+    /// Returns the subject's generics as an impl of the second trait
+    /// declares them: a restated enum's payload parameters bounded by it.
+    pub fn other_impl_generics(&self) -> String {
+        self.generics_with(|parameter| parameter.bounded, Some(OTHER))
     }
 
     /// Returns the subject's generics as its type names them: `<'a>`,
     /// `<T>`.
     pub fn type_generics(&self) -> String {
-        self.generics_with(|parameter| parameter.named)
+        self.generics_with(|parameter| parameter.named, None)
     }
 
+    /// Returns the subject's generics, each parameter spelled by `spell`,
+    /// and a restated enum's payload parameters bounded by `bound` where it
+    /// is given, as the golden `restated_enum` bounds them.
     fn generics_with(
         &self,
         spell: impl Fn(&crate::model::generics::Parameter) -> &'static str,
+        bound: Option<&str>,
     ) -> String {
-        let mut parameters: Vec<&str> = Vec::new();
+        let mut parameters: Vec<String> = Vec::new();
         if self.borrows() {
-            parameters.push("'a");
+            parameters.push(String::from("'a"));
         }
         if let Some(parameter) = &self.generics.parameter {
-            parameters.push(spell(parameter));
+            parameters.push(String::from(spell(parameter)));
+        }
+        if self.cell.owner == Owner::Remote {
+            for name in self.declared.iter().filter_map(|slot| slot.parameter) {
+                match bound {
+                    Some(bound) => parameters.push(format!("{name}: {bound}")),
+                    None => parameters.push(String::from(name)),
+                }
+            }
         }
         match parameters.is_empty() {
             true => String::new(),
@@ -368,7 +395,7 @@ impl Context {
     /// Returns the subject's generics as it declares them: `<'a>`, `<T>`,
     /// `<const N: u64>`, or nothing.
     pub fn generics(&self) -> String {
-        self.generics_with(|parameter| parameter.declared)
+        self.generics_with(|parameter| parameter.declared, None)
     }
 
     /// Returns whether the trait method needs `where Self: Sized`: `Self`

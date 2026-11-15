@@ -133,16 +133,39 @@ pub fn write_restatement(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
+/// Writes the enum another crate declares, which the subject restates:
+/// generic over what its variants hold, as `either::Either` is.
+pub fn write_real(writer: &mut Writer, context: &Context) {
+    writer.line("/// The enum another crate declares, which the subject restates.");
+    writer.open(format!("pub enum E{} {{", context.generics()));
+    for slot in &context.declared {
+        let (_, declaration) = variant(slot, false);
+        writer.line(declaration);
+    }
+    writer.close("}");
+}
+
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
     let mut arguments = vec![context.trait_path()];
     arguments.extend(context.options());
+    // A restated enum names the real one, and the attribute registers it
+    // for a block as the bare one does (restatements.md).
+    let restated = context.cell.owner == crate::model::Owner::Remote;
+    if restated {
+        writer.line(format!(
+            "#[whichever::dispatch(remote = {}::{}::E)]",
+            context.trait_crate(),
+            context.cell.module()
+        ));
+    }
     writer.anchor(Anchor::Attribute.name());
     // In a block path the second trait is the subject's attribute, and the
     // block is the impl of the first.
     match (block, context.stack.present) {
         (true, true) => writer.line(context.other_attribute()),
+        (true, false) if restated => {}
         (true, false) => writer.line("#[whichever::dispatch]"),
         (false, stacked) => {
             writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));

@@ -38,8 +38,10 @@ pub struct Rendered {
     /// attribute, which `macros/ARCHITECTURE.md` 3.8 calls a defect.
     pub attributes: Vec<usize>,
     /// The shard the trait and the payloads are written in, where they
-    /// live in a crate of their own.
+    /// live in a crate of their own, or the real enum a restatement names.
     pub trait_shard: Option<String>,
+    /// The parts that shard holds.
+    pub foreign_parts: Vec<Part>,
 }
 
 impl Rendered {
@@ -75,7 +77,7 @@ impl Rendered {
         let mut trait_file = Vec::new();
         for (index, line) in lines.iter().enumerate() {
             let part = self.part_of(index + 1);
-            let declared = matches!(part, Some(Part::Trait | Part::Payloads));
+            let declared = part.is_some_and(|part| self.foreign_parts.contains(&part));
             let header = matches!(part, Some(Part::Header));
             let foreign = header && line.starts_with("use ") && line.ends_with("::*;");
             let support = *line == "use crate::support;";
@@ -91,7 +93,10 @@ impl Rendered {
         }
         let last = (0..lines.len())
             .rev()
-            .find(|index| self.part_of(index + 1) == Some(Part::Payloads))
+            .find(|index| {
+                self.part_of(index + 1)
+                    .is_some_and(|part| self.foreign_parts.contains(&part))
+            })
             .map_or(0, |index| index + 1);
         trait_file.truncate(last);
         let join = |lines: Vec<String>| {
@@ -275,10 +280,14 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
     writer.blank();
     // A trait in another crate splits the cell into two files, whose
     // imports serve one or the other.
-    let trait_shard = context
-        .home
-        .foreign
-        .then(|| ShardKind::Traits.shard(cell.hash()));
+    let restated = cell.owner == crate::model::Owner::Remote;
+    let trait_shard =
+        (context.home.foreign || restated).then(|| ShardKind::Traits.shard(cell.hash()));
+    let foreign_parts = match (context.home.foreign, restated) {
+        (true, _) => vec![Part::Trait, Part::Payloads],
+        (false, true) => vec![Part::Real],
+        (false, false) => Vec::new(),
+    };
     if trait_shard.is_some() {
         writer.line("#![allow(unused_imports)]");
     }
@@ -292,6 +301,11 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
         writer.line(format!("use {}::{}::*;", crate_name(shard), cell.module()));
     }
     writer.blank();
+    if restated {
+        writer.begin(Part::Real);
+        declarations::write_real(&mut writer, context);
+        writer.blank();
+    }
     writer.begin(Part::Trait);
     declarations::write_trait(&mut writer, context);
     writer.blank();
@@ -324,6 +338,7 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
     }
     let mut rendered = finish(writer);
     rendered.trait_shard = trait_shard;
+    rendered.foreign_parts = foreign_parts;
     rendered
 }
 
@@ -344,6 +359,7 @@ fn finish(writer: Writer) -> Rendered {
         anchors,
         attributes,
         trait_shard: None,
+        foreign_parts: Vec::new(),
     }
 }
 
