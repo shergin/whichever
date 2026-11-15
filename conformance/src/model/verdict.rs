@@ -23,7 +23,7 @@ use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
 use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
-use super::target::{Pointer, Step, Storage};
+use super::target::{Form, Pointer, Step, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
     Qualifier, Receiver, Return, Second, Stack, Target, Verdict,
@@ -817,6 +817,21 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // A struct whose one field is named has no path that builds it, so
+    // `Self` inside an `Option` or a `Result`, which `.map(..)` rebuilds
+    // through a path, is reported on the field; `-> Self` is rebuilt by
+    // the braces (docs/decisions/a-named-field-is-not-rebuilt-under-a-
+    // wrapper.md).
+    let named = cell.s0.descriptor().form == Form::StructNamed;
+    if named
+        && forwarded
+        && node
+            .conversion()
+            .is_some_and(|conversion| maps(&conversion))
+    {
+        expect(Limit::NamedFieldUnderWrapper, Anchor::Variant(0));
+    }
+
     // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain
     // variant is an error, since boxing it again would allocate, and a
     // `deref` variant over another pointer has no `Box` to hand over
@@ -999,6 +1014,23 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     expected.sort();
     expected
+}
+
+/// Returns whether a conversion rebuilds `Self` through a path that
+/// `.map(..)` or `.map_err(..)` takes.
+fn maps(conversion: &super::returns::Conversion) -> bool {
+    use super::returns::Conversion as Step;
+    match conversion {
+        Step::Keep | Step::Rewrap | Step::Into => false,
+        Step::Map(inner) => matches!(**inner, Step::Rewrap) || maps(inner),
+        Step::Result(ok, error) => {
+            matches!(**ok, Step::Rewrap)
+                || matches!(**error, Step::Rewrap)
+                || maps(ok)
+                || maps(error)
+        }
+        Step::Tuple(elements) => elements.iter().any(maps),
+    }
 }
 
 /// The forwardings no hand can write, each with the rustc error the hand

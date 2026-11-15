@@ -46,6 +46,9 @@ axis! {
         /// `pub struct E { label: u64, #[dispatch] held: P0 }`: a struct
         /// subject with a marked field among several.
         StructMarked = "struct-marked",
+        /// `pub struct E { held: P0 }`: a struct subject with one named
+        /// field.
+        StructNamed = "struct-named",
     }
 }
 

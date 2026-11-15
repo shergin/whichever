@@ -26,6 +26,9 @@ pub enum Limit {
     SelfReturnOtherFields,
     /// `self: Box<Self>` on a variant that holds no `Box` under `deref`.
     BoxSelfPlain,
+    /// `Self` inside an `Option` or a `Result` through a struct with one
+    /// named field, which no path builds.
+    NamedFieldUnderWrapper,
     /// `self: Box<Self>` on a `deref` variant over a pointer that is no
     /// `Box`.
     BoxSelfOnSharedPointer,
@@ -93,6 +96,7 @@ impl Limit {
         Limit::RouteSelfReturn,
         Limit::SelfReturnOtherFields,
         Limit::BoxSelfPlain,
+        Limit::NamedFieldUnderWrapper,
         Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
         Limit::MutableBorrowThroughSharedPointer,
@@ -167,6 +171,11 @@ impl Limit {
                 "box-self-plain",
                 "holds a plain",
                 "box_self_plain_variant",
+            ),
+            Limit::NamedFieldUnderWrapper => entry(
+                "named-field-under-wrapper",
+                "has a named field, which no path builds",
+                "named_field_under_a_wrapper",
             ),
             Limit::BoxSelfOnSharedPointer => entry(
                 "box-self-on-shared-pointer",
@@ -269,6 +278,7 @@ impl Limit {
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
+            | Limit::NamedFieldUnderWrapper
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
@@ -303,6 +313,7 @@ impl Limit {
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
+            | Limit::NamedFieldUnderWrapper
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MutableBorrowThroughSharedPointer

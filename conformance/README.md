@@ -87,8 +87,10 @@ a block's mark on `m` included, carries the method's `#[cfg]` and its
 hold exists in no build: its sentences and rejections are dropped, the
 hand writes none of it, and the law checks the control method alone.
 
-Two values of `s0`, `struct` and `struct-marked`, make the subject a
-struct: one field, or a field marked `#[dispatch]` beside a label. A struct
+Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
+the subject a struct: one field, a field marked `#[dispatch]` beside a
+label, or one named field, which the hand rebuilds by its braces and
+which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.

@@ -213,7 +213,7 @@ pub const ZONES: &[Zone] = &[
         name: "structs",
         summary: "the struct subjects under every receiver, return type and qualifier",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("recv", &[]),
             ("ret", &[]),
             ("qual", &[]),
@@ -224,7 +224,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-arguments",
         summary: "the struct subjects with every `Self` argument",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("arg", &[]),
             ("recv", &["ref", "mut", "value"]),
             ("ret", &["u64", "unit", "self", "option-self", "future"]),
@@ -235,7 +235,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-paths",
         summary: "the struct subjects through the block paths",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("path", &["attribute", "block", "block-star", "block-default", "block-written"]),
             ("ret", &[]),
             ("qual", &["plain", "provided"]),

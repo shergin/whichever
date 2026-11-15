@@ -316,6 +316,7 @@ fn write_subject(
         Form::MarkedStruct => format!("{path}::{variant} {{ label: {LABEL}, held: {stored} }}"),
         Form::Struct => format!("{path}({stored})"),
         Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
+        Form::StructNamed => format!("{path} {{ held: {stored} }}"),
     };
     writer.line(format!("{binding} {name} = {value};"));
 }

@@ -7,7 +7,7 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site};
+use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site, HOLE};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
@@ -721,6 +721,8 @@ fn inherent_value(
 fn convert(conversion: &Conversion, value: &str, variant: &str) -> String {
     match conversion {
         Conversion::Keep => String::from(value),
+        // A struct with a named field is rebuilt by its braces.
+        Conversion::Rewrap if variant.contains(HOLE) => variant.replace(HOLE, value),
         Conversion::Rewrap => format!("{variant}({value})"),
         Conversion::Into => format!("Into::into({value})"),
         Conversion::Map(inner) => format!("{value}.map({})", path(inner, variant)),
@@ -755,6 +757,9 @@ fn convert(conversion: &Conversion, value: &str, variant: &str) -> String {
 /// Returns a conversion as the path a `.map(..)` takes.
 fn path(conversion: &Conversion, variant: &str) -> String {
     match conversion {
+        Conversion::Rewrap if variant.contains(HOLE) => {
+            unreachable!("the verdict maps no struct with a named field")
+        }
         Conversion::Rewrap => String::from(variant),
         Conversion::Into => String::from("Into::into"),
         Conversion::Keep | Conversion::Map(_) | Conversion::Result(_, _) | Conversion::Tuple(_) => {

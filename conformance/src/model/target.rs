@@ -65,6 +65,8 @@ pub enum Form {
     /// The subject is a struct with a marked field among several, `E {
     /// label: u64, #[dispatch] held: storage }`.
     StructMarked,
+    /// `pub struct E { held: P0 }`, one named field.
+    StructNamed,
 }
 
 /// One step of a route from the stored value to the target.
@@ -105,7 +107,7 @@ impl TargetDescriptor {
     /// Returns whether the variant has fields beside the one forwarded to.
     pub fn has_other_fields(&self) -> bool {
         match self.form {
-            Form::Single | Form::Struct => false,
+            Form::Single | Form::Struct | Form::StructNamed => false,
             Form::MarkedTuple | Form::MarkedStruct | Form::StructMarked => true,
         }
     }
@@ -136,7 +138,10 @@ impl TargetDescriptor {
 
     /// Returns whether the subject is a struct rather than an enum.
     pub fn is_struct(&self) -> bool {
-        matches!(self.form, Form::Struct | Form::StructMarked)
+        matches!(
+            self.form,
+            Form::Struct | Form::StructMarked | Form::StructNamed
+        )
     }
 
     /// Returns whether the stored type borrows, so the enum needs `'a`.
@@ -190,6 +195,12 @@ impl Target {
             Target::Struct => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::Struct,
+                route: &[],
+                option: None,
+            },
+            Target::StructNamed => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructNamed,
                 route: &[],
                 option: None,
             },

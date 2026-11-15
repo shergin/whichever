@@ -143,3 +143,10 @@ stack=second deprecated=second
 # (borrowed-place-under-self-by-value-is-refused, found by a probe).
 s0=deref-ref s1=none recv=value ret=lent path=inherent callee=value
 s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=field
+
+# A struct with one named field: `-> Self` rebuilt by its braces, and
+# `Self` under an `Option` a limit on the field, where the attribute once
+# wrote a closure (a-named-field-is-not-rebuilt-under-a-wrapper).
+s0=struct-named s1=none ret=self
+s0=struct-named s1=none ret=option-self
+s0=struct-named s1=none ret=tuple-self

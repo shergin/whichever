@@ -21,6 +21,7 @@ fn construct(path: &str, slot: &Slot, target: &TargetDescriptor, value: &str) ->
         Form::MarkedStruct => format!("{path}::{name} {{ label: {LABEL}, held: {value} }}"),
         Form::Struct => format!("{path}({value})"),
         Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {value} }}"),
+        Form::StructNamed => format!("{path} {{ held: {value} }}"),
     }
 }
 

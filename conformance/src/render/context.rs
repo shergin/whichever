@@ -613,6 +613,7 @@ impl Context {
             Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {payload} }}"),
             Form::Struct => format!("{path}({payload})"),
             Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {payload} }}"),
+            Form::StructNamed => format!("{path} {{ held: {payload} }}"),
         };
         constant(&self.output(), &this)
     }
@@ -741,7 +742,7 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             None,
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
-        Form::Struct | Form::StructMarked => {
+        Form::Struct | Form::StructMarked | Form::StructNamed => {
             unreachable!("a struct subject is written by `write_struct`")
         }
     }
@@ -788,6 +789,14 @@ pub fn write_struct(
             writer.line(format!("{mark}pub held: {stored},"));
             writer.close("}");
         }
+        Form::StructNamed => {
+            writer.open(format!("pub struct E{generics} {{"));
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("pub held: {stored},"));
+            writer.close("}");
+        }
         Form::Single | Form::MarkedTuple | Form::MarkedStruct => {
             unreachable!("an enum subject is written variant by variant")
         }
@@ -804,18 +813,26 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
         Form::Struct => format!("{path}({binding}, ..)"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
+        Form::StructNamed => format!("{path} {{ held: {binding} }}"),
     }
 }
 
-/// Returns the constructor a rewrap calls: the variant's path, or the
-/// struct's name.
+/// Returns the constructor a rewrap calls: the variant's path, the
+/// struct's name, or for a struct with a named field its braces, with
+/// [`HOLE`] where the value goes, since no path builds it.
 pub fn constructor(path: &str, slot: &Slot) -> String {
-    let is_struct = slot.target().is_some_and(|(_, target)| target.is_struct());
-    match is_struct {
-        true => String::from(path),
-        false => format!("{path}::{}", slot.name()),
+    let form = slot.target().map(|(_, target)| target.form);
+    match form {
+        Some(Form::StructNamed) => format!("{path} {{ held: {HOLE} }}"),
+        Some(Form::Struct | Form::StructMarked) => String::from(path),
+        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct) | None => {
+            format!("{path}::{}", slot.name())
+        }
     }
 }
+
+/// Where a rebuild by braces takes its value.
+pub const HOLE: &str = "@";
 
 /// Returns whether the subject is a struct.
 pub fn is_struct(slots: &[Slot]) -> bool {
