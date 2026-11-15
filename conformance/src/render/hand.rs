@@ -7,7 +7,9 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site, HOLE};
+use super::context::{
+    constructor, is_struct, pattern, target_type, variant, write_struct, Context, Site, HOLE,
+};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
@@ -778,9 +780,10 @@ fn arm(
     // dereferences to, the call is `<Square as Shape>::area(&inner.base)`;
     // a field's or a method's type cannot be named, and the call is `<_ as
     // Shape>::area(&inner.base)`, qualified by the trait alone" (routes.md).
+    // What a `Box<dyn Probe>` dereferences to is the trait object.
     let named = target.route.iter().all(|step| *step == Step::Deref);
     let qualifier = match named {
-        true => slot.declared_payload(),
+        true => target_type(slot, target),
         false => String::from("_"),
     };
     let mut call = format!(

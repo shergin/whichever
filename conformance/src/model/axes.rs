@@ -61,6 +61,10 @@ axis! {
         /// `#[dispatch(via = .get().payload)] A(W0)`: a field of what a
         /// method lends.
         ViaMethodField = "via-method-field",
+        /// `#[dispatch(deref)] A(Box<dyn Probe>)`: the payload held as a
+        /// trait object, the open set an enum holds beside its sized
+        /// payloads (routes.md).
+        DerefObject = "deref-dyn",
     }
 }
 
@@ -106,6 +110,9 @@ axis! {
         ViaIndexField = "via-index-field",
         /// `#[dispatch(via = .get().payload)] B(W1)`.
         ViaMethodField = "via-method-field",
+        /// `#[dispatch(deref)] B(Box<dyn Probe>)`, a `P1` held as a trait
+        /// object.
+        DerefObject = "deref-dyn",
     }
 }
 
@@ -308,7 +315,8 @@ axis! {
 }
 
 axis! {
-    /// The attributes on the trait's method under test.
+    /// The attributes on the trait's method under test, and the bound it
+    /// declares.
     pub enum Item {
         /// No attribute.
         Bare = "none",
@@ -325,6 +333,9 @@ axis! {
         /// `#[inline(always)]`, which the forwarding takes instead of
         /// `#[inline]`.
         Inline = "inline-always",
+        /// `where Self: Sized`, which a trait object does not meet
+        /// (limits.md).
+        Sized = "sized",
     }
 }
 

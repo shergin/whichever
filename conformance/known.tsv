@@ -5,3 +5,6 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
+s1=deref-dyn cfg=second-off	sentence:sized-on-object@method	The sentence of a method that requires `Self: Sized` names the trait object's variant but is written as the whole body of the method, so it stands in a build that compiles that variant out, where limits.md reports a sentence about a variant under its `#[cfg]`.
+s1=deref-dyn cfg=every-off	sentence:sized-on-object@method	The sentence of a method that requires `Self: Sized` names the trait object's variant but is written as the whole body of the method, so it stands in a build that compiles that variant out, where limits.md reports a sentence about a variant under its `#[cfg]`.
+s1=deref-dyn recv=box	missing:box-self-plain@variant-0	The sentence of a method that requires `Self: Sized` on the trait object's variant is written as the whole body of the method, so the sentence of the plain variant under `self: Box<Self>` is never written, where limits.md names each variant a method cannot reach in a sentence of its own.

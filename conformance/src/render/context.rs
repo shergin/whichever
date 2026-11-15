@@ -443,19 +443,11 @@ impl Context {
         self.generics_with(|parameter| parameter.declared, None)
     }
 
-    /// Returns whether the trait method needs `where Self: Sized`: `Self`
-    /// is a type argument in the return type, or the body of an `async fn`
-    /// or a default holds a `Self` by value.
+    /// Returns whether the trait method needs `where Self: Sized`: the
+    /// method declares it, `Self` is a type argument in the return type, or
+    /// the body of an `async fn` or a default holds a `Self` by value.
     pub fn needs_sized(&self) -> bool {
-        if self.node.holds_this_below() {
-            return true;
-        }
-        let by_value =
-            self.cell.recv == Receiver::Owned || self.argument.kind == Some(ArgumentKind::Owned);
-        if self.qualifier.asyncness && (by_value || self.node.holds_this()) {
-            return true;
-        }
-        self.qualifier.provided && by_value
+        self.cell.requires_sized()
     }
 
     /// Returns whether a call of the method yields a future to await.
@@ -888,6 +880,17 @@ pub fn storage(slot: &Slot, target: &TargetDescriptor) -> String {
         Storage::Pair => format!("(u64, {payload})"),
         Storage::WrapperBehind(pointer) => pointed(pointer, &slot.wrapper()),
         Storage::WrapperInPair => format!("(u64, {})", slot.wrapper()),
+        Storage::Object => pointed(Pointer::Box, &format!("dyn {TRAIT}")),
+    }
+}
+
+/// Returns the type of a slot's target where a route names it, the
+/// payload or what it dereferences to (routes.md): the payload as the
+/// subject declares it, or the trait object a `Box<dyn Probe>` holds.
+pub fn target_type(slot: &Slot, target: &TargetDescriptor) -> String {
+    match target.is_object() {
+        true => format!("dyn {TRAIT}"),
+        false => slot.declared_payload(),
     }
 }
 

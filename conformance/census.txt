@@ -12,11 +12,11 @@ suite shapes
   never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite pairs
-  pass 656
-  limit 1331
-  rejected 42
+  pass 677
+  limit 1382
+  rejected 70
   malformed 0
-  never 23 unmodelled: a limit beside a rejection the limit does not replace
+  never 31 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
   pass 1889
@@ -97,7 +97,7 @@ suite inherent
   limit 988
   rejected 0
   malformed 0
-  never 1224 non-canonical
+  never 1512 non-canonical
   never 126 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 123 unmodelled: an `async fn` that returns a future
   never 1458 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
@@ -272,11 +272,11 @@ suite parameter-conversions
   malformed 0
 
 suite items
-  pass 470
-  limit 418
+  pass 542
+  limit 508
   rejected 0
   malformed 0
-  never 288 non-canonical
+  never 342 non-canonical
   never 108 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
@@ -457,6 +457,22 @@ suite third-conversions
   malformed 0
   never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
 
+suite trait-objects
+  pass 156
+  limit 240
+  rejected 36
+  malformed 0
+  never 108 non-canonical
+  never 72 unmodelled: a block body for a future return
+  never 36 unmodelled: a default body that would need a payload to make its answer
+
+suite trait-object-builds
+  pass 120
+  limit 56
+  rejected 0
+  malformed 0
+  never 16 unmodelled: a default body that calls a control method taking `self`
+
 suite third-stacks
   pass 24
   limit 168
@@ -464,40 +480,40 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 87
-  limit 19
+  pass 89
+  limit 21
   rejected 5
   malformed 0
 
 suite array
-  pass 7422
+  pass 7580
   limit 0
   rejected 0
   malformed 0
-  rows 7422
-  covered 80058
-  unreached 31460
+  rows 7580
+  covered 81021
+  unreached 36334
 
 suite array-limits
   pass 0
-  limit 489
+  limit 492
   rejected 0
   malformed 0
-  rows 489
-  covered 9924
-  unreached 1474
+  rows 492
+  covered 10153
+  unreached 1674
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 834
+  rejected 839
   malformed 0
-  rows 834
-  covered 9512
-  unreached 1886
+  rows 839
+  covered 9724
+  unreached 2103
 
 suite known
-  pass 0
-  limit 0
+  pass 2
+  limit 1
   rejected 0
   malformed 0

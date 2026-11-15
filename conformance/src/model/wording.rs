@@ -167,7 +167,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::FromOverlapTypeParameter
         | Limit::TryFromTypeParameter
         | Limit::ArmsDisagree
-        | Limit::MismatchForAbsentMethod => String::new(),
+        | Limit::MismatchForAbsentMethod
+        | Limit::SizedOnObject => String::new(),
     }
 }
 
@@ -308,6 +309,23 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .map(|parameter| format!("`{parameter}` is a type parameter of `E`")),
         ),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
+        // The sentence is on the method and names the variant that holds
+        // the trait object, and the mark that leaves the method to the
+        // trait's default.
+        Limit::SizedOnObject => {
+            push(Some(format!("{method} requires `Self: Sized`")));
+            push(Some(format!(
+                "`#[dispatch(default)] fn {}(..);`",
+                method.trim_matches('`')
+            )));
+            let objects: Vec<String> = cell
+                .method_slots()
+                .into_iter()
+                .filter(|(_, _, target)| target.is_object())
+                .map(|(slot, _, _)| format!("`{}` holds a trait object", slot.name()))
+                .collect();
+            any = Some(Fragment(objects));
+        }
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));
     names

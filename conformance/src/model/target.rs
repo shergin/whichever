@@ -19,6 +19,8 @@ pub enum Storage {
     WrapperBehind(Pointer),
     /// A tuple `(u64, Wk)` holding a wrapper.
     WrapperInPair,
+    /// A `Box` holding the payload as a trait object, `Box<dyn Probe>`.
+    Object,
 }
 
 /// A pointer a `deref` variant holds.
@@ -122,8 +124,14 @@ impl TargetDescriptor {
     pub fn pointer(&self) -> Option<Pointer> {
         match self.storage {
             Storage::Pointer(pointer) | Storage::WrapperBehind(pointer) => Some(pointer),
+            Storage::Object => Some(Pointer::Box),
             Storage::Payload | Storage::Wrapper | Storage::Pair | Storage::WrapperInPair => None,
         }
+    }
+
+    /// Returns whether the variant holds its payload as a trait object.
+    pub fn is_object(&self) -> bool {
+        self.storage == Storage::Object
     }
 
     /// Returns whether the route is `deref` alone, `*`.
@@ -136,7 +144,7 @@ impl TargetDescriptor {
     pub fn wraps(&self) -> bool {
         match self.storage {
             Storage::Wrapper | Storage::WrapperBehind(_) | Storage::WrapperInPair => true,
-            Storage::Payload | Storage::Pointer(_) | Storage::Pair => false,
+            Storage::Payload | Storage::Pointer(_) | Storage::Pair | Storage::Object => false,
         }
     }
 
@@ -271,6 +279,7 @@ impl Target {
             Target::ViaMethodField => {
                 single(Storage::Wrapper, METHOD_FIELD, Some("via = .get().payload"))
             }
+            Target::DerefObject => single(Storage::Object, DEREF, Some("deref")),
         }
     }
 }
@@ -311,6 +320,7 @@ impl Second {
             Second::DerefRcField => LaterSlot::Live(Target::DerefRcField),
             Second::ViaIndexField => LaterSlot::Live(Target::ViaIndexField),
             Second::ViaMethodField => LaterSlot::Live(Target::ViaMethodField),
+            Second::DerefObject => LaterSlot::Live(Target::DerefObject),
         }
     }
 }

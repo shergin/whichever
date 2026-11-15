@@ -640,6 +640,30 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "trait-objects",
+        summary: "a trait object in a `deref` variant beside a sized payload, under a method that requires `Self: Sized` or not, through the enum's attribute and the blocks, a block's `#[dispatch(default)]` included, under the receivers, qualifiers and returns a dyn-compatible trait takes",
+        vary: &[
+            ("item", &["none", "sized"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref", "rc"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("qual", &["plain", "unsafe", "provided"]),
+            ("ret", &["u64", "ref", "boxed-future"]),
+        ],
+        fixed: &[("s1", "deref-dyn")],
+    },
+    Zone {
+        name: "trait-object-builds",
+        summary: "a trait object beside variants under `#[cfg]` and a third variant, under which the sentence of a method that requires `Self: Sized` is the trait object's arm",
+        vary: &[
+            ("item", &["none", "sized"]),
+            ("cfg", &[]),
+            ("path", &["attribute", "block-star", "block-some", "block-default"]),
+            ("qual", &["plain", "provided"]),
+            ("s2", &["none", "plain"]),
+        ],
+        fixed: &[("s1", "deref-dyn")],
+    },
+    Zone {
         name: "third-stacks",
         summary: "a second trait and a supertrait over three variants, beside the block paths of the trait under test and the associated items both take",
         vary: &[

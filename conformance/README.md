@@ -88,11 +88,13 @@ attribute writes, which the hand writes for its own enum.
 
 The `item` axis is the attributes on the trait's method: a `#[cfg]` that
 holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature
-trips, and its own `#[inline(..)]`. Every impl that repeats the signature,
-a block's mark on `m` included, carries the method's `#[cfg]` and its
-`#[allow]`, as a hand writes them. A method under a `#[cfg]` that does not
-hold exists in no build: its sentences and rejections are dropped, the
-hand writes none of it, and the law checks the control method alone.
+trips, and its own `#[inline(..)]`; and `sized`, the bound `where Self:
+Sized`, which a trait object does not meet. Every impl that repeats the
+signature, a block's mark on `m` included, repeats the bound and carries
+the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
+under a `#[cfg]` that does not hold exists in no build: its sentences and
+rejections are dropped, the hand writes none of it, and the law checks the
+control method alone.
 
 A boxed future is spelled as `#[async_trait]` writes it, as the golden
 `boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +
@@ -114,6 +116,21 @@ steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
 behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
 holding a wrapper, and `via = .get().payload`, a field of what a method
 lends, which a hand can neither borrow mutably nor move out of.
+
+The `s1` value `deref-dyn` holds the second payload as a trait object,
+`#[dispatch(deref)] B(Box<dyn Probe>)`, the open set beside the sized
+payloads of `docs/routes.md`. The law builds it from a fresh `P1` and keeps
+the twin concrete; the hand names the target `dyn Probe`, and `seen` reads
+the payload's state through the control method, the one thing a trait
+object shows. The trait stays dyn-compatible beside it, so whatever would
+make it not, a `Self` in a signature, an `impl Trait` return, a generic or
+`async` method, an associated item, a generic or second trait, is
+non-canonical there, and so are the conversions, an inherent method and
+another crate's enum or trait. A method that requires `Self: Sized`, the
+`item` value `sized` or a default taking `self`, is the sentence of
+`dyn_payload_under_sized_method` on that variant's arm, and a block's
+`#[dispatch(default)]` leaves it to the trait's default; under `self` or
+a pinned receiver, the trait object is rustc's E0277 for the hand as well.
 
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit

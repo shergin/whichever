@@ -461,6 +461,32 @@ impl Cell {
         self.item.descriptor().present
     }
 
+    /// Returns whether the trait declares the method under test `where
+    /// Self: Sized`: where the method says so, where `Self` is a type
+    /// argument of its return type, or where a body, an `async fn`'s or a
+    /// default, holds a `Self` by value.
+    pub fn requires_sized(&self) -> bool {
+        let node = self.ret.node();
+        if self.item.descriptor().sized || node.holds_this_below() {
+            return true;
+        }
+        let qualifier = self.qual.descriptor();
+        let by_value = self.recv == Receiver::Owned
+            || self.arg.descriptor().kind == Some(argument::ArgumentKind::Owned);
+        if qualifier.asyncness && (by_value || node.holds_this()) {
+            return true;
+        }
+        qualifier.provided && by_value
+    }
+
+    /// Returns whether the subject declares a variant that holds its
+    /// payload as a trait object, compiled out in this build or not.
+    pub fn holds_object(&self) -> bool {
+        self.declared_slots()
+            .iter()
+            .any(|slot| slot.target().is_some_and(|(_, target)| target.is_object()))
+    }
+
     /// Returns the live slots the control method is forwarded to.
     pub fn base_slots(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
         let all = self.base_reaches_all();

@@ -99,6 +99,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if returned && (cell.decl != Declaration::Dispatchable || cell.owner != Owner::Local) {
         return Verdict::NonCanonical;
     }
+    if !object_canonical(cell) {
+        return Verdict::NonCanonical;
+    }
     if let Some(verdict) = declared(cell) {
         return verdict;
     }
@@ -180,6 +183,43 @@ struct Rejection {
     code: &'static str,
     reason: &'static str,
     method: Forwarded,
+}
+
+/// Returns whether a cell whose subject holds a trait object is canonical.
+/// A `deref` variant holding a trait object is "how an enum holds an open
+/// set beside its sized payloads" (routes.md), so the second variant holds
+/// it, which way round the two stand being no matter; and the trait is
+/// dyn-compatible beside it, so what would make it not, a `Self` in a
+/// signature, an `impl Trait` return, a generic or `async` method, an
+/// associated item, a generic trait or a second trait, is the plain
+/// trait's, as are the conversions, which name the box, an inherent method,
+/// which calls a payload's own method that a trait object does not have,
+/// and another crate's enum or trait.
+fn object_canonical(cell: &Cell) -> bool {
+    if cell.s0 == Target::DerefObject {
+        return false;
+    }
+    if !cell.holds_object() {
+        return true;
+    }
+    let node = cell.ret.node();
+    let opaque = matches!(node.future(), Some((FutureKind::Opaque, _))) || node == Node::Iterator;
+    let signature = !node.holds_this()
+        && node.associated().is_empty()
+        && !opaque
+        && cell.arg == Argument::Absent
+        && matches!(
+            cell.qual,
+            Qualifier::Plain | Qualifier::Unsafe | Qualifier::Provided
+        );
+    let trait_alone = cell.generic == Generics::Bare
+        && cell.agree == Agreement::Absent
+        && cell.stack == Stack::Absent
+        && cell.conv == Conversion::Unchecked;
+    let place = cell.path_descriptor().site != PathSite::Inherent
+        && cell.decl != Declaration::Foreign
+        && cell.owner == Owner::Local;
+    signature && trait_alone && place
 }
 
 /// The signature itself, or every payload's impl of it, is ill-typed.
@@ -334,7 +374,8 @@ fn declared(cell: &Cell) -> Option<Verdict> {
     if path.site == PathSite::Inherent {
         return Some(Verdict::NonCanonical);
     }
-    if cell.item != Item::Bare {
+    // The bound is the signature's, which the restatement repeats.
+    if !matches!(cell.item, Item::Bare | Item::Sized) {
         return Some(Verdict::Unmodelled(
             "attributes on a restated method, whose home is the restatement's",
         ));
@@ -926,6 +967,27 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
     }
 
+    // "A method that requires `Self: Sized` cannot be forwarded to a
+    // `deref` variant holding a trait object; a partial block leaves it to
+    // the trait's default with `#[dispatch(default)]`" (limits.md,
+    // `dyn_payload_under_sized_method`). The sentence names the variant, so
+    // it is that variant's arm, under its `#[cfg]`: "A sentence about one
+    // variant, whether about its shape or about the way a method reaches
+    // it, is reported under that variant's `#[cfg]` [..] and each variant a
+    // method cannot reach is named in a sentence of its own" (limits.md).
+    //
+    // Open question: the snapshot holds the enum's attribute alone, the
+    // sentence on the trait's method; on a block that holds the method it
+    // is read as staying there, on "the offending trait item" (limits.md),
+    // the declaration whose bound the trait object does not meet.
+    if forwarded && cell.requires_sized() {
+        for (_, _, target) in &method_live {
+            if target.is_object() {
+                expect(Limit::SizedOnObject, Anchor::Method);
+            }
+        }
+    }
+
     // "Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` [..],
     // and `self: Pin<&Self>` or `self: Pin<&mut Self>` [..]. `Rc<Self>`,
     // `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
@@ -1409,6 +1471,22 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "E0046",
             "a method left to the real trait's default, which it does not have",
+            Forwarded::Method,
+        );
+    }
+    // A trait object has no size known to the call: moved out of its box
+    // for `self` by value, or pinned again for a pinned receiver, which
+    // "needs every payload to be `Unpin`" (what-is-generated.md), it is
+    // rustc's E0277 for a hand's call too. A method that requires `Self:
+    // Sized` has its sentence as that arm instead.
+    let unsized_handover = matches!(
+        cell.recv,
+        Receiver::Owned | Receiver::PinShared | Receiver::PinExclusive
+    );
+    if any(&|target| target.is_object()) && unsized_handover && !cell.requires_sized() {
+        reject(
+            "E0277",
+            "a trait object moved out of its box or pinned again, which its size or `Unpin` refuses",
             Forwarded::Method,
         );
     }

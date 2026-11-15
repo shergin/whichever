@@ -74,6 +74,9 @@ pub enum Limit {
     /// rustc's E0308 on the arms of a method returning an associated type
     /// the payloads give differently.
     ArmsDisagree,
+    /// A method that requires `Self: Sized` forwarded to a variant that
+    /// holds a trait object.
+    SizedOnObject,
 }
 
 /// A catalogue entry.
@@ -132,6 +135,7 @@ impl Limit {
         Limit::FromOverlapTypeParameter,
         Limit::TryFromTypeParameter,
         Limit::ArmsDisagree,
+        Limit::SizedOnObject,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -296,6 +300,11 @@ impl Limit {
                 "so none can supply",
                 "all_variants_conditional",
             ),
+            Limit::SizedOnObject => entry(
+                "sized-on-object",
+                "holds a trait object, which is not; leave it to the trait's default with",
+                "dyn_payload_under_sized_method",
+            ),
         };
         let (way_out, tail) = match self {
             Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
@@ -334,6 +343,10 @@ impl Limit {
             Limit::TryFromTypeParameter => ("add `#[dispatch(try_from = false)]` on this variant", false),
             Limit::ArmsDisagree => ("`match` arms have incompatible types", false),
             Limit::UnsuppliedType => ("fix it on the enum with", false),
+            Limit::SizedOnObject => (
+                "leave it to the trait's default with `#[dispatch(default)] fn",
+                true,
+            ),
         };
         Entry {
             way_out,
@@ -375,7 +388,8 @@ impl Limit {
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
-            | Limit::StarOverUnforwardable => true,
+            | Limit::StarOverUnforwardable
+            | Limit::SizedOnObject => true,
         }
     }
 
@@ -415,7 +429,8 @@ impl Limit {
             | Limit::ConstDisagreement
             | Limit::FromOverlapTypeParameter
             | Limit::TryFromTypeParameter
-            | Limit::ArmsDisagree => false,
+            | Limit::ArmsDisagree
+            | Limit::SizedOnObject => false,
         }
     }
 

@@ -205,10 +205,14 @@ fn write_seen(writer: &mut Writer, context: &Context) {
             SlotVariant::Live(target) => {
                 let target = target.descriptor();
                 let pattern = super::context::pattern(&value_path(context), slot, &target, "inner");
-                format!(
-                    "{pattern} => format!(\"{index}:{{}}\", {}.state()),",
-                    reach("inner", target.route)
-                )
+                // A trait object shows its payload's state through the
+                // trait alone: the control method answers ten times the
+                // state, plus the slot.
+                let state = match target.is_object() {
+                    true => format!("{}.base() / 10", reach("inner", target.route)),
+                    false => format!("{}.state()", reach("inner", target.route)),
+                };
+                format!("{pattern} => format!(\"{index}:{{}}\", {state}),")
             }
             SlotVariant::Unit => format!("S::{name} => String::from(\"{index}:unit\"),"),
             SlotVariant::Pair => {
@@ -415,6 +419,9 @@ fn write_subject(
         Storage::Pair => format!("({LABEL}, {payload})"),
         Storage::WrapperBehind(pointer) => point(writer, pointer, name, wrapper),
         Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
+        // The fresh payload is boxed, and coerced to the trait object where
+        // the variant takes it.
+        Storage::Object => point(writer, Pointer::Box, name, payload),
     };
     let value = match target.form {
         Form::Single => format!("{path}::{variant}({stored})"),
