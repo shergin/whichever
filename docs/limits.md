@@ -48,8 +48,8 @@
 - A value cannot be moved out of a `deref` variant that holds anything but
   a `Box`: a method taking `self` or a `Self` argument by value is reported
   on the payload, naming the one that would move, and so is an inherent
-  method's `value` or `field` under `self: Box<Self>` unless the return
-  type borrows the place. A method taking `self: Box<Self>` on such a
+  method's `value` or `field` under `self` or `self: Box<Self>` unless the
+  return type borrows the place. A method taking `self: Box<Self>` on such a
   variant is reported too, since there is no box to hand over. Hold a
   `Box`, or give the method a body, or implement a trait method by hand; a
   method that names its variants and has a body for the rest is offered

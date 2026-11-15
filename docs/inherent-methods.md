@@ -60,8 +60,10 @@ struct, an `impl Trait`. The return type is read as written, so a type
 alias for a reference reads as a value. `via = route` reaches the target
 for this method alone, over the variant's own route. A value cannot be
 moved out of a `deref` variant holding anything but a `Box`, so a method
-taking `self` is reported there, and so is a place under `self:
-Box<Self>` unless the return type borrows it. A `Self` argument is
+taking `self` is reported there, and so is a place under `self` or `self:
+Box<Self>` unless the return type borrows it: `#[dispatch(*, value)] fn
+name(self) -> &'a Name;` over `Borrowed(&'a Name)` hands over the
+reference the variant holds. A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
 it is compiled out, the method takes its body. The `impl` block has to be

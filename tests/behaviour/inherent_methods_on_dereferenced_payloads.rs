@@ -250,3 +250,33 @@ fn a_struct_reaches_its_field_through_a_box() {
     assert_eq!(labelled.label, "a");
     assert_eq!(labelled.into_radius(), 3);
 }
+
+/// Under `self` by value a place the return type borrows moves nothing:
+/// over a `deref` variant holding `&'a Name` the arm hands over the
+/// reference the variant holds.
+mod a_borrowed_place_under_self_by_value {
+    pub struct Name(pub String);
+
+    #[whichever::dispatch]
+    pub enum Lent<'a> {
+        #[dispatch(deref)]
+        Borrowed(&'a Name),
+        #[dispatch(deref)]
+        Other(&'a Name),
+    }
+
+    #[whichever::dispatch]
+    impl<'a> Lent<'a> {
+        #[dispatch(*, value)]
+        pub fn name(self) -> &'a Name;
+    }
+
+    #[test]
+    fn the_reference_the_variant_holds_is_handed_over() {
+        let first = Name(String::from("first"));
+        let second = Name(String::from("second"));
+        assert!(std::ptr::eq(Lent::Borrowed(&first).name(), &first));
+        assert!(std::ptr::eq(Lent::Other(&second).name(), &second));
+        assert_eq!(Lent::Other(&second).name().0, "second");
+    }
+}

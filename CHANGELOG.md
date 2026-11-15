@@ -172,6 +172,16 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   snapshot `sentence_spells_a_type_with_its_spaces` moved, each of its
   four sentences now ending "or leave `Borrowed` to the body" with its
   own variant; no golden changed.
+- Before, an inherent method taking `self` by value whose arm is a place
+  the return type borrows, `#[dispatch(*, value)] pub fn name(self) ->
+  &'a Name;` over `#[dispatch(deref)] Borrowed(&'a Name)`, was refused:
+  "`name` takes `self` by value, and `Borrowed` dereferences a `&'a
+  Name`, which a value cannot be moved out of". Nothing moves there, and
+  the same method under `self: Box<Self>` already compiled. A place under
+  `self` is now refused only where the return type takes it by value, so
+  the arm hands over the reference the variant holds. A method call under
+  `self` is refused as before. `docs/inherent-methods.md` and
+  `docs/limits.md` say so. No golden and no `tests/ui` snapshot changed.
 
 ## 0.7.3 - 2026-11-13
 
