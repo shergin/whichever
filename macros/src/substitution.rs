@@ -26,6 +26,35 @@ pub(crate) struct Substitution {
     parameters: HashSet<String>,
     /// The projections that could not be written, reported after a visit.
     errors: Vec<Error>,
+    /// Whether a type put in a parameter's place is located where the
+    /// parameter was: so for a partial block's header renaming the
+    /// subject's parameters, whose arguments would otherwise put a
+    /// sentence about a variant on the header.
+    relocate: bool,
+}
+
+/// Returns `ty` with every token located at `span`, its resolution kept.
+fn located_at(ty: &Type, span: proc_macro2::Span) -> Type {
+    fn relocated(
+        tokens: proc_macro2::TokenStream,
+        span: proc_macro2::Span,
+    ) -> proc_macro2::TokenStream {
+        tokens
+            .into_iter()
+            .map(|mut tree| {
+                if let proc_macro2::TokenTree::Group(group) = &tree {
+                    let mut inner =
+                        proc_macro2::Group::new(group.delimiter(), relocated(group.stream(), span));
+                    inner.set_span(group.span().located_at(span));
+                    tree = proc_macro2::TokenTree::Group(inner);
+                } else {
+                    tree.set_span(tree.span().located_at(span));
+                }
+                tree
+            })
+            .collect()
+    }
+    syn::parse2(relocated(ty.to_token_stream(), span)).unwrap_or_else(|_| ty.clone())
 }
 
 /// Returns `bound` as the trait a projection is qualified with, `<Arg as
@@ -142,7 +171,9 @@ impl Substitution {
         }
         let scope = Generics::default();
         let pairs = generics.params.iter().zip(arguments.args.iter());
-        Self::of_pairs(pairs, &scope).ok()
+        let mut substitution = Self::of_pairs(pairs, &scope).ok()?;
+        substitution.relocate = true;
+        Some(substitution)
     }
 
     fn of_pairs<'a>(
@@ -162,6 +193,7 @@ impl Substitution {
                 })
                 .collect(),
             errors: vec![],
+            relocate: false,
         };
         for (param, argument) in pairs {
             match (param, argument) {
@@ -280,7 +312,10 @@ impl VisitMut for Substitution {
                     .map(|(_, replacement, bound)| (replacement.clone(), bound.clone()));
                 if let Some((replacement, bound)) = replacement {
                     if type_path.path.segments.len() == 1 {
-                        *ty = replacement;
+                        *ty = match self.relocate {
+                            true => located_at(&replacement, first.ident.span()),
+                            false => replacement,
+                        };
                         return;
                     }
                     // The arguments of the later segments may name

@@ -321,6 +321,12 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   the same block over a generic enum compiled. `*` now names the field as
   the header instantiates it. The behaviour test `partial_block_methods`
   holds it; no snapshot and no golden changed.
+- Before, a sentence about a variant holding a parameter that a partial
+  block's header instantiates, `impl Shape for Any<Square>` over `enum
+  Any<T> { Plain(T), .. }`, was reported on the header's `Square`. It is
+  now on the variant's payload, where the parameter is. The `tests/ui` case
+  `instantiated_variant_keeps_its_sentence` is new; no other snapshot and
+  no golden changed.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only
