@@ -280,6 +280,31 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("path", "inherent")],
     },
     Zone {
+        name: "cfg-arguments",
+        summary: "a `Self` argument beside variants under `#[cfg]`, whose pair keeps its fallback arm in every build, through the enum's attribute, the blocks and the inherent paths",
+        vary: &[
+            ("cfg", &[]),
+            ("arg", &[]),
+            ("s1", &["plain", "none"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self"]),
+            ("path", &["attribute", "block-star", "block-some", "inherent", "inherent-some"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "cfg-marks",
+        summary: "a mark naming a variant under `#[cfg]`, which takes the method's body where it is compiled out, in a partial block and an inherent block, beside the variants and returns a body meets",
+        vary: &[
+            ("cfg", &[]),
+            ("path", &["block-some", "inherent-some"]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "unit", "ref", "self", "option-self"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "homes",
         summary: "the trait in a sibling module or another crate, through every path, over the target kinds, returns and qualifiers whose signatures it writes into the subject's module",
         vary: &[

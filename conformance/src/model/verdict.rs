@@ -393,17 +393,13 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // reads; the subject's impl is `#[automatically_derived]` and is not
     // asked the same, and a partial block's or an inherent block's method
     // allows them itself, as a hand's does (CHANGELOG, Unreleased).
-    if cell.cfg != Cfg::Absent {
-        // Open question: whether a fallback arm is written beside a variant
-        // compiled out, and how a `Self` argument is matched by place, is
-        // not documented.
-        if argument.kind.is_some() {
-            return Some("a `Self` argument on an enum with variants under `#[cfg]`");
-        }
-        if path.form == PathForm::First {
-            return Some("an inherent or partial method naming variants under `#[cfg]`");
-        }
-    }
+    //
+    // A method with a `Self` argument keeps its tuple scrutinee, "which has
+    // the fallback arm in every build" (docs/decisions/an-enum-that-may-be-
+    // empty-is-matched-by-place.md), and a mark may name a variant under
+    // `#[cfg]`: "where it is compiled out, the method takes its body"
+    // (inherent-methods.md; partial-impl-blocks.md: a block's method names
+    // its variants "as an inherent method does").
     let inherent = path.site == PathSite::Inherent;
     if cell.s0.descriptor().is_struct() {
         // "Two values of the struct always hold the same field, and the
@@ -558,6 +554,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // variant that holds its payload by value.
         let nameable = argument.mismatch == MismatchSite::Enum
             && cell.s0.descriptor().storage == Storage::Payload
+            && cell.cfg.of(0) != Some("any()")
             && cell.generic != Generics::Payload
             && cell.owner == Owner::Local;
         if !output.has_constant(nameable) {
@@ -846,8 +843,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // to the body" (inherent-methods.md, `inherent_all_with_body`), and `*`
     // names a variant that holds no payload too
     // (`inherent_all_with_unforwardable`).
+    // "Naming every variant, the conditional one included, is exhaustive in
+    // every build, so the method takes no body" (behaviour test
+    // `inherent_list_naming_a_conditional_variant`): the mark names `A`,
+    // so the variants counted are those the enum declares.
     let unreachable = slots.iter().any(|slot| slot.target().is_none());
-    if path.form == PathForm::First && slots.len() == 1 {
+    if path.form == PathForm::First && cell.declared_slots().len() == 1 {
         expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
     }
     if path.mark == Some("*") && unreachable {
@@ -893,11 +894,13 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     }
 
     // `mismatch` in docs/options.md: a `Self` argument needs the result
-    // for two different variants, which one variant never meets.
+    // for two different variants, which one variant never meets. The
+    // variants counted are those the enum declares, since some build holds
+    // a variant compiled out in this one.
     if path.form == PathForm::Forwarded
         && argument.kind.is_some()
         && argument.mismatch == MismatchSite::Missing
-        && slots.len() > 1
+        && cell.needs_mismatch()
     {
         expect(Limit::SelfArgumentWithoutMismatch, Anchor::Method);
     }
@@ -1203,12 +1206,10 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     let qualifier = cell.qual.descriptor();
     let live = cell.method_slots();
     // The method's body is written wherever it is forwarded, even when every
-    // arm is a variant's sentence, so what the body itself captures is
-    // rejected whatever the variants hold.
+    // arm is a variant's sentence or no variant is left in the build, so
+    // what the body itself captures is rejected whatever the variants hold.
     let form = cell.path_descriptor().form;
-    let forwarded = cell.method_present()
-        && matches!(form, PathForm::Forwarded | PathForm::First)
-        && !cell.slots().is_empty();
+    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };
@@ -1366,17 +1367,19 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     }
 
     // A boxed future whose output is converted is one `async move` block
-    // that captures every argument. `X` is not bound to outlive the
-    // future's `'_`, which is E0311, and a borrowed `Self` argument has a
-    // lifetime of its own beside the receiver's; under a receiver that
-    // holds none, `'_` is the argument's.
+    // that captures what it uses. `X` is not bound to outlive the future's
+    // `'_`, which is E0311 where an arm passes it on, and a borrowed `Self`
+    // argument has a lifetime of its own beside the receiver's, which the
+    // pair's scrutinee captures in every build; under a receiver that holds
+    // none, `'_` is the argument's.
     let converted = node.future().is_some_and(|(kind, output)| {
         kind == FutureKind::Boxed
             && output
                 .conversion()
                 .is_some_and(|conversion| !conversion.is_keep())
     });
-    if forwarded && converted && qualifier.generic == Some(Generic::Fixed) {
+    let armed = !cell.slots().is_empty();
+    if forwarded && armed && converted && qualifier.generic == Some(Generic::Fixed) {
         reject(
             "E0311",
             "a converted boxed future that captures a type parameter without a lifetime bound",

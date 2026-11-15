@@ -344,6 +344,24 @@ impl Cell {
         }
     }
 
+    /// Returns whether a method taking a `Self` argument needs the result
+    /// for two different variants, its fallback arm: the enum declares two
+    /// variants, so some build holds both, those compiled out in this
+    /// build counted, or one under `#[cfg]`, whose pair keeps "the fallback
+    /// arm in every build"
+    /// (docs/decisions/an-enum-that-may-be-empty-is-matched-by-place.md).
+    ///
+    /// Open question: an enum of one variant under `#[cfg]` holds no two
+    /// variants in any build; the behaviour test `one_variant_without_mismatch`
+    /// leaves the mismatch out for "one variant that is always compiled
+    /// in", and the build that leaves no variant needs the fallback arm
+    /// for the pair to be exhaustive, so the mismatch is read as asked
+    /// for.
+    pub fn needs_mismatch(&self) -> bool {
+        let declared = self.declared_slots();
+        declared.len() > 1 || declared.iter().any(|slot| slot.cfg.is_some())
+    }
+
     /// Returns whether every variant is under `#[cfg]`, so that the enum
     /// may be empty in some build and is matched by place where the
     /// receiver is a reference (what-is-generated.md).
