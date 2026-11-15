@@ -6,14 +6,6 @@
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
 
-# A mark, or a method a partial block writes, under the trait method's own
-# `#[cfg]`: the builds the mark leaves to the plain forwarding are none
-# where the method exists, yet the variant it cannot reach is reported.
-item=cfg-on s1=unit	sentence:unit-variant@variant-1	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
-item=cfg-on s1=unit	sentence:unit-variant@variant-1-cfg	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
-item=cfg-on s1=pair	sentence:two-fields@variant-1	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
-item=cfg-on s1=pair	sentence:two-fields@variant-1-cfg	A partial block's mark or method under the trait method's own `#[cfg]` gets the sentence of a variant it leaves out, as though the method were forwarded to every variant in the builds where the method exists.
-
 # A `mismatch` option naming a method the trait declares under a `#[cfg]`
 # that does not hold.
 arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.

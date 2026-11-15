@@ -126,7 +126,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         // Every variant was rejected, each with its own sentence; an impl
         // with nothing to forward to would only add rustc's errors to them.
         return Ok(match &partial {
-            Some(_) => shape_errors(&entries),
+            Some(_) => shape_errors(&entries, None),
             None => TokenStream2::new(),
         });
     }
@@ -166,7 +166,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         agreed_types: vec![],
         agreed_consts: vec![],
         deprecated_items: false,
-        plain_forwarding: false,
+        plain_forwarding: PlainForwarding::Nowhere,
         errors: vec![],
     };
     for item in &item_trait.items {
@@ -217,12 +217,16 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         quote_spanned! { site => #types #consts }
     });
     // A partial block is the only dispatch of its trait, so a variant that
-    // cannot be forwarded to is reported here, under its own `cfg`, once
-    // some method forwards to every variant; a block whose every method
-    // names its variants leaves such a variant to the bodies.
-    let shape_errors = match &partial {
-        Some(_) if plain_forwarding => shape_errors(&entries),
-        _ => TokenStream2::new(),
+    // cannot be forwarded to is reported here, under its own `cfg`, in the
+    // builds in which some method forwards to every variant; a block whose
+    // every method names its variants leaves such a variant to the bodies.
+    let shape_errors = match (&partial, plain_forwarding) {
+        (Some(_), PlainForwarding::Everywhere) => shape_errors(&entries, None),
+        (Some(_), PlainForwarding::Under(predicates)) => {
+            let builds = quote_spanned! { site => #[cfg(any(#(#predicates),*))] };
+            shape_errors(&entries, Some(&builds))
+        }
+        (Some(_), PlainForwarding::Nowhere) | (None, _) => TokenStream2::new(),
     };
     Ok(quote_spanned! { site =>
         #(#impl_attrs)*
@@ -345,10 +349,60 @@ enum ItemPlan<'a> {
     Method {
         function: &'a TraitItemFn,
         forwarded: Option<&'a Forwarded>,
-        complement: Option<TokenStream2>,
+        complement: Option<Leftover>,
     },
     /// A shape the impl cannot write.
     Limit(Error),
+}
+
+/// The builds the block's conditional items of one name leave to the rest:
+/// a `cfg` predicate, and the span its attribute's tokens carry, the block
+/// item's.
+#[derive(Clone)]
+struct Leftover {
+    predicate: TokenStream2,
+    span: Span,
+}
+
+impl Leftover {
+    /// Returns the `#[cfg]` of those builds.
+    fn attribute(&self) -> TokenStream2 {
+        let Leftover { predicate, span } = self;
+        quote_spanned!(*span => #[cfg(#predicate)])
+    }
+}
+
+/// The builds in which some method with a receiver is forwarded to every
+/// variant. A variant no method can forward to is reported in those builds
+/// and in no other: a forwarding that exists in no build, the complement of
+/// a mark under the trait method's own `cfg`, reports nothing.
+enum PlainForwarding {
+    /// In none: every method of the block names its variants, or there is
+    /// no block.
+    Nowhere,
+    /// Where any of these predicates holds, each the builds one name's
+    /// conditional items leave.
+    Under(Vec<TokenStream2>),
+    /// In every build.
+    Everywhere,
+}
+
+impl PlainForwarding {
+    /// Records a method forwarded to every variant, in every build or in
+    /// the builds `leftover` names.
+    fn add(&mut self, leftover: Option<&Leftover>) {
+        let Some(leftover) = leftover else {
+            *self = PlainForwarding::Everywhere;
+            return;
+        };
+        match self {
+            PlainForwarding::Everywhere => {}
+            PlainForwarding::Nowhere => {
+                *self = PlainForwarding::Under(vec![leftover.predicate.clone()]);
+            }
+            PlainForwarding::Under(predicates) => predicates.push(leftover.predicate.clone()),
+        }
+    }
 }
 
 /// Writes the items of one trait's impl: plans each item of the trait, then
@@ -377,9 +431,10 @@ struct ItemWriter<'a> {
     /// Whether the trait deprecates an associated item, which the checks
     /// name and so allow.
     deprecated_items: bool,
-    /// Whether some method with a receiver is forwarded to every variant,
-    /// so that a variant no method can forward to is reported.
-    plain_forwarding: bool,
+    /// The builds in which some method with a receiver is forwarded to
+    /// every variant, so that a variant no method can forward to is
+    /// reported there.
+    plain_forwarding: PlainForwarding,
     /// The items that could not be written, which withhold the impl.
     errors: Vec<Error>,
 }
@@ -422,8 +477,10 @@ impl<'a> ItemWriter<'a> {
                     forwarded,
                     complement,
                 } => {
-                    self.plain_forwarding |=
-                        forwarded.is_none() && function.sig.receiver().is_some();
+                    if forwarded.is_none() && function.sig.receiver().is_some() {
+                        self.plain_forwarding.add(complement.as_ref());
+                    }
+                    let complement = complement.as_ref().map(Leftover::attribute);
                     expand_method(function, &self.context, &mut self.substitution, forwarded)
                         .map(|forwarded| quote_spanned! { site => #complement #forwarded })
                 }
@@ -519,7 +576,7 @@ impl<'a> ItemWriter<'a> {
                             format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
                         ),
                         builds: if cfgs.is_empty() {
-                            rest.clone()
+                            rest.as_ref().map(Leftover::attribute)
                         } else {
                             Some(quote_spanned! { site => #(#cfgs)* })
                         },
@@ -783,10 +840,11 @@ impl Written {
     }
 }
 
-/// Returns the `#[cfg]` under which none of `conditions` holds: each is
-/// the `all` of one item's predicates, and the item exists under `any` of
-/// them. The attribute's own tokens carry `span`, the block item's.
-fn not_all_of(conditions: &[Vec<Attribute>], span: Span) -> TokenStream2 {
+/// Returns the builds in which none of `conditions` holds: each is the
+/// `all` of one item's predicates, and the item exists under `any` of them.
+/// The predicate's own tokens, and its attribute's, carry `span`, the block
+/// item's.
+fn not_all_of(conditions: &[Vec<Attribute>], span: Span) -> Leftover {
     let predicates = conditions.iter().map(|cfgs| {
         let predicates = cfgs.iter().map(|attribute| match &attribute.meta {
             syn::Meta::List(list) => list.tokens.clone(),
@@ -794,7 +852,10 @@ fn not_all_of(conditions: &[Vec<Attribute>], span: Span) -> TokenStream2 {
         });
         quote_spanned!(span => all(#(#predicates),*))
     });
-    quote_spanned!(span => #[cfg(not(any(#(#predicates),*)))])
+    Leftover {
+        predicate: quote_spanned!(span => not(any(#(#predicates),*))),
+        span,
+    }
 }
 
 impl<'a> ImplHeader<'a> {
@@ -1363,7 +1424,9 @@ mod tests {
         ];
         let unix: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
         assert_eq!(
-            not_all_of(&[named.clone(), unix.clone()], Span::call_site()).to_string(),
+            not_all_of(&[named.clone(), unix.clone()], Span::call_site())
+                .attribute()
+                .to_string(),
             quote!(#[cfg(not(any(all(feature = "named", not(test)), all(unix))))]).to_string()
         );
         let mut written = Written::new(named, Span::call_site());

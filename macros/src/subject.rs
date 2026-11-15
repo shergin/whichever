@@ -504,12 +504,17 @@ pub(crate) fn targets(entries: &[Entry]) -> Vec<&Target> {
 }
 
 /// Returns the errors of the entries no method can forward to, each under
-/// its own `cfg`, so that a variant compiled out is no error.
-pub(crate) fn shape_errors(entries: &[Entry]) -> TokenStream2 {
+/// its own `cfg`, so that a variant compiled out is no error, and under
+/// `builds`, the `#[cfg]` of the builds in which something forwards to
+/// every variant, when that is not every build.
+pub(crate) fn shape_errors(entries: &[Entry], builds: Option<&TokenStream2>) -> TokenStream2 {
     entries
         .iter()
         .filter_map(|entry| match entry {
-            Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
+            Entry::Unforwardable(unforwardable) => {
+                let error = unforwardable.compile_error();
+                Some(quote_spanned! { unforwardable.ident.span() => #builds #error })
+            }
             Entry::Target(_) => None,
         })
         .collect()

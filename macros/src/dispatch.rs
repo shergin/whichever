@@ -117,7 +117,7 @@ pub(crate) fn expand_subject(
     let shape_errors = if dispatched.is_empty() {
         TokenStream2::new()
     } else {
-        shape_errors(&entries)
+        shape_errors(&entries, None)
     };
     let mut invocations = TokenStream2::new();
     for attribute in &attributes {
