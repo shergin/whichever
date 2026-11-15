@@ -84,7 +84,11 @@ same variant and the next: an arm that handed over a payload instead shows
 there. On a struct it is the other value's field. Under `value` the two variants hold one payload
 type, each reaching it as its target kind does. `with = Into::into` names
 the enum in the return type and rebuilds it through the `From` impls the
-attribute writes, which the hand writes for its own enum.
+attribute writes, which the hand writes for its own enum. The function
+lifts, `support::by_ref` and `support::by_value`, declare their own
+`u64`, so their arms rewrap and await nothing and the function is handed
+the payload's answer as it is; a lift that does not take what its call
+answers is a rejected cell, refused as the hand's call of it is.
 
 The `item` axis is the attributes on the trait's method: a `#[cfg]` that
 holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature

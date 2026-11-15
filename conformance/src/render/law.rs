@@ -499,7 +499,13 @@ fn call(context: &Context, path: &str, receiver: &str, other: Option<&str>, x: &
     if context.qualifier.unsafety {
         text = format!("unsafe {{ {text} }}");
     }
-    if context.awaited() {
+    // `S` is the subject or the hand; the other paths are payloads, whose
+    // own method answers the target's type.
+    let awaited = match context.inherent() && path == "S" {
+        true => context.declared_awaited(),
+        false => context.awaited(),
+    };
+    if awaited {
         text = format!("support::block_on({text})");
     }
     text

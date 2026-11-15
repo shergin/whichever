@@ -512,6 +512,13 @@ impl Context {
         self.qualifier.asyncness || self.node.future().is_some()
     }
 
+    /// Returns whether a call of the subject's inherent method yields a
+    /// future to await: its declared type is one, which under a function
+    /// lift it is not although the payload's method returns one.
+    pub fn declared_awaited(&self) -> bool {
+        self.qualifier.asyncness || self.cell.declared_node().future().is_some()
+    }
+
     /// Returns what an awaited call yields, or the answer itself.
     pub fn output(&self) -> Node {
         match self.node.future() {
@@ -549,25 +556,27 @@ impl Context {
                 Site::Inherent,
                 self.cell.declared_node(),
                 "m",
-                self.declared_this()
+                &self.declared_this()
             )
         )
     }
 
     /// Returns how the subject's inherent method spells `Self` in its return
-    /// type: by the enum's name where `with = Into::into` rebuilds the enum
-    /// from the payload's own type, as `fn into_static(self) ->
-    /// PlayableId<'static>` does (inherent-methods.md), and `Self`
-    /// otherwise.
+    /// type: by the enum's name and its generics where `with = Into::into`
+    /// rebuilds the enum from the payload's own type, as `fn
+    /// into_static(self) -> PlayableId<'static>` does (inherent-methods.md),
+    /// and `Self` otherwise.
     ///
     /// Open question: under `-> Self` the rule that "`with` lifts the
     /// wrapped variant" would rewrap the payload's answer before converting
     /// it, which is no rebuild; the docs' example names the enum, and so
     /// does the model.
-    pub fn declared_this(&self) -> &'static str {
+    pub fn declared_this(&self) -> String {
         match self.cell.lift {
-            Lift::Into => "E",
-            Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => "Self",
+            Lift::Into => format!("E{}", self.generics()),
+            Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => {
+                String::from("Self")
+            }
         }
     }
 
