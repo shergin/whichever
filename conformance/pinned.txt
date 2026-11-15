@@ -217,6 +217,16 @@ recv=value ret=boxed-future-out arg=ref-trait
 s1=deref-rc ret=boxed-future-out
 s1=deref-rc ret=boxed-future
 
+# Trait-level shapes: an `unsafe trait`, whose impl is an `unsafe impl`
+# (what-is-generated.md; golden `carried_attributes`), a lifetime parameter
+# the enum names (behaviour test `lifetimes_and_generic_enums`), and a
+# supertrait the trait under test requires, one more attribute.
+decl=unsafe
+path=block decl=unsafe
+generic=lifetime
+stack=required
+path=block stack=required
+
 # A projection whose later segment has generic arguments, `F::Pair<F>`,
 # substituted at the instantiation named on the enum (options.md), through
 # the enum's attribute, a block and with the trait in another crate.

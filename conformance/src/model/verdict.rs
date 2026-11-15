@@ -67,7 +67,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
     let generic = match cell.generic {
         Generics::Bare => false,
         Generics::Payload => !parameter_conversion,
-        Generics::Concrete | Generics::Own | Generics::Defaulted | Generics::Paired => true,
+        Generics::Concrete
+        | Generics::Own
+        | Generics::Defaulted
+        | Generics::Paired
+        | Generics::Lifetime => true,
     };
     if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
@@ -333,6 +337,13 @@ fn declared(cell: &Cell) -> Option<Verdict> {
     if cell.item != Item::Bare {
         return Some(Verdict::Unmodelled(
             "attributes on a restated method, whose home is the restatement's",
+        ));
+    }
+    // Open question: whether a restatement repeats the supertrait the real
+    // trait requires is not documented.
+    if cell.stack == Stack::Required {
+        return Some(Verdict::Unmodelled(
+            "a restated trait that requires a supertrait",
         ));
     }
     if declaration.lists_method {
@@ -631,6 +642,12 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     // on the second attribute too.
     if stack.present && cell.generic == Generics::Payload {
         return Some("a type-parameter payload beside a second attribute");
+    }
+    // The second trait declares the associated items `Probe` does, so a
+    // `Self::Kind` in a signature of a trait that requires it finds the
+    // name twice, rustc's E0221 in the trait itself.
+    if stack.required && cell.agree.descriptor().returned {
+        return Some("a returned associated type a required supertrait declares too");
     }
     // A supertrait would name the trait's const parameter, which the second
     // trait does not take.

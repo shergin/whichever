@@ -102,6 +102,12 @@ impl Generics {
                 constant: true,
                 ..bare
             },
+            Generics::Lifetime => GenericsDescriptor {
+                declared: "<'t>",
+                argument: "<'static>",
+                instance: "<'static>",
+                ..bare
+            },
             Generics::Defaulted => GenericsDescriptor {
                 declared: "<F: support::Format = support::Json>",
                 projected: true,

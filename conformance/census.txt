@@ -297,13 +297,13 @@ suite returned-types
   never 12 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
 
 suite agreement-paths
-  pass 354
-  limit 189
+  pass 414
+  limit 219
   rejected 0
   malformed 0
-  never 210 non-canonical
+  never 252 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 180 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 216 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite stacks
   pass 150
@@ -331,8 +331,8 @@ suite deprecations
   never 82 unmodelled: a mismatch or a body of the user's naming the deprecated variant
 
 suite deprecation-cfg
-  pass 336
-  limit 24
+  pass 448
+  limit 32
   rejected 0
   malformed 0
 
@@ -372,6 +372,16 @@ suite route-paths
   never 36 unmodelled: an inherent body for a return type that needs a payload to make
   never 12 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
+suite trait-shapes
+  pass 282
+  limit 84
+  rejected 0
+  malformed 0
+  never 360 non-canonical
+  never 24 unmodelled: a block body for a return type that needs a payload to make
+  never 108 unmodelled: a default body that would need a payload to make its answer
+  never 6 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+
 suite restatements
   pass 117
   limit 0
@@ -386,7 +396,8 @@ suite restatement-shapes
   limit 33
   rejected 0
   malformed 0
-  never 60 non-canonical
+  never 80 non-canonical
+  never 60 unmodelled: a restated trait that requires a supertrait
   never 15 unmodelled: a supertrait generic over the enum's const parameter
 
 suite foreign
@@ -458,37 +469,37 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 82
+  pass 87
   limit 19
   rejected 5
   malformed 0
 
 suite array
-  pass 7343
+  pass 7354
   limit 0
   rejected 0
   malformed 0
-  rows 7343
-  covered 79593
-  unreached 31473
+  rows 7354
+  covered 79997
+  unreached 31521
 
 suite array-limits
   pass 0
-  limit 469
+  limit 472
   rejected 0
   malformed 0
-  rows 469
-  covered 9534
-  unreached 1412
+  rows 472
+  covered 9925
+  unreached 1473
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 831
+  rejected 828
   malformed 0
-  rows 831
-  covered 9115
-  unreached 1831
+  rows 828
+  covered 9492
+  unreached 1906
 
 suite known
   pass 0

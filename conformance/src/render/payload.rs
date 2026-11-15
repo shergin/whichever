@@ -29,7 +29,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.line("}");
         writer.blank();
         writer.open(format!(
-            "impl{} {} for Defaulted {{",
+            "{}{} {} for Defaulted {{",
+            context.impl_keyword(),
             context.payload_generics(),
             context.trait_path()
         ));
@@ -46,6 +47,19 @@ pub fn write(writer: &mut Writer, context: &Context) {
         }
         writer.close("}");
         writer.blank();
+        // A trait that requires the second trait is implemented only beside
+        // it.
+        if context.stack.required {
+            writer.open(format!("impl {OTHER} for Defaulted {{"));
+            for item in context.agreement.items {
+                writer.line(item.definition(item.values[0]));
+            }
+            writer.open(format!("{} {{", context.other_signature()));
+            writer.line("self.base");
+            writer.close("}");
+            writer.close("}");
+            writer.blank();
+        }
     }
     for slot in &context.declared {
         let index = slot.index;
@@ -152,7 +166,8 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
 
 fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
     writer.open(format!(
-        "impl{} {} for P{index} {{",
+        "{}{} {} for P{index} {{",
+        context.impl_keyword(),
         context.payload_generics(),
         context.trait_path()
     ));

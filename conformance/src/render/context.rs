@@ -289,6 +289,24 @@ impl Context {
         format!("{TRAIT}{}", self.generics.argument)
     }
 
+    /// Returns how an impl of the trait under test begins: `unsafe impl`
+    /// for an `unsafe trait` (what-is-generated.md), `impl` otherwise.
+    pub fn impl_keyword(&self) -> &'static str {
+        match self.declaration.unsafety {
+            true => "unsafe impl",
+            false => "impl",
+        }
+    }
+
+    /// Returns the bound the trait under test declares on itself: `:
+    /// Other` where it requires the second trait.
+    pub fn required(&self) -> &'static str {
+        match self.stack.required {
+            true => ": Other",
+            false => "",
+        }
+    }
+
     /// Returns whether the trait under test is `whichever::foreign::Display`.
     pub fn foreign(&self) -> bool {
         self.declaration.foreign

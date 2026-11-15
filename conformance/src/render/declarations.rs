@@ -62,9 +62,14 @@ fn write_probe_trait(writer: &mut Writer, context: &Context) {
     if !restated {
         writer.line("#[whichever::dispatchable]");
     }
+    let unsafety = match context.declaration.unsafety {
+        true => "unsafe ",
+        false => "",
+    };
     writer.open(format!(
-        "pub trait {TRAIT}{} {{",
-        context.trait_parameters()
+        "pub {unsafety}trait {TRAIT}{}{} {{",
+        context.trait_parameters(),
+        context.required()
     ));
     for (associated, _) in context.associated() {
         writer.line(format!("type {};", associated.name()));
@@ -257,7 +262,8 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         false => writer.line(format!("#[whichever::dispatch({})]", options.join(", "))),
     }
     writer.open(format!(
-        "impl{} {} for E{} {{",
+        "{}{} {} for E{} {{",
+        context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
         context.type_generics()

@@ -15,6 +15,9 @@ pub struct StackDescriptor {
     pub present: bool,
     /// The supertrait the second trait declares, if any.
     pub supertrait: bool,
+    /// Whether the trait under test requires the second trait as its
+    /// supertrait.
+    pub required: bool,
 }
 
 impl Stack {
@@ -24,14 +27,22 @@ impl Stack {
             Stack::Absent => StackDescriptor {
                 present: false,
                 supertrait: false,
+                required: false,
             },
             Stack::Second => StackDescriptor {
                 present: true,
                 supertrait: false,
+                required: false,
             },
             Stack::Supertrait => StackDescriptor {
                 present: true,
                 supertrait: true,
+                required: false,
+            },
+            Stack::Required => StackDescriptor {
+                present: true,
+                supertrait: false,
+                required: true,
             },
         }
     }

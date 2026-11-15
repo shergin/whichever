@@ -511,6 +511,20 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "trait-shapes",
+        summary: "an `unsafe trait`, a trait with a lifetime parameter the enum names and a trait that requires a supertrait dispatched by one more attribute, through every path, over the target kinds, receivers and returns whose impls they head",
+        vary: &[
+            ("decl", &["dispatchable", "unsafe"]),
+            ("generic", &["none", "lifetime"]),
+            ("stack", &["none", "second", "required"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "inherent"]),
+            ("s0", &["plain", "deref-box", "struct"]),
+            ("ret", &["u64", "self"]),
+            ("qual", &["plain", "provided"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "restatements",
         summary: "a trait restated beside the subject, every method listed or the control method alone, through the paths, with its home, its provided method, its `Self` argument and the returns that name `Self` or an associated type",
         vary: &[

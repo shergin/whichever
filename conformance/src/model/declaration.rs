@@ -29,6 +29,9 @@ pub struct DeclarationDescriptor {
     pub lists_method: bool,
     /// Whether the trait is `whichever::foreign::Display`.
     pub foreign: bool,
+    /// Whether the trait is an `unsafe trait`, whose impls are `unsafe
+    /// impl`.
+    pub unsafety: bool,
 }
 
 impl Declaration {
@@ -38,6 +41,7 @@ impl Declaration {
             restated: false,
             lists_method: true,
             foreign: false,
+            unsafety: false,
         };
         match self {
             Declaration::Dispatchable => dispatchable,
@@ -52,6 +56,10 @@ impl Declaration {
             },
             Declaration::Foreign => DeclarationDescriptor {
                 foreign: true,
+                ..dispatchable
+            },
+            Declaration::Unsafe => DeclarationDescriptor {
+                unsafety: true,
                 ..dispatchable
             },
         }

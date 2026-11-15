@@ -258,7 +258,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
     }
     allow_unread(writer, context);
     writer.open(format!(
-        "impl{} {} for E{} {{",
+        "{}{} {} for E{} {{",
+        context.impl_keyword(),
         context.impl_generics(),
         context.trait_path(),
         context.type_generics()
