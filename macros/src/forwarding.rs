@@ -716,6 +716,17 @@ pub(crate) struct ArmContext<'a> {
 }
 
 impl ArmContext<'_> {
+    /// The way out a sentence about the whole method offers: where the
+    /// method names its variants and has a body for the rest, the body
+    /// answers for every variant once the mark is gone; otherwise what the
+    /// callee's path offers a method that cannot be forwarded.
+    pub(crate) fn whole_way_out(&self) -> &'static str {
+        if self.has_body {
+            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
+        }
+        self.callee.by_hand()
+    }
+
     /// The way out a sentence about `variant` offers: the body, where the
     /// method has one for the variants it does not name, and otherwise
     /// what the callee's path offers a method that cannot be forwarded.

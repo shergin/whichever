@@ -1328,7 +1328,7 @@ fn forward_trait_method(
         &ReturnSite {
             subject: subject_ident,
             one_target: subject.has_one_target(),
-            by_hand: context.callee.by_hand(),
+            by_hand: context.whole_way_out(),
             default: has_default.then_some((&method, block_header)),
         },
         resolution,

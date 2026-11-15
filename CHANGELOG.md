@@ -263,6 +263,15 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   arguments to go unused, as a hand's does. The behaviour test
   `enums_with_every_variant_under_cfg` holds it under
   `#[deny(unused_variables)]`; no snapshot and no golden changed.
+- Before, a sentence about the whole of an inherent method, a return type
+  that wraps `Self` where the payload's result cannot be rebuilt, told a
+  method that names its variants and has a body for the rest to "give it
+  a body". It now says to drop the method's `#[dispatch(..)]`, so that
+  the body answers for every variant; a method without a body keeps its
+  sentence. `docs/limits.md` gains the line for one such shape, a return
+  that wraps `Self` twice under `with = Some` or `with = Ok`. The
+  `tests/ui` case `lift_over_a_wrapped_self` is new; no other snapshot and
+  no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

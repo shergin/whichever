@@ -26,6 +26,10 @@
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- Under `with = Some` or `with = Ok` on an inherent method, the payload's
+  result is rebuilt into the variant and lifted once: a declared return
+  that wraps `Self` twice, `Option<Option<Self>>`, is reported. Drop the
+  method's `#[dispatch(..)]` and let its body answer for every variant.
 - A dispatch struct whose one field is named, `struct Named { shape: Square
   }`, cannot forward a method returning `Option<Self>` or `Result<Self, E>`:
   the value is rebuilt with a path, and no path builds such a struct. Make
