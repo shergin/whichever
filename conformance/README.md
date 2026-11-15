@@ -463,19 +463,23 @@ crate checks that every mutant still applies.
 ```sh
 cargo run -p whichever-conformance --release -- mutants --only await-dropped
 cargo run -p whichever-conformance --release -- mutants --suite array --suite pinned
-cargo run -p whichever-conformance --release -- mutants --shard 3/15
+cargo run -p whichever-conformance --release -- mutants --only await-dropped --baseline report.tsv
 ```
 
 A run of every mutant takes hours, so it is CI's:
 `.github/workflows/mutants.yml` runs on every push to `main` and every
 pull request that touches `macros/src/` or `conformance/`, weekly, and on
-demand, as fifteen jobs, each the `--shard K/15` share of the mutants,
-taken by their place in name order. Each job runs its own baseline and
-uploads its table, and a last job joins the tables into the run's
-summary. Locally, one mutant is the check: `--only NAME`.
+demand. One job runs `run --shape` on the unmodified crate and uploads its
+`report.tsv`; then every mutant has a job of its own, which runs it with
+`--only NAME --baseline report.tsv`, and a last job joins their tables
+into the run's summary. Locally, one mutant is the check: `--only NAME`,
+narrowed with `--suite` to the cells that concern it.
 
 The command runs the matrix with `--shape` on the unmodified crate, and
-stops with a harness error unless that run agrees. Then, per mutant, it
+stops with a harness error unless that run agrees; `--baseline PATH`
+reads that run's table from a file instead, which must come from `run`
+with the same suites and shape, and is refused if a cell in it does not
+agree. Then, per mutant, it
 copies the crate under test, the facade's manifest and sources and the
 macro crate's, to `target/conformance/mutants/<name>`, applies the
 change, checks that the copy compiles, and runs the matrix against the

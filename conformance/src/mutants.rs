@@ -571,37 +571,10 @@ struct Asked {
     only: Vec<String>,
     suites: Vec<String>,
     shape: bool,
-    shard: Option<Shard>,
-}
-
-/// One of `count` even parts of the mutants, taken by their place in name
-/// order, so that jobs running in parallel share the mutants between them
-/// and each runs its own baseline.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Shard {
-    /// The part, counted from 1.
-    number: usize,
-    /// How many parts there are.
-    count: usize,
-}
-
-impl Shard {
-    /// Parses `K/N`, the `K`th of `N` parts.
-    fn parse(text: &str) -> Result<Shard, String> {
-        let refused = || format!("`--shard {text}` is not `K/N` with `1 <= K <= N`");
-        let (number, count) = text.split_once('/').ok_or_else(refused)?;
-        let number: usize = number.parse().map_err(|_| refused())?;
-        let count: usize = count.parse().map_err(|_| refused())?;
-        if number == 0 || number > count {
-            return Err(refused());
-        }
-        Ok(Shard { number, count })
-    }
-
-    /// Returns whether the mutant at `index` in name order is this part's.
-    fn holds(self, index: usize) -> bool {
-        index % self.count == self.number - 1
-    }
+    /// The table of a run on the unmodified crate, with the same suites
+    /// and shape, to compare against instead of running the baseline: so
+    /// that jobs running one mutant each share one baseline.
+    baseline: Option<PathBuf>,
 }
 
 fn asked(arguments: &[String]) -> Result<Asked, RunError> {
@@ -620,10 +593,7 @@ fn asked(arguments: &[String]) -> Result<Asked, RunError> {
             "--only" => asked.only.push(value("--only")?),
             "--suite" => asked.suites.push(value("--suite")?),
             "--no-shape" => asked.shape = false,
-            "--shard" => {
-                let shard = Shard::parse(&value("--shard")?).map_err(RunError::Usage)?;
-                asked.shard = Some(shard);
-            }
+            "--baseline" => asked.baseline = Some(PathBuf::from(value("--baseline")?)),
             other => return Err(RunError::Usage(format!("unknown option `{other}`"))),
         }
     }
@@ -707,17 +677,6 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     if !asked.only.is_empty() {
         mutants.retain(|mutant| asked.only.contains(&mutant.name));
     }
-    if let Some(shard) = asked.shard {
-        let mut index = 0;
-        mutants.retain(|_| {
-            index += 1;
-            shard.holds(index - 1)
-        });
-        if mutants.is_empty() {
-            progress("no mutant falls in this shard");
-            return Ok(ExitCode::SUCCESS);
-        }
-    }
     let mut changed = Vec::new();
     for mutant in &mutants {
         let source = fs::read_to_string(repo.join(&mutant.file)).map_err(|error| {
@@ -754,13 +713,35 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     let known_text = fs::read_to_string(&files.known).unwrap_or_default();
     let known = ledger::parse_known(&known_text).map_err(harness)?;
 
-    progress("the baseline, on the unmodified crate");
-    let (status, baseline) = judged(&options, &report)?;
-    if status != Status::Clean {
-        return Err(RunError::Harness(String::from(
-            "the baseline run does not agree, so it measures nothing; its divergences are in target/conformance/report.tsv",
-        )));
-    }
+    let baseline = match &asked.baseline {
+        Some(path) => {
+            progress(&format!("the baseline, read from `{}`", path.display()));
+            let text = fs::read_to_string(path)
+                .map_err(|error| harness(format!("`{}`: {error}", path.display())))?;
+            let rows = parse_table(&text).map_err(RunError::Harness)?;
+            // A cell a `known.tsv` line excuses agrees as far as a run is
+            // concerned; a stale line or a moved census shows in the run's
+            // exit, which the baseline's job checks.
+            let agrees = |row: &Row| row.standing == "agrees" || row.standing == "known";
+            if let Some(row) = rows.iter().find(|row| !agrees(row)) {
+                return Err(RunError::Harness(format!(
+                    "the baseline does not agree, so it measures nothing: `{}` {}",
+                    row.id, row.standing
+                )));
+            }
+            rows
+        }
+        None => {
+            progress("the baseline, on the unmodified crate");
+            let (status, rows) = judged(&options, &report)?;
+            if status != Status::Clean {
+                return Err(RunError::Harness(String::from(
+                    "the baseline run does not agree, so it measures nothing; its divergences are in target/conformance/report.tsv",
+                )));
+            }
+            rows
+        }
+    };
     let mut lines: Vec<Line> = Vec::new();
     for (index, (mutant, source)) in mutants.iter().zip(changed).enumerate() {
         let step = Instant::now();
@@ -933,21 +914,6 @@ replace:
         .contains("crate under test"));
         assert!(refused(&MUTANT.replace("expect: survives", "expect: maybe")).contains("neither"));
         assert!(refused(&MUTANT.replace("# A comment.", "colour: red")).contains("no key"));
-    }
-
-    #[test]
-    fn shards_share_the_mutants_between_them() {
-        let shards: Vec<Shard> = (1..=3)
-            .map(|number| Shard::parse(&format!("{number}/3")).unwrap())
-            .collect();
-        for index in 0..10 {
-            let holders = shards.iter().filter(|shard| shard.holds(index)).count();
-            assert_eq!(holders, 1, "mutant {index} is in {holders} shards");
-        }
-        assert!(shards[0].holds(0) && shards[0].holds(3) && shards[2].holds(2));
-        for refused in ["0/3", "4/3", "3", "a/3", "1/0", "1/"] {
-            assert!(Shard::parse(refused).is_err(), "`{refused}` was accepted");
-        }
     }
 
     #[test]
