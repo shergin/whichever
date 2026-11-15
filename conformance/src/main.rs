@@ -8,7 +8,7 @@
 //! list [--suite NAME]...
 //! show <id>
 //! axes
-//! mutants [--only NAME]... [--suite NAME]... [--no-shape]
+//! mutants [--only NAME]... [--shard K/N] [--suite NAME]... [--no-shape]
 //! ```
 //!
 //! `run` exits 0 when nothing diverged and the ledger agrees, 1 on a
@@ -31,7 +31,7 @@ commands:
   list [--suite NAME]...
   show <id>
   axes
-  mutants [--only NAME]... [--suite NAME]... [--no-shape]";
+  mutants [--only NAME]... [--shard K/N] [--suite NAME]... [--no-shape]";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();

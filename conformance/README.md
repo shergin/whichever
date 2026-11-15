@@ -457,10 +457,18 @@ deleted rather than left to mutate something else. A unit test of this
 crate checks that every mutant still applies.
 
 ```sh
-cargo run -p whichever-conformance --release -- mutants
 cargo run -p whichever-conformance --release -- mutants --only await-dropped
 cargo run -p whichever-conformance --release -- mutants --suite array --suite pinned
+cargo run -p whichever-conformance --release -- mutants --shard 3/15
 ```
+
+A run of every mutant takes hours, so it is CI's:
+`.github/workflows/mutants.yml` runs on every push to `main` and every
+pull request that touches `macros/src/` or `conformance/`, weekly, and on
+demand, as fifteen jobs, each the `--shard K/15` share of the mutants,
+taken by their place in name order. Each job runs its own baseline and
+uploads its table, and a last job joins the tables into the run's
+summary. Locally, one mutant is the check: `--only NAME`.
 
 The command runs the matrix with `--shape` on the unmodified crate, and
 stops with a harness error unless that run agrees. Then, per mutant, it

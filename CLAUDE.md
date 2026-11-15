@@ -99,9 +99,11 @@ any default.
   `python3 benchmarks/scripts/codegen.py`,
   `python3 benchmarks/scripts/check_numbers.py`, and
   `cargo run -p whichever-conformance --release -- run --shape`.
-  The mutants, `cargo run -p whichever-conformance --release -- mutants`,
-  are run by hand when the macros' engine or the model changes, not in CI
-  and not before every commit.
+  The mutants run in CI, not locally: `.github/workflows/mutants.yml`
+  shares them between parallel jobs on every push to `main` and every pull
+  request that touches `macros/src/` or `conformance/`, weekly, and on
+  demand. A full local run takes hours; one mutant, `mutants --only NAME`,
+  is the local check.
 
 ## Rust
 
