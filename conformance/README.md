@@ -229,7 +229,8 @@ documents and the goldens best support and says so in a comment beginning
   diverge is excused by a line whose pattern matches it. Which findings
   make a cell diverge is decided per verdict in one place: for a pass,
   every finding; for a limit, every finding that is not a predicted
-  sentence, and `missing:sentence` when none appears; for a rejected cell,
+  sentence, `missing:sentence` when none appears, and `missing:KEY@ANCHOR`
+  for a predicted sentence about a variant that does not; for a rejected cell,
   `compiles:subject` and every finding of the subject that is neither a
   catalogued sentence nor a rustc error off the attributes; for a
   malformed cell, `compiles:trait`. A line names the axes that cause its

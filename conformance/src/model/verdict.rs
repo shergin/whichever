@@ -85,15 +85,43 @@ pub fn verdict(cell: &Cell) -> Verdict {
         expected.retain(|expected| !expected.limit.is_of_method());
         rejections.retain(|rejection| rejection.method == Forwarded::Base);
     }
+    // A sentence that replaces the method is its whole body, so no arm of
+    // it is written to carry a sentence about a variant.
+    if expected
+        .iter()
+        .any(|expected| expected.limit.replaces_method())
+    {
+        expected
+            .retain(|expected| expected.limit.replaces_method() || !expected.limit.is_of_method());
+    }
+    // With no variant to supply an associated item the impl is withheld,
+    // so no arm of it is written, and a block that is the impl reports
+    // nothing of the variants either; the subject's attribute, where it
+    // names a trait, still reports a variant that holds no payload.
+    let unsupplied = expected
+        .iter()
+        .any(|expected| expected.limit == Limit::UnsuppliedType);
+    if unsupplied {
+        let declared = cell.path.descriptor().site != PathSite::Block;
+        expected.retain(|expected| {
+            let arm =
+                expected.limit.is_of_method() && matches!(expected.anchor, Anchor::Variant(_));
+            match expected.limit {
+                Limit::UnitVariant | Limit::TwoFields => declared,
+                _ => !arm,
+            }
+        });
+    }
     if !expected.is_empty() {
         // A method that cannot be forwarded is written with its sentence as
         // its body (macros/ARCHITECTURE.md 3.8), so a sentence on `m`
-        // stands for any rejection of `m`; a rejection of the control
-        // method, or one beside a sentence on a variant only, would be a
-        // second error the model does not predict yet.
+        // stands for any rejection of `m`. A sentence about a variant is
+        // that variant's arm, and the other arms are type-checked beside
+        // it, so a rejection there shows as it does for a hand; that pair,
+        // and a rejection of the control method, are not modelled yet.
         let on_method = expected
             .iter()
-            .any(|expected| expected.limit.is_of_method());
+            .any(|expected| expected.limit.replaces_method());
         let covered = rejections
             .iter()
             .all(|rejection| on_method && rejection.method == Forwarded::Method);

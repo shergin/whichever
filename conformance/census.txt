@@ -4,24 +4,26 @@
 
 suite shapes
   pass 495
-  limit 1328
+  limit 1286
   rejected 73
   malformed 22
   never 242 non-canonical
+  never 42 unmodelled: a limit beside a rejection the limit does not replace
 
 suite pairs
   pass 514
-  limit 956
+  limit 936
   rejected 136
   malformed 0
-  never 14 unmodelled: a limit beside a rejection the limit does not replace
+  never 34 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
   pass 2566
-  limit 2386
+  limit 2204
   rejected 232
   malformed 8
   never 352 non-canonical
+  never 182 unmodelled: a limit beside a rejection the limit does not replace
   never 696 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 240 unmodelled: a reference return that borrows from the `Self` argument
 
@@ -38,20 +40,21 @@ suite boxed
 
 suite qualifiers
   pass 1233
-  limit 1427
+  limit 1369
   rejected 130
   malformed 10
   never 290 non-canonical
   never 410 unmodelled: a default body that would need a payload to make its answer
+  never 58 unmodelled: a limit beside a rejection the limit does not replace
   never 100 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
   pass 12
-  limit 93
+  limit 54
   rejected 145
   malformed 0
   never 44 non-canonical
-  never 98 unmodelled: a limit beside a rejection the limit does not replace
+  never 137 unmodelled: a limit beside a rejection the limit does not replace
   never 80 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 8 unmodelled: a reference return that borrows from the `Self` argument
 
@@ -79,11 +82,11 @@ suite path-arguments
 
 suite inherent
   pass 980
-  limit 706
+  limit 680
   rejected 114
   malformed 0
   never 1224 non-canonical
-  never 18 unmodelled: a limit beside a rejection the limit does not replace
+  never 44 unmodelled: a limit beside a rejection the limit does not replace
   never 84 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 118 unmodelled: an `async fn` that returns a future
   never 1476 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
@@ -239,12 +242,12 @@ suite array
 
 suite array-limits
   pass 0
-  limit 383
+  limit 380
   rejected 0
   malformed 0
-  rows 383
-  covered 5062
-  unreached 1135
+  rows 380
+  covered 5081
+  unreached 1116
 
 suite array-rejected
   pass 0
@@ -256,7 +259,7 @@ suite array-rejected
   unreached 1610
 
 suite known
-  pass 10
-  limit 3
+  pass 8
+  limit 2
   rejected 0
   malformed 0

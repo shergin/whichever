@@ -199,9 +199,9 @@ impl Limit {
         }
     }
 
-    /// Returns whether the sentence is the body of the method under test,
-    /// which then reports nothing else, rather than a sentence on a variant
-    /// that leaves the method's other arms written.
+    /// Returns whether the sentence concerns the method under test, on
+    /// the method or on one of the variants it is forwarded to, rather than
+    /// the subject as a whole.
     pub fn is_of_method(self) -> bool {
         match self {
             Limit::UnitVariant
@@ -223,6 +223,36 @@ impl Limit {
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
             | Limit::StarOverUnforwardable => true,
+        }
+    }
+
+    /// Returns whether the sentence replaces the body of the method under
+    /// test, which then reports nothing else. A sentence about one variant
+    /// is that variant's arm instead, and the other arms are written and
+    /// type-checked beside it (macros/ARCHITECTURE.md 3.8).
+    pub fn replaces_method(self) -> bool {
+        match self {
+            Limit::Receiver
+            | Limit::SelfArgumentWithoutMismatch
+            | Limit::OpaqueReturn
+            | Limit::SelfInReturn
+            | Limit::DefaultWithoutDefault
+            | Limit::BodyNeverRuns => true,
+            // The variants a mark of `*` names are forwarded, each arm
+            // carrying a sentence of its own, beside the one on the mark.
+            Limit::StarOverUnforwardable
+            | Limit::UnitVariant
+            | Limit::TwoFields
+            | Limit::UnsuppliedType
+            | Limit::StructConversion
+            | Limit::IntoOtherFields
+            | Limit::IntoWithoutPayload
+            | Limit::DerefSelfReturn
+            | Limit::RouteSelfReturn
+            | Limit::SelfReturnOtherFields
+            | Limit::BoxSelfPlain
+            | Limit::MovesThroughSharedPointer
+            | Limit::MethodRouteOnMutSelf => false,
         }
     }
 

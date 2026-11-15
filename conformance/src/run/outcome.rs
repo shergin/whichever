@@ -285,7 +285,9 @@ pub enum Judgement {
 ///
 /// - for a pass, every finding;
 /// - for a limit, every finding that is not a predicted sentence on its
-///   anchor, and `missing:sentence` when no predicted sentence appears;
+///   anchor, `missing:sentence` when no predicted sentence appears, and
+///   `missing:KEY@ANCHOR` for each predicted sentence about a variant that
+///   does not, since every variant gets its own;
 /// - for a rejected cell, `compiles:subject` when the subject compiles, and
 ///   every finding of the subject that is neither a catalogued sentence nor
 ///   a rustc error off the attributes; the hand's expected failure is none;
@@ -341,6 +343,45 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                 .collect();
             if !outcome.findings.iter().any(predicted) {
                 findings.push(String::from("missing:sentence"));
+            }
+            // Every variant gets a sentence about it, in its own arm or on
+            // its own declaration, so each variant predicted one has to
+            // show one. An arm carries one sentence, and which of several
+            // the docs do not say, so a variant is held to a subset of its
+            // own; so are the sentences on the method or the subject, where
+            // one body stands for several a method could get.
+            let appears = |wanted: &crate::model::Expected| {
+                outcome.findings.iter().any(|finding| {
+                    let Finding::Sentence { key, place } = finding else {
+                        return false;
+                    };
+                    let anchor = wanted.anchor;
+                    wanted.limit.entry().key == key
+                        && (*place == anchor.name()
+                            || *place == format!("{}-cfg", anchor.name())
+                            || lines.get(place) == Some(&anchor))
+                })
+            };
+            let found_any = outcome.findings.iter().any(predicted);
+            let variants: Vec<Anchor> = expected
+                .iter()
+                .map(|wanted| wanted.anchor)
+                .filter(|anchor| matches!(anchor, Anchor::Variant(_)))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            for anchor in variants {
+                let own: Vec<&crate::model::Expected> = expected
+                    .iter()
+                    .filter(|wanted| wanted.anchor == anchor)
+                    .collect();
+                if found_any && !own.iter().any(|wanted| appears(wanted)) {
+                    findings.push(format!(
+                        "missing:{}@{}",
+                        own[0].limit.entry().key,
+                        anchor.name()
+                    ));
+                }
             }
             divergent(findings)
         }

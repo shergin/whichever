@@ -133,10 +133,21 @@ pub fn render(cell: &Cell) -> Rendered {
 pub fn render_as(cell: &Cell, mode: Mode) -> Rendered {
     let context = Context::new(cell);
     let draft = write(&context, mode, &IMPORTS.map(|(line, _)| line));
-    // A limit's inherent method is not emitted, since the inherent path
-    // keeps only the methods it could forward (macros/ARCHITECTURE.md
-    // 3.8), so what its signature alone names is not imported.
-    let dropped = matches!(context.verdict, Verdict::Limit(_));
+    // A limit's inherent method is not emitted when its sentence replaces
+    // the method, since the inherent path keeps only the methods it could
+    // forward (macros/ARCHITECTURE.md 3.8), so what its signature alone
+    // names is not imported; a sentence about a variant is an arm of the
+    // method, which is kept.
+    let dropped = match &context.verdict {
+        Verdict::Limit(expected) => expected
+            .iter()
+            .any(|expected| expected.limit.replaces_method()),
+        Verdict::Pass
+        | Verdict::Malformed(_)
+        | Verdict::Rejected { .. }
+        | Verdict::Unmodelled(_)
+        | Verdict::NonCanonical => false,
+    };
     // An item compiled out is never resolved, so its types use no import.
     let lines: Vec<&str> = draft.source.lines().collect();
     let compiled_out = compiled_out(&lines);
