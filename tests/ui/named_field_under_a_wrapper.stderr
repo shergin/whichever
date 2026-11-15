@@ -1,0 +1,11 @@
+error: `maybe_grown` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `Named` has a named field, which no path builds; make it a tuple struct, `struct Named(Square);`, or write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/named_field_under_a_wrapper.rs:27:12
+   |
+27 |     shape: Square,
+   |            ^^^^^^
+
+error: `tried_grown` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `Named` has a named field, which no path builds; make it a tuple struct, `struct Named(Square);`, or write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/named_field_under_a_wrapper.rs:27:12
+   |
+27 |     shape: Square,
+   |            ^^^^^^

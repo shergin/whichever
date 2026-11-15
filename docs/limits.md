@@ -26,6 +26,11 @@
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- A dispatch struct whose one field is named, `struct Named { shape: Square
+  }`, cannot forward a method returning `Option<Self>` or `Result<Self, E>`:
+  the value is rebuilt with a path, and no path builds such a struct. Make
+  it a tuple struct, `struct Named(Square);`; `-> Self` is rebuilt by the
+  braces either way.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`

@@ -213,6 +213,25 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `mutable_place_through_a_shared_pointer` are new, and the snapshot
   `mutable_borrow_through_a_shared_pointer`, which held E0596 on the
   enum's name, now holds the sentence; no golden changed.
+- A dispatch struct whose one field is named, `struct Named { shape:
+  Square }`, no longer forwards a method returning `Option<Self>` or
+  `Result<Self, E>`. Since 0.4.0 it rebuilt the value with a closure,
+  `.map(|value| Named { shape: value })`, the one closure the generated
+  code held, where the docs say it holds none; `.map` takes a path, and no
+  path builds such a struct. It is now one sentence on the field:
+  "`maybe_grown` returns `Self` inside an `Option` or a `Result`, where a path rebuilds
+  the value, and `Named` has a named field, which no path builds; make it
+  a tuple struct, `struct Named(Square);`, or write the method in a
+  `#[whichever::dispatch] impl` block". This breaks a struct that
+  compiled: one named field and a dispatched method returning
+  `Option<Self>` or `Result<Self, E>`; make it a tuple struct, which
+  forwards all three as before, or write the method in a partial block.
+  `-> Self` on the named struct is rebuilt by its braces as before. The
+  decision record "A named field is not rebuilt under a wrapper" weighs
+  it; `docs/structs.md`, `docs/limits.md` and the `Self` row of
+  `docs/what-is-generated.md` say so. The `tests/ui` case
+  `named_field_under_a_wrapper` is new; no other snapshot and no golden
+  changed.
 
 ## 0.7.3 - 2026-11-13
 

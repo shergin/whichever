@@ -159,7 +159,7 @@
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | `unsafe trait` | An `unsafe impl`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
+//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, a tuple under an `Option` or a `Result`, or an `Option<Self>` or `Result<Self, E>` on a struct whose one field is named, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
@@ -643,7 +643,10 @@
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on
-//! a struct as on an enum. A struct's `match` has one arm, so it forwards a
+//! a struct as on an enum. `Option<Self>` and `Result<Self, E>` are mapped
+//! with a path, which a struct with a named field has not, so there they
+//! are an error and the tuple form, `struct Named(Square);`, is the way
+//! around it. A struct's `match` has one arm, so it forwards a
 //! return-position `impl Trait` as it is, which an enum cannot. A struct
 //! gets no `From` impls, and its `Self` arguments need no `mismatch`: two
 //! values of it always hold the same field, and the argument is unwrapped
@@ -701,6 +704,10 @@
 //!   payload's `Buffered<Payload>` is not the enum's. A provided one is left
 //!   to the trait's default in a partial block with `#[dispatch(default)]`,
 //!   and the default then wraps the enum.
+//! - A dispatch struct whose one field is named cannot forward a method
+//!   returning `Option<Self>` or `Result<Self, E>`: the value is rebuilt
+//!   with a path, and no path builds such a struct. Make it a tuple struct;
+//!   `-> Self` is rebuilt by the braces either way.
 //! - A generic associated type is declared by the enum, in a partial impl
 //!   block; it cannot come from the first variant.
 //! - A projection through a trait parameter with several bounds,
