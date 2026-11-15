@@ -158,8 +158,11 @@ impl Agreement<'_> {
                         }
                     }
                 };
+                // Each check is an item of its own, evaluated on its own,
+                // so that every variant that disagrees is reported, not
+                // the first alone.
                 checks.extend(quote_spanned! { span =>
-                    #(#cfgs)* assert!(#equal, #message);
+                    #(#cfgs)* const _: () = ::core::assert!(#equal, #message);
                 });
             }
         }

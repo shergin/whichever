@@ -5,6 +5,6 @@ error[E0080]: evaluation panicked: `LEVEL` of variant `Borrowed` differs from th
    |                       ------- in this macro invocation
 ...
 32 |     Borrowed(&'a High),
-   |              ^ evaluation of `_` failed here
+   |              ^ evaluation of `_::_` failed here
    |
    = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `Leveled` (in Nightly builds, run with -Z macro-backtrace for more info)

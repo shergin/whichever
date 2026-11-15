@@ -287,6 +287,15 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   supersedes "Associated consts are checked for four types". The
   `tests/ui` case `const_disagreement_on_a_lifetime_enum` is new; no other
   snapshot and no golden changed.
+- Before, the agreement check of associated consts reported the first
+  variant that disagreed and no other: the checks were one `const` block,
+  whose evaluation stops at its first failure. Each check is now an item
+  of its own, so every variant that disagrees is named. The `tests/ui`
+  case `const_disagreement_on_two_variants` is new; the snapshots
+  `associated_const_disagreement` and
+  `const_disagreement_on_a_lifetime_enum` moved, rustc naming the item
+  that failed `_::_` where it named `_`; the golden `associated_consts`
+  shows the check as `const _: () = if ..;`.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only

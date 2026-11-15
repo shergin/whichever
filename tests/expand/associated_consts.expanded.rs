@@ -56,7 +56,7 @@ impl Proof for AnyProof {
     }
 }
 const _: () = {
-    if !(<Encoding as Proof>::ARITY == <Ordering as Proof>::ARITY) {
+    const _: () = if !(<Encoding as Proof>::ARITY == <Ordering as Proof>::ARITY) {
         {
             ::core::panicking::panic_fmt(
                 format_args!(
@@ -64,6 +64,6 @@ const _: () = {
                 ),
             );
         }
-    }
+    };
 };
 fn main() {}

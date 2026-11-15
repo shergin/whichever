@@ -5,6 +5,6 @@ error[E0080]: evaluation panicked: `KIND` of variant `Ordering` differs from the
    |                       ----- in this macro invocation
 ...
 30 |     Ordering(Ordering),
-   |              ^^^^^^^^ evaluation of `_` failed here
+   |              ^^^^^^^^ evaluation of `_::_` failed here
    |
    = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `Proof` (in Nightly builds, run with -Z macro-backtrace for more info)
