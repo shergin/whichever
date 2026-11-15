@@ -702,9 +702,18 @@ fn arm(
     if method.passes {
         arguments.push(String::from(method.parameter));
     }
+    // "Where the route names the target's type, the payload or what it
+    // dereferences to, the call is `<Square as Shape>::area(&inner.base)`;
+    // a field's or a method's type cannot be named, and the call is `<_ as
+    // Shape>::area(&inner.base)`, qualified by the trait alone" (routes.md).
+    let named = target.route.iter().all(|step| *step == Step::Deref);
+    let qualifier = match named {
+        true => slot.declared_payload(),
+        false => String::from("_"),
+    };
     let mut call = format!(
         "<{} as {}>::{}{}({})",
-        slot.declared_payload(),
+        qualifier,
         method.trait_path,
         method.name,
         method.turbofish,

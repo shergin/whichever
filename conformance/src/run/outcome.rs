@@ -296,9 +296,11 @@ pub enum Judgement {
 ///   anchor, `missing:sentence` when no predicted sentence appears, and
 ///   `missing:KEY@ANCHOR` for each predicted sentence about a variant that
 ///   does not, since every variant gets its own;
-/// - for a rejected cell, `compiles:subject` when the subject compiles, and
-///   every finding of the subject that is neither a catalogued sentence nor
-///   a rustc error off the attributes; the hand's expected failure is none;
+/// - for a rejected cell, `compiles:subject` when the subject compiles,
+///   `missing:error:CODE@subject` when it fails without the code the model
+///   names, and every finding of the subject that is not an error off the
+///   attributes of a code the hand gets too, a sentence included, since a
+///   rejected cell predicts none; the hand's expected failure is none;
 /// - for a malformed cell, `compiles:trait` when nothing fails.
 pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judgement {
     let divergent = |findings: Vec<String>| match findings.is_empty() {
@@ -419,6 +421,7 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
         }
         Verdict::Rejected { code, .. } => {
             let quoted_code = quoted(code);
+            let is_code = |found: &str| found == *code || found == quoted_code;
             let in_hand = |finding: &Finding| match finding {
                 Finding::Error { part, .. } | Finding::Warning { part, .. } => part == "hand",
                 Finding::Sentence { .. }
@@ -427,9 +430,7 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                 | Finding::Untested { .. } => false,
             };
             let expected = outcome.findings.iter().any(|finding| match finding {
-                Finding::Error { code: found, part } => {
-                    part == "hand" && (found == code || *found == quoted_code)
-                }
+                Finding::Error { code: found, part } => part == "hand" && is_code(found),
                 Finding::Sentence { .. }
                 | Finding::Warning { .. }
                 | Finding::Law { .. }
@@ -444,21 +445,60 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                 .iter()
                 .filter(|finding| !in_hand(finding))
                 .collect();
-            let accepted = |finding: &&Finding| match finding {
-                Finding::Sentence { key, .. } => Limit::from_key(key).is_some(),
-                Finding::Error { part, .. } => part != "attribute",
-                Finding::Warning { .. }
+            // The subject fails as the hand does: with the code the model
+            // names, and otherwise only with codes the hand gets too, off
+            // the attributes. A rejected cell predicts no sentence, so a
+            // sentence of the macro's is a wrong answer, and an error of a
+            // code the hand does not get is a cascade.
+            let hand_codes: Vec<&str> = outcome
+                .findings
+                .iter()
+                .filter_map(|finding| match finding {
+                    Finding::Error { code, part } if part == "hand" => Some(code.as_str()),
+                    Finding::Sentence { .. }
+                    | Finding::Error { .. }
+                    | Finding::Warning { .. }
+                    | Finding::Law { .. }
+                    | Finding::Shape { .. }
+                    | Finding::Untested { .. } => None,
+                })
+                .collect();
+            let shared = |finding: &&Finding| match finding {
+                Finding::Error { code: found, part } => {
+                    hand_codes.contains(&found.as_str()) && part != "attribute"
+                }
+                Finding::Sentence { .. }
+                | Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            };
+            let own = |finding: &&Finding| match finding {
+                Finding::Error { code: found, .. } => is_code(found) && shared(finding),
+                Finding::Sentence { .. }
+                | Finding::Warning { .. }
                 | Finding::Law { .. }
                 | Finding::Shape { .. }
                 | Finding::Untested { .. } => false,
             };
             let mut findings: Vec<String> = subject
                 .iter()
-                .filter(|finding| !accepted(finding))
+                .filter(|finding| !shared(finding))
                 .map(|finding| finding.spell())
                 .collect();
             if !subject.iter().any(|finding| is_error(finding)) {
                 findings.push(String::from("compiles:subject"));
+            } else if !subject.iter().any(own) {
+                // The code as an error finding spells it: a code, or the
+                // message of an error that has none, quoted.
+                let numbered = code.strip_prefix('E').is_some_and(|digits| {
+                    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+                });
+                let spelled = match numbered {
+                    true => String::from(*code),
+                    false => quoted_code.clone(),
+                };
+                findings.push(format!("missing:error:{spelled}@subject"));
             }
             divergent(findings)
         }
@@ -542,7 +582,7 @@ mod tests {
         let cell = Cell::parse("s0=via-method recv=value").expect("an id");
         let rendered = render(&cell);
         let verdict = cell.verdict();
-        assert!(matches!(verdict, Verdict::Rejected { code: "E0308", .. }));
+        assert!(matches!(verdict, Verdict::Rejected { code: "E0277", .. }));
         let error = |code: &str, part: &str| Finding::Error {
             code: String::from(code),
             part: String::from(part),
@@ -552,22 +592,66 @@ mod tests {
             first_message: None,
             sentences: Vec::new(),
         };
-        let on_payload = outcome(vec![error("E0308", "hand"), error("E0308", "subject")]);
+        let on_payload = outcome(vec![error("E0277", "hand"), error("E0277", "subject")]);
         assert_eq!(
             judge(&cell, &verdict, &on_payload, &rendered),
             Judgement::Agrees
         );
-        let on_attribute = outcome(vec![error("E0308", "hand"), error("E0308", "attribute")]);
+        let on_attribute = outcome(vec![error("E0277", "hand"), error("E0277", "attribute")]);
         assert!(matches!(
             judge(&cell, &verdict, &on_attribute, &rendered),
             Judgement::Diverges(_)
         ));
-        let hand_only = outcome(vec![error("E0308", "hand")]);
+        let hand_only = outcome(vec![error("E0277", "hand")]);
         assert!(matches!(
             judge(&cell, &verdict, &hand_only, &rendered),
             Judgement::Diverges(_)
         ));
-        let hand_compiles = outcome(vec![error("E0308", "subject")]);
+        // A second code the hand gets too is the hand's; a cascade, an
+        // error of a code the hand does not get, and a sentence diverge,
+        // and so does a subject that fails without the code the model names.
+        let shared = outcome(vec![
+            error("E0277", "hand"),
+            error("E0308", "hand"),
+            error("E0277", "subject"),
+            error("E0308", "subject"),
+        ]);
+        assert_eq!(
+            judge(&cell, &verdict, &shared, &rendered),
+            Judgement::Agrees
+        );
+        let cascade = outcome(vec![
+            error("E0277", "hand"),
+            error("E0277", "subject"),
+            error("E0282", "subject"),
+        ]);
+        assert_eq!(
+            judge(&cell, &verdict, &cascade, &rendered),
+            Judgement::Diverges(vec![String::from("error:E0282@subject")])
+        );
+        let sentence = Finding::Sentence {
+            key: String::from("receiver"),
+            place: String::from("method"),
+        };
+        let with_sentence = outcome(vec![
+            error("E0277", "hand"),
+            error("E0277", "subject"),
+            sentence,
+        ]);
+        assert!(matches!(
+            judge(&cell, &verdict, &with_sentence, &rendered),
+            Judgement::Diverges(_)
+        ));
+        let other_code = outcome(vec![
+            error("E0277", "hand"),
+            error("E0308", "hand"),
+            error("E0308", "subject"),
+        ]);
+        assert_eq!(
+            judge(&cell, &verdict, &other_code, &rendered),
+            Judgement::Diverges(vec![String::from("missing:error:E0277@subject")])
+        );
+        let hand_compiles = outcome(vec![error("E0277", "subject")]);
         assert_eq!(
             judge(&cell, &verdict, &hand_compiles, &rendered),
             Judgement::Harness

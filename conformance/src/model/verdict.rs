@@ -1219,9 +1219,25 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // that yields the target by value serves `self` by value. The other
     // pairing is a type error the hand's call gets as well.
     let owned = cell.recv == Receiver::Owned || argument.kind == Some(ArgumentKind::Owned);
+    // The call is qualified by the trait alone where the route ends in a
+    // method (routes.md), so under `self` by value its `Self` is inferred
+    // from the reference the method lends, which does not implement the
+    // trait; a `Self` argument by value beside a reference receiver is the
+    // reference where the payload was expected.
     if any(&|target| target.ends_in_loan()) && owned {
+        let code = match cell.recv {
+            Receiver::Owned => "E0277",
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::Boxed
+            | Receiver::PinShared
+            | Receiver::PinExclusive
+            | Receiver::Rc
+            | Receiver::Arc
+            | Receiver::PinBoxed => "E0308",
+        };
         reject(
-            "E0308",
+            code,
             "a lent target handed to a method that takes it by value",
             Forwarded::Method,
         );

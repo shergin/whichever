@@ -64,8 +64,11 @@ passing cell holds:
 A limit cell holds the trait, the payloads, the subject and a probe that
 calls `base` through the trait, so a withheld impl or a cascade shows as an
 error of its own. A rejected cell holds the subject and the hand and no
-law; it agrees when the hand fails with the named error, the subject fails
-too, and no error of the subject sits on an attribute, which
+law; it agrees when the hand fails with the named error and the subject
+fails with the same code and with nothing the hand does not get: a
+sentence, which no rejected cell predicts, or an error of a code the hand
+does not get, a cascade, diverges, and so does an error of the subject on
+an attribute, which
 `macros/ARCHITECTURE.md` 3.8 calls a defect. A malformed cell holds the
 trait and the payloads.
 
@@ -300,8 +303,9 @@ documents and the goldens best support and says so in a comment beginning
   every finding; for a limit, every finding that is not a predicted
   sentence, `missing:sentence` when none appears, and `missing:KEY@ANCHOR`
   for a predicted sentence about a variant that does not; for a rejected cell,
-  `compiles:subject` and every finding of the subject that is neither a
-  catalogued sentence nor a rustc error off the attributes; for a
+  `compiles:subject`, `missing:error:CODE@subject` when the subject fails
+  without the code the model names, and every finding of the subject that
+  is not an error off the attributes of a code the hand gets too; for a
   malformed cell, `compiles:trait`. A line names the axes that cause its
   defect, so that it cannot excuse another defect's finding. A line that
   excuses no finding in a complete run, every suite and no filter, fails it

@@ -48,8 +48,9 @@ pub enum Verdict {
     Malformed(&'static str),
     /// The forwarding cannot be written in Rust, a hand gets this rustc
     /// error, and no sentence is documented. Rendered with subject and hand
-    /// and checked only: the hand must fail with the code, the subject must
-    /// fail too, and no error of the subject may sit on an attribute.
+    /// and checked only: the hand must fail with the code, and the subject
+    /// with the same code and with nothing the hand does not get, no
+    /// sentence and no error of another code, none of it on an attribute.
     Rejected {
         /// The hand's error: a code such as `E0596`, or the message of an
         /// error that has none.
