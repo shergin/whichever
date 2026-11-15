@@ -303,18 +303,15 @@ impl Cell {
     /// Returns whether `with = Into::into` rebuilds the enum from what a
     /// payload's method returning `Self` answers: every variant the method
     /// reaches holds its payload as it is, so the enum's attribute writes a
-    /// `From` impl for it, and the enum takes no lifetime the return type
-    /// would have to name (options.md, structs.md).
+    /// `From` impl for it (options.md); a struct's attribute writes none
+    /// (structs.md). The return type names the enum with its generics, a
+    /// lifetime included.
     pub fn into_rebuilds(&self) -> bool {
         let converts = self
             .method_slots()
             .iter()
             .all(|(_, target, _)| *target == Target::Plain);
-        let borrows = self
-            .live_slots()
-            .iter()
-            .any(|(_, _, target)| target.borrows());
-        converts && !borrows && !self.s0.descriptor().is_struct()
+        converts && !self.s0.descriptor().is_struct()
     }
 
     /// Returns whether the two variants hold one payload type: an inherent
