@@ -5,4 +5,5 @@ expect: killed
 find:
     let allow_unused = match derived || has_body {
 replace:
+    let _ = has_body;
     let allow_unused = match derived {

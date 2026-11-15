@@ -571,6 +571,10 @@ struct Asked {
     only: Vec<String>,
     suites: Vec<String>,
     shape: bool,
+    /// The table of a run on the unmodified crate, with the same suites
+    /// and shape, to compare against instead of running the baseline: so
+    /// that jobs running one mutant each share one baseline.
+    baseline: Option<PathBuf>,
 }
 
 fn asked(arguments: &[String]) -> Result<Asked, RunError> {
@@ -589,6 +593,7 @@ fn asked(arguments: &[String]) -> Result<Asked, RunError> {
             "--only" => asked.only.push(value("--only")?),
             "--suite" => asked.suites.push(value("--suite")?),
             "--no-shape" => asked.shape = false,
+            "--baseline" => asked.baseline = Some(PathBuf::from(value("--baseline")?)),
             other => return Err(RunError::Usage(format!("unknown option `{other}`"))),
         }
     }
@@ -708,13 +713,35 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     let known_text = fs::read_to_string(&files.known).unwrap_or_default();
     let known = ledger::parse_known(&known_text).map_err(harness)?;
 
-    progress("the baseline, on the unmodified crate");
-    let (status, baseline) = judged(&options, &report)?;
-    if status != Status::Clean {
-        return Err(RunError::Harness(String::from(
-            "the baseline run does not agree, so it measures nothing; its divergences are in target/conformance/report.tsv",
-        )));
-    }
+    let baseline = match &asked.baseline {
+        Some(path) => {
+            progress(&format!("the baseline, read from `{}`", path.display()));
+            let text = fs::read_to_string(path)
+                .map_err(|error| harness(format!("`{}`: {error}", path.display())))?;
+            let rows = parse_table(&text).map_err(RunError::Harness)?;
+            // A cell a `known.tsv` line excuses agrees as far as a run is
+            // concerned; a stale line or a moved census shows in the run's
+            // exit, which the baseline's job checks.
+            let agrees = |row: &Row| row.standing == "agrees" || row.standing == "known";
+            if let Some(row) = rows.iter().find(|row| !agrees(row)) {
+                return Err(RunError::Harness(format!(
+                    "the baseline does not agree, so it measures nothing: `{}` {}",
+                    row.id, row.standing
+                )));
+            }
+            rows
+        }
+        None => {
+            progress("the baseline, on the unmodified crate");
+            let (status, rows) = judged(&options, &report)?;
+            if status != Status::Clean {
+                return Err(RunError::Harness(String::from(
+                    "the baseline run does not agree, so it measures nothing; its divergences are in target/conformance/report.tsv",
+                )));
+            }
+            rows
+        }
+    };
     let mut lines: Vec<Line> = Vec::new();
     for (index, (mutant, source)) in mutants.iter().zip(changed).enumerate() {
         let step = Instant::now();

@@ -1,0 +1,119 @@
+name: Mutants
+
+# A mutant is a small bug put into the macros, and the matrix runs once per
+# mutant against the changed crate: hours in all, so every mutant has a job
+# of its own here and none is run on a developer's machine. One job runs the
+# matrix on the unmodified crate, and every mutant's job compares its run
+# with that baseline, failing when the mutant's result is not its
+# `expect:` line.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "macros/src/**"
+      - "conformance/**"
+      - ".github/workflows/mutants.yml"
+  pull_request:
+    paths:
+      - "macros/src/**"
+      - "conformance/**"
+      - ".github/workflows/mutants.yml"
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A cold run keeps no incremental cache, which only fills the disk.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  list:
+    name: list the mutants
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: list
+        run: |
+          names=$(find conformance/mutants -name '*.mutant' -exec basename {} .mutant \; | sort | jq -Rsc 'split("\n") | map(select(. != ""))')
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+
+  baseline:
+    name: baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-expand
+      # The matrix builds some fifty crates per run; the runner's own
+      # toolsets these jobs do not use make room for them.
+      - run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - run: cargo run -p whichever-conformance --release -- run --shape
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseline
+          path: target/conformance/report.tsv
+
+  mutant:
+    name: ${{ matrix.mutant }}
+    needs: [list, baseline]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mutant: ${{ fromJSON(needs.list.outputs.names) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-expand
+      - run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/download-artifact@v4
+        with:
+          name: baseline
+          path: baseline
+      - run: cargo run -p whichever-conformance --release -- mutants --only "${{ matrix.mutant }}" --baseline baseline/report.tsv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutant-${{ matrix.mutant }}
+          path: target/conformance/mutants.tsv
+          if-no-files-found: ignore
+
+  summary:
+    name: mutants summary
+    needs: mutant
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutant-*
+          path: tables
+      # One table of every mutant's job, and the kill rate among those that
+      # compiled and ran.
+      - name: Write the table
+        run: |
+          shopt -s nullglob
+          rows=$(for table in tables/*/mutants.tsv; do tail -n +2 "$table"; done | sort)
+          {
+            killed=$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "killed"' | grep -c . || true)
+            judged=$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "killed" || $3 == "survived"' | grep -c . || true)
+            total=$(printf '%s\n' "$rows" | grep -c . || true)
+            echo "Killed $killed of $judged mutants that compiled and ran; $total mutants reported."
+            echo
+            echo "| mutant | result | expected | checks | cells | seconds |"
+            echo "|---|---|---|---|---|---|"
+            printf '%s\n' "$rows" | awk -F'\t' 'NF { printf "| `%s` | %s | %s | %s | %s | %s |\n", $1, $3, $4, $5, $6, $7 }'
+          } >> "$GITHUB_STEP_SUMMARY"

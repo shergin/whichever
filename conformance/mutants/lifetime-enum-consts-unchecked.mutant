@@ -5,4 +5,7 @@ expect: killed
 find:
                 GenericParam::Lifetime(param) => lifetimes.push(param.lifetime.ident.clone()),
 replace:
-                GenericParam::Lifetime(_) => return TokenStream2::new(),
+                GenericParam::Lifetime(_) => {
+                    lifetimes.clear();
+                    return TokenStream2::new();
+                }

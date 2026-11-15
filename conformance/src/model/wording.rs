@@ -206,9 +206,23 @@ fn route(target: &TargetDescriptor) -> Option<String> {
 fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     let method = cell.method_name();
     let target = slot.and_then(|slot| slot.target());
-    let stored = slot
-        .zip(target)
-        .map(|(slot, (_, target))| storage(&slot, &target));
+    // A block whose header instantiates the enum names the type it puts in
+    // the parameter's place (`tests/ui/instantiated_variant_keeps_its_sentence`).
+    let generics = cell.generic.descriptor();
+    let instance = generics
+        .parameter
+        .filter(|_| generics.instantiated)
+        .map(|parameter| parameter.instance);
+    let stored = slot.zip(target).map(|(slot, (_, target))| {
+        let slot = match (slot.parameter, instance) {
+            (Some(_), Some(instance)) => Slot {
+                parameter: Some(instance),
+                ..slot
+            },
+            (Some(_), None) | (None, _) => slot,
+        };
+        storage(&slot, &target)
+    });
     let variant = slot.map(|slot| named(cell, &slot));
     let mut names = Vec::new();
     // A name that is any of several, which a sentence about one of several
