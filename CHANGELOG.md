@@ -300,6 +300,15 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `const_disagreement_on_a_lifetime_enum` moved, rustc naming the item
   that failed `_::_` where it named `_`; the golden `associated_consts`
   shows the check as `const _: () = if ..;`.
+- Before, a method that requires `Self: Sized` forwarded beside a `deref`
+  variant holding a trait object was its sentence alone, in every build and
+  whatever else the method met: a trait object under `#[cfg(test)]` failed
+  the build that leaves it out, and the other variants' sentences, a plain
+  variant under `self: Box<Self>`, were never written. The sentence is now
+  the trait object's arm, under its variant's `cfg`, as every sentence
+  about one variant is. The behaviour test `trait_objects_in_deref_variants`
+  holds the first and the `tests/ui` case `trait_object_beside_a_plain_variant`
+  the second; no other snapshot and no golden changed.
 - `docs/partial-impl-blocks.md` says what a method a partial block writes
   or marks carries: what is written on it, with `#[inline]` where nothing
   else is, and nothing of the trait method's own attributes, which only

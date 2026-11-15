@@ -342,10 +342,16 @@ impl MethodPlan {
     /// and forwards the rest; and each variant the method cannot reach is
     /// named, not the first alone.
     pub(crate) fn arm_or_sentence(&self, target: &Target, context: &ArmContext) -> Arm {
-        let error = match self.arm(target, context) {
-            Ok(arm) => return arm,
-            Err(error) => error,
-        };
+        match self.arm(target, context) {
+            Ok(arm) => arm,
+            Err(error) => self.sentence_arm(target, context, error),
+        }
+    }
+
+    /// Returns the arm that says `error` about `target`: the variant
+    /// whatever it holds, with the sentence as its result, under the
+    /// variant's own attributes.
+    pub(crate) fn sentence_arm(&self, target: &Target, context: &ArmContext, error: Error) -> Arm {
         let site = context.site;
         let sentence = error.to_compile_error();
         self.beside_arguments(Arm {
