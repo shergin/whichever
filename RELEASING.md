@@ -40,6 +40,7 @@ python3 smoke/mixed/check.py
 cargo bench -p whichever-benchmarks --no-run
 python3 benchmarks/scripts/codegen.py
 python3 benchmarks/scripts/check_numbers.py
+cargo run -p whichever-conformance --release -- run --shape
 ```
 
 The compile-fail snapshots are pinned to stable's wording, so update the
