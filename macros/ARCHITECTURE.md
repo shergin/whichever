@@ -144,6 +144,7 @@ struct ArmContext<'a> {          // what every arm of one method shares
     method: &'a Ident, subject: &'a Ident,
     prefix: Path,                // the subject's name, or `Self`
     lift: Option<&'a Path>,      // the inherent `with = path`
+    has_body: bool,              // a body for the variants a mark leaves, the way out a sentence offers
     site: Span,                  // the span every written token carries
 }
 
@@ -390,8 +391,8 @@ hand-written impl gets the same error on the same user token, a variant's
 payload or a trait method; one on an attribute is a defect. So no module
 that writes generated code uses a bare `quote!` or `parse_quote!`: every
 token carries the subject's, the method's or the payload's span. A
-generated binding, `__inner`, `__same<n>`, `__argument<n>`, `__element<n>`
-or `__value`, is built at `at(site)`, the hygiene of `Span::mixed_site()`
+generated binding, `__inner`, `__same<n>`, `__argument<n>` or
+`__element<n>`, is built at `at(site)`, the hygiene of `Span::mixed_site()`
 located where the arm is: one located at the call site would join the span
 of the expression that holds it to the attribute, and rustc's error with
 it. The unit test in `spans.rs` reads those modules and names a token
@@ -845,7 +846,63 @@ other snapshot changed; the behaviour test
 
 The mutants `bindings-at-the-call-site`, `refused-arm-without-its-cfg`,
 `fallback-rebinds-every-moved-argument`, `projection-keeps-the-constraints`
-and `shape-report-in-every-build` revert the five fixes.
+and `shape-report-in-every-build` revert the five fixes, and each is
+killed.
+
+Five more changes followed on the same branch, two from the sentences the
+matrix showed and three the owner chose on the matrix's questions, each
+with a decision record. None added or deleted a line of `known.tsv`; the
+model learns their sentences in its own change.
+
+`MethodPlan::taken` names the `Self` argument a sentence is about, and the
+move and method-route sentences name the receiver or the argument as the
+signature has it; `receiver_expression` reports `self: Box<Self>` on a
+`deref` variant over another pointer in a sentence of its own, where it
+advised a `Box` of that pointer; `ArmContext::has_body` makes
+`way_out` and `rebuild_hint` offer the body of a method that names its
+variants (`a615da8`). Compile-fail cases `box_self_on_a_shared_pointer`,
+`self_argument_moves_through_a_shared_pointer` and
+`route_method_under_a_pinned_receiver_or_a_mut_argument` are new; snapshot
+`sentence_spells_a_type_with_its_spaces` moved, its four sentences ending
+"or leave `<variant>` to the body"; no golden changed. The mutants
+`method-route-limit-dropped` and `move-limit-on-box` are rewritten for the
+moved text, making the change each made before.
+
+Under `self` by value a place counts as moved unless its `PlaceBorrow` is
+`Reference`, as under `self: Box<Self>` (`f7949a3`). The behaviour test
+`inherent_methods_on_dereferenced_payloads` is extended; no golden or
+snapshot changed, `route_moves_through_a_shared_pointer` included.
+
+`unknown_names` ends the sentence of a `mismatch` naming no method with
+where a method under a `#[cfg]` takes its mismatch (`09f24e7`, the record
+"An option names an item of every build"). Compile-fail case
+`mismatch_for_a_method_under_a_cfg` is new, with both forms of the hint;
+snapshots `unknown_option_names` and `unknown_override_keeps_the_impl`
+moved; no golden changed.
+
+`lends_only_shared` recognises an `Rc`, an `Arc` and a `&T`, and a
+method that borrows its target mutably through one, by its receiver, a
+`&mut Self` argument or a place returned as `&mut`, is a sentence on the
+payload (`59dab88`, the record "A borrow a shared pointer cannot lend is
+a sentence"). Compile-fail cases `mutable_argument_through_a_shared_pointer`,
+`mutable_place_through_a_shared_pointer` and
+`route_method_result_does_not_fit_the_receiver` are new, the last the pin
+of where a rustc error in an arm lands that
+`mutable_borrow_through_a_shared_pointer` was before its snapshot moved to
+the sentence; the behaviour test `inherent_methods_on_dereferenced_payloads`
+is extended with a shared borrow under `&mut self`; no golden changed.
+
+`Target::constructor` writes no closure: a struct whose one field is named
+has no path to `map` with, and `Target::is_built_by_no_path` gives the
+rebuild error its sentence, with the tuple struct as the way around
+(`5c80735`, the record "A named field is not rebuilt under a wrapper").
+Compile-fail case `named_field_under_a_wrapper` is new; the behaviour test
+`newtype_delegation` is extended; no golden or other snapshot changed.
+
+The mutants `box-self-advice-on-a-shared-pointer`,
+`borrowed-place-moved-under-self`, `absent-method-hint-dropped`,
+`mutable-borrow-left-to-rustc` and `named-field-rebuilt-with-a-closure`
+revert these five; they wait for the model's correction to be run.
 
 ## 5. Invariants every stage keeps
 
