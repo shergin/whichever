@@ -612,7 +612,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
     }
     writer.open("{");
     write_subject(writer, &value_path(context), slot, "subject", seed, false);
-    match base {
+    match &base {
         Expect::Twin => {
             writer.line(format!("let twin = {payload}::new({seed});"));
             writer.line(format!(
@@ -626,6 +626,26 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
             context.base_call("S", "subject")
         )),
         Expect::Default => unreachable!("the control method is never left to a default"),
+    }
+    // The method returning the trait's own type answers what a twin's does,
+    // or the block's body, as the control method does.
+    if context.agreement.returned {
+        write_subject(writer, &value_path(context), slot, "kinded", seed, false);
+        match &base {
+            Expect::Twin => {
+                writer.line(format!("let kinded_twin = {payload}::new({seed});"));
+                writer.line(format!(
+                    "assert_eq!({}, {}, \"kind on {name}\");",
+                    context.kind_call("S", "kinded"),
+                    context.kind_call(&payload, "kinded_twin")
+                ));
+            }
+            Expect::Constant(constant) => writer.line(format!(
+                "assert_eq!({}, {constant}, \"kind on {name}\");",
+                context.kind_call("S", "kinded")
+            )),
+            Expect::Default => unreachable!("the control method is never left to a default"),
+        }
     }
     // The second trait's method answers what a twin's does, on every
     // variant that holds a payload.

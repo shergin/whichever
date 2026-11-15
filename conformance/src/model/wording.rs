@@ -166,6 +166,7 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::ConstDisagreement
         | Limit::FromOverlapTypeParameter
         | Limit::TryFromTypeParameter
+        | Limit::ArmsDisagree
         | Limit::MismatchForAbsentMethod => String::new(),
     }
 }
@@ -209,7 +210,8 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::Receiver
         | Limit::OpaqueReturn
         | Limit::StructConversion
-        | Limit::TypeDisagreement => {}
+        | Limit::TypeDisagreement
+        | Limit::ArmsDisagree => {}
         Limit::UnitVariant | Limit::TwoFields => {
             push(variant.clone());
             push(slot.map(|slot| format!("`{}(Payload)`", slot.name())));

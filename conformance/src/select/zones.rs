@@ -400,6 +400,19 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "returned-types",
+        summary: "an associated type the payloads give differently, returned by a method every subject forwards, over the variants that take part in the check and those that do not, through the enum's attribute and the blocks, under `#[cfg]` or not",
+        vary: &[
+            ("agree", &["type-differs", "type-returned"]),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "unit", "via-field", "deref-box"]),
+            ("s2", &["none", "plain"]),
+            ("path", &["attribute", "block", "block-star"]),
+            ("cfg", &["none", "second-off"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "agreement-paths",
         summary: "the trait's own associated items through every path, on generic subjects and traits, with the trait at home, in a sibling module and in another crate",
         vary: &[

@@ -281,20 +281,29 @@ suite items
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
-  pass 606
-  limit 480
+  pass 654
+  limit 610
   rejected 0
   malformed 0
-  never 210 non-canonical
+  never 245 non-canonical
+  never 3 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
+
+suite returned-types
+  pass 237
+  limit 189
+  rejected 0
+  malformed 0
+  never 162 non-canonical
+  never 12 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
 
 suite agreement-paths
   pass 354
-  limit 165
+  limit 189
   rejected 0
   malformed 0
-  never 180 non-canonical
+  never 210 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
-  never 90 unmodelled: an associated type beside generics, which the model spells for the plain trait
+  never 180 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite stacks
   pass 150
@@ -430,8 +439,8 @@ suite third-paths
   never 64 non-canonical
 
 suite third-items
-  pass 160
-  limit 272
+  pass 169
+  limit 335
   rejected 0
   malformed 0
 
@@ -450,36 +459,36 @@ suite third-stacks
 
 suite pinned
   pass 82
-  limit 17
+  limit 19
   rejected 5
   malformed 0
 
 suite array
-  pass 7352
+  pass 7343
   limit 0
   rejected 0
   malformed 0
-  rows 7352
-  covered 79485
-  unreached 31434
+  rows 7343
+  covered 79593
+  unreached 31473
 
 suite array-limits
   pass 0
-  limit 473
+  limit 469
   rejected 0
   malformed 0
-  rows 473
-  covered 9388
-  unreached 1411
+  rows 469
+  covered 9534
+  unreached 1412
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 817
+  rejected 831
   malformed 0
-  rows 817
-  covered 8984
-  unreached 1815
+  rows 831
+  covered 9115
+  unreached 1831
 
 suite known
   pass 0

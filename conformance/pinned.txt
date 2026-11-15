@@ -139,6 +139,11 @@ s1=none generic=payload conv=try
 # parameters alone is checked (const_disagreement_on_a_lifetime_enum).
 s1=deref-ref agree=type-differs
 s0=deref-ref agree=type-differs
+# A type that disagrees, returned by a method: rustc's E0308 on the arms
+# beside the check's E0271 on the variant (`associated_type_disagreement`),
+# and alone where the variant is reached through a field (routes.md).
+agree=type-returned
+s1=via-field agree=type-returned
 s1=deref-ref agree=const-differs
 s0=deref-ref s1=none agree=const-agrees
 

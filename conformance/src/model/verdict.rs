@@ -89,6 +89,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
         return Verdict::NonCanonical;
     }
+    // The method returning the trait's own type is the dispatchable trait's;
+    // a restatement, or a restated enum's real trait, would list it too.
+    let returned = cell.agree.descriptor().returned;
+    if returned && (cell.decl != Declaration::Dispatchable || cell.owner != Owner::Local) {
+        return Verdict::NonCanonical;
+    }
     if let Some(verdict) = declared(cell) {
         return verdict;
     }
@@ -390,6 +396,26 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     if let Some(reason) = unpredicted_stack(cell) {
         return Some(reason);
+    }
+    // Where the first arm of the method returning the trait's own type is
+    // not of the type the enum takes, the supplier's, rustc reports the
+    // arm as `mismatched types` rather than the arms as incompatible, an
+    // E0308 the catalogue cannot tell from any other.
+    let kinds = returned_kinds(cell);
+    let supplied = cell.supplier().and_then(|supplier| {
+        cell.agree
+            .descriptor()
+            .items
+            .iter()
+            .find(|item| item.kind == ItemKind::Type)
+            .map(|item| item.values[supplier.holds])
+    });
+    if let (Some(first), Some(supplied)) = (kinds.first(), supplied) {
+        if *first != supplied {
+            return Some(
+                "a returned associated type whose first arm is not the supplier's, a bare E0308",
+            );
+        }
     }
     // An enum whose every variant is under `#[cfg]` "is matched as `match
     // *self` with `ref` bindings where the receiver is a reference, so a
@@ -1187,6 +1213,17 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // Open question: a variant under a `#[cfg]` that holds is read as
     // checked in the builds that hold it, its check carried under the
     // `cfg` as its arm is.
+    // "A type that disagrees shows in the arm of a method that returns it"
+    // (routes.md): the arms of `kind` hand over each payload's own type, so
+    // where two of them differ the `match` is rustc's E0308, on the enum
+    // (`associated_type_disagreement`), beside the agreement check's E0271
+    // on the variant, or alone where the variant takes no part in the
+    // check. A type no variant supplies holds its sentence, which the arms
+    // meet as no type of theirs.
+    let kinds = returned_kinds(cell);
+    if supplier.is_some() && kinds.iter().any(|kind| *kind != kinds[0]) {
+        expect(Limit::ArmsDisagree, Anchor::Enum);
+    }
     if let Some(supplier) = supplier {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
@@ -1211,6 +1248,29 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     expected.sort();
     expected
+}
+
+/// Returns the type each arm of the method returning the trait's own type
+/// hands over, in the order of the arms: the type of the payload each
+/// variant the control method reaches holds; none where the trait has no
+/// such method.
+fn returned_kinds(cell: &Cell) -> Vec<&'static str> {
+    if !cell.agree.descriptor().returned {
+        return Vec::new();
+    }
+    let Some(kind) = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .find(|item| item.kind == ItemKind::Type)
+    else {
+        return Vec::new();
+    };
+    cell.base_slots()
+        .iter()
+        .map(|(slot, _, _)| kind.values[slot.holds])
+        .collect()
 }
 
 /// Returns whether a conversion rebuilds `Self` through a path that

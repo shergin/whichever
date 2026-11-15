@@ -413,6 +413,10 @@ axis! {
         /// fixed on the enum with `NAME = "any"` and `RANGE = (support::LOW,
         /// support::HIGH)`.
         ConstOverride = "const-override",
+        /// `type Kind;` as `type-differs` gives it, returned by a method
+        /// every subject forwards, `fn kind(&self) -> Self::Kind`, whose
+        /// arms meet the types the payloads give.
+        TypeReturned = "type-returned",
     }
 }
 

@@ -246,6 +246,24 @@ impl Context {
         )
     }
 
+    /// Returns the signature of the method that returns the trait's own
+    /// associated type, with the control method's receiver, where the
+    /// trait declares it: `fn kind(&self) -> Self::Kind`, or the type a
+    /// payload gives it.
+    pub fn kind_signature(&self, ty: &str) -> String {
+        format!(
+            "fn kind({}) -> {ty}",
+            self.base_receiver().descriptor().spelling
+        )
+    }
+
+    /// Returns a call of the method returning the trait's own associated
+    /// type through the trait as `path` implements it, on `value`.
+    pub fn kind_call(&self, path: &str, value: &str) -> String {
+        let argument = self.base_receiver().descriptor().call.replace("{}", value);
+        format!("<{path} as {}>::kind({argument})", self.trait_instance())
+    }
+
     /// Returns a call of the control method through the trait as `path`
     /// implements it, on `value`, which it borrows or takes.
     pub fn base_call(&self, path: &str, value: &str) -> String {

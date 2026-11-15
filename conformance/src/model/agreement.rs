@@ -64,7 +64,23 @@ impl AssociatedItem {
 pub struct AgreementDescriptor {
     /// The items the trait declares beside those its return types name.
     pub items: &'static [AssociatedItem],
+    /// Whether the trait declares `fn kind(..) -> Self::Kind`, which every
+    /// subject forwards as it forwards the control method, so that the
+    /// type the payloads give meets in its arms.
+    pub returned: bool,
 }
+
+/// The type the payloads give differently, `u32` in `P0` and `P2` and
+/// `u64` in `P1`; the third agrees with the first, so a check across three
+/// payloads that reports it would be wrong.
+const KIND: AssociatedItem = AssociatedItem {
+    kind: ItemKind::Type,
+    name: "Kind",
+    ty: "",
+    values: ["u32", "u64", "u32"],
+    overridden: None,
+    comparable: true,
+};
 
 /// Returns a const of a checked type that every payload gives `value`.
 const fn agreed(name: &'static str, ty: &'static str, value: &'static str) -> AssociatedItem {
@@ -89,16 +105,7 @@ impl Agreement {
     pub fn descriptor(self) -> AgreementDescriptor {
         let items: &'static [AssociatedItem] = match self {
             Agreement::Absent => &[],
-            // The third payload agrees with the first, so a check across
-            // three payloads that reports it would be wrong.
-            Agreement::TypeDiffers => &[AssociatedItem {
-                kind: ItemKind::Type,
-                name: "Kind",
-                ty: "",
-                values: ["u32", "u64", "u32"],
-                overridden: None,
-                comparable: true,
-            }],
+            Agreement::TypeDiffers | Agreement::TypeReturned => &[KIND],
             Agreement::ConstAgrees => &[LEVEL, RATIO, ON, MARK, NAME],
             Agreement::ConstDiffers => &[
                 // The third payload differs from both, so each variant that
@@ -139,6 +146,15 @@ impl Agreement {
                 },
             ],
         };
-        AgreementDescriptor { items }
+        let returned = match self {
+            Agreement::TypeReturned => true,
+            Agreement::Absent
+            | Agreement::TypeDiffers
+            | Agreement::ConstAgrees
+            | Agreement::ConstDiffers
+            | Agreement::ConstUnchecked
+            | Agreement::ConstOverride => false,
+        };
+        AgreementDescriptor { items, returned }
     }
 }

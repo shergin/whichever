@@ -195,7 +195,11 @@ variant reached through a field or a method takes no part, and a const on
 an enum with a type or const parameter is not checked; a lifetime is no
 matter. The hand takes each
 item from the supplier or as fixed, and the law reads every item through
-the subject.
+the subject. Under `type-returned` the type that differs is returned by a
+method every subject forwards as it forwards the control method, `fn
+kind(&self) -> Self::Kind`, whose arms are rustc's E0308 on the enum where
+two of them differ, beside the check's E0271 or alone where the variant
+takes no part in the check.
 
 The `stack` axis dispatches a second trait, `Other`, or a supertrait
 `Other: Probe`, on the same subject through an attribute of its own. Its

@@ -39,6 +39,11 @@ pub fn write(writer: &mut Writer, context: &Context) {
         writer.open(format!("{} {{", context.base_signature()));
         writer.line("self.base");
         writer.close("}");
+        if context.agreement.returned {
+            writer.open(format!("{} {{", context.kind_signature("Self::Kind")));
+            writer.line("0");
+            writer.close("}");
+        }
         writer.close("}");
         writer.blank();
     }
@@ -169,6 +174,19 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
         _ => writer.line(format!("self.state * 10 + {index}")),
     }
     writer.close("}");
+    // The trait's own type, in the type the payload gives it.
+    if context.agreement.returned {
+        let given = context
+            .agreement
+            .items
+            .iter()
+            .find(|item| item.name == "Kind")
+            .map_or("u32", |item| item.values[index]);
+        writer.blank();
+        writer.open(format!("{} {{", context.kind_signature(given)));
+        writer.line(format!("self.state as {given} * 10 + {index}"));
+        writer.close("}");
+    }
     let overrides = !context.inherent() && (!context.qualifier.provided || index == 0);
     if overrides {
         writer.blank();
