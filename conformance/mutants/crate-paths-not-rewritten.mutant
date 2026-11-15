@@ -1,7 +1,6 @@
 file: macros/src/dispatchable.rs
 breaks: A `crate::` path in a trait's signature is rewritten to the trait's crate, so the carrier macro works from another crate, as `docs/limits.md` says.
-expect: survives
-reason: A trait in another crate names `crate::support::Count`, an alias of `u64` that every shard declares in its own `support`, so the path left unrewritten names the same type in the subject's crate.
+expect: killed
 
 find:
                 output.extend([

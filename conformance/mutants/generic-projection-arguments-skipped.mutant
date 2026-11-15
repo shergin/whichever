@@ -1,7 +1,6 @@
 file: macros/src/substitution.rs
 breaks: A generic trait's parameters are substituted in every signature, the arguments of a projection's later segments included, as `docs/options.md` says.
-expect: survives
-reason: The generic traits project through their parameter only as `F::Value`, whose later segment has no arguments, so no signature names a parameter inside a projection's later segment.
+expect: killed
 
 find:
                     for segment in type_path.path.segments.iter_mut().skip(1) {

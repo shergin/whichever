@@ -1,7 +1,6 @@
 file: macros/src/implement.rs
 breaks: A `mismatch` on the enum for a method under a `#[cfg]` that does not hold is one sentence naming the way around it, the trait method's own `#[dispatch(mismatch = ..)]`, as `docs/limits.md` says.
-expect: survives
-reason: The cells `arg=ref-enum item=cfg-off` and `arg=value item=cfg-off` predict `mismatch-for-absent-method` and still get it, since the verdict holds the sentence by its needle, `so there is no mismatch to decide`, which ends before the hint the mutant drops.
+expect: killed
 
 find:
                 format!("none of its methods takes one; {elsewhere}")

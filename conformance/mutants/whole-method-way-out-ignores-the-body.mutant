@@ -1,7 +1,6 @@
 file: macros/src/forwarding.rs
 breaks: A sentence about the whole of a method that names its variants and has a body for the rest offers that body, as `tests/ui/lift_over_a_wrapped_self` pins it.
-expect: survives
-reason: The model does not hold the way out of a sentence about the whole method where the method has a body, since no snapshot pinned it before `lift_over_a_wrapped_self`.
+expect: killed
 
 find:
         if self.has_body {
