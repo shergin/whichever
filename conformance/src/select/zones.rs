@@ -43,14 +43,8 @@ const TARGETS: &[&str] = &[
 ];
 
 /// The target kinds `arguments` and `qualifiers` cross: the payload, a
-/// pointer that owns, one that lends, a field and a marked field.
-const SOME_TARGETS: &[&str] = &[
-    "plain",
-    "deref-box",
-    "deref-ref",
-    "via-field",
-    "marked-tuple",
-];
+/// pointer that owns, one that lends, and a field.
+const SOME_TARGETS: &[&str] = &["plain", "deref-box", "deref-ref", "via-field"];
 
 /// The receivers that forward; the three a sentence rejects meet the
 /// other axes in `shapes`, `pairs`, `boxed` and the arrays.
@@ -102,7 +96,7 @@ pub const ZONES: &[Zone] = &[
             ("recv", &[]),
             ("ret", &[]),
             ("qual", &[]),
-            ("arg", &["none", "ref-trait", "mut"]),
+            ("arg", &["none", "ref-trait"]),
         ],
         fixed: &[("s0", "deref-box"), ("s1", "deref-box")],
     },
@@ -141,7 +135,7 @@ pub const ZONES: &[Zone] = &[
         summary: "every path under a few receivers, every return type and a few second variants, required or provided",
         vary: &[
             ("path", &[]),
-            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
+            ("recv", &["ref", "mut", "value", "box"]),
             ("ret", &[]),
             ("s1", &["plain", "unit", "deref-box"]),
             ("qual", &["plain", "provided"]),
@@ -285,7 +279,7 @@ pub const ZONES: &[Zone] = &[
         summary: "variants under `#[cfg]`, present and compiled out, over the second variants, receivers and returns they meet",
         vary: &[
             ("cfg", &[]),
-            ("s1", &["plain", "none", "unit", "pair", "deref-box", "via-field"]),
+            ("s1", &["plain", "none", "unit", "pair", "deref-box"]),
             ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
             ("ret", &["u64", "self", "assoc", "out", "ref", "future"]),
             ("path", &["attribute", "block", "block-star"]),

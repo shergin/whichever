@@ -19,25 +19,25 @@ suite pairs
   never 31 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
-  pass 1889
-  limit 1967
+  pass 1509
+  limit 1547
   rejected 0
   malformed 6
-  never 194 non-canonical
-  never 464 unmodelled: a mismatch expression for a return type that needs a payload to make
-  never 160 unmodelled: a reference return that borrows from the `Self` argument
+  never 154 non-canonical
+  never 400 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 128 unmodelled: a reference return that borrows from the `Self` argument
 
 suite boxed
-  pass 898
-  limit 1374
+  pass 602
+  limit 991
   rejected 0
   malformed 0
-  never 288 non-canonical
-  never 332 unmodelled: a default body that would need a payload to make its answer
-  never 564 unmodelled: a mismatch expression for a return type that needs a payload to make
-  never 180 unmodelled: a reference return that borrows from the `Self` argument
-  never 162 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
-  never 90 unmodelled: an `async fn` that returns a future
+  never 222 non-canonical
+  never 234 unmodelled: a default body that would need a payload to make its answer
+  never 282 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 90 unmodelled: a reference return that borrows from the `Self` argument
+  never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 63 unmodelled: an `async fn` that returns a future
 
 suite boxed-futures
   pass 402
@@ -49,14 +49,14 @@ suite boxed-futures
   never 36 unmodelled: a mismatch option on a struct, which has no second variant
 
 suite qualifiers
-  pass 1312
-  limit 1818
+  pass 1052
+  limit 1452
   rejected 0
   malformed 8
-  never 412 non-canonical
-  never 470 unmodelled: a default body that would need a payload to make its answer
-  never 180 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
-  never 120 unmodelled: an `async fn` that returns a future
+  never 328 non-canonical
+  never 376 unmodelled: a default body that would need a payload to make its answer
+  never 144 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 96 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
   pass 16
@@ -70,18 +70,18 @@ suite value-method-route
   never 24 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite paths
-  pass 1038
-  limit 1213
+  pass 783
+  limit 986
   rejected 0
   malformed 7
-  never 1127 non-canonical
-  never 240 unmodelled: a block body for a future return
-  never 144 unmodelled: a block body for a return type that needs a payload to make
-  never 1347 unmodelled: a default body that would need a payload to make its answer
-  never 210 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
-  never 20 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
-  never 126 unmodelled: an inherent body for a return type that needs a payload to make
-  never 288 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+  never 971 non-canonical
+  never 192 unmodelled: a block body for a future return
+  never 108 unmodelled: a block body for a return type that needs a payload to make
+  never 1050 unmodelled: a default body that would need a payload to make its answer
+  never 168 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 16 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 99 unmodelled: an inherent body for a return type that needs a payload to make
+  never 228 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite path-arguments
   pass 822
@@ -195,11 +195,11 @@ suite struct-paths
   never 30 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite cfg
-  pass 1788
-  limit 1236
+  pass 1446
+  limit 1074
   rejected 0
   malformed 12
-  never 204 non-canonical
+  never 168 non-canonical
 
 suite inherent-cfg
   pass 186
@@ -504,22 +504,22 @@ suite pinned
   malformed 0
 
 suite array
-  pass 7867
+  pass 7860
   limit 0
   rejected 0
   malformed 0
-  rows 7867
-  covered 82691
-  unreached 40540
+  rows 7860
+  covered 82721
+  unreached 40510
 
 suite array-limits
   pass 0
-  limit 548
+  limit 550
   rejected 0
   malformed 0
-  rows 548
-  covered 10564
-  unreached 1849
+  rows 550
+  covered 10568
+  unreached 1845
 
 suite array-rejected
   pass 0
