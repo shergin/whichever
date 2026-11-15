@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use super::cargo::{Diagnostic, Level, TestResult};
-use crate::model::{Anchor, Limit, Verdict};
+use crate::cell::Cell;
+use crate::model::{wording, Anchor, Limit, Verdict};
 use crate::render::writer::Part;
 use crate::render::Rendered;
 
@@ -87,6 +88,9 @@ pub struct Outcome {
     pub findings: Vec<Finding>,
     /// The first message observed: a diagnostic's or a failed test's.
     pub first_message: Option<String>,
+    /// Every sentence observed, by its catalogue key and its place, with
+    /// its message, so that its words can be held.
+    pub sentences: Vec<(String, String, String)>,
 }
 
 impl Outcome {
@@ -176,10 +180,14 @@ pub fn observe_diagnostic(outcome: &mut Outcome, rendered: &Rendered, diagnostic
             part,
         },
         Level::Error => match Limit::of_message(&diagnostic.message) {
-            Some(limit) => Finding::Sentence {
-                key: String::from(limit.entry().key),
-                place: place_of(rendered, site.line),
-            },
+            Some(limit) => {
+                let key = String::from(limit.entry().key);
+                let place = place_of(rendered, site.line);
+                outcome
+                    .sentences
+                    .push((key.clone(), place.clone(), diagnostic.message.clone()));
+                Finding::Sentence { key, place }
+            }
             None if diagnostic.from_compile_error || is_sentence(diagnostic) => Finding::Sentence {
                 key: quoted(&diagnostic.message),
                 place: place_of(rendered, site.line),
@@ -292,7 +300,7 @@ pub enum Judgement {
 ///   every finding of the subject that is neither a catalogued sentence nor
 ///   a rustc error off the attributes; the hand's expected failure is none;
 /// - for a malformed cell, `compiles:trait` when nothing fails.
-pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judgement {
+pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judgement {
     let divergent = |findings: Vec<String>| match findings.is_empty() {
         true => Judgement::Agrees,
         false => Judgement::Diverges(findings),
@@ -362,6 +370,30 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
                             || lines.get(place) == Some(&anchor))
                 })
             };
+            // A sentence with the right key says what the cell asks of it:
+            // its way out, the method's own where it ends in one, and the
+            // names it interpolates; one that does not is a finding of its
+            // own.
+            for (key, place, message) in &outcome.sentences {
+                let wanted = expected.iter().find(|wanted| {
+                    let anchor = wanted.anchor;
+                    wanted.limit.entry().key == key
+                        && (*place == anchor.name()
+                            || *place == format!("{}-cfg", anchor.name())
+                            || lines.get(place) == Some(&anchor)
+                            || anchor == Anchor::Anywhere)
+                });
+                let Some(wanted) = wanted else {
+                    continue;
+                };
+                let lacks = wording::fragments(cell, wanted)
+                    .iter()
+                    .any(|fragment| !message.contains(fragment.as_str()));
+                let finding = format!("wording:{key}");
+                if lacks && !findings.contains(&finding) {
+                    findings.push(finding);
+                }
+            }
             let found_any = outcome.findings.iter().any(predicted);
             let variants: Vec<Anchor> = expected
                 .iter()
@@ -441,7 +473,6 @@ pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judge
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cell::Cell;
     use crate::render::render;
 
     #[test]
@@ -450,7 +481,7 @@ mod tests {
         let rendered = render(&cell);
         let mut outcome = Outcome::default();
         assert_eq!(
-            judge(&Verdict::Pass, &outcome, &rendered),
+            judge(&cell, &Verdict::Pass, &outcome, &rendered),
             Judgement::Agrees
         );
         assert_eq!(outcome.spell(), "pass");
@@ -460,13 +491,13 @@ mod tests {
             Some(&TestResult::Failed(String::from("left"))),
         );
         assert!(matches!(
-            judge(&Verdict::Pass, &outcome, &rendered),
+            judge(&cell, &Verdict::Pass, &outcome, &rendered),
             Judgement::Diverges(_)
         ));
         assert_eq!(outcome.spell(), "law:subject");
         observe_test(&mut outcome, "hand", None);
         assert_eq!(
-            judge(&Verdict::Pass, &outcome, &rendered),
+            judge(&cell, &Verdict::Pass, &outcome, &rendered),
             Judgement::Harness
         );
     }
@@ -482,21 +513,26 @@ mod tests {
                 place: String::from("method"),
             }],
             first_message: None,
+            sentences: Vec::new(),
         };
-        assert_eq!(judge(&verdict, &on_method, &rendered), Judgement::Agrees);
+        assert_eq!(
+            judge(&cell, &verdict, &on_method, &rendered),
+            Judgement::Agrees
+        );
         let elsewhere = Outcome {
             findings: vec![Finding::Sentence {
                 key: String::from("receiver"),
                 place: String::from("line-1"),
             }],
             first_message: None,
+            sentences: Vec::new(),
         };
         assert!(matches!(
-            judge(&verdict, &elsewhere, &rendered),
+            judge(&cell, &verdict, &elsewhere, &rendered),
             Judgement::Diverges(_)
         ));
         assert!(matches!(
-            judge(&verdict, &Outcome::default(), &rendered),
+            judge(&cell, &verdict, &Outcome::default(), &rendered),
             Judgement::Diverges(_)
         ));
     }
@@ -514,22 +550,26 @@ mod tests {
         let outcome = |findings: Vec<Finding>| Outcome {
             findings,
             first_message: None,
+            sentences: Vec::new(),
         };
         let on_payload = outcome(vec![error("E0308", "hand"), error("E0308", "subject")]);
-        assert_eq!(judge(&verdict, &on_payload, &rendered), Judgement::Agrees);
+        assert_eq!(
+            judge(&cell, &verdict, &on_payload, &rendered),
+            Judgement::Agrees
+        );
         let on_attribute = outcome(vec![error("E0308", "hand"), error("E0308", "attribute")]);
         assert!(matches!(
-            judge(&verdict, &on_attribute, &rendered),
+            judge(&cell, &verdict, &on_attribute, &rendered),
             Judgement::Diverges(_)
         ));
         let hand_only = outcome(vec![error("E0308", "hand")]);
         assert!(matches!(
-            judge(&verdict, &hand_only, &rendered),
+            judge(&cell, &verdict, &hand_only, &rendered),
             Judgement::Diverges(_)
         ));
         let hand_compiles = outcome(vec![error("E0308", "subject")]);
         assert_eq!(
-            judge(&verdict, &hand_compiles, &rendered),
+            judge(&cell, &verdict, &hand_compiles, &rendered),
             Judgement::Harness
         );
     }

@@ -20,6 +20,7 @@ pub mod returns;
 pub mod stack;
 pub mod target;
 mod verdict;
+pub mod wording;
 
 pub use axes::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,

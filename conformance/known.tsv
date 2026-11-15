@@ -6,3 +6,13 @@
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
 
+# A sentence about a variant's other fields names the enum, not the variant.
+s0=marked-tuple	wording:self-return-other-fields	A `Self` return on the marked field of an enum's variant with other fields is reported as "cannot be built around the other fields of `E`", naming the enum where the sentence is about the variant.
+s0=marked-struct	wording:self-return-other-fields	A `Self` return on the marked field of an enum's variant with other fields is reported as "cannot be built around the other fields of `E`", naming the enum where the sentence is about the variant.
+s1=marked-tuple	wording:self-return-other-fields	A `Self` return on the marked field of an enum's variant with other fields is reported as "cannot be built around the other fields of `E`", naming the enum where the sentence is about the variant.
+s1=marked-struct	wording:self-return-other-fields	A `Self` return on the marked field of an enum's variant with other fields is reported as "cannot be built around the other fields of `E`", naming the enum where the sentence is about the variant.
+
+# A sentence about a struct's one field names the field rather than the struct.
+s0=struct	wording:box-self-plain	A sentence about a struct's field names the field, `_0` for a tuple struct's, where the struct's own sentence, `struct_self_return_other_fields`, names the struct.
+s0=struct-marked	wording:box-self-plain	A sentence about a struct's field names the field, `_0` for a tuple struct's, where the struct's own sentence, `struct_self_return_other_fields`, names the struct.
+s0=struct-named	wording:box-self-plain	A sentence about a struct's field names the field, `_0` for a tuple struct's, where the struct's own sentence, `struct_self_return_other_fields`, names the struct.

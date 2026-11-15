@@ -449,7 +449,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
 
     let judgements: Vec<Judgement> = entries
         .iter()
-        .map(|entry| outcome::judge(&entry.verdict, &entry.outcome, &entry.rendered))
+        .map(|entry| outcome::judge(&entry.cell, &entry.verdict, &entry.outcome, &entry.rendered))
         .collect();
     let report = report::Report {
         entries: &entries,
