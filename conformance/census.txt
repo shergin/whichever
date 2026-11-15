@@ -3,12 +3,12 @@
 # `run --bless` rewrites it.
 
 suite shapes
-  pass 495
-  limit 1388
+  pass 500
+  limit 1490
   rejected 7
   malformed 22
   never 242 non-canonical
-  never 6 unmodelled: a limit beside a rejection the limit does not replace
+  never 7 unmodelled: a limit beside a rejection the limit does not replace
   never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite pairs
@@ -19,8 +19,8 @@ suite pairs
   never 10 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
-  pass 2566
-  limit 2618
+  pass 2621
+  limit 3103
   rejected 0
   malformed 8
   never 352 non-canonical
@@ -29,49 +29,49 @@ suite arguments
 
 suite boxed
   pass 1114
-  limit 1443
+  limit 1623
   rejected 44
   malformed 0
   never 288 non-canonical
-  never 368 unmodelled: a default body that would need a payload to make its answer
+  never 404 unmodelled: a default body that would need a payload to make its answer
   never 846 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 120 unmodelled: a reference return that borrows from the `Self` argument
   never 216 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 97 unmodelled: an `async fn` that returns a future
 
 suite qualifiers
-  pass 1233
-  limit 1537
+  pass 1258
+  limit 1662
   rejected 18
   malformed 10
   never 290 non-canonical
-  never 410 unmodelled: a default body that would need a payload to make its answer
+  never 440 unmodelled: a default body that would need a payload to make its answer
   never 2 unmodelled: a limit beside a rejection the limit does not replace
   never 180 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 100 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
   pass 12
-  limit 54
+  limit 58
   rejected 145
   malformed 0
   never 44 non-canonical
-  never 137 unmodelled: a limit beside a rejection the limit does not replace
+  never 157 unmodelled: a limit beside a rejection the limit does not replace
   never 80 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 8 unmodelled: a reference return that borrows from the `Self` argument
   never 24 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite paths
-  pass 1084
-  limit 1541
+  pass 1144
+  limit 1636
   rejected 0
   malformed 9
-  never 1335 non-canonical
+  never 1375 non-canonical
   never 256 unmodelled: a block body for a future return
   never 192 unmodelled: a block body for a return type that needs a payload to make
-  never 1512 unmodelled: a default body that would need a payload to make its answer
+  never 1632 unmodelled: a default body that would need a payload to make its answer
   never 280 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
-  never 15 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 20 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
   never 152 unmodelled: an inherent body for a return type that needs a payload to make
   never 344 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
@@ -146,12 +146,12 @@ suite inherent-shared
   never 24 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
 
 suite structs
-  pass 1046
-  limit 1354
+  pass 1071
+  limit 1464
   rejected 12
   malformed 0
   never 396 non-canonical
-  never 354 unmodelled: a default body that would need a payload to make its answer
+  never 381 unmodelled: a default body that would need a payload to make its answer
   never 162 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 78 unmodelled: an `async fn` that returns a future
 
@@ -164,14 +164,14 @@ suite struct-arguments
   never 90 unmodelled: a mismatch option on a struct, which has no second variant
 
 suite struct-paths
-  pass 231
-  limit 102
+  pass 237
+  limit 111
   rejected 0
   malformed 0
   never 30 non-canonical
   never 24 unmodelled: a block body for a future return
   never 12 unmodelled: a block body for a return type that needs a payload to make
-  never 201 unmodelled: a default body that would need a payload to make its answer
+  never 216 unmodelled: a default body that would need a payload to make its answer
   never 30 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite cfg
@@ -288,38 +288,38 @@ suite lent-places
   never 12 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite pinned
-  pass 57
-  limit 9
+  pass 60
+  limit 10
   rejected 2
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4590
+  pass 4825
   limit 0
   rejected 0
   malformed 0
-  rows 4590
-  covered 53301
-  unreached 32328
+  rows 4825
+  covered 54790
+  unreached 33025
 
 suite array-limits
   pass 0
-  limit 383
+  limit 413
   rejected 0
   malformed 0
-  rows 383
-  covered 6734
+  rows 413
+  covered 6845
   unreached 1262
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 662
+  rejected 667
   malformed 0
-  rows 662
-  covered 5749
-  unreached 2247
+  rows 667
+  covered 5820
+  unreached 2287
 
 suite known
   pass 0

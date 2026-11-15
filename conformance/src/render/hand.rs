@@ -653,6 +653,7 @@ fn inherent_value(
         | Node::Fault
         | Node::Option(_)
         | Node::Result(_, _)
+        | Node::Fallible(_)
         | Node::Tuple(_)
         | Node::Future(_, _)
         | Node::Iterator

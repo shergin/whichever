@@ -16,6 +16,7 @@ const SOME_RETURNS: &[&str] = &[
     "mut",
     "self",
     "option-self",
+    "fallible-self",
     "tuple-self",
     "out",
     "result-error",

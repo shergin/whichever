@@ -158,6 +158,10 @@ axis! {
         VecThis = "vec-self",
         /// `Option<(Self, u64)>`.
         OptionTupleThis = "option-tuple-self",
+        /// `support::fallible::Result<Self>`, a one-argument alias of
+        /// `Result<Self, support::Fault>`, mapped like `Result<Self, E>`
+        /// by the name its path ends in.
+        FallibleThis = "fallible-self",
         /// `&'a u64`, borrowed for the subject's own lifetime, which an
         /// inherent place over a variant holding `&'a P0` answers.
         Lent = "lent",

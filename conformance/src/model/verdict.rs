@@ -341,6 +341,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::This
             | Return::OptionThis
             | Return::ResultThis
+            | Return::FallibleThis
             | Return::Future
             | Return::Lent => true,
             Return::TupleThis
@@ -626,6 +627,7 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 Return::This => cell.into_rebuilds(),
                 Return::OptionThis
                 | Return::ResultThis
+                | Return::FallibleThis
                 | Return::TupleThis
                 | Return::Assoc
                 | Return::Out

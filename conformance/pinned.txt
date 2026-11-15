@@ -159,3 +159,11 @@ recv=mut ret=self cfg=every-off
 recv=value cfg=every-off
 recv=box ret=future cfg=every-off
 s1=none cfg=first-off
+
+# A one-argument `Result` alias is mapped like `Result<Self, E>`, by the
+# name its path ends in (what-is-generated.md, `io::Result<Self>`), here on
+# a struct, behind a `Box`, in a future and through a block.
+ret=fallible-self
+s0=struct s1=none ret=fallible-self
+s0=deref-box recv=box ret=fallible-self
+ret=fallible-self path=block-star

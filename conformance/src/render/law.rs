@@ -240,6 +240,7 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
             "match {value} {{ Some({binding}) => format!(\"Some({{}})\", {}), None => String::from(\"None\") }}",
             inner(element, &binding)
         ),
+        Node::Fallible(ok) => observation(&Node::Result(ok, &Node::Fault), value, side, depth),
         Node::Result(ok, error) => format!(
             "match {value} {{ Ok({binding}) => format!(\"Ok({{}})\", {}), Err({binding}) => format!(\"Err({{}})\", {}) }}",
             inner(ok, &binding),
@@ -449,6 +450,7 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 | Node::Fault
                 | Node::Option(_)
                 | Node::Result(_, _)
+                | Node::Fallible(_)
                 | Node::Tuple(_)
                 | Node::Future(_, _)
                 | Node::Iterator

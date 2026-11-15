@@ -49,6 +49,12 @@ pub struct Sink(pub u64, pub u64);
 #[derive(Debug, PartialEq, Eq)]
 pub struct Fault(pub u64);
 
+/// A module whose `Result` takes one argument, as `std::io` does.
+pub mod fallible {
+    /// A result whose error is a `Fault`.
+    pub type Result<T> = core::result::Result<T, super::Fault>;
+}
+
 /// What every payload's own associated type converts into, the type the
 /// enum overrides an associated type with.
 #[derive(Debug, PartialEq, Eq)]

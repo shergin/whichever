@@ -70,6 +70,10 @@ pub enum Node {
     Option(&'static Node),
     /// `Result<T, E>`.
     Result(&'static Node, &'static Node),
+    /// `support::fallible::Result<T>`, a one-argument alias whose error is
+    /// `support::Fault`: what-is-generated.md maps `Result<Self, E>`
+    /// "under any path, `io::Result<Self>` included".
+    Fallible(&'static Node),
     /// A tuple.
     Tuple(&'static [Node]),
     /// A future of the output.
@@ -145,6 +149,7 @@ impl Node {
             | Node::Iterator => false,
             Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.holds_this(),
             Node::Result(ok, error) => ok.holds_this() || error.holds_this(),
+            Node::Fallible(ok) => ok.holds_this(),
             Node::Tuple(elements) => elements.iter().any(Node::holds_this),
         }
     }
@@ -186,6 +191,7 @@ impl Node {
                 | Node::Fault
                 | Node::Option(_)
                 | Node::Result(_, _)
+                | Node::Fallible(_)
                 | Node::Tuple(_)
                 | Node::Future(_, _)
                 | Node::Iterator
@@ -250,6 +256,7 @@ impl Node {
                 }
                 Some(Conversion::Map(Box::new(inner)))
             }
+            Node::Fallible(ok) => Node::Result(ok, &Node::Fault).conversion(),
             Node::Result(ok, error) => {
                 let ok = ok.conversion()?;
                 let error = error.conversion()?;
@@ -301,6 +308,7 @@ impl Node {
             | Node::Option(_) => true,
             Node::This => this,
             Node::Result(_, error) => error.has_constant(this),
+            Node::Fallible(_) => true,
             Node::Tuple(elements) => elements.iter().all(|element| element.has_constant(this)),
             Node::Exclusive
             | Node::Payload
@@ -321,6 +329,7 @@ impl Node {
             Node::Unit | Node::Tag | Node::Fault | Node::Iterator => true,
             Node::Option(inner) | Node::Future(_, inner) | Node::Vec(inner) => inner.has_default(),
             Node::Result(ok, error) => ok.has_default() && error.has_default(),
+            Node::Fallible(ok) => ok.has_default(),
             Node::Tuple(elements) => elements.iter().all(Node::has_default),
             Node::Shared
             | Node::Lent
@@ -363,6 +372,10 @@ impl Node {
                 ok.visit(visitor);
                 error.visit(visitor);
             }
+            Node::Fallible(ok) => {
+                ok.visit(visitor);
+                Node::Fault.visit(visitor);
+            }
             Node::Tuple(elements) => {
                 for element in elements.iter() {
                     element.visit(visitor);
@@ -387,6 +400,7 @@ impl Return {
             Return::This => Node::This,
             Return::OptionThis => Node::Option(&Node::This),
             Return::ResultThis => Node::Result(&Node::This, &Node::Fault),
+            Return::FallibleThis => Node::Fallible(&Node::This),
             Return::TupleThis => Node::Tuple(&[Node::This, Node::Tag]),
             Return::Assoc => Node::Assoc,
             Return::Out => OUT,
