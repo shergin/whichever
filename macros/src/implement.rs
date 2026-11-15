@@ -1282,7 +1282,7 @@ fn forward_trait_method(
                         arms.push(Arm::unforwardable(
                             &context.prefix,
                             unforwardable,
-                            quote_spanned!(site => ::core::unreachable!()),
+                            plan.standing_in(site),
                             site,
                         ));
                     }

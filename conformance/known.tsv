@@ -6,17 +6,6 @@
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
 
-# A `Self` argument the `match` moves is bound again in a partial block's
-# fallback arm, `let other = __same0;`, and left unused where the mismatch
-# does not name it.
-arg=value path=block	warning:unused_variables@trait	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
-arg=mut path=block	warning:unused_variables@trait	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
-arg=value path=block-star	warning:unused_variables@subject	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
-arg=mut path=block-star	warning:unused_variables@subject	A partial block's fallback arm binds a moved `Self` argument again and leaves the binding unused, which rustc warns of in generated code.
-
-# A partial block's method that is all sentence uses none of its arguments.
-path=block cfg=first-off	warning:unused_variables@trait	A partial block's forwarding over an enum whose only variant in the build holds no payload leaves the method's arguments unused beside the sentence, which rustc warns of in generated code.
-
 # A mark, or a method a partial block writes, under the trait method's own
 # `#[cfg]`: the builds the mark leaves to the plain forwarding are none
 # where the method exists, yet the variant it cannot reach is reported.

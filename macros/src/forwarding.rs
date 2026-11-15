@@ -259,6 +259,22 @@ impl MethodPlan {
         !self.same_variant.is_empty()
     }
 
+    /// Returns the result of an arm that only keeps the `match` exhaustive
+    /// beside a variant's own error. It reads the arguments first: in a
+    /// build where no other arm is left nothing else uses them, and the
+    /// lint about them would stand beside that error. The arm is under its
+    /// variant's `cfg`, so a build without the variant has none of this.
+    pub(crate) fn standing_in(&self, site: Span) -> TokenStream2 {
+        let arguments = &self.arguments;
+        if arguments.is_empty() {
+            return quote_spanned!(site => ::core::unreachable!());
+        }
+        quote_spanned!(site => {
+            let _ = (#(&#arguments,)*);
+            ::core::unreachable!()
+        })
+    }
+
     /// Returns `arm`, whose pattern matches the receiver alone, as an arm
     /// of this method's `match`: where `Self` arguments are matched beside
     /// the receiver the scrutinee is a tuple, and the pattern is the
@@ -563,16 +579,20 @@ impl MethodPlan {
 
     /// Returns the arm for every pair of different variants, with `value`
     /// as its result. A same-variant argument the scrutinee moved, an owned
-    /// or `&mut Self`, is bound again under its own name, so that a
-    /// `mismatch` expression written on the trait method may use it.
+    /// or `&mut Self`, is bound again under its own name where `value`
+    /// names it, so that a `mismatch` expression may use it; one the
+    /// expression does not name is left in the scrutinee, as a hand leaves
+    /// it, and no unused binding is written.
     pub(crate) fn fallback(&self, value: TokenStream2, site: Span) -> Arm {
-        let moved = |access: &Access| !matches!(access, Access::Shared);
-        if !self.same_variant.iter().any(|(_, access)| moved(access)) {
+        let rebinds = |(index, access): &(usize, Access)| {
+            !matches!(access, Access::Shared) && names(&value, &self.arguments[*index])
+        };
+        if !self.same_variant.iter().any(rebinds) {
             return Arm::rest(value, site);
         }
-        let positions = self.same_variant.iter().map(|(index, access)| {
-            if moved(access) {
-                Self::same_binding(*index, site).into_token_stream()
+        let positions = self.same_variant.iter().map(|same| {
+            if rebinds(same) {
+                Self::same_binding(same.0, site).into_token_stream()
             } else {
                 quote_spanned!(site => _)
             }
@@ -580,7 +600,7 @@ impl MethodPlan {
         let rebound = self
             .same_variant
             .iter()
-            .filter(|(_, access)| moved(access))
+            .filter(|same| rebinds(same))
             .map(|(index, _)| {
                 let name = &self.arguments[*index];
                 let binding = Self::same_binding(*index, site);
@@ -593,6 +613,18 @@ impl MethodPlan {
             site,
         }
     }
+}
+
+/// Returns whether `tokens` name `ident`: as an identifier at any depth,
+/// or inside a literal, where a format string captures it.
+fn names(tokens: &TokenStream2, ident: &Ident) -> bool {
+    let name = ident.to_string();
+    tokens.clone().into_iter().any(|tree| match tree {
+        TokenTree::Ident(found) => found == name,
+        TokenTree::Group(group) => names(&group.stream(), ident),
+        TokenTree::Literal(literal) => literal.to_string().contains(&name),
+        TokenTree::Punct(_) => false,
+    })
 }
 
 /// What every arm of one method shares.
