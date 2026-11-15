@@ -503,10 +503,10 @@ mod tests {
 
     #[test]
     fn a_rejection_agrees_only_off_the_attributes() {
-        let cell = Cell::parse("s0=deref-rc recv=mut").expect("an id");
+        let cell = Cell::parse("s0=via-method recv=value").expect("an id");
         let rendered = render(&cell);
         let verdict = cell.verdict();
-        assert!(matches!(verdict, Verdict::Rejected { code: "E0596", .. }));
+        assert!(matches!(verdict, Verdict::Rejected { code: "E0308", .. }));
         let error = |code: &str, part: &str| Finding::Error {
             code: String::from(code),
             part: String::from(part),
@@ -515,19 +515,19 @@ mod tests {
             findings,
             first_message: None,
         };
-        let on_payload = outcome(vec![error("E0596", "hand"), error("E0596", "subject")]);
+        let on_payload = outcome(vec![error("E0308", "hand"), error("E0308", "subject")]);
         assert_eq!(judge(&verdict, &on_payload, &rendered), Judgement::Agrees);
-        let on_attribute = outcome(vec![error("E0596", "hand"), error("E0596", "attribute")]);
+        let on_attribute = outcome(vec![error("E0308", "hand"), error("E0308", "attribute")]);
         assert!(matches!(
             judge(&verdict, &on_attribute, &rendered),
             Judgement::Diverges(_)
         ));
-        let hand_only = outcome(vec![error("E0596", "hand")]);
+        let hand_only = outcome(vec![error("E0308", "hand")]);
         assert!(matches!(
             judge(&verdict, &hand_only, &rendered),
             Judgement::Diverges(_)
         ));
-        let hand_compiles = outcome(vec![error("E0596", "subject")]);
+        let hand_compiles = outcome(vec![error("E0308", "subject")]);
         assert_eq!(
             judge(&verdict, &hand_compiles, &rendered),
             Judgement::Harness

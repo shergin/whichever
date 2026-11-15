@@ -4,27 +4,26 @@
 
 suite shapes
   pass 495
-  limit 1286
-  rejected 73
+  limit 1388
+  rejected 7
   malformed 22
   never 242 non-canonical
-  never 42 unmodelled: a limit beside a rejection the limit does not replace
+  never 6 unmodelled: a limit beside a rejection the limit does not replace
   never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite pairs
   pass 514
-  limit 936
-  rejected 136
+  limit 1080
+  rejected 16
   malformed 0
-  never 34 unmodelled: a limit beside a rejection the limit does not replace
+  never 10 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
   pass 2566
-  limit 2204
-  rejected 232
+  limit 2618
+  rejected 0
   malformed 8
   never 352 non-canonical
-  never 182 unmodelled: a limit beside a rejection the limit does not replace
   never 696 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 240 unmodelled: a reference return that borrows from the `Self` argument
 
@@ -42,12 +41,12 @@ suite boxed
 
 suite qualifiers
   pass 1233
-  limit 1369
-  rejected 130
+  limit 1537
+  rejected 18
   malformed 10
   never 290 non-canonical
   never 410 unmodelled: a default body that would need a payload to make its answer
-  never 58 unmodelled: a limit beside a rejection the limit does not replace
+  never 2 unmodelled: a limit beside a rejection the limit does not replace
   never 180 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 100 unmodelled: an `async fn` that returns a future
 
@@ -87,11 +86,10 @@ suite path-arguments
 
 suite inherent
   pass 980
-  limit 680
-  rejected 114
+  limit 838
+  rejected 0
   malformed 0
   never 1224 non-canonical
-  never 44 unmodelled: a limit beside a rejection the limit does not replace
   never 84 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 118 unmodelled: an `async fn` that returns a future
   never 1476 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
@@ -102,8 +100,8 @@ suite inherent
 
 suite inherent-places
   pass 426
-  limit 12
-  rejected 42
+  limit 24
+  rejected 30
   malformed 0
   never 350 non-canonical
   never 140 unmodelled: a function lift declared with a return type other than its own
@@ -131,8 +129,8 @@ suite inherent-scope
 
 suite inherent-into
   pass 326
-  limit 222
-  rejected 32
+  limit 254
+  rejected 0
   malformed 0
   never 420 non-canonical
   never 282 unmodelled: a lift over an answer the lift does not take
@@ -309,21 +307,21 @@ suite array
 
 suite array-limits
   pass 0
-  limit 374
+  limit 376
   rejected 0
   malformed 0
-  rows 374
-  covered 6547
-  unreached 1208
+  rows 376
+  covered 6572
+  unreached 1183
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 593
+  rejected 650
   malformed 0
-  rows 593
-  covered 5996
-  unreached 1759
+  rows 650
+  covered 5701
+  unreached 2054
 
 suite known
   pass 2

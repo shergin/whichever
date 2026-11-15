@@ -877,6 +877,29 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
+    // (docs/options.md), but nothing can be borrowed mutably through them:
+    // a method that borrows its target mutably gets one sentence on the
+    // payload (docs/decisions/a-borrow-a-shared-pointer-cannot-lend-is-a-
+    // sentence.md). An inherent place borrows mutably only where its
+    // declared type does.
+    let exclusive = (receiver.lends == Lends::Exclusive
+        || argument.kind == Some(ArgumentKind::Exclusive))
+        && (!place || node.borrows_mutably());
+    if exclusive {
+        for (slot, _, target) in &method_live {
+            if target
+                .pointer()
+                .is_some_and(|pointer| !pointer.lends_mutably())
+            {
+                expect(
+                    Limit::MutableBorrowThroughSharedPointer,
+                    Anchor::Variant(slot.index),
+                );
+            }
+        }
+    }
+
     // "A route ending in a method call cannot serve a `&mut self` method."
     //
     // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
@@ -983,28 +1006,6 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };
-
-    // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
-    // (docs/options.md), but nothing can be borrowed mutably through them:
-    // the hand's `&mut **inner` is E0596, and no sentence is documented.
-    // An inherent place borrows mutably only where the declared type asks.
-    let place = matches!(cell.callee, Callee::Value | Callee::Field);
-    let exclusive = (receiver.lends == Lends::Exclusive
-        || argument.kind == Some(ArgumentKind::Exclusive))
-        && (!place || node.borrows_mutably());
-    if exclusive
-        && any(&|target| {
-            target
-                .pointer()
-                .is_some_and(|pointer| !pointer.lends_mutably())
-        })
-    {
-        reject(
-            "E0596",
-            "a mutable borrow through a pointer that lends only shared access",
-            Forwarded::Method,
-        );
-    }
 
     // A route ending in a method call hands the method's result over as it
     // is (docs/decisions/an-arm-reaches-its-target-through-a-route.md): a

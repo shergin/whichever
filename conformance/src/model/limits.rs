@@ -32,6 +32,10 @@ pub enum Limit {
     /// A value moved out of a `deref` variant holding anything but a
     /// `Box`.
     MovesThroughSharedPointer,
+    /// A mutable borrow through a `deref` variant over an `Rc`, an `Arc`
+    /// or a `&T`.
+    MutableBorrowThroughSharedPointer,
+
     /// A `&mut self` method on a route ending in a method call.
     MethodRouteOnMutSelf,
     /// An associated type taken from the first variant, where no variant's
@@ -89,6 +93,7 @@ impl Limit {
         Limit::BoxSelfPlain,
         Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
+        Limit::MutableBorrowThroughSharedPointer,
         Limit::MethodRouteOnMutSelf,
         Limit::UnsuppliedType,
         Limit::DefaultWithoutDefault,
@@ -170,6 +175,11 @@ impl Limit {
                 "which a value cannot be moved out of",
                 "route_moves_through_a_shared_pointer",
             ),
+            Limit::MutableBorrowThroughSharedPointer => entry(
+                "mutable-borrow-through-shared-pointer",
+                "which cannot be borrowed mutably; hold a `Box` or a `&mut`",
+                "mutable_borrow_through_a_shared_pointer",
+            ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
                 "ends in a method call, whose result cannot be borrowed mutably",
@@ -239,7 +249,8 @@ impl Limit {
             | Limit::IntoWithoutPayload
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement => false,
-            Limit::Receiver
+            Limit::MutableBorrowThroughSharedPointer
+            | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
             | Limit::OpaqueReturn
             | Limit::SelfInReturn
@@ -283,6 +294,7 @@ impl Limit {
             | Limit::BoxSelfPlain
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
+            | Limit::MutableBorrowThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement => false,
