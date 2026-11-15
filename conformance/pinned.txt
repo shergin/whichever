@@ -42,13 +42,23 @@ s1=via-method recv=value ret=assoc qual=turbofish
 # A sentence about the second variant, compiled out, under `self:
 # Box<Self>`, where the first variant holds a `Box` and takes no sentence.
 s0=deref-box recv=box cfg=second-off
+# A route of several steps through a pointer that is no `Box`, under `self`
+# by value (`route_moves_through_a_shared_pointer`, `via = *.base` over an
+# `Rc`), and a field of what a method lends, whose rustc error under `&mut
+# self` or `self` landed on the attribute before the bindings were placed
+# at the arm (generated-bindings-are-located-at-the-attribute).
+s0=deref-rc-field recv=value
+s0=via-method-field recv=mut
+s0=via-method-field recv=value
 
 # An `#[allow]` on the trait method reaches the generated method
 # (lint-attributes-do-not-reach-generated-code, the forest-filecoin survey).
 item=allow
 path=block-star item=allow
-# The trait method's own `#[inline(..)]` on the forwarding
-# (carried_attributes), through a mark.
+# A mark keeps the attributes written on it, here the `#[inline(always)]`
+# a hand repeating the signature writes, where the macro adds `#[inline]`
+# only to a mark that carries none (partial-impl-blocks.md;
+# carried_attributes).
 qual=provided path=block-star item=inline-always
 qual=provided path=block-some item=inline-always
 # A `#[dispatch(default)]` mark, or a method the block writes, under
@@ -117,7 +127,9 @@ conv=variant-from-off
 # over a variant that borrows, first or second, whose check failed with
 # E0794 or E0309 rather than its own error before 2026-11-02
 # (agreement-check-passes-late-bound-lifetimes, the polars-pipe survey;
-# agreement-check-misses-implied-outlives-bounds, the mrml survey).
+# agreement-check-misses-implied-outlives-bounds, the mrml survey). The
+# const that differs on `B` is its sentence, since an enum with lifetime
+# parameters alone is checked (const_disagreement_on_a_lifetime_enum).
 s1=deref-ref agree=type-differs
 s0=deref-ref agree=type-differs
 s1=deref-ref agree=const-differs
@@ -174,3 +186,17 @@ ret=fallible-self path=block-star
 generic=paired
 path=block-star generic=paired
 home=crate generic=paired
+
+# Three variants. A sentence for each variant a method cannot reach, where
+# the first that would get one is compiled out and a later one is present
+# (a-sentence-about-a-variant-ignores-its-cfg, its second effect).
+s1=deref-box ret=self cfg=second-off s2=deref-box
+# `*` over two variants that hold no single payload, beside a `Self`
+# argument whose mismatch the block names: each gets its sentence and
+# nothing cascades (star-over-an-unforwardable-variant-cascades-with-a-
+# self-argument).
+s1=pair arg=ref-enum path=block-star s2=unit
+# A block's body for the variant its mark leaves out, beside a `Self`
+# argument taken by value, which the fallback arm does not bind again
+# (unused-rebinding-in-a-partial-blocks-fallback-arm).
+arg=value path=block-some s2=unit

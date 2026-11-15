@@ -145,6 +145,9 @@ pub(crate) struct MethodPlan {
     /// Whether the `match` looks at the subject itself where the receiver
     /// is a reference, `match *self` with `ref` bindings.
     by_place: bool,
+    /// Whether every entry the `match` is over is under `#[cfg]`, so that
+    /// some build leaves no arm to use the arguments.
+    may_be_empty: bool,
 }
 
 impl MethodPlan {
@@ -234,6 +237,7 @@ impl MethodPlan {
             unsafety: matches!(signature.safety, syn::Safety::Unsafe(_)),
             requires_sized: requires_sized(signature),
             by_place: false,
+            may_be_empty: false,
         })
     }
 
@@ -251,7 +255,19 @@ impl MethodPlan {
             Entry::Unforwardable(unforwardable) => unforwardable.cfgs.is_empty(),
         });
         self.by_place = self.binds_references() && self.same_variant.is_empty() && !always_present;
+        self.may_be_empty = !always_present;
         self
+    }
+
+    /// Returns the attribute a hand writes on a method over an enum that
+    /// may be empty, where a build that leaves no variant leaves the
+    /// arguments unused: `#[allow(unused_variables)]`, for a method that
+    /// has arguments. An impl the enum's own attribute writes is
+    /// `#[automatically_derived]`, under which rustc does not report it,
+    /// and takes none.
+    pub(crate) fn allow_unused_when_empty(&self, site: Span) -> Option<TokenStream2> {
+        (self.may_be_empty && !self.arguments.is_empty())
+            .then(|| quote_spanned! { site => #[allow(unused_variables)] })
     }
 
     /// Returns whether a pattern over the receiver binds references: the
@@ -700,6 +716,17 @@ pub(crate) struct ArmContext<'a> {
 }
 
 impl ArmContext<'_> {
+    /// The way out a sentence about the whole method offers: where the
+    /// method names its variants and has a body for the rest, the body
+    /// answers for every variant once the mark is gone; otherwise what the
+    /// callee's path offers a method that cannot be forwarded.
+    pub(crate) fn whole_way_out(&self) -> &'static str {
+        if self.has_body {
+            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
+        }
+        self.callee.by_hand()
+    }
+
     /// The way out a sentence about `variant` offers: the body, where the
     /// method has one for the variants it does not name, and otherwise
     /// what the callee's path offers a method that cannot be forwarded.

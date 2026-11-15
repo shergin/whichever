@@ -45,7 +45,7 @@ passing cell holds:
 
 1. The trait, `Probe`, with `#[whichever::dispatchable]`: the method under
    test, `m`, and a control method, `base`, that every subject forwards.
-2. The payloads `P0` and `P1`, whose answers say which payload gave them,
+2. The payloads `P0`, `P1` and `P2`, whose answers say which payload gave them,
    from which state and for which arguments; a method taking `&mut self`
    changes the state. Each payload also has an inherent method named `m`
    that answers a poison value, so an arm that calls it instead of the
@@ -95,6 +95,20 @@ has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
 
+Four values of `s0` and `s1` reach their target by a route of several
+steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
+behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
+holding a wrapper, and `via = .get().payload`, a field of what a method
+lends, which a hand can neither borrow mutably nor move out of.
+
+The `s2` axis is a third variant, `C` over `P2`, beside a second: a
+plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
+variant. With it a `match` has three arms, a mismatch is checked between
+each variant and the next and between the last and the first, an
+associated item is checked across three payloads, and in a block the
+control method names every variant that holds a payload, with a body for
+the rest.
+
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`
@@ -139,7 +153,8 @@ the check does not compare, and consts fixed on the enum with `NAME =
 value`. A disagreement is a limit on the variant that disagrees with the
 supplier, the first variant without a `#[cfg]` whose target has a type; a
 variant reached through a field or a method takes no part, and a const on
-a generic enum, a lifetime included, is not checked. The hand takes each
+an enum with a type or const parameter is not checked; a lifetime is no
+matter. The hand takes each
 item from the supplier or as fixed, and the law reads every item through
 the subject.
 

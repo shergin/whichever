@@ -1,7 +1,7 @@
 //! What a target kind is: the type a variant stores, how the variant is
 //! written, and the route from the variant's binding to the payload.
 
-use super::axes::{Second, Target};
+use super::axes::{Second, Target, Third};
 
 /// What a variant stores around its payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +15,10 @@ pub enum Storage {
     Wrapper,
     /// A tuple `(u64, Pk)`.
     Pair,
+    /// A pointer to a wrapper, `Box<Wk>`.
+    WrapperBehind(Pointer),
+    /// A tuple `(u64, Wk)` holding a wrapper.
+    WrapperInPair,
 }
 
 /// A pointer a `deref` variant holds.
@@ -76,7 +80,8 @@ pub enum Step {
     Deref,
     /// A named or numbered field, `.payload` or `.1`.
     Field(&'static str),
-    /// What a method lends, `.lend()`: the method returns `&Pk`.
+    /// What a method lends, `.lend()` or `.get()`: the method returns a
+    /// reference, to the payload or to the wrapper.
     Method(&'static str),
     /// What a method returns by value, `.copied()`: the method returns a
     /// fresh `Pk` with the same state.
@@ -112,12 +117,41 @@ impl TargetDescriptor {
         }
     }
 
-    /// Returns the pointer a `deref` variant holds.
+    /// Returns the pointer the route dereferences: a `deref` variant's, or
+    /// the one a route through `*` and a field starts from.
     pub fn pointer(&self) -> Option<Pointer> {
         match self.storage {
-            Storage::Pointer(pointer) => Some(pointer),
-            Storage::Payload | Storage::Wrapper | Storage::Pair => None,
+            Storage::Pointer(pointer) | Storage::WrapperBehind(pointer) => Some(pointer),
+            Storage::Payload | Storage::Wrapper | Storage::Pair | Storage::WrapperInPair => None,
         }
+    }
+
+    /// Returns whether the route is `deref` alone, `*`.
+    pub fn is_deref(&self) -> bool {
+        self.route == [Step::Deref]
+    }
+
+    /// Returns whether the variant stores a wrapper `Wk`, as it is, behind
+    /// a pointer or in a tuple.
+    pub fn wraps(&self) -> bool {
+        match self.storage {
+            Storage::Wrapper | Storage::WrapperBehind(_) | Storage::WrapperInPair => true,
+            Storage::Payload | Storage::Pointer(_) | Storage::Pair => false,
+        }
+    }
+
+    /// Returns whether the route reads a field of what a method lends: a
+    /// method call followed by more steps, so that the target is a place
+    /// behind a shared reference the call returned.
+    pub fn reads_through_a_loan(&self) -> bool {
+        let Some(call) = self
+            .route
+            .iter()
+            .position(|step| matches!(step, Step::Method(_)))
+        else {
+            return false;
+        };
+        call + 1 < self.route.len()
     }
 
     /// Returns whether the route ends in a method call.
@@ -158,6 +192,9 @@ const FIELD: &[Step] = &[Step::Field("payload")];
 const INDEX: &[Step] = &[Step::Field("1")];
 const METHOD: &[Step] = &[Step::Method("lend")];
 const YIELD: &[Step] = &[Step::Yield("copied")];
+const DEREF_FIELD: &[Step] = &[Step::Deref, Step::Field("payload")];
+const INDEX_FIELD: &[Step] = &[Step::Field("1"), Step::Field("payload")];
+const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
 
 impl Target {
     /// Returns the target kind's description.
@@ -216,16 +253,34 @@ impl Target {
                 route: FIELD,
                 option: Some("via = .payload"),
             },
+            Target::DerefBoxField => single(
+                Storage::WrapperBehind(Pointer::Box),
+                DEREF_FIELD,
+                Some("via = *.payload"),
+            ),
+            Target::DerefRcField => single(
+                Storage::WrapperBehind(Pointer::Rc),
+                DEREF_FIELD,
+                Some("via = *.payload"),
+            ),
+            Target::ViaIndexField => single(
+                Storage::WrapperInPair,
+                INDEX_FIELD,
+                Some("via = .1.payload"),
+            ),
+            Target::ViaMethodField => {
+                single(Storage::Wrapper, METHOD_FIELD, Some("via = .get().payload"))
+            }
         }
     }
 }
 
-/// What the second variant is.
+/// What a variant after the first is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SecondSlot {
+pub enum LaterSlot {
     /// There is none.
     Absent,
-    /// A variant over `P1` with this target kind.
+    /// A variant over the slot's payload with this target kind.
     Live(Target),
     /// A unit variant.
     Unit,
@@ -235,23 +290,40 @@ pub enum SecondSlot {
 
 impl Second {
     /// Returns what the second variant is.
-    pub fn slot(self) -> SecondSlot {
+    pub fn slot(self) -> LaterSlot {
         match self {
-            Second::Plain => SecondSlot::Live(Target::Plain),
-            Second::Absent => SecondSlot::Absent,
-            Second::DerefBox => SecondSlot::Live(Target::DerefBox),
-            Second::DerefRc => SecondSlot::Live(Target::DerefRc),
-            Second::DerefArc => SecondSlot::Live(Target::DerefArc),
-            Second::DerefShared => SecondSlot::Live(Target::DerefShared),
-            Second::DerefExclusive => SecondSlot::Live(Target::DerefExclusive),
-            Second::ViaField => SecondSlot::Live(Target::ViaField),
-            Second::ViaIndex => SecondSlot::Live(Target::ViaIndex),
-            Second::ViaMethod => SecondSlot::Live(Target::ViaMethod),
-            Second::MarkedTuple => SecondSlot::Live(Target::MarkedTuple),
-            Second::MarkedStruct => SecondSlot::Live(Target::MarkedStruct),
-            Second::MarkedVia => SecondSlot::Live(Target::MarkedVia),
-            Second::Unit => SecondSlot::Unit,
-            Second::Pair => SecondSlot::Pair,
+            Second::Plain => LaterSlot::Live(Target::Plain),
+            Second::Absent => LaterSlot::Absent,
+            Second::DerefBox => LaterSlot::Live(Target::DerefBox),
+            Second::DerefRc => LaterSlot::Live(Target::DerefRc),
+            Second::DerefArc => LaterSlot::Live(Target::DerefArc),
+            Second::DerefShared => LaterSlot::Live(Target::DerefShared),
+            Second::DerefExclusive => LaterSlot::Live(Target::DerefExclusive),
+            Second::ViaField => LaterSlot::Live(Target::ViaField),
+            Second::ViaIndex => LaterSlot::Live(Target::ViaIndex),
+            Second::ViaMethod => LaterSlot::Live(Target::ViaMethod),
+            Second::MarkedTuple => LaterSlot::Live(Target::MarkedTuple),
+            Second::MarkedStruct => LaterSlot::Live(Target::MarkedStruct),
+            Second::MarkedVia => LaterSlot::Live(Target::MarkedVia),
+            Second::Unit => LaterSlot::Unit,
+            Second::Pair => LaterSlot::Pair,
+            Second::DerefBoxField => LaterSlot::Live(Target::DerefBoxField),
+            Second::DerefRcField => LaterSlot::Live(Target::DerefRcField),
+            Second::ViaIndexField => LaterSlot::Live(Target::ViaIndexField),
+            Second::ViaMethodField => LaterSlot::Live(Target::ViaMethodField),
+        }
+    }
+}
+
+impl Third {
+    /// Returns what the third variant is.
+    pub fn slot(self) -> LaterSlot {
+        match self {
+            Third::Absent => LaterSlot::Absent,
+            Third::Plain => LaterSlot::Live(Target::Plain),
+            Third::DerefBox => LaterSlot::Live(Target::DerefBox),
+            Third::ViaField => LaterSlot::Live(Target::ViaField),
+            Third::Unit => LaterSlot::Unit,
         }
     }
 }

@@ -49,6 +49,18 @@ axis! {
         /// `pub struct E { held: P0 }`: a struct subject with one named
         /// field.
         StructNamed = "struct-named",
+        /// `#[dispatch(via = *.payload)] A(Box<W0>)`: what the payload
+        /// dereferences to, then a field of it, a route of two steps.
+        DerefBoxField = "deref-box-field",
+        /// `#[dispatch(via = *.payload)] A(Rc<W0>)`: the same behind a
+        /// pointer that lends what it points at shared only.
+        DerefRcField = "deref-rc-field",
+        /// `#[dispatch(via = .1.payload)] A((u64, W0))`: a field of a
+        /// field.
+        ViaIndexField = "via-index-field",
+        /// `#[dispatch(via = .get().payload)] A(W0)`: a field of what a
+        /// method lends.
+        ViaMethodField = "via-method-field",
     }
 }
 
@@ -86,6 +98,14 @@ axis! {
         Unit = "unit",
         /// `B(P1, u64)`, two fields of which none is marked.
         Pair = "pair",
+        /// `#[dispatch(via = *.payload)] B(Box<W1>)`.
+        DerefBoxField = "deref-box-field",
+        /// `#[dispatch(via = *.payload)] B(Rc<W1>)`.
+        DerefRcField = "deref-rc-field",
+        /// `#[dispatch(via = .1.payload)] B((u64, W1))`.
+        ViaIndexField = "via-index-field",
+        /// `#[dispatch(via = .get().payload)] B(W1)`.
+        ViaMethodField = "via-method-field",
     }
 }
 
@@ -418,6 +438,25 @@ axis! {
         First = "first",
         /// The second variant is `#[deprecated]`.
         Second = "second",
+    }
+}
+
+axis! {
+    /// The third variant, beside a second: a target kind over `P2`, or a
+    /// variant no trait method can be forwarded to. A `match` of three
+    /// arms, a mismatch over three variants, an agreement check across
+    /// three payloads and a body beside two forwarded variants meet here.
+    pub enum Third {
+        /// No third variant.
+        Absent = "none",
+        /// `C(P2)`.
+        Plain = "plain",
+        /// `#[dispatch(deref)] C(Box<P2>)`.
+        DerefBox = "deref-box",
+        /// `#[dispatch(via = .payload)] C(W2)`.
+        ViaField = "via-field",
+        /// `C`, a unit variant.
+        Unit = "unit",
     }
 }
 

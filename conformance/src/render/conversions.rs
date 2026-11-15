@@ -29,19 +29,25 @@ fn construct(path: &str, slot: &Slot, target: &TargetDescriptor, value: &str) ->
 /// from `seed`; the verdict leaves no borrowing variant to convert.
 pub fn stored_value(slot: &Slot, target: &TargetDescriptor, seed: u64) -> String {
     let payload = format!("{}::new({seed})", slot.payload());
-    match target.storage {
-        Storage::Payload => payload,
-        Storage::Pointer(Pointer::Box) => format!("Box::new({payload})"),
-        Storage::Pointer(Pointer::Rc) => format!("Rc::new({payload})"),
-        Storage::Pointer(Pointer::Arc) => format!("Arc::new({payload})"),
-        Storage::Pointer(Pointer::Shared | Pointer::Exclusive) => {
+    let wrapper = format!(
+        "{} {{ label: {LABEL}, payload: {payload} }}",
+        slot.wrapper()
+    );
+    let owned = |pointer: Pointer, value: String| match pointer {
+        Pointer::Box => format!("Box::new({value})"),
+        Pointer::Rc => format!("Rc::new({value})"),
+        Pointer::Arc => format!("Arc::new({value})"),
+        Pointer::Shared | Pointer::Exclusive => {
             unreachable!("the verdict converts no borrowing variant")
         }
-        Storage::Wrapper => format!(
-            "{} {{ label: {LABEL}, payload: {payload} }}",
-            slot.wrapper()
-        ),
+    };
+    match target.storage {
+        Storage::Payload => payload,
+        Storage::Pointer(pointer) => owned(pointer, payload),
+        Storage::Wrapper => wrapper,
         Storage::Pair => format!("({LABEL}, {payload})"),
+        Storage::WrapperBehind(pointer) => owned(pointer, wrapper),
+        Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
     }
 }
 

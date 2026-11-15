@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: A method over an enum whose every variant is under `#[cfg]`, in a partial or inherent block, writes no warning in the build that leaves no variant, as `docs/what-is-generated.md` promises nothing a careful hand would not write.
+expect: killed
+
+find:
+        (self.may_be_empty && !self.arguments.is_empty())
+replace:
+        (self.may_be_empty && self.arguments.is_empty())

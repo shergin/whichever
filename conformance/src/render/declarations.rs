@@ -181,18 +181,6 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
 
 /// Writes the partial impl block a block path holds.
 fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
-    // A partial block is the user's impl, not `#[automatically_derived]`,
-    // so over an enum empty in this build it carries the
-    // `#[allow(unused_variables)]` the hand's impl does: no arm reads the
-    // arguments.
-    //
-    // Open question: the docs say a build that leaves no variant compiles,
-    // and that an `#[allow]` goes on a partial block; that the block needs
-    // it here, where the enum's attribute does not, is read from the
-    // block being the user's item.
-    if !is_struct(&context.slots) && context.slots.is_empty() {
-        writer.line("#[allow(unused_variables)]");
-    }
     writer.anchor(Anchor::BlockAttribute.name());
     match options.is_empty() {
         true => writer.line("#[whichever::dispatch]"),
@@ -205,7 +193,13 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         context.type_generics()
     ));
     if !context.cell.base_reaches_all() {
-        writer.line("#[dispatch(A)]");
+        let named: Vec<&str> = context
+            .cell
+            .base_named()
+            .iter()
+            .map(|slot| slot.name())
+            .collect();
+        writer.line(format!("#[dispatch({})]", named.join(", ")));
         writer.open(format!("{} {{", context.base_signature()));
         writer.line("0");
         writer.close("}");
@@ -223,11 +217,10 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         // The block's method is the user's item, which keeps the attributes
         // written on it: it repeats the signature the trait allows a lint
         // on, so it allows the lint too, and the trait method's own
-        // `#[inline(..)]`, which it would otherwise not carry.
-        //
-        // Open question: what-is-generated.md gives the forwarding "the
-        // trait method's own `#[inline(..)]`", which is read as the plain
-        // forwarding's; a mark's method takes what the user writes on it.
+        // `#[inline(..)]`, which it would otherwise not carry. "Only the
+        // methods the block leaves to the plain forwarding, whose
+        // signatures the attribute writes, carry the trait method's
+        // `#[inline(..)]` and `#[allow]`" (partial-impl-blocks.md).
         for attribute in context.block_attributes() {
             writer.line(attribute);
         }

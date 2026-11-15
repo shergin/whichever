@@ -484,3 +484,29 @@ fn a_partial_block_forwards_the_named_variant_and_answers_for_the_rest() {
     gift.discount(1);
     assert_eq!(gift.price(), 0);
 }
+
+/// A partial block and an inherent method over an enum that is empty in
+/// this build are the user's items, not automatically derived, so rustc
+/// would report the arguments no arm is left to use; the generated method
+/// allows them, as a hand's does, and the module denies the lint so that
+/// a warning would fail the build.
+#[deny(unused_variables)]
+mod quiet_over_an_empty_enum {
+    // The trait's signature types are written where the enum is.
+    use super::*;
+
+    #[whichever::dispatch]
+    pub enum Absent {
+        #[cfg(not(test))]
+        Square(Square),
+    }
+
+    #[whichever::dispatch]
+    impl Shape for Absent {}
+
+    #[whichever::dispatch]
+    impl Absent {
+        #[dispatch(*)]
+        pub fn stretched(&self, by: u32) -> u32;
+    }
+}

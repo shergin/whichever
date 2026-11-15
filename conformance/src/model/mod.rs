@@ -24,13 +24,13 @@ pub mod wording;
 
 pub use axes::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
-    Qualifier, Receiver, Return, Second, Stack, Target,
+    Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
 
 use crate::cell::Cell;
-use target::{SecondSlot, TargetDescriptor};
+use target::{LaterSlot, TargetDescriptor};
 
 /// What the model says a cell is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,7 +123,7 @@ pub enum SlotVariant {
 /// A variant of the subject, by position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slot {
-    /// The slot's index: 0 for `A`, 1 for `B`.
+    /// The slot's index: 0 for `A`, 1 for `B`, 2 for `C`.
     pub index: usize,
     /// What the variant is.
     pub variant: SlotVariant,
@@ -141,7 +141,7 @@ pub struct Slot {
 impl Slot {
     /// Returns the variant's name.
     pub fn name(&self) -> &'static str {
-        ["A", "B"][self.index]
+        ["A", "B", "C"][self.index]
     }
 
     /// Returns the name of the slot's payload type.
@@ -206,24 +206,26 @@ impl Cell {
             parameter: self.generic.descriptor().payload,
             deprecated: self.deprecated.slot() == Some(0),
         }];
-        let second = match self.s1.slot() {
-            SecondSlot::Absent => return slots,
-            SecondSlot::Live(target) => SlotVariant::Live(target),
-            SecondSlot::Unit => SlotVariant::Unit,
-            SecondSlot::Pair => SlotVariant::Pair,
-        };
-        let holds = match (second, self.shares_payload()) {
-            (SlotVariant::Live(_), true) => 0,
-            (SlotVariant::Live(_) | SlotVariant::Unit | SlotVariant::Pair, _) => 1,
-        };
-        slots.push(Slot {
-            index: 1,
-            variant: second,
-            cfg: self.cfg.of(1),
-            holds,
-            parameter: false,
-            deprecated: self.deprecated.slot() == Some(1),
-        });
+        for (index, later) in [(1, self.s1.slot()), (2, self.s2.slot())] {
+            let variant = match later {
+                LaterSlot::Absent => continue,
+                LaterSlot::Live(target) => SlotVariant::Live(target),
+                LaterSlot::Unit => SlotVariant::Unit,
+                LaterSlot::Pair => SlotVariant::Pair,
+            };
+            let holds = match (variant, self.shares_payload()) {
+                (SlotVariant::Live(_), true) => 0,
+                (SlotVariant::Live(_) | SlotVariant::Unit | SlotVariant::Pair, _) => index,
+            };
+            slots.push(Slot {
+                index,
+                variant,
+                cfg: self.cfg.of(index),
+                holds,
+                parameter: false,
+                deprecated: self.deprecated.slot() == Some(index),
+            });
+        }
         slots
     }
 
@@ -323,20 +325,13 @@ impl Cell {
             .find(Slot::names_its_target)
     }
 
-    /// Returns whether the subject is generic, so that its associated
-    /// consts are taken without a check (what-is-generated.md, limits.md):
-    /// over a type, a const, or the lifetime the `deref` variants over a
-    /// reference give it.
-    ///
-    /// Open question: the docs say "a generic enum"; a lifetime alone is
-    /// read as making it generic, as it makes the enum's impl generic,
-    /// though no payload's const here depends on it.
+    /// Returns whether the subject has a type or const parameter, so that
+    /// its associated consts are taken without a check: "on an enum with a
+    /// type or const parameter [..] taken from the first variant without a
+    /// check" (limits.md); the lifetime the `deref` variants over a
+    /// reference give it is no matter.
     pub fn is_generic(&self) -> bool {
-        let borrows = self
-            .live_slots()
-            .iter()
-            .any(|(_, _, target)| target.borrows());
-        self.generic.descriptor().parameter.is_some() || borrows
+        self.generic.descriptor().parameter.is_some()
     }
 
     /// Returns the slots whose variant forwards to a payload.
@@ -368,16 +363,28 @@ impl Cell {
     }
 
     /// Returns whether the control method is forwarded to every variant;
-    /// otherwise it names the first, `#[dispatch(A)]` with a body for the
-    /// rest, which is how a block reaches a variant holding no payload
-    /// (partial-impl-blocks.md), so that only the method under test meets
-    /// that variant. A block always does so where some variant holds no
+    /// otherwise it names the variants that hold a payload, `#[dispatch(A,
+    /// B)]` with a body for the rest, which is how a block reaches a
+    /// variant holding no payload (partial-impl-blocks.md: "the method
+    /// names the rest"), so that only the method under test meets that
+    /// variant. A block always does so where some variant holds no
     /// payload, so that a mark on the method under test is the one thing
     /// that meets the variant.
     pub fn base_reaches_all(&self) -> bool {
         let block = self.path.descriptor().site == path::Site::Block;
         let unreachable = self.slots().iter().any(|slot| slot.target().is_none());
         !(block && unreachable)
+    }
+
+    /// Returns the variants the control method's mark names where it is not
+    /// forwarded to every variant: every declared variant that holds a
+    /// payload, those compiled out in this build included, since a mark
+    /// may name a variant under `#[cfg]` (inherent-methods.md).
+    pub fn base_named(&self) -> Vec<Slot> {
+        self.declared_slots()
+            .into_iter()
+            .filter(|slot| slot.target().is_some())
+            .collect()
     }
 
     /// Returns whether the method under test exists in this build: the
@@ -389,9 +396,10 @@ impl Cell {
     /// Returns the live slots the control method is forwarded to.
     pub fn base_slots(&self) -> Vec<(Slot, Target, TargetDescriptor)> {
         let all = self.base_reaches_all();
+        let named = self.base_named();
         self.live_slots()
             .into_iter()
-            .filter(|(slot, _, _)| all || slot.index == 0)
+            .filter(|(slot, _, _)| all || named.iter().any(|other| other.index == slot.index))
             .collect()
     }
 

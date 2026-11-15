@@ -1,6 +1,9 @@
 # Associated consts are checked for four types
 
-Status: accepted, 2026-11-02 (0.3.0). Serves rule 4 of the
+Status: superseded on 2026-11-14 by [Associated consts are checked unless a
+type can change them](associated-consts-are-checked-unless-a-type-can-change-them.md),
+which keeps the four types and checks an enum with lifetime parameters
+alone. Accepted 2026-11-02 (0.3.0). Serves rule 4 of the
 [vision](../vision.md), a limit is one sentence, whose opposite failure is
 silence. Reopen when const evaluation can compare a
 value of any type, for example through const trait methods; the check then

@@ -153,6 +153,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             trait_path,
             spec: &spec,
             block_header: &block_header,
+            derived: partial.is_none(),
             provided: &provided,
         },
         supplier: &supplier,
@@ -1039,7 +1040,17 @@ fn associated_type<'a>(
             if cfgs.count() == 0 {
                 agreed.push(name);
             }
-            supplier.item(name)?
+            match supplier.item(name) {
+                Ok(item) => item,
+                // An array whose length is an error is a type rustc takes
+                // as erroneous: nothing that names the item is checked
+                // further, so the impl is complete, the calls around it
+                // resolve, and the sentence stands alone.
+                Err(error) => {
+                    let error = error.to_compile_error();
+                    quote_spanned! { site => [(); { #error; 0 }] }
+                }
+            }
         }
     };
     Ok(quote_spanned! { site => #(#carried)* type #name = #ty; })
@@ -1073,7 +1084,15 @@ fn associated_const<'a>(
             if cfgs.count() == 0 {
                 agreed.push((name, ty.clone()));
             }
-            supplier.item(name)?
+            // A value that is an error is of any type, as a method's body
+            // that is one is.
+            match supplier.item(name) {
+                Ok(item) => item,
+                Err(error) => {
+                    let error = error.to_compile_error();
+                    quote_spanned! { site => { #error } }
+                }
+            }
         }
     };
     Ok(quote_spanned! { site => #(#carried)* const #name: #ty = #value; })
@@ -1237,6 +1256,9 @@ struct MethodContext<'a> {
     spec: &'a TraitSpec,
     /// The partial impl block a message points at, spelled out.
     block_header: &'a str,
+    /// Whether the impl is the enum's attribute's, `#[automatically_derived]`,
+    /// rather than a partial impl block's, which is the user's.
+    derived: bool,
     /// The methods the trait gives a default body, as the carrier names
     /// them; a carrier from before that segment carries the bodies.
     provided: &'a [Ident],
@@ -1257,6 +1279,7 @@ fn forward_trait_method(
         trait_path,
         spec,
         block_header,
+        derived,
         provided,
     } = *context;
     let subject_ident = subject.ident();
@@ -1305,7 +1328,7 @@ fn forward_trait_method(
         &ReturnSite {
             subject: subject_ident,
             one_target: subject.has_one_target(),
-            by_hand: context.callee.by_hand(),
+            by_hand: context.whole_way_out(),
             default: has_default.then_some((&method, block_header)),
         },
         resolution,
@@ -1379,6 +1402,10 @@ fn forward_trait_method(
     let site = context.site;
     let allow_unreachable =
         allow_unreachable.then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
+    let allow_unused = match derived {
+        true => None,
+        false => plan.allow_unused_when_empty(site),
+    };
     // The method's own `#[inline]`, the block's or the trait's, or ours.
     let own_attrs: &[Attribute] = match forwarded {
         Some(forwarded) => &forwarded.attrs,
@@ -1415,6 +1442,7 @@ fn forward_trait_method(
         #(#carried)*
         #inline
         #allow_unreachable
+        #allow_unused
         #signature #body
     })
 }

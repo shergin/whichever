@@ -3,7 +3,9 @@
 An enum often needs methods of its own that only some variants can answer.
 `#[dispatch]` on an inherent `impl` block forwards each marked method to the
 named variants' method of the same name; the body is what every other
-variant returns. `*` names every variant, and the method then has no body:
+variant returns. `*` names every variant, and the method then has no body,
+nor has a method that names every variant one by one, since no variant is
+left to the body:
 
 ```rust
 #[whichever::dispatch]

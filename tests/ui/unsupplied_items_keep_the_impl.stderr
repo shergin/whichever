@@ -1,0 +1,11 @@
+error: every variant of `Any` is under `#[cfg]` or reached through a field or a method, so none can supply `Tag` in every build; fix it on the enum with `Tag = ..`
+  --> tests/ui/unsupplied_items_keep_the_impl.rs:27:6
+   |
+27 | enum Any {
+   |      ^^^
+
+error: every variant of `Any` is under `#[cfg]` or reached through a field or a method, so none can supply `LEVEL` in every build; fix it on the enum with `LEVEL = ..`
+  --> tests/ui/unsupplied_items_keep_the_impl.rs:27:6
+   |
+27 | enum Any {
+   |      ^^^

@@ -34,7 +34,7 @@ where it does not, as a hand writes the two arms. A method in the block
 may name the variants it forwards to, as an inherent method does, and its
 body is then the arm for every other variant, two different variants of a
 `Self` argument included; `*` with a bodiless method is the plain
-forwarding written out, and `#[dispatch(default)]` on a bodiless method
+forwarding's arms written out, and `#[dispatch(default)]` on a bodiless method
 leaves it to the trait's default, neither forwarded nor written; over a
 restatement that is the real trait's default, which the restatement cannot
 see:
@@ -60,6 +60,12 @@ every variant. A variant no method can forward to, such as a unit variant,
 is reported in the builds in which some method is forwarded to every
 variant and in no other, so a mark under the trait method's own `#[cfg]`,
 which leaves the forwarding no build that has the method, reports nothing.
+A method written or marked in the block is yours, and so are its
+attributes: it carries what you write on it, with `#[inline]` added where
+you write no `#[inline(..)]`, and nothing of the trait method's own, as a
+hand-written impl inherits nothing from the trait's declaration; only the
+methods the block leaves to the plain forwarding, whose signatures the
+attribute writes, carry the trait method's `#[inline(..)]` and `#[allow]`.
 The block's own header,
 generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells

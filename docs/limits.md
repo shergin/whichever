@@ -26,6 +26,10 @@
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- Under `with = Some` or `with = Ok` on an inherent method, the payload's
+  result is rebuilt into the variant and lifted once: a declared return
+  that wraps `Self` twice, `Option<Option<Self>>`, is reported. Drop the
+  method's `#[dispatch(..)]` and let its body answer for every variant.
 - A dispatch struct whose one field is named, `struct Named { shape: Square
   }`, cannot forward a method returning `Option<Self>` or `Result<Self, E>`:
   the value is rebuilt with a path, and no path builds such a struct. Make
@@ -74,7 +78,8 @@
   They must also be nameable from there: a private alias or type in a
   signature limits the trait to its own crate.
 - An associated const of a type other than an integer, a float, `bool`, `char` or
-  `&str`, or on a generic enum, is taken from the first variant without a
+  `&str`, on an enum with a type or const parameter, or of a variant reached
+  through a field or a method, is taken from the first variant without a
   check.
 - A trait whose items carry more than four distinct `#[cfg]` predicates
   is reported on the fifth: the carrier macro is written once per
@@ -95,8 +100,9 @@ error, and each variant a method cannot reach is named in a sentence of its
 own. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
-as its body, so the impl is complete and the calls around it resolve: that
-one error stands alone.
+as its body, and so is an associated type or const no variant can supply,
+holding its sentence, so the impl is complete and the calls around it
+resolve: that one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
 marked `#[dispatchable]`, or the trait, which carries the macro, is not

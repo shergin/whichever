@@ -56,6 +56,19 @@ const SOME_TARGETS: &[&str] = &[
 /// other axes in `shapes`, `pairs`, `boxed` and the arrays.
 const FORWARDED: &[&str] = &["ref", "mut", "value", "box", "pin-ref", "pin-mut"];
 
+/// The routes of several steps: a dereference then a field, behind a
+/// `Box` and an `Rc`, two fields, and a field of what a method lends.
+const ROUTES: &[&str] = &[
+    "deref-box-field",
+    "deref-rc-field",
+    "via-index-field",
+    "via-method-field",
+];
+
+/// The target kinds and the unit variant a third variant and the second
+/// beside it take.
+const LATER: &[&str] = &["plain", "deref-box", "via-field", "unit"];
+
 /// Every zone, in the order a run reports them.
 pub const ZONES: &[Zone] = &[
     Zone {
@@ -256,6 +269,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "inherent-cfg",
+        summary: "an inherent `#[dispatch(*)]` method over variants under `#[cfg]`, an enum that may be empty included, whose method allows its arguments to go unused",
+        vary: &[
+            ("cfg", &[]),
+            ("s1", &["plain", "none", "deref-box"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "ref", "self", "future"]),
+        ],
+        fixed: &[("path", "inherent")],
+    },
+    Zone {
         name: "homes",
         summary: "the trait in a sibling module or another crate, through every path, over the target kinds, returns and qualifiers whose signatures it writes into the subject's module",
         vary: &[
@@ -384,5 +408,91 @@ pub const ZONES: &[Zone] = &[
             ("path", &["inherent", "inherent-some"]),
         ],
         fixed: &[("s0", "deref-ref"), ("ret", "lent")],
+    },
+    Zone {
+        name: "routes",
+        summary: "the routes of several steps under every receiver and return type",
+        vary: &[("s0", ROUTES), ("recv", &[]), ("ret", &[])],
+        fixed: &[],
+    },
+    Zone {
+        name: "route-pairs",
+        summary: "a route of several steps on the second variant beside a first of one step or several, under the receivers that forward",
+        vary: &[
+            ("s0", &["plain", "deref-box", "deref-rc", "via-field", "via-method", "deref-box-field", "via-index-field", "via-method-field"]),
+            ("s1", ROUTES),
+            ("recv", FORWARDED),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "route-paths",
+        summary: "the routes of several steps through every path, with the `Self` arguments that borrow or move through them",
+        vary: &[
+            ("s0", ROUTES),
+            ("path", &[]),
+            ("arg", &["none", "ref-trait", "value", "mut"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "thirds",
+        summary: "a third variant beside a second, over the target kinds of the first, the receivers that hand each arm over and the returns that rewrap it",
+        vary: &[
+            ("s2", LATER),
+            ("s1", LATER),
+            ("s0", &["plain", "deref-box", "via-field", "marked-tuple"]),
+            ("recv", &["ref", "mut", "value", "box"]),
+            ("ret", &["u64", "self", "option-self", "ref"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "third-paths",
+        summary: "a third variant through every path, with every `Self` argument, so that a mismatch meets three variants and a body meets two forwarded ones",
+        vary: &[
+            ("s2", LATER),
+            ("path", &[]),
+            ("arg", &["none", "ref-trait", "ref-enum", "value", "mut"]),
+            ("s1", &["plain", "unit"]),
+            ("recv", &["ref", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "third-items",
+        summary: "a third variant under the associated items checked across its payload, the variants' `#[cfg]`, the conversions and a second trait",
+        vary: &[
+            ("s2", LATER),
+            ("s1", &["plain", "unit", "deref-box"]),
+            ("agree", &[]),
+            ("cfg", &[]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "third-conversions",
+        summary: "the conversions over three variants, with the trait at home and in another crate",
+        vary: &[
+            ("s2", LATER),
+            ("s1", &["plain", "unit", "deref-box"]),
+            ("conv", &[]),
+            ("home", &["local", "crate"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "third-stacks",
+        summary: "a second trait and a supertrait over three variants, beside the block paths of the trait under test and the associated items both take",
+        vary: &[
+            ("s2", LATER),
+            ("s1", &["plain", "unit"]),
+            ("stack", &["second", "supertrait"]),
+            ("path", &["attribute", "block", "block-star", "block-some"]),
+            ("agree", &["none", "type-differs", "const-differs"]),
+        ],
+        fixed: &[],
     },
 ];

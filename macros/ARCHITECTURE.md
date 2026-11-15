@@ -361,9 +361,15 @@ keeps its other arms and has the sentence as that variant's arm, under the
 variant's own `cfg`, as a variant of another shape is reported under its
 own: a build that compiles the variant out has neither, and each such
 variant gets its sentence; only a signature the substitution could not write,
-a projection it could not qualify, withholds the impl, as does an
-associated item that cannot be supplied, since neither has a body to hold
-an error. An option naming nothing in the trait, or a route through no
+a projection it could not qualify, withholds the impl, since it has no body
+to hold an error. An associated item no variant can supply holds its
+sentence as what it is: a const its value, `{ compile_error!(..) }`, and a
+type an array whose length is the error, `[(); { compile_error!(..); 0 }]`,
+which rustc takes as an erroneous type and checks nothing against. A
+method over an enum whose every variant is under `#[cfg]`, in an impl that
+is not `#[automatically_derived]`, a partial block's or an inherent
+block's, allows its arguments to go unused, as a hand's does, since a
+build that leaves no variant leaves no arm to use them. An option naming nothing in the trait, or a route through no
 variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could
@@ -912,6 +918,24 @@ The mutants `box-self-advice-on-a-shared-pointer`,
 `borrowed-place-moved-under-self`, `absent-method-hint-dropped`,
 `mutable-borrow-left-to-rustc`, `named-field-rebuilt-with-a-closure` and
 `sentence-names-the-field-of-a-struct` revert these six.
+
+An outside review of the matrix's model, written without reading this
+crate's sources, found three more. An associated item no variant can supply
+withheld the impl, against rule 4; `associated_type` and `associated_const`
+now write it holding its sentence (`2e6bdc2`; compile-fail case
+`unsupplied_items_keep_the_impl`). A partial block's or an inherent block's
+method over an enum that may be empty warned of its arguments in the build
+that leaves no variant; `MethodPlan::allow_unused_when_empty` gives such a
+method the allowance a hand writes, where the impl is not
+`#[automatically_derived]` (`19910b9`; the behaviour test
+`enums_with_every_variant_under_cfg` denies the lint). A whole-method
+sentence told a method with a body to give it one;
+`ArmContext::whole_way_out` offers the body for every variant instead
+(`0d7cc02`; compile-fail case `lift_over_a_wrapped_self`, which also pins
+the lift over a wrapped `Self` as the limit `docs/limits.md` now names). No
+golden and no other snapshot changed. Mutants
+`unsupplied-item-withholds-the-impl`, `empty-enum-arguments-left-unused` and
+`whole-method-way-out-ignores-the-body` revert them.
 
 ## 5. Invariants every stage keeps
 

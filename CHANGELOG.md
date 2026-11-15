@@ -247,6 +247,59 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `self_return_beside_the_other_fields_of_a_variant` and
   `box_self_on_a_plain_field` are new; no other snapshot and no golden
   changed.
+- Before, an associated type or const that no variant can supply in every
+  build, every variant being under `#[cfg]` or reached through a field or
+  a method, withheld the whole impl: its sentence was followed by rustc's
+  error at every call through the trait, E0599, no method named `tag`.
+  The impl is now written, with the item holding its sentence, so the
+  calls resolve and the sentence stands alone. The `tests/ui` case
+  `unsupplied_items_keep_the_impl` is new; no other snapshot and no golden
+  changed.
+- Before, a partial impl block or an inherent `#[dispatch(*)]` method over
+  an enum whose every variant is under `#[cfg]` warned in the user's
+  crate, unused variable, in the build that compiles every variant out,
+  where no arm is left to use the arguments; the enum's own attribute did
+  not, its impl being automatically derived. Such a method now allows its
+  arguments to go unused, as a hand's does. The behaviour test
+  `enums_with_every_variant_under_cfg` holds it under
+  `#[deny(unused_variables)]`; no snapshot and no golden changed.
+- Before, a sentence about the whole of an inherent method, a return type
+  that wraps `Self` where the payload's result cannot be rebuilt, told a
+  method that names its variants and has a body for the rest to "give it
+  a body". It now says to drop the method's `#[dispatch(..)]`, so that
+  the body answers for every variant; a method without a body keeps its
+  sentence. `docs/limits.md` gains the line for one such shape, a return
+  that wraps `Self` twice under `with = Some` or `with = Ok`. The
+  `tests/ui` case `lift_over_a_wrapped_self` is new; no other snapshot and
+  no golden changed.
+- The associated consts of an enum with lifetime parameters alone are
+  checked to agree, as those of an enum without parameters are: no
+  lifetime changes a const's value, so the check compares the payloads
+  with each lifetime `'static`. Before, such an enum took the first
+  variant's const without a check, so `enum E<'a> { A(P0),
+  #[dispatch(deref)] B(&'a P1) }` answered `P0`'s `LEVEL` for `B` as well.
+  This breaks an enum that compiled: one whose variants disagree on such a
+  const, which now is an error on the variant that differs; set the const
+  on the enum with `LEVEL = value`. An enum with a type or const parameter,
+  and a variant reached through a field or a method, still take the first
+  variant's value, and `docs/limits.md` says so. The decision record
+  "Associated consts are checked unless a type can change them"
+  supersedes "Associated consts are checked for four types". The
+  `tests/ui` case `const_disagreement_on_a_lifetime_enum` is new; no other
+  snapshot and no golden changed.
+- Before, the agreement check of associated consts reported the first
+  variant that disagreed and no other: the checks were one `const` block,
+  whose evaluation stops at its first failure. Each check is now an item
+  of its own, so every variant that disagrees is named. The `tests/ui`
+  case `const_disagreement_on_two_variants` is new; the snapshots
+  `associated_const_disagreement` and
+  `const_disagreement_on_a_lifetime_enum` moved, rustc naming the item
+  that failed `_::_` where it named `_`; the golden `associated_consts`
+  shows the check as `const _: () = if ..;`.
+- `docs/partial-impl-blocks.md` says what a method a partial block writes
+  or marks carries: what is written on it, with `#[inline]` where nothing
+  else is, and nothing of the trait method's own attributes, which only
+  the plain forwarding repeats.
 
 ## 0.7.3 - 2026-11-13
 

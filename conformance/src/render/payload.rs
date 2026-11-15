@@ -9,7 +9,6 @@ use crate::model::argument::ArgumentKind;
 use crate::model::qualifier::Generic;
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::stack::OTHER;
-use crate::model::target::Storage;
 use crate::model::{Callee, Lift, SlotVariant};
 
 /// Whether a value is a payload's true answer or the poison an inherent
@@ -54,9 +53,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         if !slot.holds_another() {
             write_payload(writer, context, index);
         }
-        let wrapped = slot
-            .target()
-            .is_some_and(|(_, target)| target.storage == Storage::Wrapper);
+        let wrapped = slot.target().is_some_and(|(_, target)| target.wraps());
         if wrapped {
             let wrapper = slot.wrapper();
             writer.line(format!("pub struct {wrapper} {{"));
@@ -73,6 +70,11 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.line(format!(
                 "{payload} {{ state: self.payload.state, spare: self.payload.spare }}"
             ));
+            writer.close("}");
+            writer.blank();
+            writer.line("/// Lends the wrapper itself, which a route reads a field of.");
+            writer.open(format!("pub fn get(&self) -> &{wrapper} {{"));
+            writer.line("self");
             writer.close("}");
             writer.close("}");
             writer.blank();
@@ -268,9 +270,12 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
     if !counted {
         writer.line(format!("let _ = {x};"));
     }
+    // The default's answer starts at nine millions, where a payload's
+    // starts at its slot's number plus one, so no payload's is mistaken
+    // for it.
     let mut number = match counted {
-        true => format!("3_000_000 + self.base() * 100 + {x}"),
-        false => String::from("3_000_000 + self.base() * 100"),
+        true => format!("9_000_000 + self.base() * 100 + {x}"),
+        false => String::from("9_000_000 + self.base() * 100"),
     };
     if context.generics.constant {
         number.push_str(" + N * 1_000");

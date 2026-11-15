@@ -1,0 +1,21 @@
+error[E0080]: evaluation panicked: `LEVEL` of variant `Middle` differs from the first variant's; set it on the enum with `LEVEL = value`
+  --> tests/ui/const_disagreement_on_two_variants.rs:38:12
+   |
+35 | #[whichever::dispatch(Leveled)]
+   |                       ------- in this macro invocation
+...
+38 |     Middle(Middle),
+   |            ^^^^^^ evaluation of `_::_` failed here
+   |
+   = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `Leveled` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: `LEVEL` of variant `High` differs from the first variant's; set it on the enum with `LEVEL = value`
+  --> tests/ui/const_disagreement_on_two_variants.rs:39:10
+   |
+35 | #[whichever::dispatch(Leveled)]
+   |                       ------- in this macro invocation
+...
+39 |     High(High),
+   |          ^^^^ evaluation of `_::_` failed here
+   |
+   = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `Leveled` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -232,7 +232,7 @@ pub(crate) fn forward_method(
         &ReturnSite {
             subject: subject_ident,
             one_target: subject.has_one_target(),
-            by_hand: context.callee.by_hand(),
+            by_hand: context.whole_way_out(),
             default: None,
         },
         None,
@@ -251,6 +251,11 @@ pub(crate) fn forward_method(
             .into_iter()
             .map(|arm| plan.beside_arguments(arm)),
     );
+    // A body for the rest uses the arguments, or is the user's to quiet.
+    let allow_unused = match body {
+        Some(_) => None,
+        None => plan.allow_unused_when_empty(site),
+    };
     let body = Forwarding {
         scrutinee: plan.scrutinee(context.site),
         arms,
@@ -258,5 +263,5 @@ pub(crate) fn forward_method(
         future: plan.future.clone(),
     }
     .body(site);
-    Ok(quote_spanned! { site => #(#attrs)* #vis #signature #body })
+    Ok(quote_spanned! { site => #(#attrs)* #allow_unused #vis #signature #body })
 }

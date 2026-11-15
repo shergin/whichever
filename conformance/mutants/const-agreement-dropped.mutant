@@ -3,6 +3,6 @@ breaks: Every other variant's associated const is checked at compile time to agr
 expect: killed
 
 find:
-                    #(#cfgs)* assert!(#equal, #message);
+                    #(#cfgs)* const _: () = ::core::assert!(#equal, #message);
 replace:
-                    #(#cfgs)* let _ = (#equal, #message);
+                    #(#cfgs)* const _: () = { let _ = (#equal, #message); };

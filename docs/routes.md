@@ -34,8 +34,9 @@ returned as `&mut`, are reported on the payload, and a shared borrow, `->
 reported on a routed variant, `deref` included, since the rest of the
 payload is gone. A variant with other fields beside the payload gets no
 `From` or `TryFrom`, and a variant whose target has no nameable type takes
-no part in the agreement checks, where a disagreement shows in the arm
-instead.
+no part in the agreement checks: a type that disagrees shows in the arm
+of a method that returns it, and a const that disagrees shows nowhere,
+since the enum takes the first variant's.
 
 A `deref` variant holding a trait object, `Box<dyn Trait>` or `&dyn Trait`,
 is how an enum holds an open set beside its sized payloads. A method the
