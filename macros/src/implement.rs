@@ -1273,6 +1273,7 @@ fn forward_trait_method(
         subject: subject_ident,
         prefix: subject_path.clone(),
         lift: None,
+        has_body: forwarded.is_some_and(|forwarded| forwarded.body.is_some()),
         site: at(subject_ident.span()),
     };
     // The enum's `mismatch` wins over the trait method's, and the names the

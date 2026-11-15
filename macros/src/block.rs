@@ -209,6 +209,7 @@ pub(crate) fn forward_method(
         subject: subject_ident,
         prefix,
         lift: forwarding.with.as_ref(),
+        has_body: body.is_some(),
         site,
     };
     // In an inherent method `Self` is the subject. For an enum the argument

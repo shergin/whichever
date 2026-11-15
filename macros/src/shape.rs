@@ -511,7 +511,7 @@ impl<'ast> Visit<'ast> for SelfFinder {
 }
 
 /// How a method reaches its receiver or a `Self` argument.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Access {
     Shared,
     Exclusive,

@@ -253,6 +253,16 @@ impl MethodPlan {
         )
     }
 
+    /// Returns the first `Self` argument matched beside the receiver that
+    /// the method takes as `access` says, for a sentence that names what
+    /// the method takes.
+    fn taken(&self, access: Access) -> Option<&Ident> {
+        self.same_variant
+            .iter()
+            .find(|(_, taken)| *taken == access)
+            .map(|(index, _)| &self.arguments[*index])
+    }
+
     /// Returns whether a `Self` argument takes part in the `match`, so that
     /// two different variants need a fallback arm.
     pub(crate) fn has_same_variant(&self) -> bool {
@@ -404,6 +414,7 @@ impl MethodPlan {
             subject,
             prefix,
             lift,
+            has_body: _,
             site,
         } = context;
         let site = *site;
@@ -422,24 +433,27 @@ impl MethodPlan {
         };
         if !route.is_direct() && conversion.rewraps() {
             let message = if route.is_deref() {
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", callee.by_hand())
+                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", context.way_out(target_ident))
             } else {
-                format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{target_ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), callee.by_hand())
+                format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{target_ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), context.way_out(target_ident))
             };
             return Err(Error::new_spanned(payload, message));
         }
         // What a method returns is a value, which `&mut self` cannot borrow
         // through; a field is a place, which it can.
-        let exclusive = matches!(self.receiver, ReceiverKind::Value(Access::Exclusive))
-            || matches!(self.receiver, ReceiverKind::Pinned(Access::Exclusive))
-            || self
-                .same_variant
-                .iter()
-                .any(|(_, access)| matches!(access, Access::Exclusive));
-        if route.ends_in_a_method() && exclusive {
+        let exclusive = match self.receiver {
+            ReceiverKind::Value(Access::Exclusive) => Some(String::from("`&mut self`")),
+            ReceiverKind::Pinned(Access::Exclusive) => Some(String::from("`self: Pin<&mut Self>`")),
+            ReceiverKind::Value(Access::Shared | Access::Owned)
+            | ReceiverKind::Pinned(Access::Shared | Access::Owned)
+            | ReceiverKind::Boxed => self
+                .taken(Access::Exclusive)
+                .map(|argument| format!("`{argument}: &mut Self`")),
+        };
+        if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` takes `&mut self`, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), callee.by_hand()),
+                format!("`{method}` takes {taken}, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), context.way_out(target_ident)),
             ));
         }
         // A value is moved out of a `Box` by dereferencing it, and out of
@@ -453,22 +467,18 @@ impl MethodPlan {
                 callee,
                 Callee::Place { borrow, .. } if !matches!(borrow, PlaceBorrow::Reference(_))
             );
-        let owned = boxed_place
-            || matches!(self.receiver, ReceiverKind::Value(Access::Owned))
-            || self
-                .same_variant
-                .iter()
-                .any(|(_, access)| matches!(access, Access::Owned));
-        if owned && route.starts_with_deref() && !holds_a_box(payload) {
+        let moved = match self.receiver {
+            ReceiverKind::Boxed if boxed_place => Some(String::from("`self: Box<Self>`")),
+            ReceiverKind::Value(Access::Owned) => Some(String::from("`self` by value")),
+            ReceiverKind::Value(_) | ReceiverKind::Pinned(_) | ReceiverKind::Boxed => self
+                .taken(Access::Owned)
+                .map(|argument| format!("`{argument}` by value")),
+        };
+        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && !holds_a_box(payload)) {
             let spelled = spelling::spelled(payload);
-            let taken = if boxed_place {
-                "`self: Box<Self>`"
-            } else {
-                "`self` by value"
-            };
             return Err(Error::new_spanned(
                 payload,
-                format!("`{method}` takes {taken}, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", callee.by_hand()),
+                format!("`{method}` takes {taken}, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", context.way_out(target_ident)),
             ));
         }
         let inner = hygienic("__inner", site);
@@ -482,7 +492,7 @@ impl MethodPlan {
                 route.reach_for_postfix(&inner, !matches!(access, Access::Owned), site)
             }
             (Callee::Place { .. }, _) => quote_spanned!(site => #inner),
-            _ => receiver_expression(self.receiver, target, &inner, method, site)?,
+            _ => receiver_expression(self.receiver, target, &inner, context)?,
         };
         let arguments = self.call_arguments(target, site);
         // The angle brackets are the arm's own tokens: written where the
@@ -562,7 +572,7 @@ impl MethodPlan {
         let rebuild_error = || {
             Error::new_spanned(
                 payload,
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", callee.rebuild_hint()),
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", context.rebuild_hint(target_ident)),
             )
         };
         value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
@@ -639,8 +649,32 @@ pub(crate) struct ArmContext<'a> {
     /// A function every arm's result is wrapped in, the inherent
     /// `with = path`.
     pub(crate) lift: Option<&'a Path>,
+    /// Whether the method names its variants and has a body for the rest,
+    /// which is then the way out of a variant it cannot be forwarded to.
+    pub(crate) has_body: bool,
     /// The span the generated tokens carry.
     pub(crate) site: Span,
+}
+
+impl ArmContext<'_> {
+    /// The way out a sentence about `variant` offers: the body, where the
+    /// method has one for the variants it does not name, and otherwise
+    /// what the callee's path offers a method that cannot be forwarded.
+    pub(crate) fn way_out(&self, variant: &Ident) -> String {
+        if self.has_body {
+            return format!("leave `{variant}` to the body");
+        }
+        String::from(self.callee.by_hand())
+    }
+
+    /// The way out when the value cannot be built around `variant`'s
+    /// payload again.
+    fn rebuild_hint(&self, variant: &Ident) -> String {
+        if self.has_body {
+            return format!("leave `{variant}` to the body");
+        }
+        String::from(self.callee.rebuild_hint())
+    }
 }
 
 /// How an arm calls the payload's method, which is also which of the two
@@ -860,9 +894,10 @@ fn receiver_expression(
     kind: ReceiverKind,
     target: &Target,
     binding: &Ident,
-    method: &Ident,
-    site: Span,
+    context: &ArmContext,
 ) -> Result<TokenStream2> {
+    let ArmContext { method, site, .. } = context;
+    let site = *site;
     match kind {
         ReceiverKind::Value(access) => Ok(payload_expression(&target.route, access, binding, site)),
         ReceiverKind::Boxed => {
@@ -870,6 +905,15 @@ fn receiver_expression(
                 let ident = &target.ident;
                 let payload = &target.payload;
                 let spelled = spelling::spelled(payload);
+                // A `deref` variant over another pointer has no box to hand
+                // over, and boxing the pointer would not make one of what
+                // it points at.
+                if target.route.starts_with_deref() {
+                    return Err(Error::new_spanned(
+                        payload,
+                        format!("`{method}` takes `self: Box<Self>`, and `{ident}` dereferences a `{spelled}`, which is no `Box` to hand over; hold a `Box`, or {}", context.way_out(ident)),
+                    ));
+                }
                 // A payload that already is a `Box` only lacks `deref`.
                 let advice = if last_segment(payload).is_some_and(|segment| segment.ident == "Box")
                 {
@@ -879,7 +923,7 @@ fn receiver_expression(
                 };
                 return Err(Error::new_spanned(
                     payload,
-                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or implement the method by hand"),
+                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or {}", context.way_out(ident)),
                 ));
             }
             Ok(quote_spanned!(site => #binding))
