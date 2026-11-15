@@ -919,6 +919,24 @@ The mutants `box-self-advice-on-a-shared-pointer`,
 `mutable-borrow-left-to-rustc`, `named-field-rebuilt-with-a-closure` and
 `sentence-names-the-field-of-a-struct` revert these six.
 
+An outside review of the matrix's model, written without reading this
+crate's sources, found three more. An associated item no variant can supply
+withheld the impl, against rule 4; `associated_type` and `associated_const`
+now write it holding its sentence (`2e6bdc2`; compile-fail case
+`unsupplied_items_keep_the_impl`). A partial block's or an inherent block's
+method over an enum that may be empty warned of its arguments in the build
+that leaves no variant; `MethodPlan::allow_unused_when_empty` gives such a
+method the allowance a hand writes, where the impl is not
+`#[automatically_derived]` (`19910b9`; the behaviour test
+`enums_with_every_variant_under_cfg` denies the lint). A whole-method
+sentence told a method with a body to give it one;
+`ArmContext::whole_way_out` offers the body for every variant instead
+(`0d7cc02`; compile-fail case `lift_over_a_wrapped_self`, which also pins
+the lift over a wrapped `Self` as the limit `docs/limits.md` now names). No
+golden and no other snapshot changed. Mutants
+`unsupplied-item-withholds-the-impl`, `empty-enum-arguments-left-unused` and
+`whole-method-way-out-ignores-the-body` revert them.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
