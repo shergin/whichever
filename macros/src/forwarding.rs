@@ -610,10 +610,17 @@ impl MethodPlan {
             value = quote_spanned! { site => #value.await };
         }
         let rebuild_error = || {
-            Error::new_spanned(
-                payload,
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", context.rebuild_hint(target_ident)),
-            )
+            // A struct whose one field is named is built around a value by
+            // its braces and by no path, and a `Self` under an `Option` or
+            // a `Result` is mapped with a path: the closure a hand writes
+            // there is what the attribute does not.
+            let message = if target.is_built_by_no_path() {
+                let spelled = spelling::spelled(payload);
+                format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{subject}` has a named field, which no path builds; make it a tuple struct, `struct {subject}({spelled});`, or {}", context.rebuild_hint(target_ident))
+            } else {
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", context.rebuild_hint(target_ident))
+            };
+            Error::new_spanned(payload, message)
         };
         value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
         if let Some(lift) = lift {

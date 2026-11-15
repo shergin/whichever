@@ -325,17 +325,28 @@ impl Target {
                 member: Member::Unnamed(_),
                 rebuildable: true,
             } => Some(quote_spanned!(site => #prefix)),
+            // A struct with a named field is built by its braces, which a
+            // closure would have to hold; the caller says so.
             Place::Field {
-                member,
-                rebuildable: true,
-            } => {
-                let value = Ident::new("__value", at(site));
-                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
+                member: Member::Named(_),
+                ..
             }
-            Place::Field {
+            | Place::Field {
                 rebuildable: false, ..
             } => None,
         }
+    }
+
+    /// Returns whether the subject can be built around a payload and yet no
+    /// path builds it: a struct whose one field is named.
+    pub(crate) fn is_built_by_no_path(&self) -> bool {
+        matches!(
+            &self.place,
+            Place::Field {
+                member: Member::Named(_),
+                rebuildable: true,
+            }
+        )
     }
 
     /// Returns the type the trait is called on, when the route lets it be
