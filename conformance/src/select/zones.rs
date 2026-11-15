@@ -213,6 +213,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "inherent-struct-returns",
+        summary: "an inherent method of a struct subject over every return type, a return-position `impl Trait` forwarded as it is, under the lifts that wrap it",
+        vary: &[
+            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("ret", &[]),
+            ("recv", &["ref", "mut", "value"]),
+            ("lift", &["none", "some"]),
+        ],
+        fixed: &[("path", "inherent"), ("s1", "none")],
+    },
+    Zone {
         name: "inherent-into",
         summary: "`with = Into::into` over the answers it converts, through the enum's `From` impls or into themselves",
         vary: &[

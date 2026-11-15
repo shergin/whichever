@@ -486,10 +486,16 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::FutureThis
             | Return::BoxedFuture
             | Return::BoxedFutureOut
-            | Return::Iterator
             | Return::VecThis
             | Return::OptionTupleThis => false,
+            // "A block on a dispatch struct forwards the same way [..]; a
+            // return-position `impl Trait` is forwarded as it is"
+            // (inherent-methods.md), which an enum's arms cannot.
+            Return::Iterator => cell.s0.descriptor().is_struct(),
         };
+        if !supported && cell.s0.descriptor().is_struct() {
+            return Some("an inherent method with a return type the inherent docs do not describe for a struct");
+        }
         if !supported {
             return Some("an inherent method with a return type the inherent docs do not describe for an enum");
         }
@@ -696,16 +702,16 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
             "an associated type beside generics, which the model spells for the plain trait",
         );
     }
-    // A variant compiled out may leave the subject's parameter unused.
-    if cell.cfg != Cfg::Absent {
-        return Some("generics beside variants under `#[cfg]`");
-    }
-    // The law names a generic subject by an alias, which a tuple struct's
-    // constructor and pattern cannot be spelled through.
+    // A variant compiled out may leave the subject's parameter unused; a
+    // trait's parameter is the trait's, which the subject only names.
     let parameter = cell.generic.descriptor().parameter.is_some();
-    if parameter && cell.s0.descriptor().is_struct() {
-        return Some("a generic struct subject, which the law names by an alias");
+    if parameter && cell.cfg != Cfg::Absent {
+        return Some("a subject's generic parameter beside variants under `#[cfg]`");
     }
+    // A generic struct is documented, "`impl<T: Shape> Shape for
+    // Wrapper<T>` for `struct Wrapper<T>(T)`" (options.md); the law builds
+    // and takes apart a tuple struct by its path with the argument spelled,
+    // `E::<P0>(..)`, which an alias cannot.
     if cell.generic != Generics::Payload {
         return None;
     }

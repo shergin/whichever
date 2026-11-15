@@ -136,6 +136,17 @@ suite inherent-scope
   never 80 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 360 unmodelled: an inherent turbofish beside a `Self` argument the payload takes as a type parameter
 
+suite inherent-struct-returns
+  pass 102
+  limit 27
+  rejected 0
+  malformed 0
+  never 18 non-canonical
+  never 36 unmodelled: a lift over a future
+  never 18 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 24 unmodelled: an inherent `Self` return on a variant reached through a route or a marked field
+  never 171 unmodelled: an inherent method with a return type the inherent docs do not describe for a struct
+
 suite inherent-into
   pass 326
   limit 254
@@ -232,17 +243,16 @@ suite homes
   never 8 unmodelled: an inherent opaque future that captures an argument its `+ '_` does not name
 
 suite generics
-  pass 1040
-  limit 496
+  pass 1092
+  limit 504
   rejected 0
   malformed 0
   never 1000 non-canonical
   never 96 unmodelled: a block body for a future return
   never 48 unmodelled: a block body for a return type that needs a payload to make
-  never 528 unmodelled: a default body that would need a payload to make its answer
-  never 160 unmodelled: a generic struct subject, which the law names by an alias
-  never 48 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 384 unmodelled: a type-parameter payload through a partial block, whose header is the user's
+  never 548 unmodelled: a default body that would need a payload to make its answer
+  never 64 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 448 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 700 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
 suite conversions
@@ -297,11 +307,10 @@ suite stacks
   never 36 unmodelled: an inherent method through a route whose method yields its target
 
 suite stack-homes
-  pass 198
-  limit 42
+  pass 450
+  limit 90
   rejected 0
   malformed 0
-  never 300 unmodelled: generics beside variants under `#[cfg]`
 
 suite deprecations
   pass 97
@@ -446,31 +455,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 7356
+  pass 7352
   limit 0
   rejected 0
   malformed 0
-  rows 7356
-  covered 79452
-  unreached 31467
+  rows 7352
+  covered 79485
+  unreached 31434
 
 suite array-limits
   pass 0
-  limit 485
+  limit 473
   rejected 0
   malformed 0
-  rows 485
-  covered 9347
-  unreached 1452
+  rows 473
+  covered 9388
+  unreached 1411
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 830
+  rejected 817
   malformed 0
-  rows 830
-  covered 8954
-  unreached 1845
+  rows 817
+  covered 8984
+  unreached 1815
 
 suite known
   pass 0

@@ -106,7 +106,7 @@ fn write_foreign(writer: &mut Writer, context: &Context, tests: &[&str]) {
             false => writer.line(format!("// `{name}` prints the body the block writes.")),
         }
         writer.open("{");
-        write_subject(writer, "S", slot, "subject", seed, false);
+        write_subject(writer, &value_path(context), slot, "subject", seed, false);
         let expected = match twin {
             true => {
                 writer.line(format!("let twin = {}::new({seed});", slot.payload()));
@@ -133,6 +133,30 @@ fn write_foreign(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.close("}");
 }
 
+/// The name a test imports the subject's own path by, beside the alias `S`.
+const BUILT: &str = "Built";
+
+/// Returns whether the subject is a generic tuple struct, whose constructor
+/// and pattern an alias cannot spell.
+fn generic_tuple_struct(context: &Context) -> bool {
+    let tuple = context
+        .slots
+        .first()
+        .and_then(Slot::target)
+        .is_some_and(|(_, target)| target.form == Form::Struct);
+    tuple && context.generics.parameter.is_some()
+}
+
+/// Returns the path the law builds the subject by and takes it apart by:
+/// `S`, or, for a generic tuple struct, the subject's own path with its
+/// argument, `Built::<P0>`.
+fn value_path(context: &Context) -> String {
+    match (generic_tuple_struct(context), context.generics.parameter) {
+        (true, Some(parameter)) => format!("{BUILT}::<{}>", parameter.instance),
+        (true, None) | (false, _) => String::from("S"),
+    }
+}
+
 /// Writes the tests that run the law, `subject` against `E` and `hand`
 /// against `hand::E`.
 fn write_tests(writer: &mut Writer, context: &Context, tests: &[&str]) {
@@ -151,6 +175,9 @@ fn write_tests(writer: &mut Writer, context: &Context, tests: &[&str]) {
         match generic {
             true => writer.line(format!("type S = {};", context.subject_instance(path))),
             false => writer.line(format!("use {path} as S;")),
+        }
+        if generic_tuple_struct(context) {
+            writer.line(format!("use {path} as {BUILT};"));
         }
         writer.anchor(format!("law-{test}"));
         writer.line("law!();");
@@ -177,7 +204,7 @@ fn write_seen(writer: &mut Writer, context: &Context) {
         let arm = match slot.variant {
             SlotVariant::Live(target) => {
                 let target = target.descriptor();
-                let pattern = super::context::pattern("S", slot, &target, "inner");
+                let pattern = super::context::pattern(&value_path(context), slot, &target, "inner");
                 format!(
                     "{pattern} => format!(\"{index}:{{}}\", {}.state()),",
                     reach("inner", target.route)
@@ -490,7 +517,7 @@ fn method_expectation(context: &Context, slot: &Slot) -> Expect {
             ))
         }
         PathForm::Forwarded | PathForm::First | PathForm::Written => {
-            Expect::Constant(context.mismatched_output("S"))
+            Expect::Constant(context.mismatched_output(&value_path(context)))
         }
     }
 }
@@ -584,7 +611,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
         }
     }
     writer.open("{");
-    write_subject(writer, "S", slot, "subject", seed, false);
+    write_subject(writer, &value_path(context), slot, "subject", seed, false);
     match base {
         Expect::Twin => {
             writer.line(format!("let twin = {payload}::new({seed});"));
@@ -603,7 +630,7 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
     // The second trait's method answers what a twin's does, on every
     // variant that holds a payload.
     if context.stack.present && slot.target().is_some() {
-        write_subject(writer, "S", slot, "stacked", seed, false);
+        write_subject(writer, &value_path(context), slot, "stacked", seed, false);
         writer.line(format!("let stacked_twin = {payload}::new({seed});"));
         writer.line(format!(
             "assert_eq!({}, {}, \"other on {name}\");",
@@ -649,7 +676,14 @@ fn write_method_checks(
     }
     let samples: Vec<String> = SAMPLES.iter().map(u64::to_string).collect();
     writer.open(format!("for x in [{}u64, {}] {{", samples[0], samples[1]));
-    write_subject(writer, "S", slot, "subject", seed, exclusive);
+    write_subject(
+        writer,
+        &value_path(context),
+        slot,
+        "subject",
+        seed,
+        exclusive,
+    );
     let twin_needed = *method == Expect::Twin;
     // A twin is borrowed mutably by its own method under a `&mut` receiver,
     // or, for an inherent place, where the declared type borrows it so.
@@ -665,11 +699,18 @@ fn write_method_checks(
     // where an inherent method hands the enum over as it is, the enum.
     let enum_argument = context.hands_the_enum();
     if context.argument.kind.is_some() {
-        write_subject(writer, "S", argument, "other", OTHER_SEED, other_exclusive);
+        write_subject(
+            writer,
+            &value_path(context),
+            argument,
+            "other",
+            OTHER_SEED,
+            other_exclusive,
+        );
         if twin_needed && enum_argument {
             write_subject(
                 writer,
-                "S",
+                &value_path(context),
                 argument,
                 "other_twin",
                 OTHER_SEED,
@@ -687,7 +728,7 @@ fn write_method_checks(
     // A return for the subject's lifetime is the very reference the
     // variant holds, or the place behind it, not a copy of its value.
     if matches!(context.node, Node::Lent) && twin_needed {
-        write_subject(writer, "S", slot, "lent", seed, exclusive);
+        write_subject(writer, &value_path(context), slot, "lent", seed, exclusive);
         let place = match context.cell.callee {
             Callee::Field => "&lent_held.state",
             Callee::Value | Callee::Method | Callee::Renamed => "&lent_held",
@@ -813,13 +854,27 @@ fn write_mismatch(writer: &mut Writer, context: &Context) {
             second.name()
         ));
         writer.open("{");
-        write_subject(writer, "S", first, "subject", seed(first.index), exclusive);
-        write_subject(writer, "S", second, "other", OTHER_SEED, other_exclusive);
+        write_subject(
+            writer,
+            &value_path(context),
+            first,
+            "subject",
+            seed(first.index),
+            exclusive,
+        );
+        write_subject(
+            writer,
+            &value_path(context),
+            second,
+            "other",
+            OTHER_SEED,
+            other_exclusive,
+        );
         let output = context.output();
         writer.line(format!(
             "let mismatch: {} = {};",
             spell(&output, "S", Associates::Qualified),
-            context.mismatched_output("S")
+            context.mismatched_output(&value_path(context))
         ));
         writer.line(format!(
             "let answer = observe({});",
