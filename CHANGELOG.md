@@ -255,6 +255,14 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   calls resolve and the sentence stands alone. The `tests/ui` case
   `unsupplied_items_keep_the_impl` is new; no other snapshot and no golden
   changed.
+- Before, a partial impl block or an inherent `#[dispatch(*)]` method over
+  an enum whose every variant is under `#[cfg]` warned in the user's
+  crate, unused variable, in the build that compiles every variant out,
+  where no arm is left to use the arguments; the enum's own attribute did
+  not, its impl being automatically derived. Such a method now allows its
+  arguments to go unused, as a hand's does. The behaviour test
+  `enums_with_every_variant_under_cfg` holds it under
+  `#[deny(unused_variables)]`; no snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 
