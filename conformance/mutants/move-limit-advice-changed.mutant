@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: The sentence for a value moved out of a `deref` variant names the way around it, holding a `Box`, as `docs/limits.md` says.
+expect: survives
+reason: The verdict holds a sentence by its catalogue needle alone, so a sentence whose words outside the needle are wrong still agrees.
+
+find:
+which a value cannot be moved out of; hold a `Box`, or {}
+replace:
+which a value cannot be moved out of; hold an `Rc`, or {}

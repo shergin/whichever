@@ -1,0 +1,114 @@
+# Cells always selected, one id per line, each with where its shape came
+# from. The defects recorded in the bug notes that stage 1's axes can
+# express are here, so a regression shows whatever the zones hold.
+
+# The associated type's agreement check on an enum whose first payload does
+# not use the enum's lifetime (E0794 before 0.5.1, the polars-pipe survey).
+s1=deref-ref ret=assoc
+# The same with the lifetime on the first variant.
+s0=deref-ref ret=assoc
+
+# `value` on the marked field of a variant with several yielded `&T` where a
+# routed arm beside it yielded `T` (marked-field-value-not-borrowed, the
+# acadrust survey).
+s0=marked-tuple s1=none path=inherent callee=value
+s0=marked-struct s1=none path=inherent callee=value
+# A function lift on a marked field is handed the binding as it stands,
+# which compiles (the same note, section 5).
+s0=marked-tuple s1=none path=inherent callee=value lift=by-ref
+# `value` on a plain payload was never read by value
+# (value-on-a-payload-is-not-read-by-value, from the 408-cell probe).
+s1=none path=inherent callee=value
+# `value` and `field` on a `deref` variant under `self: Box<Self>`
+# dereferenced once too often (value-on-a-deref-variant-under-box-self).
+s0=deref-box s1=none recv=box path=inherent callee=value
+s0=deref-box s1=none recv=box path=inherent callee=field
+# A place under `self: Box<Self>` moved out of an `Rc` with E0507 before
+# 544dd94; the sentence now (place-under-box-self-moves-out-of-a-shared-pointer).
+s0=deref-rc s1=none recv=box path=inherent callee=value
+# A field under `with = Some` was not borrowed for `Option<&T>`
+# (place-under-with-is-not-borrowed, the pingora-core survey).
+s1=none ret=ref path=inherent callee=field lift=some
+# An inherent arm on a `deref` variant dereferenced the result, not the
+# payload (inherent-arm-on-a-deref-variant, the exact survey).
+s0=deref-box path=inherent
+
+# A route ending in a method that lends its target, under `self` by value,
+# on either variant: rustc's E0277 lands on a span from the trait to the
+# enum, the attribute included, where the method is generic and returns an
+# associated type.
+s0=via-method recv=value ret=assoc qual=turbofish
+s1=via-method recv=value ret=assoc qual=turbofish
+# A sentence about the second variant, compiled out, under `self:
+# Box<Self>`, where the first variant holds a `Box` and takes no sentence.
+s0=deref-box recv=box cfg=second-off
+
+# An `#[allow]` on the trait method reaches the generated method
+# (lint-attributes-do-not-reach-generated-code, the forest-filecoin survey).
+item=allow
+path=block-star item=allow
+# The trait method's own `#[inline(..)]` on the forwarding
+# (carried_attributes), through a mark.
+qual=provided path=block-star item=inline-always
+qual=provided path=block-some item=inline-always
+# A `#[dispatch(default)]` mark, or a method the block writes, under
+# `#[cfg]` (cfg-on-partial-block-default-is-ignored, the martin-core
+# survey; cfg-disabled-partial-block-method-hides-the-payload, the lsm-tree
+# survey), here under the trait method's own `#[cfg]` beside a variant
+# holding no single payload (the mp4-atom survey).
+s1=unit qual=provided path=block-default item=cfg-on
+s1=pair path=block-some item=cfg-on
+s1=unit path=block-written cfg=second-on item=cfg-on
+s1=pair path=block-written cfg=second-on item=cfg-on
+# A `mismatch` option for a method the trait declares under a `#[cfg]`
+# that does not hold.
+arg=ref-enum item=cfg-off
+arg=value item=cfg-off
+arg=ref-enum path=block item=cfg-off
+arg=value path=block item=cfg-off
+
+# `value` over two variants that hold one type, one reached through a
+# route and one a marked field (marked-field-value-not-borrowed, the
+# acadrust survey).
+s0=via-field s1=marked-struct path=inherent callee=value
+s0=deref-box s1=marked-tuple recv=mut ret=ref path=inherent callee=value
+# A `Self` argument of an inherent method on a struct is unwrapped to the
+# other value's field (inherent-struct-dispatch-passes-self-arguments-through,
+# the dash-num survey); on an enum it is the enum, handed over as it is.
+s0=struct s1=none recv=value ret=self arg=value path=inherent
+arg=ref-bare path=inherent
+# `with = Into::into` rebuilds the enum through its `From` impls.
+ret=self path=inherent lift=into
+
+# The trait and the payloads in another crate: the agreement check of an
+# associated type over a borrowing variant (agreement-check-misses-implied-
+# outlives-bounds), the trait method's `#[cfg]` decided in the trait's
+# crate, and a mismatch expression that names the support module where the
+# enum is.
+s1=deref-ref ret=assoc home=crate
+qual=provided path=block-default item=cfg-on home=crate
+item=cfg-off home=crate
+arg=ref-trait home=crate
+arg=ref-enum path=block home=sibling
+
+# Generics: a type-parameter payload beside a concrete one and behind a
+# `Box` (generic_payloads), a generic trait at a concrete argument whose
+# bound fixes the projection, at the enum's own const parameter, and with a
+# defaulted parameter left out (associated_types_and_generics).
+generic=payload
+s0=deref-box s1=none generic=payload
+qual=provided generic=concrete
+ret=self generic=own
+qual=provided path=block-default generic=defaulted
+home=crate generic=concrete
+
+# Conversions: `From` checked and its absence proven by a hand-written impl
+# beside a marked variant and on a struct, the by-reference `TryFrom` forms
+# and `into` (conversions), with the trait in another crate, and a
+# variant's own `try_from`.
+s0=marked-tuple conv=from
+s0=struct s1=none conv=from
+conv=try-mut
+home=crate conv=into
+conv=variant-try
+conv=variant-from-off

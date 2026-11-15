@@ -1,0 +1,495 @@
+//! What a run observed for a cell, and whether it is what the verdict
+//! allows.
+
+use std::collections::BTreeMap;
+
+use super::cargo::{Diagnostic, Level, TestResult};
+use crate::model::{Anchor, Limit, Verdict};
+use crate::render::writer::Part;
+use crate::render::Rendered;
+
+/// One thing a run observed for a cell.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Finding {
+    /// A sentence of the macro: its catalogue key, or its text in quotes
+    /// when the catalogue does not hold it; and where it was reported, an
+    /// anchor's name or `line-N`.
+    Sentence {
+        /// The catalogue key or the quoted text.
+        key: String,
+        /// Where.
+        place: String,
+    },
+    /// A rustc error, by code, or its message in quotes when it has none.
+    Error {
+        /// The code.
+        code: String,
+        /// The part of the cell it was reported in.
+        part: String,
+    },
+    /// A warning, by lint name.
+    Warning {
+        /// The lint's name.
+        lint: String,
+        /// The part of the cell it was reported in.
+        part: String,
+    },
+    /// A test of the law failed.
+    Law {
+        /// `subject` or `hand`.
+        test: String,
+    },
+    /// The shape of a forwarded method differs from the hand's.
+    Shape {
+        /// The method.
+        method: String,
+    },
+    /// A test of the law reported no result.
+    Untested {
+        /// `subject` or `hand`.
+        test: String,
+    },
+}
+
+impl Finding {
+    /// Returns the finding as the outcome spells it.
+    pub fn spell(&self) -> String {
+        match self {
+            Finding::Sentence { key, place } => format!("sentence:{key}@{place}"),
+            Finding::Error { code, part } => format!("error:{code}@{part}"),
+            Finding::Warning { lint, part } => format!("warning:{lint}@{part}"),
+            Finding::Law { test } => format!("law:{test}"),
+            Finding::Shape { method } => format!("shape:{method}"),
+            Finding::Untested { test } => format!("untested:{test}"),
+        }
+    }
+
+    /// Returns whether the finding says the hand is wrong: the model's
+    /// fault, never the macro's.
+    pub fn blames_the_hand(&self) -> bool {
+        match self {
+            Finding::Error { part, .. } | Finding::Warning { part, .. } => {
+                matches!(
+                    part.as_str(),
+                    "hand" | "law-hand" | "header" | "payloads" | "probe"
+                )
+            }
+            Finding::Law { test } | Finding::Untested { test } => test == "hand",
+            Finding::Sentence { .. } | Finding::Shape { .. } => false,
+        }
+    }
+}
+
+/// What a run observed for a cell.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outcome {
+    /// The findings, sorted and without repetition.
+    pub findings: Vec<Finding>,
+    /// The first message observed: a diagnostic's or a failed test's.
+    pub first_message: Option<String>,
+}
+
+impl Outcome {
+    /// Returns the outcome as `known.tsv` spells it: `pass`, or the
+    /// findings joined by `, `.
+    pub fn spell(&self) -> String {
+        if self.findings.is_empty() {
+            return String::from("pass");
+        }
+        let findings: Vec<String> = self.findings.iter().map(Finding::spell).collect();
+        findings.join(", ")
+    }
+
+    /// Returns whether the cell has an error, so a pass shard sets it
+    /// aside before it is tested.
+    pub fn has_error(&self) -> bool {
+        self.findings.iter().any(|finding| match finding {
+            Finding::Sentence { .. } | Finding::Error { .. } => true,
+            Finding::Warning { .. }
+            | Finding::Law { .. }
+            | Finding::Shape { .. }
+            | Finding::Untested { .. } => false,
+        })
+    }
+
+    /// Adds a finding once, keeping the findings sorted.
+    pub fn add(&mut self, finding: Finding, message: Option<String>) {
+        if self.first_message.is_none() {
+            self.first_message = message;
+        }
+        if !self.findings.contains(&finding) {
+            self.findings.push(finding);
+            self.findings.sort();
+        }
+    }
+}
+
+/// Returns the part a line of a cell is in, with the law split by the test
+/// whose expansion of it the backtrace passed through.
+fn part_of(rendered: &Rendered, line: usize, chain: &[usize]) -> String {
+    let Some(part) = rendered.part_of(line) else {
+        return String::from("outside");
+    };
+    if part != Part::Law {
+        return String::from(part.name());
+    }
+    for test in ["subject", "hand"] {
+        let anchor = rendered.anchors.get(&format!("law-{test}"));
+        if anchor.is_some_and(|anchor| chain.contains(anchor)) {
+            return format!("law-{test}");
+        }
+    }
+    String::from("law")
+}
+
+/// Returns the name of the anchor at a line, or `line-N`.
+fn place_of(rendered: &Rendered, line: usize) -> String {
+    rendered
+        .anchors
+        .iter()
+        .find(|(_, anchor)| **anchor == line)
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| format!("line-{line}"))
+}
+
+/// Adds a diagnostic to the outcome of the cell it is attributed to.
+pub fn observe_diagnostic(outcome: &mut Outcome, rendered: &Rendered, diagnostic: &Diagnostic) {
+    let Some(site) = &diagnostic.site else {
+        return;
+    };
+    let chain: Vec<usize> = diagnostic
+        .chain
+        .iter()
+        .filter(|other| other.module == site.module)
+        .map(|other| other.line)
+        .collect();
+    let part = match rendered.covers_attribute(site.line, site.last) {
+        true => String::from("attribute"),
+        false => part_of(rendered, site.line, &chain),
+    };
+    let finding = match diagnostic.level {
+        Level::Warning => Finding::Warning {
+            lint: diagnostic
+                .code
+                .clone()
+                .unwrap_or_else(|| quoted(&diagnostic.message)),
+            part,
+        },
+        Level::Error => match Limit::of_message(&diagnostic.message) {
+            Some(limit) => Finding::Sentence {
+                key: String::from(limit.entry().key),
+                place: place_of(rendered, site.line),
+            },
+            None if diagnostic.from_compile_error || is_sentence(diagnostic) => Finding::Sentence {
+                key: quoted(&diagnostic.message),
+                place: place_of(rendered, site.line),
+            },
+            None => Finding::Error {
+                code: diagnostic
+                    .code
+                    .clone()
+                    .unwrap_or_else(|| quoted(&diagnostic.message)),
+                part,
+            },
+        },
+    };
+    if outcome.first_message.is_none() {
+        outcome.first_message = Some(diagnostic.message.clone());
+    }
+    if !outcome.findings.contains(&finding) {
+        outcome.findings.push(finding);
+        outcome.findings.sort();
+    }
+}
+
+/// Adds the result of a test of the law, `test` being `subject` or `hand`.
+pub fn observe_test(outcome: &mut Outcome, test: &str, result: Option<&TestResult>) {
+    let finding = match result {
+        Some(TestResult::Passed) => return,
+        Some(TestResult::Failed(message)) => {
+            if outcome.first_message.is_none() {
+                outcome.first_message = Some(format!("law {test}: {message}"));
+            }
+            Finding::Law {
+                test: String::from(test),
+            }
+        }
+        None => Finding::Untested {
+            test: String::from(test),
+        },
+    };
+    if !outcome.findings.contains(&finding) {
+        outcome.findings.push(finding);
+        outcome.findings.sort();
+    }
+}
+
+/// Returns whether an error the catalogue does not hold is a sentence of
+/// the macro rather than rustc's. A sentence is raised by `compile_error!`
+/// on a user's token, which leaves no backtrace in the JSON, so it is told
+/// apart by having no code; the few rustc errors without one are listed.
+fn is_sentence(diagnostic: &Diagnostic) -> bool {
+    const RUSTC: &[&str] = &[
+        "lifetime may not live long enough",
+        "higher-ranked lifetime error",
+        "implementation of",
+        "cannot find",
+        "expected",
+        "unexpected",
+        "mismatched closing delimiter",
+        "this file contains an unclosed delimiter",
+        "unknown start of token",
+        "macro expansion ignored",
+        "proc-macro derive panicked",
+        "custom attribute panicked",
+        "proc macro panicked",
+        "recursion limit reached",
+        "captured variable cannot escape",
+        "temporary value dropped while borrowed",
+        "unresolved import",
+        "ambiguous",
+    ];
+    diagnostic.code.is_none()
+        && !RUSTC
+            .iter()
+            .any(|prefix| diagnostic.message.starts_with(prefix))
+}
+
+/// Returns a message as a short quoted key, which holds no `,` and no tab.
+fn quoted(message: &str) -> String {
+    let cleaned: String = message
+        .chars()
+        .map(|c| match c {
+            ',' | '\t' | '"' => ' ',
+            other => other,
+        })
+        .take(60)
+        .collect();
+    format!("\"{}\"", cleaned.trim())
+}
+
+/// How a cell's outcome stands to its verdict.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Judgement {
+    /// The outcome is what the verdict allows.
+    Agrees,
+    /// The outcome is not what the verdict allows, for these findings,
+    /// spelled as the outcome spells them.
+    Diverges(Vec<String>),
+    /// The hand does not compile or fails its law: the model is wrong.
+    Harness,
+}
+
+/// Returns how an outcome stands to a verdict. The findings that make a
+/// cell diverge are decided here and nowhere else:
+///
+/// - for a pass, every finding;
+/// - for a limit, every finding that is not a predicted sentence on its
+///   anchor, and `missing:sentence` when no predicted sentence appears;
+/// - for a rejected cell, `compiles:subject` when the subject compiles, and
+///   every finding of the subject that is neither a catalogued sentence nor
+///   a rustc error off the attributes; the hand's expected failure is none;
+/// - for a malformed cell, `compiles:trait` when nothing fails.
+pub fn judge(verdict: &Verdict, outcome: &Outcome, rendered: &Rendered) -> Judgement {
+    let divergent = |findings: Vec<String>| match findings.is_empty() {
+        true => Judgement::Agrees,
+        false => Judgement::Diverges(findings),
+    };
+    let is_error = |finding: &Finding| match finding {
+        Finding::Sentence { .. } | Finding::Error { .. } => true,
+        Finding::Warning { .. }
+        | Finding::Law { .. }
+        | Finding::Shape { .. }
+        | Finding::Untested { .. } => false,
+    };
+    match verdict {
+        Verdict::Pass => {
+            if outcome.findings.iter().any(Finding::blames_the_hand) {
+                return Judgement::Harness;
+            }
+            divergent(outcome.findings.iter().map(Finding::spell).collect())
+        }
+        Verdict::Limit(expected) => {
+            let lines: BTreeMap<String, Anchor> = expected
+                .iter()
+                .filter_map(|expected| {
+                    let line = rendered.line_of(expected.anchor)?;
+                    Some((format!("line-{line}"), expected.anchor))
+                })
+                .collect();
+            let predicted = |finding: &Finding| {
+                let Finding::Sentence { key, place } = finding else {
+                    return false;
+                };
+                expected.iter().any(|expected| {
+                    expected.limit.entry().key == key
+                        && match expected.anchor {
+                            Anchor::Anywhere => true,
+                            anchor => {
+                                *place == anchor.name()
+                                    || *place == format!("{}-cfg", anchor.name())
+                                    || lines.get(place) == Some(&anchor)
+                            }
+                        }
+                })
+            };
+            let mut findings: Vec<String> = outcome
+                .findings
+                .iter()
+                .filter(|finding| !predicted(finding))
+                .map(Finding::spell)
+                .collect();
+            if !outcome.findings.iter().any(predicted) {
+                findings.push(String::from("missing:sentence"));
+            }
+            divergent(findings)
+        }
+        Verdict::Rejected { code, .. } => {
+            let quoted_code = quoted(code);
+            let in_hand = |finding: &Finding| match finding {
+                Finding::Error { part, .. } | Finding::Warning { part, .. } => part == "hand",
+                Finding::Sentence { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            };
+            let expected = outcome.findings.iter().any(|finding| match finding {
+                Finding::Error { code: found, part } => {
+                    part == "hand" && (found == code || *found == quoted_code)
+                }
+                Finding::Sentence { .. }
+                | Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            });
+            if !expected {
+                return Judgement::Harness;
+            }
+            let subject: Vec<&Finding> = outcome
+                .findings
+                .iter()
+                .filter(|finding| !in_hand(finding))
+                .collect();
+            let accepted = |finding: &&Finding| match finding {
+                Finding::Sentence { key, .. } => Limit::from_key(key).is_some(),
+                Finding::Error { part, .. } => part != "attribute",
+                Finding::Warning { .. }
+                | Finding::Law { .. }
+                | Finding::Shape { .. }
+                | Finding::Untested { .. } => false,
+            };
+            let mut findings: Vec<String> = subject
+                .iter()
+                .filter(|finding| !accepted(finding))
+                .map(|finding| finding.spell())
+                .collect();
+            if !subject.iter().any(|finding| is_error(finding)) {
+                findings.push(String::from("compiles:subject"));
+            }
+            divergent(findings)
+        }
+        Verdict::Malformed(_) => match outcome.findings.iter().any(is_error) {
+            true => Judgement::Agrees,
+            false => Judgement::Diverges(vec![String::from("compiles:trait")]),
+        },
+        Verdict::Unmodelled(_) | Verdict::NonCanonical => Judgement::Harness,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cell::Cell;
+    use crate::render::render;
+
+    #[test]
+    fn a_clean_pass_agrees_and_a_finding_diverges() {
+        let cell = Cell::neutral();
+        let rendered = render(&cell);
+        let mut outcome = Outcome::default();
+        assert_eq!(
+            judge(&Verdict::Pass, &outcome, &rendered),
+            Judgement::Agrees
+        );
+        assert_eq!(outcome.spell(), "pass");
+        observe_test(
+            &mut outcome,
+            "subject",
+            Some(&TestResult::Failed(String::from("left"))),
+        );
+        assert!(matches!(
+            judge(&Verdict::Pass, &outcome, &rendered),
+            Judgement::Diverges(_)
+        ));
+        assert_eq!(outcome.spell(), "law:subject");
+        observe_test(&mut outcome, "hand", None);
+        assert_eq!(
+            judge(&Verdict::Pass, &outcome, &rendered),
+            Judgement::Harness
+        );
+    }
+
+    #[test]
+    fn a_limit_agrees_only_with_its_sentence_on_its_anchor() {
+        let cell = Cell::parse("recv=rc").expect("an id");
+        let rendered = render(&cell);
+        let verdict = cell.verdict();
+        let on_method = Outcome {
+            findings: vec![Finding::Sentence {
+                key: String::from("receiver"),
+                place: String::from("method"),
+            }],
+            first_message: None,
+        };
+        assert_eq!(judge(&verdict, &on_method, &rendered), Judgement::Agrees);
+        let elsewhere = Outcome {
+            findings: vec![Finding::Sentence {
+                key: String::from("receiver"),
+                place: String::from("line-1"),
+            }],
+            first_message: None,
+        };
+        assert!(matches!(
+            judge(&verdict, &elsewhere, &rendered),
+            Judgement::Diverges(_)
+        ));
+        assert!(matches!(
+            judge(&verdict, &Outcome::default(), &rendered),
+            Judgement::Diverges(_)
+        ));
+    }
+
+    #[test]
+    fn a_rejection_agrees_only_off_the_attributes() {
+        let cell = Cell::parse("s0=deref-rc recv=mut").expect("an id");
+        let rendered = render(&cell);
+        let verdict = cell.verdict();
+        assert!(matches!(verdict, Verdict::Rejected { code: "E0596", .. }));
+        let error = |code: &str, part: &str| Finding::Error {
+            code: String::from(code),
+            part: String::from(part),
+        };
+        let outcome = |findings: Vec<Finding>| Outcome {
+            findings,
+            first_message: None,
+        };
+        let on_payload = outcome(vec![error("E0596", "hand"), error("E0596", "subject")]);
+        assert_eq!(judge(&verdict, &on_payload, &rendered), Judgement::Agrees);
+        let on_attribute = outcome(vec![error("E0596", "hand"), error("E0596", "attribute")]);
+        assert!(matches!(
+            judge(&verdict, &on_attribute, &rendered),
+            Judgement::Diverges(_)
+        ));
+        let hand_only = outcome(vec![error("E0596", "hand")]);
+        assert!(matches!(
+            judge(&verdict, &hand_only, &rendered),
+            Judgement::Diverges(_)
+        ));
+        let hand_compiles = outcome(vec![error("E0596", "subject")]);
+        assert_eq!(
+            judge(&verdict, &hand_compiles, &rendered),
+            Judgement::Harness
+        );
+    }
+}

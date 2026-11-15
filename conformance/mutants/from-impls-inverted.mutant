@@ -1,0 +1,9 @@
+file: macros/src/conversions.rs
+breaks: The enum gets `From<Payload>` for every variant not marked `from = false`, as `docs/what-is-generated.md` and `docs/options.md` say.
+expect: survives
+reason: No cell converts a payload into the enum or back, so the conversions are not modelled.
+
+find:
+        .filter(|(_, conversions)| conversions.from)
+replace:
+        .filter(|(_, conversions)| !conversions.from)

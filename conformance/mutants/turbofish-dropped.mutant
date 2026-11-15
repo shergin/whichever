@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: A generic method is called with its type and const parameters spelled out when no argument fixes them, as `docs/what-is-generated.md` says.
+expect: killed
+
+find:
+            turbofish: turbofish(signature),
+replace:
+            turbofish: turbofish(signature).filter(|_| false),

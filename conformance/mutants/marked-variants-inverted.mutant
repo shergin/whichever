@@ -1,0 +1,8 @@
+file: macros/src/selection.rs
+breaks: A method of a partial or inherent block forwards to the variants its attribute names and gives its body for the rest, as `docs/partial-impl-blocks.md` says.
+expect: killed
+
+find:
+                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
+replace:
+                if let Some(target) = variants.iter().find(|target| &target.ident != name) {

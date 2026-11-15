@@ -13,6 +13,12 @@ What to read when.
   flows through the four proc macros, the module map, the forwarding
   engine, the protocol between the carriers, and the invariants every
   change keeps.
+- **How are the combinations of features tested?**
+  [../conformance/README.md](../conformance/README.md): the model, the
+  cells it generates, how a run is read and a divergence settled, and the
+  mutants that measure it;
+  [decisions/combinations-are-checked-by-a-generated-matrix.md](decisions/combinations-are-checked-by-a-generated-matrix.md)
+  is why a generated matrix and not more hand-picked cases.
 - **Coming from `enum_dispatch`?**
   [moving-from-enum-dispatch.md](moving-from-enum-dispatch.md) is the swap,
   attribute for attribute, and the three things to watch.

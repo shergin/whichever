@@ -1,0 +1,10 @@
+file: macros/src/forwarding.rs
+breaks: A method returning `Self` wraps the payload's result back into the same variant, as `docs/what-is-generated.md` says.
+expect: killed
+
+find:
+        Conversion::Rewrap => target
+            .rebuild(prefix, value, site)
+            .ok_or_else(rebuild_error)?,
+replace:
+        Conversion::Rewrap => value,

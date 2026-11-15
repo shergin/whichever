@@ -1,0 +1,8 @@
+file: macros/src/block.rs
+breaks: An inherent method with `call = name` forwards to the payload's method of that name, as `docs/inherent-methods.md` says.
+expect: killed
+
+find:
+            name: forwarding.call.as_ref().unwrap_or(method),
+replace:
+            name: method,

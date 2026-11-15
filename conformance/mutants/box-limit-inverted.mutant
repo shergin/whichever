@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: `self: Box<Self>` is forwarded to a `deref` variant holding a `Box` and reported on a plain variant, as `docs/limits.md` says.
+expect: killed
+
+find:
+            if !target.holds_box() {
+replace:
+            if target.holds_box() {

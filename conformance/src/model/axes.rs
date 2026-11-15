@@ -1,0 +1,366 @@
+//! The axes of stage 1: trait dispatch through the enum's attribute.
+//!
+//! Each axis is declared here with its values and words; what a value
+//! means is its descriptor, in the module of its kind: [`super::target`],
+//! [`super::receiver`], [`super::returns`], [`super::argument`],
+//! [`super::qualifier`], [`super::path`] and [`super::item`].
+
+use crate::axis;
+
+axis! {
+    /// How the first variant reaches the trait's implementor, its payload
+    /// `P0`: its target kind.
+    pub enum Target {
+        /// `A(P0)`: the payload is the target.
+        Plain = "plain",
+        /// `#[dispatch(deref)] A(Box<P0>)`.
+        DerefBox = "deref-box",
+        /// `#[dispatch(deref)] A(Rc<P0>)`.
+        DerefRc = "deref-rc",
+        /// `#[dispatch(deref)] A(Arc<P0>)`.
+        DerefArc = "deref-arc",
+        /// `#[dispatch(deref)] A(&'a P0)`.
+        DerefShared = "deref-ref",
+        /// `#[dispatch(deref)] A(&'a mut P0)`.
+        DerefExclusive = "deref-mut",
+        /// `#[dispatch(via = .payload)] A(W0)`, a field of a wrapper.
+        ViaField = "via-field",
+        /// `#[dispatch(via = .1)] A((u64, P0))`, an element of a tuple.
+        ViaIndex = "via-index",
+        /// `#[dispatch(via = .lend())] A(W0)`, what a method of a wrapper
+        /// lends.
+        ViaMethod = "via-method",
+        /// `#[dispatch(via = .copied())] A(W0)`, what a method of a
+        /// wrapper returns by value.
+        ViaValueMethod = "via-method-value",
+        /// `A(#[dispatch] P0, u64)`, the marked field of a tuple variant.
+        MarkedTuple = "marked-tuple",
+        /// `A { label: u64, #[dispatch] held: P0 }`, the marked field of a
+        /// struct variant.
+        MarkedStruct = "marked-struct",
+        /// `A { label: u64, #[dispatch(via = .payload)] held: W0 }`, a
+        /// marked field with a route of its own.
+        MarkedVia = "marked-via",
+        /// `pub struct E(P0)`: a struct subject with its one field.
+        Struct = "struct",
+        /// `pub struct E { label: u64, #[dispatch] held: P0 }`: a struct
+        /// subject with a marked field among several.
+        StructMarked = "struct-marked",
+    }
+}
+
+axis! {
+    /// The second variant: a target kind over `P1`, no variant at all, or a
+    /// variant no trait method can be forwarded to.
+    pub enum Second {
+        /// `B(P1)`.
+        Plain = "plain",
+        /// No second variant: a one-variant enum.
+        Absent = "none",
+        /// `#[dispatch(deref)] B(Box<P1>)`.
+        DerefBox = "deref-box",
+        /// `#[dispatch(deref)] B(Rc<P1>)`.
+        DerefRc = "deref-rc",
+        /// `#[dispatch(deref)] B(Arc<P1>)`.
+        DerefArc = "deref-arc",
+        /// `#[dispatch(deref)] B(&'a P1)`.
+        DerefShared = "deref-ref",
+        /// `#[dispatch(deref)] B(&'a mut P1)`.
+        DerefExclusive = "deref-mut",
+        /// `#[dispatch(via = .payload)] B(W1)`.
+        ViaField = "via-field",
+        /// `#[dispatch(via = .1)] B((u64, P1))`.
+        ViaIndex = "via-index",
+        /// `#[dispatch(via = .lend())] B(W1)`.
+        ViaMethod = "via-method",
+        /// `B(#[dispatch] P1, u64)`.
+        MarkedTuple = "marked-tuple",
+        /// `B { label: u64, #[dispatch] held: P1 }`.
+        MarkedStruct = "marked-struct",
+        /// `B { label: u64, #[dispatch(via = .payload)] held: W1 }`.
+        MarkedVia = "marked-via",
+        /// `B`, a unit variant.
+        Unit = "unit",
+        /// `B(P1, u64)`, two fields of which none is marked.
+        Pair = "pair",
+    }
+}
+
+axis! {
+    /// The receiver of the method under test.
+    pub enum Receiver {
+        /// `&self`.
+        Shared = "ref",
+        /// `&mut self`.
+        Exclusive = "mut",
+        /// `self`.
+        Owned = "value",
+        /// `self: Box<Self>`.
+        Boxed = "box",
+        /// `self: Pin<&Self>`.
+        PinShared = "pin-ref",
+        /// `self: Pin<&mut Self>`.
+        PinExclusive = "pin-mut",
+        /// `self: Rc<Self>`, which would need a refcount.
+        Rc = "rc",
+        /// `self: Arc<Self>`, which would need a refcount.
+        Arc = "arc",
+        /// `self: Pin<Box<Self>>`, which would need an allocation.
+        PinBoxed = "pin-box",
+    }
+}
+
+axis! {
+    /// The return type of the method under test.
+    pub enum Return {
+        /// `u64`, a plain value.
+        Tag = "u64",
+        /// `()`.
+        Unit = "unit",
+        /// `&u64`, borrowed from the payload.
+        Shared = "ref",
+        /// `&mut u64`, borrowed mutably from the payload.
+        Exclusive = "mut",
+        /// `Self`.
+        This = "self",
+        /// `Option<Self>`.
+        OptionThis = "option-self",
+        /// `Result<Self, Fault>`.
+        ResultThis = "result-self",
+        /// `(Self, u64)`.
+        TupleThis = "tuple-self",
+        /// `Self::Out`, taken from the first variant.
+        Assoc = "assoc",
+        /// `Self::Out`, overridden on the enum with a type every payload's
+        /// converts into.
+        Out = "out",
+        /// `Option<Self::Out>`, overridden.
+        OptionOut = "option-out",
+        /// `Result<u64, Self::Error>`, overridden.
+        ResultError = "result-error",
+        /// `Result<Self, Self::Error>`, overridden.
+        ResultThisError = "result-self-error",
+        /// `impl Future<Output = u64>`.
+        Future = "future",
+        /// `impl Future<Output = Self>`.
+        FutureThis = "future-self",
+        /// `Pin<Box<dyn Future<Output = u64> + '_>>`.
+        BoxedFuture = "boxed-future",
+        /// `Pin<Box<dyn Future<Output = Self::Out> + '_>>`, overridden, so
+        /// the output is converted.
+        BoxedFutureOut = "boxed-future-out",
+        /// `impl Iterator<Item = u64>`.
+        Iterator = "iterator",
+        /// `Vec<Self>`.
+        VecThis = "vec-self",
+        /// `Option<(Self, u64)>`.
+        OptionTupleThis = "option-tuple-self",
+    }
+}
+
+axis! {
+    /// A `Self` argument of the method under test, and where the result
+    /// for two different variants, the mismatch, is spelled.
+    pub enum Argument {
+        /// No `Self` argument.
+        Absent = "none",
+        /// `&Self`, with `#[dispatch(mismatch = ..)]` on the trait method.
+        SharedOnTrait = "ref-trait",
+        /// `&Self`, with `mismatch(m = ..)` on the enum.
+        SharedOnEnum = "ref-enum",
+        /// `Self` by value, with `mismatch(m = ..)` on the enum.
+        Owned = "value",
+        /// `&mut Self`, with `#[dispatch(mismatch = ..)]` on the trait
+        /// method.
+        Exclusive = "mut",
+        /// `&Self` with no mismatch anywhere.
+        SharedBare = "ref-bare",
+    }
+}
+
+axis! {
+    /// What qualifies the method under test.
+    pub enum Qualifier {
+        /// A plain required method.
+        Plain = "plain",
+        /// `async fn`.
+        Async = "async",
+        /// `unsafe fn`.
+        Unsafe = "unsafe",
+        /// A generic method whose parameter an argument fixes.
+        Generic = "generic",
+        /// A generic method whose parameter no argument fixes, called with
+        /// a turbofish.
+        Turbofish = "turbofish",
+        /// A provided method, with a default body, that `P0` overrides and
+        /// `P1` does not.
+        Provided = "provided",
+    }
+}
+
+axis! {
+    /// How the method under test reaches the subject: the trait on the
+    /// subject's attribute, a partial impl block, or an inherent block.
+    pub enum Path {
+        /// The trait named on the subject's `#[whichever::dispatch(..)]`.
+        Attribute = "attribute",
+        /// A partial impl block that says nothing about `m`.
+        Block = "block",
+        /// `#[dispatch(*)] fn m(..);` in the block.
+        BlockStar = "block-star",
+        /// `#[dispatch(A)] fn m(..) { .. }`: the first variant forwards, the
+        /// body answers for the rest.
+        BlockSome = "block-some",
+        /// `#[dispatch(default)] fn m(..);`, left to the trait's default.
+        BlockDefault = "block-default",
+        /// The block writes `m` itself.
+        BlockWritten = "block-written",
+        /// An inherent block with `#[dispatch(*)] pub fn m(..);`, calling the
+        /// payloads' own `m`.
+        Inherent = "inherent",
+        /// An inherent `#[dispatch(A)] pub fn m(..) { .. }`.
+        InherentSome = "inherent-some",
+    }
+}
+
+axis! {
+    /// What an inherent method's arm calls or reads on its target.
+    pub enum Callee {
+        /// The payload's own method of the same name.
+        Method = "method",
+        /// The payload's method of another name, `call = answer`.
+        Renamed = "renamed",
+        /// The target itself, `value`.
+        Value = "value",
+        /// A field of the target, `field = state`.
+        Field = "field",
+    }
+}
+
+axis! {
+    /// What an inherent method's `with` wraps each arm's result in.
+    pub enum Lift {
+        /// No `with`.
+        Bare = "none",
+        /// `with = Some`.
+        Some = "some",
+        /// `with = Ok`.
+        Ok = "ok",
+        /// `with = support::by_ref`, a function taking `&T`.
+        ByRef = "by-ref",
+        /// `with = support::by_value`, a function taking `T`.
+        ByValue = "by-value",
+        /// `with = Into::into`.
+        Into = "into",
+    }
+}
+
+axis! {
+    /// The `#[cfg]` on the subject's variants.
+    pub enum Cfg {
+        /// No variant under `#[cfg]`.
+        Absent = "none",
+        /// The second variant under `#[cfg(all())]`, present.
+        SecondOn = "second-on",
+        /// The second variant under `#[cfg(any())]`, compiled out.
+        SecondOff = "second-off",
+        /// The first variant under `#[cfg(any())]`, compiled out.
+        FirstOff = "first-off",
+        /// Every variant under `#[cfg(all())]`, so the enum may be empty in
+        /// some build and is matched by place.
+        EveryOn = "every-on",
+    }
+}
+
+axis! {
+    /// The attributes on the trait's method under test.
+    pub enum Item {
+        /// No attribute.
+        Bare = "none",
+        /// `#[cfg(all())]`: the method exists in this build.
+        CfgOn = "cfg-on",
+        /// `#[cfg(any())]`: the method exists in no build, and only the
+        /// rest of the trait is forwarded.
+        CfgOff = "cfg-off",
+        /// `#[deprecated]`.
+        Deprecated = "deprecated",
+        /// `#[allow(non_snake_case)]`, beside an argument the lint would
+        /// otherwise warn of.
+        Allow = "allow",
+        /// `#[inline(always)]`, which the forwarding takes instead of
+        /// `#[inline]`.
+        Inline = "inline-always",
+    }
+}
+
+axis! {
+    /// Where the trait and the payloads live, beside the subject.
+    pub enum Home {
+        /// In the cell's module, beside the subject.
+        Local = "local",
+        /// In a sibling module inside the cell, its signature naming a type
+        /// by a `crate::` path.
+        Sibling = "sibling",
+        /// In another crate, a `traits-NNN` shard the subject's depends on,
+        /// its signature naming a type by a `crate::` path of that crate.
+        Crate = "crate",
+    }
+}
+
+axis! {
+    /// The generics of the trait or the subject.
+    pub enum Generics {
+        /// None.
+        Bare = "none",
+        /// The first variant's payload is a type parameter of the enum,
+        /// `enum E<T> { A(T), .. }`.
+        Payload = "payload",
+        /// A generic trait dispatched at a concrete argument,
+        /// `Probe<support::Json>`.
+        Concrete = "concrete",
+        /// A trait generic over a const dispatched at the enum's own
+        /// parameter, `Probe<N>` on `enum E<const N: u64>`.
+        Own = "own",
+        /// A generic trait whose parameter has a default, left out,
+        /// `#[dispatch(Probe)]` for `trait Probe<F = support::Json>`.
+        Defaulted = "defaulted",
+    }
+}
+
+axis! {
+    /// The conversions the subject's attribute writes, and which the law
+    /// checks (options.md).
+    pub enum Conversion {
+        /// The default `From` per payload, unchecked.
+        Unchecked = "none",
+        /// The default `From` per payload, checked, and its absence where
+        /// the docs say none is written, proven by a hand-written impl.
+        From = "from",
+        /// `from = false`, its absence proven.
+        FromOff = "from-off",
+        /// `try_from = true`.
+        Try = "try",
+        /// `try_from = ref`.
+        TryRef = "try-ref",
+        /// `try_from = ref_mut`.
+        TryMut = "try-mut",
+        /// `into = support::Sink`.
+        Into = "into",
+        /// `#[dispatch(from = false)]` on the first variant.
+        VariantFromOff = "variant-from-off",
+        /// `#[dispatch(try_from = true)]` on the first variant.
+        VariantTry = "variant-try",
+    }
+}
+
+impl Cfg {
+    /// Returns the predicate the variant of a slot is under, if any.
+    pub fn of(self, slot: usize) -> Option<&'static str> {
+        match (self, slot) {
+            (Cfg::Absent, _) => None,
+            (Cfg::SecondOn, 1) | (Cfg::EveryOn, _) => Some("all()"),
+            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) => Some("any()"),
+            (Cfg::SecondOn | Cfg::SecondOff | Cfg::FirstOff, _) => None,
+        }
+    }
+}

@@ -770,6 +770,9 @@ or golden changed; `spelled` has unit tests.
   status line.
 - Every sentence the macros write has a `tests/ui` snapshot: `limits.rs`
   reads the sources and the snapshots and names the ones that do not.
+- The conformance matrix agrees: a change that moves a cell's standing
+  lists the lines of `conformance/known.tsv` it adds or deletes in the
+  stage's status line, and a line is deleted by the fix it names.
 
 ## 6. Open decisions
 

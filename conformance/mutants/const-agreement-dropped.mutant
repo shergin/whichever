@@ -1,0 +1,9 @@
+file: macros/src/agreement.rs
+breaks: Every other variant's associated const is checked at compile time to agree with the first's, as `docs/what-is-generated.md` says.
+expect: survives
+reason: No cell declares an associated const, so the const agreement check is not modelled.
+
+find:
+                    #(#cfgs)* assert!(#equal, #message);
+replace:
+                    #(#cfgs)* let _ = (#equal, #message);

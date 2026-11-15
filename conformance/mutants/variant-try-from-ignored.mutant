@@ -1,0 +1,9 @@
+file: macros/src/conversions.rs
+breaks: `#[dispatch(try_from = true)]` on a variant adds the `TryFrom` impl for that payload alone, as `docs/options.md` says.
+expect: survives
+reason: No cell converts a payload into the enum or back, so the conversions are not modelled.
+
+find:
+        let forms = conversions.try_from.unwrap_or(try_from);
+replace:
+        let forms = conversions.try_from.and(Some(try_from)).unwrap_or(try_from);

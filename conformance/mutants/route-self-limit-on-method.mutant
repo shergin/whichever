@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: A `Self` return through a route is reported on the offending variant, as `docs/limits.md` says every unsupported shape is.
+expect: killed
+
+find:
+            return Err(Error::new_spanned(payload, message));
+replace:
+            return Err(Error::new_spanned(method, message));

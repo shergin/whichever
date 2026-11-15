@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: Two different variants of a `Self` argument give the `mismatch` expression, as `docs/what-is-generated.md` and `docs/options.md` say.
+expect: killed
+
+find:
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
+replace:
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* } };
+        let _ = fallback;

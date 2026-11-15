@@ -1,0 +1,959 @@
+//! The limits table: `docs/limits.md` made executable.
+//!
+//! A cell's verdict is decided in passes, each a list of rules:
+//!
+//! 1. **Malformed**: the trait or a payload's impl is not Rust whatever the
+//!    subject. Only the axes that make it so may depart from the neutral
+//!    cell; any other departure is non-canonical.
+//! 2. **Unpredicted**: the model cannot say what the macro answers, or
+//!    cannot write the payloads. The cell is unmodelled.
+//! 3. **Limits**: each rule names the sentence the docs promise for a shape
+//!    and where it is reported.
+//! 4. **Rejections**: each rule names a forwarding no hand can write, with
+//!    the rustc error the hand gets, where no sentence is documented.
+//!
+//! A cell with a limit is a limit when a limit of `m` replaces the body a
+//! rejection of `m` would have; a cell with a rejection and no limit is
+//! rejected; what is left passes.
+
+use super::argument::{ArgumentKind, MismatchSite};
+use super::limits::{Anchor, Expected, Limit};
+use super::path::{Form as PathForm, Site as PathSite};
+use super::qualifier::Generic;
+use super::receiver::Lends;
+use super::returns::{FutureKind, Node};
+use super::target::{Pointer, Step, Storage};
+use super::{
+    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver, Return,
+    Second, Slot, Target, Verdict,
+};
+use crate::cell::Cell;
+
+/// Returns the cell's verdict.
+pub fn verdict(cell: &Cell) -> Verdict {
+    // The callee and the lift are an inherent method's alone.
+    let inherent = cell.path.descriptor().site == PathSite::Inherent;
+    if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
+        return Verdict::NonCanonical;
+    }
+    // The attributes are on the trait's method, which an inherent method
+    // is not.
+    if inherent && cell.item != Item::Bare {
+        return Verdict::NonCanonical;
+    }
+    // Nor has an inherent method a mismatch or a default body: its `Self`
+    // argument is the enum, handed over as it is (inherent-methods.md), so
+    // `&Self` is spelled once, with no mismatch, and a provided method is a
+    // trait's.
+    let mismatched = matches!(cell.arg, Argument::SharedOnTrait | Argument::SharedOnEnum);
+    if inherent && (mismatched || cell.qual == Qualifier::Provided) {
+        return Verdict::NonCanonical;
+    }
+    // The generics are the trait's and its impl's, which an inherent
+    // method's arms do not name.
+    if inherent && cell.generic != Generics::Bare {
+        return Verdict::NonCanonical;
+    }
+    // The conversions are options of the enum's own attribute; the model
+    // checks them where it names the trait, on a subject of no generics.
+    let converted = cell.conv != Conversion::Unchecked;
+    if converted && (cell.path != super::Path::Attribute || cell.generic != Generics::Bare) {
+        return Verdict::NonCanonical;
+    }
+    // A struct subject has its one field and no second variant.
+    let is_struct = cell.s0.descriptor().is_struct();
+    if is_struct && (cell.s1 != Second::Absent || cell.cfg != Cfg::Absent) {
+        return Verdict::NonCanonical;
+    }
+    if let Some(reason) = malformed(cell) {
+        if !canonical_when_malformed(cell) {
+            return Verdict::NonCanonical;
+        }
+        return Verdict::Malformed(reason);
+    }
+    if let Some(reason) = unpredicted(cell) {
+        return Verdict::Unmodelled(reason);
+    }
+    let mut expected = limits(cell);
+    let mut rejections = rejections(cell);
+    // A method the trait declares under a `#[cfg]` that does not hold has
+    // no generated item in this build ("the generated item exists exactly
+    // when the trait's does", what-is-generated.md), so nothing about it
+    // is reported or rejected; what concerns the variants through the
+    // control method stands.
+    if !cell.method_present() {
+        expected.retain(|expected| !expected.limit.is_of_method());
+        rejections.retain(|rejection| rejection.method == Forwarded::Base);
+    }
+    if !expected.is_empty() {
+        // A method that cannot be forwarded is written with its sentence as
+        // its body (macros/ARCHITECTURE.md 3.8), so a sentence on `m`
+        // stands for any rejection of `m`; a rejection of the control
+        // method, or one beside a sentence on a variant only, would be a
+        // second error the model does not predict yet.
+        let on_method = expected
+            .iter()
+            .any(|expected| expected.limit.is_of_method());
+        let covered = rejections
+            .iter()
+            .all(|rejection| on_method && rejection.method == Forwarded::Method);
+        if !covered {
+            return Verdict::Unmodelled("a limit beside a rejection the limit does not replace");
+        }
+        return Verdict::Limit(expected);
+    }
+    if let Some(rejection) = rejections.first() {
+        return Verdict::Rejected {
+            code: rejection.code,
+            reason: rejection.reason,
+        };
+    }
+    Verdict::Pass
+}
+
+/// Which forwarded method a rejection concerns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Forwarded {
+    /// The method under test.
+    Method,
+    /// The control method.
+    Base,
+}
+
+/// A forwarding no hand can write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Rejection {
+    code: &'static str,
+    reason: &'static str,
+    method: Forwarded,
+}
+
+/// The signature itself, or every payload's impl of it, is ill-typed.
+fn malformed(cell: &Cell) -> Option<&'static str> {
+    let node = cell.ret.node();
+    let lends = cell.recv.descriptor().lends;
+    let borrowed_argument = matches!(
+        cell.arg.descriptor().kind,
+        Some(ArgumentKind::Shared | ArgumentKind::Exclusive)
+    );
+    if node.borrows_mutably() && lends == Lends::Shared {
+        return Some("a `&mut` return under a shared receiver, which no payload can lend");
+    }
+    if node.borrows() && lends == Lends::Nothing && !borrowed_argument {
+        return Some("a reference return under a receiver that holds no lifetime");
+    }
+    if matches!(node.future(), Some((FutureKind::Boxed, _)))
+        && lends == Lends::Nothing
+        && !borrowed_argument
+    {
+        return Some("a boxed future's `'_` under a receiver that holds no lifetime");
+    }
+    None
+}
+
+/// A malformed cell is canonical when only the receiver and the return
+/// type, which make it malformed, depart from the neutral cell.
+fn canonical_when_malformed(cell: &Cell) -> bool {
+    cell.s0 == Target::Plain
+        && cell.s1 == Second::Plain
+        && cell.arg == Argument::Absent
+        && cell.qual == Qualifier::Plain
+        && cell.path == super::Path::Attribute
+        && cell.callee == Callee::Method
+        && cell.lift == Lift::Bare
+        && cell.item == Item::Bare
+        && cell.home == Home::Local
+        && cell.generic == Generics::Bare
+        && cell.conv == Conversion::Unchecked
+}
+
+/// The model cannot say what the macro answers, or cannot write the
+/// payloads.
+fn unpredicted(cell: &Cell) -> Option<&'static str> {
+    let node = cell.ret.node();
+    let receiver = cell.recv.descriptor();
+    let argument = cell.arg.descriptor();
+    let qualifier = cell.qual.descriptor();
+
+    if node.borrows() && receiver.lends == Lends::Nothing {
+        return Some("a reference return that borrows from the `Self` argument");
+    }
+    // rustc warns of `#[inline]` on a method with no body in the trait
+    // itself, and is phasing it out, so the attribute is the provided
+    // method's.
+    if cell.item == Item::Inline && !qualifier.provided {
+        return Some("`#[inline]` on a required method, which rustc warns of in the trait");
+    }
+    let path = cell.path.descriptor();
+    if let Some(reason) = unpredicted_generics(cell) {
+        return Some(reason);
+    }
+    if let Some(reason) = unpredicted_conversions(cell) {
+        return Some(reason);
+    }
+    if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
+        // Open question: in a build that leaves no variant, a hand's
+        // `match *self {}` leaves the arguments unused, as the expansion
+        // does; whether that warning is the macro's to silence is not
+        // documented.
+        return Some("an enum with no variant in this build");
+    }
+    if cell.cfg != Cfg::Absent {
+        // Open question: whether a fallback arm is written beside a variant
+        // compiled out, and how a `Self` argument is matched by place, is
+        // not documented.
+        if argument.kind.is_some() {
+            return Some("a `Self` argument on an enum with variants under `#[cfg]`");
+        }
+        if path.site == PathSite::Inherent || path.form == PathForm::First {
+            return Some("an inherent or partial method naming variants under `#[cfg]`");
+        }
+    }
+    let inherent = path.site == PathSite::Inherent;
+    if cell.s0.descriptor().is_struct() {
+        // "Two values of the struct always hold the same field, and the
+        // argument is unwrapped to it" (structs.md): no mismatch to give.
+        if argument.kind.is_some() && argument.mismatch == MismatchSite::Enum && !inherent {
+            return Some("a mismatch option on a struct, which has no second variant");
+        }
+        // "A block on a dispatch struct forwards the same way: `*` is the
+        // field marked bare, or the only field, and a field's name is that
+        // field" (inherent-methods.md); the model names no field.
+        if path.form == PathForm::First {
+            return Some("a struct's inherent or block method naming its field, not modelled yet");
+        }
+    }
+    if inherent {
+        // An inherent method forwards by method-call syntax to the
+        // payloads' own `m` (inherent-methods.md), under the receivers the
+        // trait's forwarding takes; one that would need a refcount or an
+        // allocation is not described for an inherent method.
+        let forwarded = match cell.recv {
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::Owned
+            | Receiver::Boxed
+            | Receiver::PinShared
+            | Receiver::PinExclusive => true,
+            Receiver::Rc | Receiver::Arc | Receiver::PinBoxed => false,
+        };
+        if !forwarded {
+            return Some(
+                "an inherent method under a receiver that would need a refcount or an allocation",
+            );
+        }
+        if let Some(reason) = unpredicted_callee(cell) {
+            return Some(reason);
+        }
+        // The payload takes the enum it is handed as a type parameter of
+        // its own, which a turbofish naming the method's would have to
+        // spell too.
+        let enum_argument = argument.kind.is_some() && !cell.s0.descriptor().is_struct();
+        if enum_argument && cell.qual == Qualifier::Turbofish {
+            return Some("an inherent turbofish beside a `Self` argument the payload takes as a type parameter");
+        }
+        // An inherent opaque future names the receiver's lifetime alone,
+        // `+ '_` (golden `async_returns`), so the `async move` block that
+        // awaits the arms cannot capture a borrowed argument or a type
+        // parameter, which a hand would have to name with `use<..>`.
+        let opaque = matches!(node.future(), Some((FutureKind::Opaque, _)));
+        let borrowed = matches!(
+            argument.kind,
+            Some(ArgumentKind::Shared | ArgumentKind::Exclusive)
+        );
+        let generic = qualifier.generic == Some(Generic::Fixed);
+        if opaque && (borrowed || generic) {
+            return Some(
+                "an inherent opaque future that captures an argument its `+ '_` does not name",
+            );
+        }
+        let supported = match cell.ret {
+            Return::Tag
+            | Return::Unit
+            | Return::Shared
+            | Return::Exclusive
+            | Return::This
+            | Return::OptionThis
+            | Return::ResultThis
+            | Return::Future => true,
+            Return::TupleThis
+            | Return::Assoc
+            | Return::Out
+            | Return::OptionOut
+            | Return::ResultError
+            | Return::ResultThisError
+            | Return::FutureThis
+            | Return::BoxedFuture
+            | Return::BoxedFutureOut
+            | Return::Iterator
+            | Return::VecThis
+            | Return::OptionTupleThis => false,
+        };
+        if !supported {
+            return Some("an inherent method with a return type the inherent docs do not describe for an enum");
+        }
+        let routed_self = node.holds_this()
+            && cell
+                .method_slots()
+                .iter()
+                .any(|(_, _, target)| target.is_routed() || target.has_other_fields());
+        if routed_self {
+            return Some(
+                "an inherent `Self` return on a variant reached through a route or a marked field",
+            );
+        }
+        let method_route = cell
+            .method_slots()
+            .iter()
+            .any(|(_, _, target)| target.ends_in_method());
+        if method_route && cell.recv != Receiver::Shared {
+            return Some("an inherent method through a route ending in a method call under a receiver other than `&self`");
+        }
+        let lifetime = cell
+            .live_slots()
+            .iter()
+            .any(|(_, _, target)| target.borrows());
+        if cell.ret == Return::Future && lifetime {
+            return Some("an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`");
+        }
+        if cell
+            .method_slots()
+            .iter()
+            .any(|(_, _, target)| target.ends_in_temporary())
+        {
+            return Some("an inherent method through a route whose method yields its target");
+        }
+    }
+    // A body a block writes, for the variants a mark leaves out or for
+    // every variant, is a constant of the return type.
+    if matches!(path.form, PathForm::First | PathForm::Written) {
+        if node.holds_future() {
+            return Some("a block body for a future return");
+        }
+        let nameable =
+            cell.s0.descriptor().storage == Storage::Payload && cell.cfg.of(0) != Some("any()");
+        if !node.has_constant(nameable) {
+            return Some("a block body for a return type that needs a payload to make");
+        }
+    }
+    if argument.kind.is_some() && argument.mismatch != MismatchSite::Missing && !inherent {
+        // Open question: the docs do not say what a mismatch is for a
+        // future. The `match` of an opaque future, and of a boxed one whose
+        // output is converted, is in one `async move` block, so the
+        // mismatch is read as the output there; a boxed future forwarded as
+        // it is has no block, so its mismatch is a boxed future itself.
+        let output = match node.future() {
+            Some((_, output)) => *output,
+            None => node,
+        };
+        // A `Self` in the mismatch is a variant built around a fresh
+        // payload, which only the enum's attribute can name, and only for a
+        // variant that holds its payload by value.
+        let nameable = argument.mismatch == MismatchSite::Enum
+            && cell.s0.descriptor().storage == Storage::Payload
+            && cell.generic != Generics::Payload;
+        if !output.has_constant(nameable) {
+            return Some("a mismatch expression for a return type that needs a payload to make");
+        }
+    }
+    if qualifier.asyncness && node.holds_future() {
+        return Some("an `async fn` that returns a future");
+    }
+    let yielded = cell
+        .live_slots()
+        .iter()
+        .all(|(_, _, target)| target.ends_in_temporary());
+    if qualifier.provided && yielded {
+        return Some("a default body that calls a control method taking `self`");
+    }
+    if qualifier.provided && !node.has_default() {
+        return Some("a default body that would need a payload to make its answer");
+    }
+    None
+}
+
+/// The conversions the model checks: over payloads it builds by value,
+/// in a build that holds every variant.
+fn unpredicted_conversions(cell: &Cell) -> Option<&'static str> {
+    let conversion = cell.conv.descriptor();
+    if !conversion.checked {
+        return None;
+    }
+    let live = cell.live_slots();
+    if live.iter().any(|(_, _, target)| target.borrows()) {
+        return Some(
+            "conversions of a subject that borrows, whose payloads the law cannot hand over",
+        );
+    }
+    if cell.cfg != Cfg::Absent {
+        return Some("conversions beside variants under `#[cfg]`");
+    }
+    let is_struct = cell.s0.descriptor().is_struct();
+    if is_struct && conversion.variant_option.is_some() {
+        return Some("a variant's conversion option on a struct, which has no variant");
+    }
+    // Open question: the docs name `TryFrom` "for every payload type", and
+    // `into` converts "each payload"; for a variant that stores a pointer,
+    // a wrapper or a pair, whether that is the stored type or the target is
+    // not said.
+    let plain = live.iter().all(|(_, target, _)| *target == Target::Plain);
+    let tries = conversion.try_from.is_some() || conversion.first_try;
+    if tries && !plain && !is_struct {
+        return Some("`TryFrom` over a variant that stores more than its payload");
+    }
+    if conversion.variant_option.is_some() && cell.s0 != Target::Plain {
+        return Some("a variant's conversion option beside a variant option of its own");
+    }
+    if conversion.into && !is_struct {
+        let reached = live.iter().all(|(_, target, descriptor)| {
+            *target == Target::Plain || (descriptor.has_other_fields() && !descriptor.is_routed())
+        });
+        let pair = cell
+            .slots()
+            .iter()
+            .any(|slot| slot.variant == super::SlotVariant::Pair);
+        if !reached || pair {
+            return Some(
+                "`into` over a variant that stores more than its payload, or several fields",
+            );
+        }
+    }
+    None
+}
+
+/// The generics the model writes: one parameter, of the trait or of the
+/// subject, on a subject that borrows nothing.
+fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
+    if cell.generic == Generics::Bare {
+        return None;
+    }
+    let borrows = cell
+        .live_slots()
+        .iter()
+        .any(|(_, _, target)| target.borrows());
+    if borrows {
+        return Some("a generic beside the lifetime the subject takes");
+    }
+    // An associated type taken from a type parameter is the parameter's
+    // own, which a hand bounds or overrides; the model spells neither.
+    if !cell.ret.node().associated().is_empty() {
+        return Some(
+            "an associated type beside generics, which the model spells for the plain trait",
+        );
+    }
+    // A variant compiled out may leave the subject's parameter unused.
+    if cell.cfg != Cfg::Absent {
+        return Some("generics beside variants under `#[cfg]`");
+    }
+    // The law names a generic subject by an alias, which a tuple struct's
+    // constructor and pattern cannot be spelled through.
+    let parameter = cell.generic.descriptor().parameter.is_some();
+    if parameter && cell.s0.descriptor().is_struct() {
+        return Some("a generic struct subject, which the law names by an alias");
+    }
+    if cell.generic != Generics::Payload {
+        return None;
+    }
+    // "A payload that is a type parameter of the enum, or `Box<T>` under
+    // `deref`, gives the impl the bound `Raw: Trait`" (options.md); a
+    // partial block's header is the user's, and spells the bound itself.
+    if !matches!(cell.s0, Target::Plain | Target::DerefBox | Target::Struct) {
+        return Some("a type-parameter payload reached through a route or a marked field");
+    }
+    if cell.path != super::Path::Attribute {
+        return Some(
+            "a type-parameter payload through a partial block, whose header is the user's",
+        );
+    }
+    // A pinned receiver needs every payload to be `Unpin`
+    // (what-is-generated.md), a bound on the parameter the model does not
+    // write.
+    if matches!(cell.recv, Receiver::PinShared | Receiver::PinExclusive) {
+        return Some("a type-parameter payload under a pinned receiver, which needs `T: Unpin`");
+    }
+    None
+}
+
+/// The callees and lifts the model writes, as inherent-methods.md
+/// describes them; the rest is unmodelled.
+fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
+    let plain_place = cell
+        .method_slots()
+        .iter()
+        .all(|(_, _, target)| !target.is_routed());
+    let lift = cell.lift;
+    // An inherent method that names the first variant has a body for the
+    // rest, a constant of the declared type; only rendering builds that
+    // type, so its constant is read here from the target's.
+    let first = cell.path.descriptor().form == PathForm::First;
+    let constant = match lift {
+        Lift::Bare | Lift::Into => cell.target_node().has_constant(false),
+        Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => true,
+    };
+    if first && !constant {
+        return Some("an inherent body for a return type that needs a payload to make");
+    }
+    match cell.callee {
+        Callee::Method | Callee::Renamed => {
+            // `with = Into::into` "rebuilds the enum through its `From`
+            // impls" (inherent-methods.md): the payload answers its own
+            // type, which converts into the enum named in the return type,
+            // or a value that converts into itself.
+            let into = match cell.ret {
+                Return::Tag | Return::Unit | Return::Shared | Return::Exclusive => true,
+                Return::This => cell.into_rebuilds(),
+                Return::OptionThis
+                | Return::ResultThis
+                | Return::TupleThis
+                | Return::Assoc
+                | Return::Out
+                | Return::OptionOut
+                | Return::ResultError
+                | Return::ResultThisError
+                | Return::Future
+                | Return::FutureThis
+                | Return::BoxedFuture
+                | Return::BoxedFutureOut
+                | Return::Iterator
+                | Return::VecThis
+                | Return::OptionTupleThis => false,
+            };
+            let fits = match lift {
+                Lift::Bare | Lift::Some | Lift::Ok => true,
+                Lift::ByRef => cell.ret == Return::Shared,
+                Lift::ByValue => cell.ret == Return::Tag,
+                Lift::Into => into,
+            };
+            if !fits {
+                return Some("a lift over an answer the lift does not take");
+            }
+            if lift != Lift::Bare && cell.ret.node().future().is_some() {
+                return Some("a lift over a future");
+            }
+        }
+        Callee::Value | Callee::Field => {
+            if !matches!(cell.ret, Return::Tag | Return::Shared | Return::Exclusive) {
+                return Some("a place read as a return type other than a value or a reference");
+            }
+            if cell.qual != Qualifier::Plain {
+                return Some("a place under an `async`, `unsafe` or generic method");
+            }
+            // A place reads the target alone, so a `Self` argument would be
+            // the user's own unused argument.
+            if cell.arg != Argument::Absent {
+                return Some("a place beside a `Self` argument, which nothing reads");
+            }
+            // "Any other lift is handed the target as it stands"
+            // (inherent-methods.md), which for `Into::into` is the binding
+            // or the place, converted into a type of the method's choosing.
+            if lift == Lift::Into {
+                return Some("a place lifted through `Into::into`, not modelled yet");
+            }
+            let function = matches!(lift, Lift::ByRef | Lift::ByValue);
+            if function && cell.ret != Return::Tag {
+                return Some("a function lift declared with a return type other than its own");
+            }
+            if function && !plain_place {
+                return Some("a function lift handed a place reached through a route");
+            }
+        }
+    }
+    None
+}
+
+/// The sentences the docs promise for the cell, each with where it is
+/// reported.
+fn limits(cell: &Cell) -> Vec<Expected> {
+    let mut expected = Vec::new();
+    let mut expect = |limit, anchor| {
+        let entry = Expected { limit, anchor };
+        if !expected.contains(&entry) {
+            expected.push(entry);
+        }
+    };
+    let node = cell.ret.node();
+    let receiver = cell.recv.descriptor();
+    let argument = cell.reached_argument();
+    let slots = cell.slots();
+    let path = cell.path.descriptor();
+    // The variant-specific rules of `m` concern the variants it is
+    // forwarded to, and the method-wide ones apply when it is forwarded at
+    // all: a method a block writes, or leaves to the default, is no
+    // forwarding.
+    let method_live = cell.method_slots();
+    let forwarded = matches!(path.form, PathForm::Forwarded | PathForm::First);
+
+    // A sentence on the whole method sits on its signature in the block
+    // when the block holds it, and on the trait's method otherwise.
+    let on_method = match path.in_block {
+        true => Anchor::BlockSignature,
+        false => Anchor::Method,
+    };
+
+    // A mark naming every variant leaves no variant for the body, and `*`
+    // names a variant that holds no payload too (partial-impl-blocks.md,
+    // after inherent-methods.md: `inherent_all_with_body`,
+    // `inherent_all_with_unforwardable`).
+    let unreachable = slots.iter().any(|slot| slot.target().is_none());
+    if path.form == PathForm::First && slots.len() == 1 {
+        expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
+    }
+    if path.mark == Some("*") && unreachable {
+        expect(Limit::StarOverUnforwardable, Anchor::BlockSignature);
+    }
+
+    // "`#[dispatch(default)]` on a bodiless method leaves it to the trait's
+    // default" (partial-impl-blocks.md), which a required method has none of.
+    if path.form == PathForm::Default && !cell.qual.descriptor().provided {
+        expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
+    }
+
+    // "Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` [..],
+    // and `self: Pin<&Self>` or `self: Pin<&mut Self>` [..]. `Rc<Self>`,
+    // `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
+    // allocation, so they are not."
+    if forwarded && receiver.unwrap.is_none() {
+        expect(Limit::Receiver, on_method);
+    }
+
+    // "Every variant a trait is dispatched to holds exactly one unnamed
+    // field, `Name(Payload)`, or marks the field to forward to with
+    // `#[dispatch]`." A block method that names the variants it forwards
+    // to is how a trait reaches the others, the control method included,
+    // so the sentence stands where some method is forwarded to every
+    // variant with no mark: the control method, or the method under test
+    // a block is silent about.
+    let silent = path.form == PathForm::Forwarded && path.mark.is_none() && cell.method_present();
+    let dispatched = cell.base_reaches_all() || silent;
+    for slot in slots.iter().filter(|_| dispatched) {
+        match slot.variant {
+            super::SlotVariant::Live(_) => {}
+            super::SlotVariant::Unit => expect(Limit::UnitVariant, Anchor::Variant(slot.index)),
+            super::SlotVariant::Pair => expect(Limit::TwoFields, Anchor::Variant(slot.index)),
+        }
+    }
+
+    // `mismatch` in docs/options.md: a `Self` argument needs the result
+    // for two different variants, which one variant never meets.
+    if path.form == PathForm::Forwarded
+        && argument.kind.is_some()
+        && argument.mismatch == MismatchSite::Missing
+        && slots.len() > 1
+    {
+        expect(Limit::SelfArgumentWithoutMismatch, Anchor::Method);
+    }
+
+    // "An enum cannot dispatch a return-position `impl Trait`, at any depth
+    // of the return type, except `impl Future<Output = T>`."
+    // With `with`, the payload returns the plain value and the lift wraps
+    // the variant (inherent-methods.md); a lift around a return that holds
+    // `Self` under a wrapper of its own is a `Self` the rewrap cannot reach.
+    let lifted = matches!(cell.lift, Lift::Some | Lift::Ok);
+    if lifted && node.holds_this() && node != Node::This {
+        expect(Limit::SelfInReturn, on_method);
+    }
+
+    // "A struct's `match` has one arm, so it forwards a return-position
+    // `impl Trait` as it is, which an enum cannot" (structs.md).
+    let one_arm = cell.s0.descriptor().is_struct();
+    let opaque = forwarded && !one_arm && matches!(node, Node::Iterator);
+    if opaque {
+        expect(Limit::OpaqueReturn, on_method);
+    }
+
+    // "A method whose return type wraps `Self` in anything but `Option`,
+    // `Result` or a tuple [..] cannot be forwarded", nor a tuple under an
+    // `Option` (what-is-generated.md).
+    let conversion = node.conversion();
+    if forwarded && conversion.is_none() && !matches!(node, Node::Iterator) {
+        expect(Limit::SelfInReturn, on_method);
+    }
+
+    // "A variant reached through a route, `deref` included, cannot take
+    // part in a method returning `Self`."
+    //
+    // The marked field of a variant with several gets the sentence of a
+    // struct's marked field, `struct_self_return_other_fields`, since the
+    // rebuild would drop the other fields (docs/structs.md); a marked field
+    // with a route of its own gets the route's. Open question:
+    // `docs/limits.md` and `tests/ui` hold the struct's case only.
+    if conversion.is_some() && node.holds_this() {
+        for (slot, _, target) in &method_live {
+            let anchor = Anchor::Variant(slot.index);
+            if target.pointer().is_some() {
+                expect(Limit::DerefSelfReturn, anchor);
+            } else if target.is_routed() {
+                expect(Limit::RouteSelfReturn, anchor);
+            } else if target.has_other_fields() {
+                expect(Limit::SelfReturnOtherFields, anchor);
+            }
+        }
+    }
+
+    // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain
+    // variant is an error, since boxing it again would allocate.
+    //
+    // Open question: a variant over another pointer, or reached through a
+    // field, is read as getting the same sentence.
+    let place = matches!(cell.callee, Callee::Value | Callee::Field);
+    if cell.recv == Receiver::Boxed && !place {
+        for (slot, _, target) in &method_live {
+            let boxed = target.pointer() == Some(Pointer::Box) && target.route == [Step::Deref];
+            if !boxed {
+                expect(Limit::BoxSelfPlain, Anchor::Variant(slot.index));
+            }
+        }
+    }
+
+    // "A value cannot be moved out of a `deref` variant that holds
+    // anything but a `Box`: a method taking `self` is reported on the
+    // payload."
+    //
+    // A `Self` argument by value gets the same sentence, which names the
+    // receiver though it is the argument that would move.
+    // An inherent place under `self: Box<Self>` is moved too, unless the
+    // return type borrows it: the case
+    // `place_moves_through_a_shared_pointer_under_a_boxed_receiver` holds
+    // the same fragment.
+    let boxed_place = cell.recv == Receiver::Boxed && place && !node.borrows();
+    if cell.recv == Receiver::Owned || boxed_place || argument.kind == Some(ArgumentKind::Owned) {
+        for (slot, _, target) in &method_live {
+            if target.pointer().is_some_and(|pointer| !pointer.owns()) {
+                expect(
+                    Limit::MovesThroughSharedPointer,
+                    Anchor::Variant(slot.index),
+                );
+            }
+        }
+    }
+
+    // "A route ending in a method call cannot serve a `&mut self` method."
+    //
+    // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
+    // sentence, which names `&mut self` for both.
+    if receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive) {
+        for (slot, _, target) in &method_live {
+            if target.ends_in_method() {
+                expect(Limit::MethodRouteOnMutSelf, Anchor::Variant(slot.index));
+            }
+        }
+    }
+
+    // "`from`, `try_from` and `into` are options of an enum; a struct gets
+    // no conversions" (struct_from_option), and `into` "converts every
+    // variant's payload" (options.md), which a variant with other fields or
+    // none does not hold alone.
+    let conversion = cell.conv.descriptor();
+    if one_arm && conversion.option.is_some() {
+        expect(Limit::StructConversion, Anchor::Attribute);
+    }
+    if conversion.into && !one_arm {
+        for slot in &slots {
+            match slot.variant {
+                super::SlotVariant::Unit => expect(Limit::IntoWithoutPayload, Anchor::Attribute),
+                super::SlotVariant::Pair => {}
+                super::SlotVariant::Live(target) => {
+                    if target.descriptor().has_other_fields() {
+                        expect(Limit::IntoOtherFields, Anchor::Attribute);
+                    }
+                }
+            }
+        }
+    }
+
+    // `type X;` becomes `type X = <FirstVariant as Trait>::X;`
+    // (what-is-generated.md), and a variant whose target has no nameable
+    // type takes no part (routes.md): with no variant whose target is
+    // named, the sentence of `all_variants_conditional` is on the enum.
+    let taken = node.associated().iter().any(|(_, overridden)| !overridden);
+    // "An associated type or const comes from the first variant without a
+    // `#[cfg]`", so only those can supply it.
+    let named = cell
+        .declared_slots()
+        .iter()
+        .filter(|slot| slot.cfg.is_none())
+        .filter_map(Slot::target)
+        .any(|(_, target)| target.route.iter().all(|step| *step == Step::Deref));
+    if taken && !named {
+        expect(Limit::UnsuppliedType, Anchor::Enum);
+    }
+
+    expected.sort();
+    expected
+}
+
+/// The forwardings no hand can write, each with the rustc error the hand
+/// gets. Where the macro answers such a shape with a sentence, the shape is
+/// a limit rule instead.
+fn rejections(cell: &Cell) -> Vec<Rejection> {
+    let mut rejections = Vec::new();
+    let mut reject = |code, reason, method| {
+        rejections.push(Rejection {
+            code,
+            reason,
+            method,
+        })
+    };
+    let node = cell.ret.node();
+    let receiver = cell.recv.descriptor();
+    let argument = cell.reached_argument();
+    let qualifier = cell.qual.descriptor();
+    let live = cell.method_slots();
+    let forwarded = !live.is_empty();
+    let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
+        live.iter().any(|(_, _, target)| predicate(target))
+    };
+
+    // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
+    // (docs/options.md), but nothing can be borrowed mutably through them:
+    // the hand's `&mut **inner` is E0596, and no sentence is documented.
+    // An inherent place borrows mutably only where the declared type asks.
+    let place = matches!(cell.callee, Callee::Value | Callee::Field);
+    let exclusive = (receiver.lends == Lends::Exclusive
+        || argument.kind == Some(ArgumentKind::Exclusive))
+        && (!place || node.borrows_mutably());
+    if exclusive
+        && any(&|target| {
+            target
+                .pointer()
+                .is_some_and(|pointer| !pointer.lends_mutably())
+        })
+    {
+        reject(
+            "E0596",
+            "a mutable borrow through a pointer that lends only shared access",
+            Forwarded::Method,
+        );
+    }
+
+    // A route ending in a method call hands the method's result over as it
+    // is (docs/decisions/an-arm-reaches-its-target-through-a-route.md): a
+    // method that lends serves the receivers that take a reference, one
+    // that yields the target by value serves `self` by value. The other
+    // pairing is a type error the hand's call gets as well.
+    let owned = cell.recv == Receiver::Owned || argument.kind == Some(ArgumentKind::Owned);
+    if any(&|target| target.ends_in_loan()) && owned {
+        reject(
+            "E0308",
+            "a lent target handed to a method that takes it by value",
+            Forwarded::Method,
+        );
+    }
+    let borrowed = matches!(
+        argument.kind,
+        Some(ArgumentKind::Shared | ArgumentKind::Exclusive)
+    );
+    if any(&|target| target.ends_in_temporary()) && (receiver.lends == Lends::Shared || borrowed) {
+        reject(
+            "E0308",
+            "a yielded target handed to a method that takes a reference",
+            Forwarded::Method,
+        );
+    }
+    let base_slots = cell.base_slots();
+    let some_yield = base_slots
+        .iter()
+        .any(|(_, _, target)| target.ends_in_temporary());
+    let every_yield = base_slots
+        .iter()
+        .all(|(_, _, target)| target.ends_in_temporary());
+    if some_yield && !every_yield {
+        reject(
+            "E0308",
+            "a yielded target handed to the control method, which takes `&self`",
+            Forwarded::Base,
+        );
+    }
+
+    // "Any other lift is handed the target as it stands, the reference the
+    // pattern binds under `&self` or a place reached through `via` or
+    // `field` by value" (inherent-methods.md): a function taking `&T` is
+    // handed a value where the binding owns or the place is a field, and
+    // one taking `T` is handed a reference where the binding borrows.
+    let by_reference = cell.recv.descriptor().lends != Lends::Nothing;
+    let value = cell.callee == Callee::Value;
+    let field = cell.callee == Callee::Field;
+    if cell.lift == Lift::ByRef && ((value && !by_reference) || field) {
+        reject(
+            "E0308",
+            "a function taking `&T` handed the target or a field by value",
+            Forwarded::Method,
+        );
+    }
+    if cell.lift == Lift::ByValue && value && by_reference {
+        reject(
+            "E0277",
+            "a function taking `T` handed the reference the pattern binds",
+            Forwarded::Method,
+        );
+    }
+
+    // A boxed future whose output is converted is one `async move` block
+    // that captures every argument. `X` is not bound to outlive the
+    // future's `'_`, which is E0311, and a borrowed `Self` argument has a
+    // lifetime of its own beside the receiver's; under a receiver that
+    // holds none, `'_` is the argument's.
+    let converted = node.future().is_some_and(|(kind, output)| {
+        kind == FutureKind::Boxed
+            && output
+                .conversion()
+                .is_some_and(|conversion| !conversion.is_keep())
+    });
+    if forwarded && converted && qualifier.generic == Some(Generic::Fixed) {
+        reject(
+            "E0311",
+            "a converted boxed future that captures a type parameter without a lifetime bound",
+            Forwarded::Method,
+        );
+    }
+    if forwarded && converted && borrowed && receiver.lends != Lends::Nothing {
+        reject(
+            "lifetime may not live long enough",
+            "a converted boxed future that captures a `Self` argument of another lifetime",
+            Forwarded::Method,
+        );
+    }
+    rejections
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Return;
+
+    #[test]
+    fn the_neutral_cell_passes() {
+        assert_eq!(verdict(&Cell::neutral()), Verdict::Pass);
+    }
+
+    #[test]
+    fn rejected_receivers_are_limits_on_the_method() {
+        for receiver in [Receiver::Rc, Receiver::Arc, Receiver::PinBoxed] {
+            let cell = Cell {
+                recv: receiver,
+                ..Cell::neutral()
+            };
+            assert_eq!(
+                verdict(&cell),
+                Verdict::Limit(vec![Expected {
+                    limit: Limit::Receiver,
+                    anchor: Anchor::Method
+                }])
+            );
+        }
+    }
+
+    #[test]
+    fn a_mutable_return_under_a_shared_receiver_is_malformed() {
+        let cell = Cell {
+            ret: Return::Exclusive,
+            ..Cell::neutral()
+        };
+        assert!(matches!(verdict(&cell), Verdict::Malformed(_)));
+        let departed = Cell {
+            s0: Target::DerefBox,
+            ..cell
+        };
+        assert_eq!(verdict(&departed), Verdict::NonCanonical);
+    }
+}
