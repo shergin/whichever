@@ -377,6 +377,33 @@ axis! {
     }
 }
 
+axis! {
+    /// A second trait dispatched on the subject by an attribute of its own
+    /// (options.md), with one method taking the control method's receiver,
+    /// which the law checks as it checks the control method.
+    pub enum Stack {
+        /// No second trait.
+        Absent = "none",
+        /// `trait Other`, dispatched by a second `#[whichever::dispatch]`.
+        Second = "second",
+        /// `trait Other: Probe`, a supertrait of the trait under test.
+        Supertrait = "supertrait",
+    }
+}
+
+axis! {
+    /// The `#[deprecated]` on a variant of the subject
+    /// (what-is-generated.md).
+    pub enum Deprecation {
+        /// No variant is deprecated.
+        Absent = "none",
+        /// The first variant is `#[deprecated]`.
+        First = "first",
+        /// The second variant is `#[deprecated]`.
+        Second = "second",
+    }
+}
+
 impl Cfg {
     /// Returns the predicate the variant of a slot is under, if any.
     pub fn of(self, slot: usize) -> Option<&'static str> {

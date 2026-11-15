@@ -325,4 +325,52 @@ pub const ZONES: &[Zone] = &[
         ],
         fixed: &[],
     },
+    Zone {
+        name: "stacks",
+        summary: "a second trait and a supertrait through their own attribute beside every path of the trait under test, over the target kinds that change its receiver, the variants it reaches and the associated items both traits take",
+        vary: &[
+            ("stack", &["second", "supertrait"]),
+            ("path", &[]),
+            ("s0", &["plain", "deref-box", "via-method-value", "struct"]),
+            ("s1", &["plain", "none", "unit"]),
+            ("agree", &["none", "type-differs", "const-override"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "stack-homes",
+        summary: "a second trait under the variants' `#[cfg]`, the receivers, the trait's homes and its generics",
+        vary: &[
+            ("stack", &["second", "supertrait"]),
+            ("cfg", &[]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref"]),
+            ("home", &[]),
+            ("generic", &["none", "concrete", "defaulted"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "deprecations",
+        summary: "a deprecated variant through every path, beside the variants, arguments and conversions that name it",
+        vary: &[
+            ("deprecated", &["first", "second"]),
+            ("path", &[]),
+            ("s1", &["plain", "unit", "deref-box", "marked-struct"]),
+            ("arg", &["none", "ref-trait", "ref-enum"]),
+            ("conv", &["none", "from", "try-ref", "into"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "deprecation-cfg",
+        summary: "a deprecated variant under the variants' `#[cfg]`, beside a second trait, over the returns that rewrap it",
+        vary: &[
+            ("deprecated", &["first", "second"]),
+            ("stack", &[]),
+            ("cfg", &[]),
+            ("ret", &["u64", "self", "option-self", "future-self", "assoc"]),
+            ("recv", &["ref", "value"]),
+        ],
+        fixed: &[],
+    },
 ];

@@ -44,6 +44,14 @@ pub fn stored_value(slot: &Slot, target: &TargetDescriptor, seed: u64) -> String
     }
 }
 
+/// Writes `#[allow(deprecated)]` before an impl that names a deprecated
+/// variant, as a hand writes it.
+fn allow_deprecated(writer: &mut Writer, deprecated: bool) {
+    if deprecated {
+        writer.line("#[allow(deprecated)]");
+    }
+}
+
 /// Writes the impls the docs say the attribute does not write, by hand
 /// beside a passing subject.
 pub fn write_proofs(writer: &mut Writer, context: &Context) {
@@ -61,6 +69,7 @@ pub fn write_proofs(writer: &mut Writer, context: &Context) {
             "/// No `From<{stored}>` is written for `{}`, or this impl would conflict.",
             slot.name()
         ));
+        allow_deprecated(writer, slot.deprecated);
         writer.open(format!("impl From<{stored}> for E {{"));
         writer.open(format!("fn from(value: {stored}) -> E {{"));
         writer.line(construct("E", &slot, &target, "value"));
@@ -115,6 +124,7 @@ pub fn write_hand(writer: &mut Writer, context: &Context) {
             continue;
         };
         let stored = storage(&slot, &target);
+        allow_deprecated(writer, slot.deprecated);
         writer.open(format!("impl From<{stored}> for E {{"));
         writer.open(format!("fn from(value: {stored}) -> E {{"));
         writer.line(construct("E", &slot, &target, "value"));
@@ -137,6 +147,7 @@ pub fn write_hand(writer: &mut Writer, context: &Context) {
                 TryForm::Exclusive => &[("", ""), ("&'e ", "<'e>"), ("&'e mut ", "<'e>")],
             };
             for (reference, generics) in forms {
+                allow_deprecated(writer, slot.deprecated);
                 writer.open(format!(
                     "impl{generics} TryFrom<{reference}E> for {reference}{payload} {{"
                 ));
@@ -156,6 +167,7 @@ pub fn write_hand(writer: &mut Writer, context: &Context) {
         }
     }
     if conversion.into {
+        allow_deprecated(writer, context.slots.iter().any(|slot| slot.deprecated));
         writer.open("impl From<E> for support::Sink {");
         writer.open("fn from(value: E) -> support::Sink {");
         writer.open("match value {");

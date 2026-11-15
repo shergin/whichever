@@ -8,8 +8,8 @@
 
 use crate::axis::Axis;
 use crate::model::{
-    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier,
-    Receiver, Return, Second, Target,
+    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
+    Qualifier, Receiver, Return, Second, Stack, Target,
 };
 
 /// The id of the neutral cell.
@@ -184,6 +184,10 @@ cell! {
     conv: Conversion,
     /// The trait's own associated items and whether the payloads agree.
     agree: Agreement,
+    /// A second trait dispatched on the subject.
+    stack: Stack,
+    /// The `#[deprecated]` on a variant.
+    deprecated: Deprecation,
 }
 
 impl Cell {

@@ -381,13 +381,20 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                 .filter(|module| entries[by_module[module.as_str()]].state == State::Full)
                 .map(|module| {
                     let cell = &entries[by_module[module.as_str()]].cell;
+                    let mut traits = vec![(
+                        render::context::TRAIT,
+                        cell.path.descriptor().site != PathSite::Block,
+                    )];
+                    if cell.stack.descriptor().present {
+                        traits.push((crate::model::stack::OTHER, true));
+                    }
                     expansion::Expected {
                         module: module.as_str(),
-                        derived: cell.path.descriptor().site != PathSite::Block,
+                        traits,
                     }
                 })
                 .collect();
-            let found = expansion::compare(&workspace, shard, &cells, render::context::TRAIT)?;
+            let found = expansion::compare(&workspace, shard, &cells)?;
             for (module, methods) in found {
                 let entry = &mut entries[by_module[&module]];
                 for (method, differences) in methods {

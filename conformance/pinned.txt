@@ -122,3 +122,18 @@ s1=deref-ref agree=type-differs
 s0=deref-ref agree=type-differs
 s1=deref-ref agree=const-differs
 s0=deref-ref s1=none agree=const-agrees
+
+# Two traits on one enum, each with its agreement check, which an
+# inherent impl on the subject would have collided between
+# (agreement-check-passes-late-bound-lifetimes, its fix); through the
+# enum's attribute and beside a partial block of the first.
+s1=deref-ref agree=const-agrees stack=second
+s1=deref-ref agree=type-differs stack=second
+path=block agree=const-override stack=supertrait
+# A deprecated variant is forwarded and converted under
+# `#[allow(deprecated)]` (golden `deprecated`, behaviour test
+# `deprecated_items`), here with every conversion and a second trait.
+deprecated=first
+s1=deref-box conv=try-ref deprecated=second
+conv=into deprecated=first
+stack=second deprecated=second

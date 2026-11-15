@@ -12,6 +12,7 @@ use crate::model::argument::{ArgumentKind, MismatchSite};
 use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
+use crate::model::stack::OTHER;
 use crate::model::target::{Form, Pointer, Step, Storage, TargetDescriptor};
 use crate::model::{Callee, Lift, Slot, SlotVariant, Target};
 
@@ -28,8 +29,10 @@ enum Side {
 /// `hand` against `hand::E`.
 pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.line("#[cfg(test)]");
-    // The law calls a deprecated method, which the deprecation reaches.
-    if context.item.deprecated {
+    // The law calls a deprecated method, or names a deprecated variant,
+    // which the deprecation reaches.
+    let deprecated = context.declared.iter().any(|slot| slot.deprecated);
+    if context.item.deprecated || deprecated {
         writer.line("#[allow(deprecated)]");
     }
     writer.open("mod law {");
@@ -127,7 +130,14 @@ fn write_associated(writer: &mut Writer, context: &Context) {
     writer.line(format!(
         "// The associated items: fixed on the enum, or `{supplier}`'s."
     ));
-    for item in items {
+    let mut traits = vec![instance.clone()];
+    if context.stack.present {
+        traits.push(String::from(OTHER));
+    }
+    for (item, instance) in traits
+        .iter()
+        .flat_map(|instance| items.iter().map(move |item| (item, instance)))
+    {
         let name = item.name;
         match (item.kind, item.overridden) {
             (ItemKind::Type, _) => {
@@ -472,6 +482,17 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
             context.base_call("S", "subject")
         )),
         Expect::Default => unreachable!("the control method is never left to a default"),
+    }
+    // The second trait's method answers what a twin's does, on every
+    // variant that holds a payload.
+    if context.stack.present && slot.target().is_some() {
+        write_subject(writer, "S", slot, "stacked", seed, false);
+        writer.line(format!("let stacked_twin = {payload}::new({seed});"));
+        writer.line(format!(
+            "assert_eq!({}, {}, \"other on {name}\");",
+            context.other_call("S", "stacked"),
+            context.other_call(&payload, "stacked_twin")
+        ));
     }
     writer.close("}");
 }

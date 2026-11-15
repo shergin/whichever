@@ -17,12 +17,13 @@ pub mod path;
 pub mod qualifier;
 pub mod receiver;
 pub mod returns;
+pub mod stack;
 pub mod target;
 mod verdict;
 
 pub use axes::{
-    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier,
-    Receiver, Return, Second, Target,
+    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
+    Qualifier, Receiver, Return, Second, Stack, Target,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -132,6 +133,8 @@ pub struct Slot {
     pub holds: usize,
     /// Whether the subject declares the payload as its type parameter.
     pub parameter: bool,
+    /// Whether the variant is `#[deprecated]`.
+    pub deprecated: bool,
 }
 
 impl Slot {
@@ -200,6 +203,7 @@ impl Cell {
             cfg: self.cfg.of(0),
             holds: 0,
             parameter: self.generic.descriptor().payload,
+            deprecated: self.deprecated.slot() == Some(0),
         }];
         let second = match self.s1.slot() {
             SecondSlot::Absent => return slots,
@@ -217,6 +221,7 @@ impl Cell {
             cfg: self.cfg.of(1),
             holds,
             parameter: false,
+            deprecated: self.deprecated.slot() == Some(1),
         });
         slots
     }

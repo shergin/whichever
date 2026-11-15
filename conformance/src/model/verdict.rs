@@ -25,8 +25,8 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
 use super::{
-    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver,
-    Return, Second, Target, Verdict,
+    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
+    Qualifier, Receiver, Return, Second, Stack, Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -64,6 +64,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // A struct subject has its one field and no second variant.
     let is_struct = cell.s0.descriptor().is_struct();
     if is_struct && (cell.s1 != Second::Absent || cell.cfg != Cfg::Absent) {
+        return Verdict::NonCanonical;
+    }
+    // A deprecation is a variant's, and the second exists only beside a
+    // second variant.
+    let deprecated_absent = cell.deprecated == Deprecation::Second && cell.s1 == Second::Absent;
+    if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
         return Verdict::NonCanonical;
     }
     if let Some(reason) = malformed(cell) {
@@ -105,7 +111,7 @@ pub fn verdict(cell: &Cell) -> Verdict {
         .any(|expected| expected.limit == Limit::UnsuppliedType);
     if unsupplied {
         let site = cell.path.descriptor().site;
-        let declared = site != PathSite::Block;
+        let declared = site != PathSite::Block || cell.stack.descriptor().present;
         expected.retain(|expected| {
             let arm = expected.limit.is_of_method()
                 && matches!(expected.anchor, Anchor::Variant(_))
@@ -198,6 +204,8 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.generic == Generics::Bare
         && cell.conv == Conversion::Unchecked
         && cell.agree == Agreement::Absent
+        && cell.stack == Stack::Absent
+        && cell.deprecated == Deprecation::Absent
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -222,6 +230,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         return Some(reason);
     }
     if let Some(reason) = unpredicted_conversions(cell) {
+        return Some(reason);
+    }
+    if let Some(reason) = unpredicted_stack(cell) {
         return Some(reason);
     }
     if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
@@ -401,6 +412,55 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     if qualifier.provided && !node.has_default() {
         return Some("a default body that would need a payload to make its answer");
+    }
+    None
+}
+
+/// The second trait and the deprecated variant the model writes.
+fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
+    let stack = cell.stack.descriptor();
+    // Open question: which of two attributes writes the conversions, and
+    // whose `from` decides them, is not documented; the model leaves the
+    // default to both, which writes them once (behaviour test
+    // `foreign_traits`, `ReadError`).
+    if stack.present && cell.conv != Conversion::Unchecked {
+        return Some("conversion options beside a second attribute");
+    }
+    // The type-parameter payload's `from = false` would have to be spelled
+    // on the second attribute too.
+    if stack.present && cell.generic == Generics::Payload {
+        return Some("a type-parameter payload beside a second attribute");
+    }
+    // A supertrait would name the trait's const parameter, which the second
+    // trait does not take.
+    if stack.supertrait && cell.generic == Generics::Own {
+        return Some("a supertrait generic over the enum's const parameter");
+    }
+    // A supertrait's impl needs the trait's, which a type no variant can
+    // supply withholds, so the second impl fails as a hand's would.
+    let taken = cell
+        .ret
+        .node()
+        .associated()
+        .iter()
+        .any(|(_, overridden)| !overridden)
+        || cell
+            .agree
+            .descriptor()
+            .items
+            .iter()
+            .any(|item| item.overridden.is_none());
+    if stack.supertrait && taken && cell.supplier().is_none() {
+        return Some("a supertrait beside an impl withheld for want of a supplier");
+    }
+    // "The deprecation reaches the code that names the variant"
+    // (what-is-generated.md): a mismatch or a body the user writes names
+    // the first variant, and would be warned of as the user's own code.
+    let path = cell.path.descriptor();
+    let names_first = cell.arg.descriptor().kind.is_some()
+        || matches!(path.form, PathForm::First | PathForm::Written);
+    if cell.deprecated == Deprecation::First && names_first {
+        return Some("a mismatch or a body of the user's naming the deprecated variant");
     }
     None
 }
@@ -663,7 +723,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // variant with no mark: the control method, or the method under test
     // a block is silent about.
     let silent = path.form == PathForm::Forwarded && path.mark.is_none() && cell.method_present();
-    let dispatched = cell.base_reaches_all() || silent;
+    // The second trait is forwarded to every variant through its own
+    // attribute.
+    let stacked = cell.stack.descriptor().present;
+    let dispatched = cell.base_reaches_all() || silent || stacked;
     for slot in slots.iter().filter(|_| dispatched) {
         match slot.variant {
             super::SlotVariant::Live(_) => {}
@@ -950,6 +1013,22 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "E0308",
             "a yielded target handed to the control method, which takes `&self`",
+            Forwarded::Base,
+        );
+    }
+    // The second trait's method takes the receiver its own variants allow,
+    // over every variant.
+    let live_all = cell.live_slots();
+    let other_some = live_all
+        .iter()
+        .any(|(_, _, target)| target.ends_in_temporary());
+    let other_every = live_all
+        .iter()
+        .all(|(_, _, target)| target.ends_in_temporary());
+    if cell.stack.descriptor().present && other_some && !other_every {
+        reject(
+            "E0308",
+            "a yielded target handed to the second trait's method, which takes `&self`",
             Forwarded::Base,
         );
     }

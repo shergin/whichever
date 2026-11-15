@@ -6,6 +6,7 @@ use super::payload;
 use super::writer::{Part, Writer};
 use crate::model::argument::MismatchSite;
 use crate::model::path::{Form as PathForm, Site as PathSite};
+use crate::model::stack::OTHER;
 use crate::model::Anchor;
 
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
@@ -25,10 +26,30 @@ pub fn write_trait(writer: &mut Writer, context: &Context) {
     write_trait_items(writer, context);
     writer.close("}");
     writer.blank();
-    writer.line(format!("use {module}::{TRAIT};"));
+    match context.stack.present {
+        true => writer.line(format!("use {module}::{{{TRAIT}, {OTHER}}};")),
+        false => writer.line(format!("use {module}::{TRAIT};")),
+    }
 }
 
 fn write_trait_items(writer: &mut Writer, context: &Context) {
+    write_probe_trait(writer, context);
+    if !context.stack.present {
+        return;
+    }
+    writer.blank();
+    writer.line("#[whichever::dispatchable]");
+    writer.open(format!("pub trait {OTHER}{} {{", context.supertrait()));
+    for item in context.agreement.items {
+        writer.line(item.declaration());
+    }
+    writer.line("/// The second trait's method, which every subject forwards.");
+    writer.line(format!("{};", context.other_signature()));
+    writer.close("}");
+}
+
+/// Writes the trait under test with `#[whichever::dispatchable]`.
+fn write_probe_trait(writer: &mut Writer, context: &Context) {
     writer.line("#[whichever::dispatchable]");
     writer.open(format!(
         "pub trait {TRAIT}{} {{",
@@ -75,9 +96,17 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
     let mut arguments = vec![context.trait_path()];
     arguments.extend(context.options());
     writer.anchor(Anchor::Attribute.name());
-    match block {
-        true => writer.line("#[whichever::dispatch]"),
-        false => writer.line(format!("#[whichever::dispatch({})]", arguments.join(", "))),
+    // In a block path the second trait is the subject's attribute, and the
+    // block is the impl of the first.
+    match (block, context.stack.present) {
+        (true, true) => writer.line(context.other_attribute()),
+        (true, false) => writer.line("#[whichever::dispatch]"),
+        (false, stacked) => {
+            writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));
+            if stacked {
+                writer.line(context.other_attribute());
+            }
+        }
     }
     if is_struct(&context.slots) {
         write_struct(writer, &context.slots[0], &context.generics(), true, true);
@@ -86,9 +115,12 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
         writer.open(format!("pub enum E{} {{", context.generics()));
         for slot in &context.declared {
             let (attribute, declaration) = variant(slot, true);
+            // A sentence on the whole variant spans its attributes, so the
+            // line they start on, a `#[cfg]` or a `#[deprecated]`, is the
+            // variant's too.
+            let first_attribute = format!("{}-cfg", Anchor::Variant(slot.index).name());
             if let Some(predicate) = slot.cfg {
-                // A sentence on the whole variant spans its attributes.
-                writer.anchor(format!("{}-cfg", Anchor::Variant(slot.index).name()));
+                writer.anchor(first_attribute.clone());
                 writer.line(format!("#[cfg({predicate})]"));
             }
             if let Some(attribute) = attribute {
@@ -97,6 +129,12 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
             let conversion = context.cell.conv.descriptor().variant_option;
             if let (0, Some(option)) = (slot.index, conversion) {
                 writer.line(format!("#[dispatch({option})]"));
+            }
+            if slot.deprecated {
+                if slot.cfg.is_none() {
+                    writer.anchor(first_attribute);
+                }
+                writer.line("#[deprecated]");
             }
             writer.anchor(Anchor::Variant(slot.index).name());
             writer.line(declaration);

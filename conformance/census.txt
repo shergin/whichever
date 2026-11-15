@@ -242,38 +242,74 @@ suite agreement-paths
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 72 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
+suite stacks
+  pass 150
+  limit 199
+  rejected 42
+  malformed 0
+  never 96 non-canonical
+  never 29 unmodelled: a limit beside a rejection the limit does not replace
+  never 12 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 16 unmodelled: a supertrait beside an impl withheld for want of a supplier
+  never 32 unmodelled: an inherent method through a route whose method yields its target
+
+suite stack-homes
+  pass 168
+  limit 42
+  rejected 0
+  malformed 0
+  never 240 unmodelled: generics beside variants under `#[cfg]`
+
+suite deprecations
+  pass 89
+  limit 47
+  rejected 0
+  malformed 0
+  never 536 non-canonical
+  never 12 unmodelled: `TryFrom` over a variant that stores more than its payload
+  never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 78 unmodelled: a mismatch or a body of the user's naming the deprecated variant
+
+suite deprecation-cfg
+  pass 288
+  limit 8
+  rejected 0
+  malformed 0
+  never 4 unmodelled: a supertrait beside an impl withheld for want of a supplier
+
 suite pinned
-  pass 47
-  limit 3
+  pass 52
+  limit 4
   rejected 2
   malformed 0
+  never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4377
+  pass 4385
   limit 0
   rejected 0
   malformed 0
-  rows 4377
-  covered 50144
-  unreached 27119
+  rows 4385
+  covered 50812
+  unreached 27198
 
 suite array-limits
   pass 0
-  limit 373
+  limit 377
   rejected 0
   malformed 0
-  rows 373
-  covered 5821
-  unreached 1078
+  rows 377
+  covered 6530
+  unreached 1116
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 580
+  rejected 590
   malformed 0
-  rows 580
-  covered 5285
-  unreached 1614
+  rows 590
+  covered 5996
+  unreached 1650
 
 suite known
   pass 2

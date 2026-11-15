@@ -137,6 +137,16 @@ a generic enum, a lifetime included, is not checked. The hand takes each
 item from the supplier or as fixed, and the law reads every item through
 the subject.
 
+The `stack` axis dispatches a second trait, `Other`, or a supertrait
+`Other: Probe`, on the same subject through an attribute of its own. Its
+one method takes the control method's receiver and is checked by the law
+as `base` is; it declares the associated items the `agree` axis gives
+`Probe` and takes the same overrides. In a block path the subject's
+attribute names `Other` and the block is the impl of `Probe`. The
+`deprecated` axis puts `#[deprecated]` on a variant: the hand writes its
+arms and the conversions that name it under `#[allow(deprecated)]`, and
+the law, which names it, allows the lint.
+
 ## Running it
 
 ```sh

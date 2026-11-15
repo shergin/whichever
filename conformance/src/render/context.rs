@@ -11,6 +11,7 @@ use crate::model::path::{Form as PathForm, PathDescriptor};
 use crate::model::qualifier::{Generic, QualifierDescriptor};
 use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
+use crate::model::stack::{StackDescriptor, OTHER};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
 use crate::model::{Anchor, Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
 
@@ -63,6 +64,8 @@ pub struct Context {
     pub generics: GenericsDescriptor,
     /// The trait's own associated items.
     pub agreement: AgreementDescriptor,
+    /// The second trait dispatched on the subject.
+    pub stack: StackDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -106,6 +109,7 @@ impl Context {
             home: cell.home.descriptor(),
             generics: cell.generic.descriptor(),
             agreement: cell.agree.descriptor(),
+            stack: cell.stack.descriptor(),
         }
     }
 
@@ -159,6 +163,63 @@ impl Context {
             true => Receiver::Owned,
             false => Receiver::Shared,
         }
+    }
+
+    /// Returns the second trait's method's receiver: `&self`, or `self`
+    /// when every live target is yielded by a route's method, as for the
+    /// control method, over every variant.
+    pub fn other_receiver(&self) -> Receiver {
+        let live = self.live();
+        let yielded =
+            !live.is_empty() && live.iter().all(|(_, _, target)| target.ends_in_temporary());
+        match yielded {
+            true => Receiver::Owned,
+            false => Receiver::Shared,
+        }
+    }
+
+    /// Returns the second trait's method's signature.
+    pub fn other_signature(&self) -> String {
+        format!(
+            "fn other({}) -> u64",
+            self.other_receiver().descriptor().spelling
+        )
+    }
+
+    /// Returns a call of the second trait's method as `path` implements it,
+    /// on `value`, which it borrows or takes.
+    pub fn other_call(&self, path: &str, value: &str) -> String {
+        let argument = self.other_receiver().descriptor().call.replace("{}", value);
+        format!("<{path} as {OTHER}>::other({argument})")
+    }
+
+    /// Returns the second trait's bound on the trait under test, as its
+    /// declaration spells it: ` : Probe`, `: Probe<support::Json>`.
+    pub fn supertrait(&self) -> String {
+        match self.stack.supertrait {
+            true => format!(": {}", self.trait_path()),
+            false => String::new(),
+        }
+    }
+
+    /// Returns the second trait's attribute options: the associated items
+    /// it fixes as the trait under test does.
+    pub fn other_options(&self) -> Vec<String> {
+        self.agreement
+            .items
+            .iter()
+            .filter_map(|item| {
+                item.overridden
+                    .map(|value| format!("{} = {value}", item.name))
+            })
+            .collect()
+    }
+
+    /// Returns the second trait's attribute on the subject.
+    pub fn other_attribute(&self) -> String {
+        let mut arguments = vec![String::from(OTHER)];
+        arguments.extend(self.other_options());
+        format!("#[whichever::dispatch({})]", arguments.join(", "))
     }
 
     /// Returns the control method's signature.

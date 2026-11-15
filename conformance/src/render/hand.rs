@@ -13,6 +13,7 @@ use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
 use crate::model::returns::{Associated, Conversion, FutureKind, Node};
+use crate::model::stack::OTHER;
 use crate::model::target::{Step, TargetDescriptor};
 use crate::model::{Callee, Lift, Receiver, Slot};
 
@@ -196,6 +197,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             if let Some(predicate) = slot.cfg {
                 writer.line(format!("#[cfg({predicate})]"));
             }
+            if slot.deprecated {
+                writer.line("#[deprecated]");
+            }
             writer.line(declaration);
         }
         writer.close("}");
@@ -210,6 +214,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if rebuilds {
         for (slot, _, _) in context.cell.method_slots() {
             let payload = slot.payload();
+            if slot.deprecated {
+                writer.line("#[allow(deprecated)]");
+            }
             writer.open(format!("impl From<{payload}> for E {{"));
             writer.open(format!("fn from(payload: {payload}) -> E {{"));
             writer.line(format!("E::{}(payload)", slot.name()));
@@ -218,6 +225,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.blank();
         }
     }
+    write_other(writer, context);
     writer.open(format!(
         "impl{} {} for E{} {{",
         context.impl_generics(),
@@ -376,6 +384,57 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
+/// Writes the hand's impl of the second trait: its associated items as the
+/// trait under test takes them, and its method forwarded to every variant
+/// as the control method is.
+fn write_other(writer: &mut Writer, context: &Context) {
+    if !context.stack.present {
+        return;
+    }
+    writer.open(format!(
+        "impl{} {OTHER} for E{} {{",
+        context.impl_generics(),
+        context.type_generics()
+    ));
+    for item in context.agreement.items {
+        let value = item.overridden.map_or_else(
+            || format!("<{} as {OTHER}>::{}", context.supplier_payload(), item.name),
+            String::from,
+        );
+        writer.line(item.definition(&value));
+    }
+    let receiver = context.other_receiver();
+    let method = Method {
+        name: "other",
+        signature: context.other_signature(),
+        receiver,
+        argument: None,
+        node: Node::Tag,
+        asyncness: false,
+        unsafety: false,
+        turbofish: "",
+        slots: context
+            .live()
+            .iter()
+            .map(|(slot, _, _)| slot.index)
+            .collect(),
+        fallback: None,
+        inherent: false,
+        callee: Callee::Method,
+        lift: Lift::Bare,
+        target: Node::Tag,
+        by_place: context.cell.every_under_cfg() && receiver != Receiver::Owned,
+        attributes: Vec::new(),
+        inline: "inline",
+        parameter: "x",
+        hands_enum: false,
+        trait_path: String::from(OTHER),
+    };
+    write_method(writer, context, &method);
+    writer.close("}");
+    writer.blank();
+}
+
 /// How the arms of a method meet its return type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Wrapping {
@@ -490,9 +549,6 @@ fn arm(
         (true, Binding::Owned) | (false, _) => "inner",
     };
     let mut pattern_text = pattern("E", slot, target, bound);
-    if let Some(predicate) = slot.cfg {
-        pattern_text = format!("#[cfg({predicate})] {pattern_text}");
-    }
     // The `Self` argument: the enum handed over as it is, or the same
     // variant's target, matched beside `self`.
     let mut other_argument = None;
@@ -510,6 +566,15 @@ fn arm(
                 other_argument = Some(other.handed(other_handover));
             }
         }
+    }
+    // The arms of a deprecated variant are under `#[allow(deprecated)]`
+    // (what-is-generated.md, golden `deprecated`), and a variant's `#[cfg]`
+    // is carried onto its arm; both are the arm's, outside its pattern.
+    if slot.deprecated {
+        pattern_text = format!("#[allow(deprecated)] {pattern_text}");
+    }
+    if let Some(predicate) = slot.cfg {
+        pattern_text = format!("#[cfg({predicate})] {pattern_text}");
     }
     if method.inherent {
         let value = inherent_value(

@@ -8,6 +8,7 @@ use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::qualifier::Generic;
 use crate::model::returns::{Associated, FutureKind, Node};
+use crate::model::stack::OTHER;
 use crate::model::target::Storage;
 use crate::model::{Callee, Lift, SlotVariant};
 
@@ -123,6 +124,7 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
     writer.blank();
     write_impl(writer, context, index);
     writer.blank();
+    write_other(writer, context, index);
     super::conversions::write_payload_into(writer, context, index);
     if matches!(context.cell.lift, Lift::ByRef | Lift::ByValue) {
         writer.open(format!("impl support::Counted for {payload} {{"));
@@ -169,6 +171,23 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
         writer.close("}");
     }
     writer.close("}");
+}
+
+/// Writes the payload's impl of the second trait, whose answer shows the
+/// payload and its state.
+fn write_other(writer: &mut Writer, context: &Context, index: usize) {
+    if !context.stack.present {
+        return;
+    }
+    writer.open(format!("impl {OTHER} for P{index} {{"));
+    for item in context.agreement.items {
+        writer.line(item.definition(item.values[index]));
+    }
+    writer.open(format!("{} {{", context.other_signature()));
+    writer.line(format!("self.state * 1_000 + 900 + {index}"));
+    writer.close("}");
+    writer.close("}");
+    writer.blank();
 }
 
 /// Returns how the body names the payload: `self`, or `this` after a
