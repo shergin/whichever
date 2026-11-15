@@ -294,3 +294,9 @@ ret=gat-undeclared path=block
 # (partial-impl-blocks.md, "The impl header").
 path=block generic=every
 path=block generic=instance
+
+# A sentence about the variant holding the parameter a partial block's
+# header instantiates was reported on the header's argument instead of the
+# variant's payload (`instantiated_variant_keeps_its_sentence`).
+s1=deref-box recv=box path=block-some generic=instance
+recv=box path=block generic=instance

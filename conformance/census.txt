@@ -497,7 +497,7 @@ suite third-stacks
 
 suite pinned
   pass 92
-  limit 23
+  limit 25
   rejected 5
   malformed 0
 
@@ -512,12 +512,12 @@ suite array
 
 suite array-limits
   pass 0
-  limit 536
+  limit 539
   rejected 0
   malformed 0
-  rows 536
-  covered 10620
-  unreached 1793
+  rows 539
+  covered 10628
+  unreached 1785
 
 suite array-rejected
   pass 0
