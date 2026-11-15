@@ -150,3 +150,27 @@ s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=field
 s0=struct-named s1=none ret=self
 s0=struct-named s1=none ret=option-self
 s0=struct-named s1=none ret=tuple-self
+
+# An enum whose every variant is compiled out is matched by place, so the
+# build that leaves none compiles (all-variants-compiled-out-gives-e0004),
+# under a reference, a value and a boxed receiver, and with one variant.
+cfg=every-off
+recv=mut ret=self cfg=every-off
+recv=value cfg=every-off
+recv=box ret=future cfg=every-off
+s1=none cfg=first-off
+
+# A one-argument `Result` alias is mapped like `Result<Self, E>`, by the
+# name its path ends in (what-is-generated.md, `io::Result<Self>`), here on
+# a struct, behind a `Box`, in a future and through a block.
+ret=fallible-self
+s0=struct s1=none ret=fallible-self
+s0=deref-box recv=box ret=fallible-self
+ret=fallible-self path=block-star
+
+# A projection whose later segment has generic arguments, `F::Pair<F>`,
+# substituted at the instantiation named on the enum (options.md), through
+# the enum's attribute, a block and with the trait in another crate.
+generic=paired
+path=block-star generic=paired
+home=crate generic=paired

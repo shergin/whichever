@@ -1,0 +1,10 @@
+file: macros/src/subject.rs
+breaks: A sentence about the way a method reaches its target names the variant, or on a struct the struct, as the `tests/ui` cases `self_return_beside_the_other_fields_of_a_variant` and `box_self_on_a_plain_field` pin it.
+expect: killed
+
+find:
+            Place::Variant { .. } => &self.ident,
+            Place::Field { .. } => subject,
+replace:
+            Place::Variant { .. } => subject,
+            Place::Field { .. } => &self.ident,

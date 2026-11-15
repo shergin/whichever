@@ -1,0 +1,5 @@
+error: `consume` takes `self: Box<Self>`, and `Wrapper` holds a plain `Square`; hold `Box<Square>` in a `#[dispatch(deref)]` field, or implement the method by hand
+  --> tests/ui/box_self_on_a_plain_field.rs:18:16
+   |
+18 | struct Wrapper(Square);
+   |                ^^^^^^

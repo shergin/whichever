@@ -22,6 +22,11 @@ impl Home {
     /// Returns the home's description.
     pub fn descriptor(self) -> HomeDescriptor {
         let crate_path = "crate::support::Count";
+        // A type only the trait's crate declares, at its root: left as
+        // `crate::Tally` in the subject's crate it names nothing there, so
+        // only the rewrite to the trait's crate makes it resolve (limits.md,
+        // the types in the trait's signatures).
+        let own_path = "crate::Tally";
         match self {
             Home::Local => HomeDescriptor {
                 module: None,
@@ -36,7 +41,7 @@ impl Home {
             Home::Crate => HomeDescriptor {
                 module: None,
                 foreign: true,
-                argument: crate_path,
+                argument: own_path,
             },
         }
     }

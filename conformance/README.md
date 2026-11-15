@@ -109,13 +109,17 @@ numbers: the trait's crate, a `traits-NNN` shard every other shard depends
 on, holds the cell up to its payloads, and the subject's shard holds the
 rest and takes `support` from the trait's crate. A cell whose trait's crate
 fails is set aside from both, its findings kept, and the check repeats. A
-trait away from the subject names its argument `crate::support::Count`, so
-the rewrite of `crate::` paths to the trait's crate is exercised.
+trait in a sibling module names its argument `crate::support::Count`, and
+one in another crate names `crate::Tally`, a type only the trait's shard
+declares at its root, so the rewrite of `crate::` paths to the trait's
+crate is exercised: left as written, the path names nothing in the
+subject's crate.
 
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over
-a const dispatched at the enum's own parameter, and a defaulted parameter
-left out. The law names a generic subject by an alias at the argument it
+a const dispatched at the enum's own parameter, a defaulted parameter
+left out, and a trait whose argument is `F::Pair<F>`, a projection whose
+later segment has generic arguments of its own. The law names a generic subject by an alias at the argument it
 takes it at, `type S = E<P0>;`.
 
 The `conv` axis checks the conversions the subject's attribute writes:
@@ -201,6 +205,12 @@ An outcome is `pass` or a list of findings:
 - `sentence:KEY@PLACE`, a sentence of the macro by its catalogue key, or by
   its text in quotes when the catalogue does not hold it, and where it was
   reported: an anchor such as `method` or `variant-1`, or `line-N`;
+- `wording:KEY`, a predicted sentence that lacks what the cell asks of it:
+  the way out its catalogue entry names, as its `tests/ui` snapshot spells
+  it; the method's own way out where the sentence ends in one, by hand,
+  a body, or leaving the variant to the body the method has; and the names
+  it interpolates, the method's, the variant's, what the method takes as
+  the signature spells it, and the payload's type as written;
 - `error:CODE@PART`, a rustc error, by code, in a part of the cell:
   `trait`, `payloads`, `subject`, `probe`, `hand`, `law-subject` or
   `law-hand`;
@@ -369,19 +379,3 @@ the matrix grows to close it, the run says so and the line becomes
 `expect: killed`. A defect the matrix should have caught becomes a mutant
 when it is fixed: the fix reverted is the mutant, so the matrix keeps
 proving that it would notice the defect again.
-
-## Findings the checks do not hold yet
-
-The checks hold a sentence by its catalogue key, so a sentence with the
-right key and the wrong words agrees. These were seen and are kept here
-until a check holds them:
-
-- A `Self` argument by value through a `deref` variant over `Rc` is
-  reported as "`m` takes `self` by value", though the receiver is `&self`
-  and the argument is what would move.
-- `self: Pin<&mut Self>` and a `&mut Self` argument on a route ending in a
-  method call are reported as "`m` takes `&mut self`".
-- `self: Box<Self>` on a `deref` variant over `Rc` is reported as "holds a
-  plain `Rc<P0>`; hold `Box<Rc<P0>>` in a `#[dispatch(deref)]` variant",
-  which would dereference to `Rc<P0>`, no implementor of the trait.
-- A reference in a sentence is spelled without its space, `&'aP0`.

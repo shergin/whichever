@@ -232,6 +232,21 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `docs/what-is-generated.md` say so. The `tests/ui` case
   `named_field_under_a_wrapper` is new; no other snapshot and no golden
   changed.
+- Before, two sentences named the wrong item. A method returning `Self`
+  over the marked field of a variant with several, `Tagged(#[dispatch]
+  Square, u32)`, was told it "cannot be built around the other fields of
+  `Shape`", the enum, where the other fields are `Tagged`'s; it now names
+  `Tagged`. On a dispatch struct, `self: Box<Self>` over a field that
+  holds its payload plainly named the field, "`_0` holds a plain
+  `Square`; hold `Box<Square>` in a `#[dispatch(deref)]` variant", where
+  the field is unnamed and a struct has no variants; it now names the
+  struct and the field, "`Wrapper` holds a plain `Square`; hold
+  `Box<Square>` in a `#[dispatch(deref)]` field". Every sentence about the
+  way a method reaches a struct's field names the struct, whose field the
+  error points at. The `tests/ui` cases
+  `self_return_beside_the_other_fields_of_a_variant` and
+  `box_self_on_a_plain_field` are new; no other snapshot and no golden
+  changed.
 
 ## 0.7.3 - 2026-11-13
 

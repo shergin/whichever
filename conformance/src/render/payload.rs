@@ -303,6 +303,7 @@ fn uses_number(node: &Node) -> bool {
         | Node::Fault
         | Node::Option(_)
         | Node::Result(_, _)
+        | Node::Fallible(_)
         | Node::Future(_, _)
         | Node::Iterator
         | Node::Vec(_) => true,
@@ -341,6 +342,7 @@ fn value(node: &Node, this: &str, index: usize, flavour: Flavour) -> String {
         Node::Option(inner_node) => {
             branch(format!("Some({})", inner(inner_node)), String::from("None"))
         }
+        Node::Fallible(ok) => value(&Node::Result(ok, &Node::Fault), this, index, flavour),
         Node::Result(ok, error) => branch(
             format!("Ok({})", inner(ok)),
             format!("Err({})", inner(error)),

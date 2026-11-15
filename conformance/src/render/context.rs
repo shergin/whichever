@@ -478,7 +478,7 @@ impl Context {
             // The trait names the argument's type as its home spells it, and
             // an impl by the alias its module imports.
             let ty = match (site, self.home.argument) {
-                (Site::Trait, _) if self.generics.projected => "F::Value",
+                (Site::Trait, _) if self.generics.projected => self.generics.projection,
                 (Site::Trait, argument) => argument,
                 (Site::Impl, "u64") | (Site::Inherent | Site::Payload, _) => "u64",
                 (Site::Impl, _) => "support::Count",
@@ -641,6 +641,7 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
             spell(ok, this, associates),
             spell(error, this, associates)
         ),
+        Node::Fallible(ok) => format!("support::fallible::Result<{}>", spell(ok, this, associates)),
         Node::Tuple(elements) => {
             let elements: Vec<String> = elements
                 .iter()
@@ -679,6 +680,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::Fault => String::from("support::Fault(424_242)"),
         Node::Option(_) => String::from("None"),
         Node::Result(_, error) => format!("Err({})", constant(error, this)),
+        Node::Fallible(_) => format!("Err({})", constant(&Node::Fault, this)),
         Node::Tuple(elements) => {
             let elements: Vec<String> = elements
                 .iter()

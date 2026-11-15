@@ -156,11 +156,24 @@ pub fn suites(files: &Files) -> Result<(Vec<Selection>, Vec<Known>), RunError> {
         .iter()
         .flat_map(|selection| selection.cells.iter().copied())
         .collect();
-    for array in select::arrays::ARRAYS {
-        let (mut selection, coverage) = select::arrays::build(array, &held);
-        selection.coverage = Some(coverage);
-        selections.push(selection);
-    }
+    // The arrays are built at once, each on a thread of its own: each is a
+    // function of the held cells alone, so the order they are joined in
+    // keeps the selection deterministic.
+    let arrays: Vec<Selection> = std::thread::scope(|scope| {
+        let builds: Vec<_> = select::arrays::ARRAYS
+            .iter()
+            .map(|array| scope.spawn(|| select::arrays::build(array, &held)))
+            .collect();
+        builds
+            .into_iter()
+            .map(|build| {
+                let (mut selection, coverage) = build.join().expect("an array's build panicked");
+                selection.coverage = Some(coverage);
+                selection
+            })
+            .collect()
+    });
+    selections.extend(arrays);
     selections.push(select::select(
         "known",
         known.iter().map(|entry| entry.pattern.cell).collect(),
@@ -436,7 +449,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
 
     let judgements: Vec<Judgement> = entries
         .iter()
-        .map(|entry| outcome::judge(&entry.verdict, &entry.outcome, &entry.rendered))
+        .map(|entry| outcome::judge(&entry.cell, &entry.verdict, &entry.outcome, &entry.rendered))
         .collect();
     let report = report::Report {
         entries: &entries,

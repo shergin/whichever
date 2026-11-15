@@ -36,6 +36,11 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
         writer.line("#[allow(deprecated)]");
     }
     writer.open("mod law {");
+    // Over an enum empty in this build the law names the subject's type
+    // alone.
+    if context.slots.is_empty() {
+        writer.line("#[allow(unused_imports)]");
+    }
     writer.line("use super::*;");
     writer.blank();
     writer.line("/// The law, the same against the subject and the hand: `S` is the one");
@@ -45,7 +50,7 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     write_seen(writer, context);
     write_associated(writer, context);
     // A method in no build is not called; the control method still is.
-    let present = context.cell.method_present();
+    let present = context.cell.method_present() && !context.slots.is_empty();
     if present {
         write_observers(writer, context);
     }
@@ -82,9 +87,11 @@ fn write_seen(writer: &mut Writer, context: &Context) {
     writer.line("/// Returns the variant a subject holds, by slot, and its payload's state.");
     writer.open("fn seen(subject: &S) -> String {");
     if context.slots.is_empty() {
-        // Every variant is compiled out: the enum is empty.
+        // Every variant is compiled out: the enum is empty, there is no
+        // value to call anything on, and the law only names its type.
         writer.line("match *subject {}");
         writer.close("}");
+        writer.line("let _ = seen;");
         writer.blank();
         return;
     }
@@ -233,6 +240,7 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
             "match {value} {{ Some({binding}) => format!(\"Some({{}})\", {}), None => String::from(\"None\") }}",
             inner(element, &binding)
         ),
+        Node::Fallible(ok) => observation(&Node::Result(ok, &Node::Fault), value, side, depth),
         Node::Result(ok, error) => format!(
             "match {value} {{ Ok({binding}) => format!(\"Ok({{}})\", {}), Err({binding}) => format!(\"Err({{}})\", {}) }}",
             inner(ok, &binding),
@@ -442,6 +450,7 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 | Node::Fault
                 | Node::Option(_)
                 | Node::Result(_, _)
+                | Node::Fallible(_)
                 | Node::Tuple(_)
                 | Node::Future(_, _)
                 | Node::Iterator

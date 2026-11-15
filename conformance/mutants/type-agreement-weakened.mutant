@@ -1,7 +1,6 @@
 file: macros/src/agreement.rs
 breaks: Every other variant's associated types are checked to equal the first's, with the error on that variant, as `docs/what-is-generated.md` says.
-expect: survives
-reason: Every cell whose `Out` comes from the first variant gives both payloads the same `Out`, so no cell has associated types that disagree.
+expect: killed
 
 find:
             Some(quote_spanned! { span => #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })

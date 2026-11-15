@@ -5,4 +5,3 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
-

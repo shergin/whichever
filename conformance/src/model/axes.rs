@@ -158,6 +158,10 @@ axis! {
         VecThis = "vec-self",
         /// `Option<(Self, u64)>`.
         OptionTupleThis = "option-tuple-self",
+        /// `support::fallible::Result<Self>`, a one-argument alias of
+        /// `Result<Self, support::Fault>`, mapped like `Result<Self, E>`
+        /// by the name its path ends in.
+        FallibleThis = "fallible-self",
         /// `&'a u64`, borrowed for the subject's own lifetime, which an
         /// inherent place over a variant holding `&'a P0` answers.
         Lent = "lent",
@@ -275,6 +279,9 @@ axis! {
         /// Every variant under `#[cfg(all())]`, so the enum may be empty in
         /// some build and is matched by place.
         EveryOn = "every-on",
+        /// Every variant under `#[cfg(any())]`, so the enum is empty in this
+        /// build and only compiles if it is matched by place.
+        EveryOff = "every-off",
     }
 }
 
@@ -330,6 +337,10 @@ axis! {
         /// A generic trait whose parameter has a default, left out,
         /// `#[dispatch(Probe)]` for `trait Probe<F = support::Json>`.
         Defaulted = "defaulted",
+        /// A generic trait whose argument is a projection with generic
+        /// arguments of its own, `F::Pair<F>`, dispatched at
+        /// `Probe<support::Json>`.
+        Paired = "paired",
     }
 }
 
@@ -416,7 +427,7 @@ impl Cfg {
         match (self, slot) {
             (Cfg::Absent, _) => None,
             (Cfg::SecondOn, 1) | (Cfg::EveryOn, _) => Some("all()"),
-            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) => Some("any()"),
+            (Cfg::SecondOff, 1) | (Cfg::FirstOff, 0) | (Cfg::EveryOff, _) => Some("any()"),
             (Cfg::SecondOn | Cfg::SecondOff | Cfg::FirstOff, _) => None,
         }
     }

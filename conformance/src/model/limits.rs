@@ -76,6 +76,13 @@ pub struct Entry {
     pub needle: &'static str,
     /// The `tests/ui` case that pins the sentence.
     pub case: &'static str,
+    /// The way out the sentence names, as its snapshot spells it, without
+    /// the names it interpolates.
+    pub way_out: &'static str,
+    /// Whether the sentence ends in the method's own way out: implementing
+    /// it by hand, giving it a body, or leaving the variant to the body it
+    /// has ([`Tail`]).
+    pub tail: bool,
     /// Whether the impl still stands when the sentence is reported, so a
     /// call of another method through the trait compiles; see
     /// `macros/ARCHITECTURE.md` section 3.8.
@@ -119,9 +126,11 @@ impl Limit {
             key,
             needle,
             case,
+            way_out: "",
+            tail: false,
             keeps_impl: true,
         };
-        match self {
+        let entry = match self {
             Limit::Receiver => entry(
                 "receiver",
                 "this receiver type is not supported",
@@ -192,12 +201,10 @@ impl Limit {
                 "which cannot be borrowed mutably; hold a `Box` or a `&mut`",
                 "mutable_borrow_through_a_shared_pointer",
             ),
-            // The case `mismatch_for_a_method_under_a_cfg` is to pin it; until
-            // it lands, `unknown_option_names` holds the same sentence.
             Limit::MismatchForAbsentMethod => entry(
                 "mismatch-for-absent-method",
                 "so there is no mismatch to decide",
-                "unknown_option_names",
+                "mismatch_for_a_method_under_a_cfg",
             ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
@@ -252,6 +259,39 @@ impl Limit {
                     "all_variants_conditional",
                 )
             },
+        };
+        let (way_out, tail) = match self {
+            Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
+            Limit::UnitVariant => ("or forward inherent methods instead, whose body answers for it", false),
+            Limit::TwoFields => ("mark the field to forward to with `#[dispatch]`, or forward inherent methods instead", false),
+            Limit::SelfArgumentWithoutMismatch => ("give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or", false),
+            Limit::OpaqueReturn => ("return a concrete type or a boxed trait object, or `impl Future<Output = T>`", false),
+            Limit::SelfInReturn => ("return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names", true),
+            Limit::DerefSelfReturn => ("drop `deref` on it", true),
+            Limit::RouteSelfReturn => ("drop `via` on it", true),
+            Limit::SelfReturnOtherFields => ("write the method in a `#[whichever::dispatch] impl` block", false),
+            // The noun is the variant's or, on a struct, the field's.
+            Limit::BoxSelfPlain => ("in a `#[dispatch(deref)]`", true),
+            Limit::NamedFieldUnderWrapper => ("make it a tuple struct", false),
+            Limit::BoxSelfOnSharedPointer => ("which is no `Box` to hand over; hold a `Box`", true),
+            Limit::MovesThroughSharedPointer => ("which a value cannot be moved out of; hold a `Box`", true),
+            Limit::MutableBorrowThroughSharedPointer => ("hold a `Box` or a `&mut`", true),
+            Limit::MismatchForAbsentMethod => ("takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`", false),
+            Limit::MethodRouteOnMutSelf => ("route to a field", true),
+            Limit::DefaultWithoutDefault => ("give it a body, or forward it", false),
+            Limit::BodyNeverRuns => ("end the signature with `;` instead", false),
+            Limit::StarOverUnforwardable => ("name the variants with a payload and give the method a body for the rest", false),
+            Limit::StructConversion => ("a struct gets no conversions", false),
+            Limit::IntoOtherFields => ("or is left out with `from = false`", false),
+            Limit::IntoWithoutPayload => ("holds no payload", false),
+            Limit::TypeDisagreement => ("type mismatch resolving", false),
+            Limit::ConstDisagreement => ("set it on the enum with", false),
+            Limit::UnsuppliedType => ("fix it on the enum with", false),
+        };
+        Entry {
+            way_out,
+            tail,
+            ..entry
         }
     }
 
@@ -341,6 +381,35 @@ impl Limit {
     }
 }
 
+/// How a sentence that ends in the method's own way out ends: what the
+/// method can still be given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tail {
+    /// A trait's method, forwarded through the enum's attribute or a
+    /// block: "implement the method by hand".
+    ByHand,
+    /// An inherent method with no body: "give it a body".
+    Body,
+    /// A method that names its variants and has a body for the rest:
+    /// "leave `A` to the body".
+    LeaveToBody,
+}
+
+impl Tail {
+    /// Every tail.
+    pub const ALL: &'static [Tail] = &[Tail::ByHand, Tail::Body, Tail::LeaveToBody];
+
+    /// Returns the tail as a sentence spells it, `variant` being the
+    /// variant it is about, in backticks.
+    pub fn fragment(self, variant: &str) -> String {
+        match self {
+            Tail::ByHand => String::from("implement the method by hand"),
+            Tail::Body => String::from("give it a body"),
+            Tail::LeaveToBody => format!("leave {variant} to the body"),
+        }
+    }
+}
+
 /// Where a sentence is to be reported: the line of the primary span.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Anchor {
@@ -407,6 +476,23 @@ mod tests {
                 entry.key,
                 path.display()
             );
+            assert!(
+                stderr.contains(entry.way_out),
+                "the way out of `{}` is not in {}",
+                entry.key,
+                path.display()
+            );
+            if entry.tail {
+                assert!(
+                    Tail::ALL.iter().any(|tail| match tail {
+                        Tail::LeaveToBody => stderr.contains(" to the body"),
+                        Tail::ByHand | Tail::Body => stderr.contains(tail.fragment("").as_str()),
+                    }),
+                    "the tail of `{}` is not in {}",
+                    entry.key,
+                    path.display()
+                );
+            }
             assert_eq!(Limit::of_message(&stderr), Some(*limit), "{}", entry.key);
             assert!(ui.join(format!("{}.rs", entry.case)).exists());
         }

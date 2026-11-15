@@ -1,0 +1,5 @@
+error: `grown` returns `Self`, which cannot be built around the other fields of `Tagged`; write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/self_return_beside_the_other_fields_of_a_variant.rs:19:24
+   |
+19 |     Tagged(#[dispatch] Square, u32),
+   |                        ^^^^^^

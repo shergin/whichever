@@ -31,6 +31,9 @@ pub type Count = u64;
 pub trait Format {
     /// The value the method under test takes.
     type Value;
+    /// A value generic over a type, which a projection names with
+    /// arguments of its own.
+    type Pair<T>;
 }
 
 /// The format every generic trait is dispatched at.
@@ -38,6 +41,7 @@ pub struct Json;
 
 impl Format for Json {
     type Value = u64;
+    type Pair<T> = u64;
 }
 
 /// What `into = support::Sink` converts the enum into: the slot of the
@@ -48,6 +52,12 @@ pub struct Sink(pub u64, pub u64);
 /// The error a payload answers with.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Fault(pub u64);
+
+/// A module whose `Result` takes one argument, as `std::io` does.
+pub mod fallible {
+    /// A result whose error is a `Fault`.
+    pub type Result<T> = core::result::Result<T, super::Fault>;
+}
 
 /// What every payload's own associated type converts into, the type the
 /// enum overrides an associated type with.

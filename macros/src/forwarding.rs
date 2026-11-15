@@ -27,7 +27,7 @@ use crate::shape::{
     ArgumentKind, Conversion, FutureShape, PlaceBorrow, ReceiverKind, ReturnSite,
 };
 use crate::spelling;
-use crate::subject::{Entry, Target, Unforwardable};
+use crate::subject::{Entry, Place, Target, Unforwardable};
 
 /// Returns an identifier with `macro_rules`-style hygiene, which can never
 /// collide with one the user wrote, located at `site` as every other token
@@ -429,12 +429,8 @@ impl MethodPlan {
             site,
         } = context;
         let site = *site;
-        let Target {
-            ident: target_ident,
-            payload,
-            route,
-            ..
-        } = target;
+        let Target { payload, route, .. } = target;
+        let target_ident = target.spoken(subject);
         // Under a lift the payload returns the plain value and the lift
         // wraps the rebuilt variant into the declared `Option` or `Result`.
         let conversion = if lift.is_some() {
@@ -618,7 +614,7 @@ impl MethodPlan {
                 let spelled = spelling::spelled(payload);
                 format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{subject}` has a named field, which no path builds; make it a tuple struct, `struct {subject}({spelled});`, or {}", context.rebuild_hint(target_ident))
             } else {
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{subject}`; {}", context.rebuild_hint(target_ident))
+                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{target_ident}`; {}", context.rebuild_hint(target_ident))
             };
             Error::new_spanned(payload, message)
         };
@@ -949,7 +945,8 @@ fn receiver_expression(
         ReceiverKind::Value(access) => Ok(payload_expression(&target.route, access, binding, site)),
         ReceiverKind::Boxed => {
             if !target.holds_box() {
-                let ident = &target.ident;
+                let ident = target.spoken(context.subject);
+                let noun = target.noun();
                 let payload = &target.payload;
                 let spelled = spelling::spelled(payload);
                 // A `deref` variant over another pointer has no box to hand
@@ -964,9 +961,15 @@ fn receiver_expression(
                 // A payload that already is a `Box` only lacks `deref`.
                 let advice = if last_segment(payload).is_some_and(|segment| segment.ident == "Box")
                 {
-                    format!("add `#[dispatch(deref)]` to `{ident}`")
+                    // The variant by its name; a struct's one field is
+                    // what the span points at.
+                    let to = match target.place {
+                        Place::Variant { .. } => format!("`{ident}`"),
+                        Place::Field { .. } => String::from("the field"),
+                    };
+                    format!("add `#[dispatch(deref)]` to {to}")
                 } else {
-                    format!("hold `Box<{spelled}>` in a `#[dispatch(deref)]` variant")
+                    format!("hold `Box<{spelled}>` in a `#[dispatch(deref)]` {noun}")
                 };
                 return Err(Error::new_spanned(
                     payload,

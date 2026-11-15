@@ -226,6 +226,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         }
     }
     write_other(writer, context);
+    allow_unread(writer, context);
     writer.open(format!(
         "impl{} {} for E{} {{",
         context.impl_generics(),
@@ -339,6 +340,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if method.inherent {
         writer.close("}");
         writer.blank();
+        allow_unread(writer, context);
         writer.open(format!("impl{generics} E{generics} {{"));
         let fallback = match context.path.form {
             PathForm::First => Some(format!(
@@ -391,6 +393,7 @@ fn write_other(writer: &mut Writer, context: &Context) {
     if !context.stack.present {
         return;
     }
+    allow_unread(writer, context);
     writer.open(format!(
         "impl{} {OTHER} for E{} {{",
         context.impl_generics(),
@@ -433,6 +436,14 @@ fn write_other(writer: &mut Writer, context: &Context) {
     write_method(writer, context, &method);
     writer.close("}");
     writer.blank();
+}
+
+/// Writes the `#[allow(unused_variables)]` a hand's impl over an enum
+/// that is empty in this build needs: no arm reads the arguments.
+fn allow_unread(writer: &mut Writer, context: &Context) {
+    if !is_struct(&context.slots) && context.slots.is_empty() {
+        writer.line("#[allow(unused_variables)]");
+    }
 }
 
 /// How the arms of a method meet its return type.
@@ -642,6 +653,7 @@ fn inherent_value(
         | Node::Fault
         | Node::Option(_)
         | Node::Result(_, _)
+        | Node::Fallible(_)
         | Node::Tuple(_)
         | Node::Future(_, _)
         | Node::Iterator
