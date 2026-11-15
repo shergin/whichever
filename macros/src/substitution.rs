@@ -28,6 +28,34 @@ pub(crate) struct Substitution {
     errors: Vec<Error>,
 }
 
+/// Returns `bound` as the trait a projection is qualified with, `<Arg as
+/// Bound>::Assoc`: its path and generic arguments without the constraints
+/// on its associated items, which a bound may carry and a qualified path
+/// may not. `F: Format<Value = u64>` qualifies `F::Value` as `<Json as
+/// Format>::Value`, which names the same type.
+fn qualifier(bound: &Path) -> Path {
+    let mut path = bound.clone();
+    let Some(last) = path.segments.last_mut() else {
+        return path;
+    };
+    let PathArguments::AngleBracketed(arguments) = &mut last.arguments else {
+        return path;
+    };
+    arguments.args = std::mem::take(&mut arguments.args)
+        .into_iter()
+        .filter(|argument| {
+            matches!(
+                argument,
+                GenericArgument::Lifetime(_) | GenericArgument::Type(_) | GenericArgument::Const(_)
+            )
+        })
+        .collect();
+    if arguments.args.is_empty() {
+        last.arguments = PathArguments::None;
+    }
+    path
+}
+
 impl Substitution {
     /// The trait's parameters replaced by the arguments `trait_path` names,
     /// for a result written where `scope` is in scope.
@@ -139,7 +167,7 @@ impl Substitution {
             match (param, argument) {
                 (GenericParam::Type(param), GenericArgument::Type(ty)) => {
                     let single_bound = match param.bounds.iter().collect::<Vec<_>>().as_slice() {
-                        [TypeParamBound::Trait(bound)] => Some(bound.path.clone()),
+                        [TypeParamBound::Trait(bound)] => Some(qualifier(&bound.path)),
                         _ => None,
                     };
                     substitution

@@ -20,7 +20,3 @@ arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&S
 arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
 arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
 arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
-
-# A projection through the trait's parameter, `F::Value`, is qualified with
-# the parameter's bound as written, its associated constraint included.
-generic=concrete qual=provided	error:E0229@trait	A projection through a trait parameter whose bound constrains an associated type is qualified with the constraint, `<support::Json as support::Format<Value = u64>>::Value`, which rustc rejects.
