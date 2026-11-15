@@ -133,3 +133,80 @@ fn a_defaulted_parameter_may_be_left_out() {
     assert_eq!(Describer::from(Short).describe(7), "7");
     assert_eq!(Describer::from(Long).describe(7), "the number 7");
 }
+
+/// A trait parameter's one bound may constrain an associated type; the
+/// projection through it is qualified with the bound's generic arguments
+/// and without the constraint, `<Json as Codec<Text>>::Value`.
+mod a_bound_with_a_constraint {
+    pub struct Text;
+
+    pub trait Codec<M> {
+        type Value;
+    }
+
+    pub struct Json;
+
+    impl Codec<Text> for Json {
+        type Value = u64;
+    }
+
+    pub trait Format {
+        type Value;
+    }
+
+    impl Format for Json {
+        type Value = u64;
+    }
+
+    #[whichever::dispatchable]
+    pub trait Encoder<F: Format<Value = u64>> {
+        fn encode(&self, value: F::Value) -> u64;
+    }
+
+    #[whichever::dispatchable]
+    pub trait Decoder<F: Codec<Text, Value = u64>> {
+        fn decode(&self, value: F::Value) -> F::Value;
+    }
+
+    pub struct Plain;
+    pub struct Doubled;
+
+    impl Encoder<Json> for Plain {
+        fn encode(&self, value: u64) -> u64 {
+            value
+        }
+    }
+
+    impl Encoder<Json> for Doubled {
+        fn encode(&self, value: u64) -> u64 {
+            value * 2
+        }
+    }
+
+    impl Decoder<Json> for Plain {
+        fn decode(&self, value: u64) -> u64 {
+            value
+        }
+    }
+
+    impl Decoder<Json> for Doubled {
+        fn decode(&self, value: u64) -> u64 {
+            value / 2
+        }
+    }
+
+    #[whichever::dispatch(Encoder<Json>)]
+    #[dispatch(Decoder<Json>)]
+    pub enum Any {
+        Plain(Plain),
+        Doubled(Doubled),
+    }
+
+    #[test]
+    fn the_projection_is_the_bounds_associated_type() {
+        assert_eq!(Any::Plain(Plain).encode(3), 3);
+        assert_eq!(Any::Doubled(Doubled).encode(3), 6);
+        assert_eq!(Any::Doubled(Doubled).decode(6), 3);
+        assert_eq!(Any::Plain(Plain).decode(6), 6);
+    }
+}

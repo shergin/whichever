@@ -358,6 +358,43 @@ mod tests {
     }
 
     #[test]
+    fn a_projection_is_qualified_without_the_bounds_constraints() {
+        let qualified = |item_trait: ItemTrait| {
+            let path: Path = parse_quote!(Encoder<Json>);
+            let mut substitution =
+                Substitution::of_trait(&item_trait, &path, &Generics::default()).unwrap();
+            let mut ty: Type = parse_quote!(F::Value);
+            substitution.visit_type_mut(&mut ty);
+            assert!(substitution.check().is_ok());
+            spelled(&ty)
+        };
+        assert_eq!(
+            qualified(parse_quote!(
+                trait Encoder<F: Format<Value = u64>> {
+                    fn encode(&self, value: F::Value) -> u64;
+                }
+            )),
+            "<JsonasFormat>::Value"
+        );
+        assert_eq!(
+            qualified(parse_quote!(
+                trait Encoder<F: Format<Text, Value = u64>> {
+                    fn encode(&self, value: F::Value) -> u64;
+                }
+            )),
+            "<JsonasFormat<Text>>::Value"
+        );
+        assert_eq!(
+            qualified(parse_quote!(
+                trait Encoder<F: Format<'static, Text, 4, Value = u64, Error: Debug>> {
+                    fn encode(&self, value: F::Value) -> u64;
+                }
+            )),
+            "<JsonasFormat<'static,Text,4>>::Value"
+        );
+    }
+
+    #[test]
     fn a_projection_through_a_parameter_with_two_bounds_is_a_limit() {
         let item_trait: ItemTrait = parse_quote!(
             trait Encoder<F: Format + Clone> {

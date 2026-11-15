@@ -176,8 +176,10 @@
 //! for `trait Enc<F = Json>`, as `impl Enc for A` leaves it out. Type,
 //! lifetime and const parameters are substituted in every signature, and a
 //! projection such as `F::Value` becomes `<Json as Format>::Value` when `F`
-//! has exactly one bound; with several bounds the trait has to spell
-//! `<F as Format>::Value` itself. The enum itself may be generic; its
+//! has exactly one bound, written with the bound's generic arguments and
+//! without a constraint on an associated type, so `F: Format<Text, Value = u64>`
+//! gives `<Json as Format<Text>>::Value`; with several bounds the trait has
+//! to spell `<F as Format>::Value` itself. The enum itself may be generic; its
 //! parameters, bounds and `where` clause carry into the impl, and a payload
 //! that is one of its type parameters, `Raw(Raw)` on `enum Lazy<Raw,
 //! Parsed>` or `Box<T>` under `deref`, gives the impl the bound `Raw:

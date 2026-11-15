@@ -136,6 +136,17 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `docs/partial-impl-blocks.md` says so. The `tests/ui` case
   `conditional_mark_leaves_builds_to_the_forwarding` is new; no other
   snapshot and no golden changed.
+- Before, a generic trait whose parameter's one bound constrains an
+  associated type, `trait Encoder<F: Format<Value = u64>>` with a method
+  taking `F::Value`, could not be dispatched: the projection was
+  qualified with the bound as written, `<Json as Format<Value =
+  u64>>::Value`, and rustc rejected it with E0229, associated item
+  constraints are not allowed here, on the trait's bound. The projection
+  is now qualified with the bound's generic arguments and without its
+  constraints, `<Json as Format>::Value`, and `<Json as
+  Format<Text>>::Value` for `F: Format<Text, Value = u64>`, which name the
+  same type. `docs/options.md` says so. No golden and no `tests/ui`
+  snapshot changed.
 
 ## 0.7.3 - 2026-11-13
 
