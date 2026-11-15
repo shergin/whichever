@@ -532,7 +532,7 @@ fn method_expectation(context: &Context, slot: &Slot) -> Expect {
         PathForm::Forwarded | PathForm::First | PathForm::Written if context.inherent() => {
             Expect::Constant(super::context::constant(
                 &context.cell.declared_node(),
-                "S::A(P0::new(424_242))",
+                &context.fresh(&value_path(context)),
             ))
         }
         PathForm::Forwarded | PathForm::First | PathForm::Written => {

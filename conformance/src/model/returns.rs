@@ -344,16 +344,14 @@ impl Node {
             | Node::Option(_) => true,
             Node::This => this,
             Node::Result(_, error) => error.has_constant(this),
-            Node::Fallible(_) => true,
+            Node::Fallible(_) | Node::Exclusive | Node::Vec(_) => true,
             Node::Tuple(elements) => elements.iter().all(|element| element.has_constant(this)),
-            Node::Exclusive
-            | Node::Payload
+            Node::Payload
             | Node::PayloadShared
             | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::Future(_, _)
-            | Node::Iterator
-            | Node::Vec(_) => false,
+            | Node::Iterator => false,
         }
     }
 

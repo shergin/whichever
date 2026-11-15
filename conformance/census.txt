@@ -19,22 +19,23 @@ suite pairs
   never 31 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
-  pass 1509
-  limit 1547
+  pass 1557
+  limit 1707
   rejected 0
   malformed 6
   never 154 non-canonical
-  never 400 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 192 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 128 unmodelled: a reference return that borrows from the `Self` argument
 
 suite boxed
-  pass 636
-  limit 1094
+  pass 648
+  limit 1148
   rejected 0
   malformed 0
   never 222 non-canonical
   never 97 unmodelled: a default body that would need a payload to make its answer
-  never 282 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 54 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 162 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 90 unmodelled: a reference return that borrows from the `Self` argument
   never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 63 unmodelled: an `async fn` that returns a future
@@ -60,28 +61,28 @@ suite qualifiers
 
 suite value-method-route
   pass 16
-  limit 62
+  limit 76
   rejected 149
   malformed 0
   never 60 non-canonical
-  never 173 unmodelled: a limit beside a rejection the limit does not replace
-  never 80 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 223 unmodelled: a limit beside a rejection the limit does not replace
+  never 16 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 12 unmodelled: a reference return that borrows from the `Self` argument
   never 24 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite paths
-  pass 1065
-  limit 1296
+  pass 1103
+  limit 1321
   rejected 0
   malformed 7
   never 971 non-canonical
   never 192 unmodelled: a block body for a future return
-  never 108 unmodelled: a block body for a return type that needs a payload to make
+  never 48 unmodelled: a block body for a return type that needs a payload to make
   never 84 unmodelled: a default answering `Self` left to the default, whose twin is no enum
   never 390 unmodelled: a default body that would need a payload to make its answer
   never 168 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
-  never 99 unmodelled: an inherent body for a return type that needs a payload to make
-  never 228 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+  never 84 unmodelled: an inherent body for a return type that needs a payload to make
+  never 240 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite path-arguments
   pass 822
@@ -89,20 +90,20 @@ suite path-arguments
   rejected 0
   malformed 0
   never 144 non-canonical
-  never 108 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 108 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 36 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent
-  pass 815
-  limit 2236
+  pass 835
+  limit 2300
   rejected 0
   malformed 0
   never 1512 non-canonical
   never 126 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 123 unmodelled: an `async fn` that returns a future
-  never 714 unmodelled: an inherent body for a return type that needs a payload to make
-  never 138 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
-  never 276 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
+  never 612 unmodelled: an inherent body for a return type that needs a payload to make
+  never 144 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
+  never 288 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
   never 72 unmodelled: an inherent method through a route whose method yields its target
   never 36 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
 
@@ -146,14 +147,14 @@ suite inherent-struct-returns
   never 183 unmodelled: an inherent method with a return type the inherent docs do not describe for a struct
 
 suite inherent-into
-  pass 326
-  limit 254
+  pass 342
+  limit 270
   rejected 0
   malformed 0
   never 420 non-canonical
   never 282 unmodelled: a lift over an answer the lift does not take
   never 30 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 128 unmodelled: an inherent body for a return type that needs a payload to make
+  never 96 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent-shared
   pass 409
@@ -178,17 +179,17 @@ suite struct-arguments
   limit 30
   rejected 0
   malformed 0
-  never 18 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 18 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 90 unmodelled: a mismatch option on a struct, which has no second variant
 
 suite struct-paths
-  pass 312
+  pass 318
   limit 165
   rejected 0
   malformed 0
   never 36 non-canonical
   never 24 unmodelled: a block body for a future return
-  never 12 unmodelled: a block body for a return type that needs a payload to make
+  never 6 unmodelled: a block body for a return type that needs a payload to make
   never 15 unmodelled: a default answering `Self` left to the default, whose twin is no enum
   never 126 unmodelled: a default body that would need a payload to make its answer
   never 30 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
@@ -214,7 +215,8 @@ suite cfg-arguments
   malformed 0
   never 192 non-canonical
   never 48 unmodelled: a block body for a return type that needs a payload to make
-  never 160 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 32 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 128 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 96 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite cfg-marks
@@ -381,7 +383,7 @@ suite restatements
   malformed 0
   never 66 unmodelled: a default body that would need a payload to make its answer
   never 180 unmodelled: a mark or a mismatch for a method the restatement leaves out
-  never 36 unmodelled: a mismatch expression for a return type that needs a payload to make
+  never 36 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
 
 suite restatement-shapes
   pass 132
@@ -501,31 +503,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 7903
+  pass 7883
   limit 0
   rejected 0
   malformed 0
-  rows 7903
-  covered 82727
-  unreached 40504
+  rows 7883
+  covered 83585
+  unreached 39646
 
 suite array-limits
   pass 0
-  limit 543
+  limit 525
   rejected 0
   malformed 0
-  rows 543
-  covered 10593
-  unreached 1820
+  rows 525
+  covered 10585
+  unreached 1828
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 880
+  rejected 874
   malformed 0
-  rows 880
-  covered 10061
-  unreached 2352
+  rows 874
+  covered 10078
+  unreached 2335
 
 suite known
   pass 2

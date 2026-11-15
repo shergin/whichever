@@ -190,6 +190,13 @@ nothing else of the type can be made; an associated type it would have
 to bound, and a `Self` a block leaves to the default, whose twin
 `Defaulted` cannot be, stay unmodelled.
 
+A mismatch answers a constant of the return type: a number, `None`, an
+`Err`, a place it leaks where the type borrows mutably, and for `Self`
+the first variant built around a fresh payload, what the variant stores
+built around it, a reference by leaking a box. Only the enum's attribute
+can name the variant, so a mismatch on the trait answering `Self` stays
+unmodelled.
+
 The `home` axis says where the trait and the payloads live: in the cell's
 module, in a sibling module the subject imports the trait from, or in
 another crate. There the cell is written as two files that keep its line

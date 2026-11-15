@@ -869,16 +869,45 @@ impl Context {
     /// Returns the output the mismatch gives once a future is awaited, or
     /// the mismatch itself for any other return type.
     pub fn mismatched_output(&self, path: &str) -> String {
-        let payload = "P0::new(424_242)";
-        let this = match self.cell.s0.descriptor().form {
-            Form::Single => format!("{path}::A({payload})"),
-            Form::MarkedTuple => format!("{path}::A({payload}, {LABEL})"),
-            Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {payload} }}"),
-            Form::Struct => format!("{path}({payload})"),
-            Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {payload} }}"),
-            Form::StructNamed => format!("{path} {{ held: {payload} }}"),
+        constant(&self.output(), &self.fresh(path))
+    }
+
+    /// Returns the first variant built around a fresh payload, by `path`,
+    /// which a mismatch or a body answers for `Self`: what the variant
+    /// stores is built around the payload, a pointer by its constructor and
+    /// a reference by leaking a box, which code with no place of its own
+    /// may do.
+    pub fn fresh(&self, path: &str) -> String {
+        let slot = &self.declared[0];
+        let target = self.cell.s0.descriptor();
+        let payload = String::from("P0::new(424_242)");
+        let wrapper = format!(
+            "{} {{ label: {LABEL}, payload: {payload} }}",
+            slot.wrapper()
+        );
+        let pointed = |pointer: Pointer, value: String| match pointer {
+            Pointer::Box => format!("Box::new({value})"),
+            Pointer::Rc => format!("Rc::new({value})"),
+            Pointer::Arc => format!("Arc::new({value})"),
+            Pointer::Shared | Pointer::Exclusive => format!("support::leak({value})"),
         };
-        constant(&self.output(), &this)
+        let stored = match target.storage {
+            Storage::Payload => payload,
+            Storage::Pointer(pointer) => pointed(pointer, payload),
+            Storage::Wrapper => wrapper,
+            Storage::Pair => format!("({LABEL}, {payload})"),
+            Storage::WrapperBehind(pointer) => pointed(pointer, wrapper),
+            Storage::WrapperInPair => format!("({LABEL}, {wrapper})"),
+            Storage::Object => pointed(Pointer::Box, payload),
+        };
+        match target.form {
+            Form::Single => format!("{path}::A({stored})"),
+            Form::MarkedTuple => format!("{path}::A({stored}, {LABEL})"),
+            Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {stored} }}"),
+            Form::Struct => format!("{path}({stored})"),
+            Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
+            Form::StructNamed => format!("{path} {{ held: {stored} }}"),
+        }
     }
 }
 
@@ -954,14 +983,15 @@ pub fn constant(node: &Node, this: &str) -> String {
                 .collect();
             format!("({})", elements.join(", "))
         }
-        Node::Exclusive
-        | Node::Payload
+        // A place no payload holds, leaked, and a vector of no `Self`.
+        Node::Exclusive => String::from("support::leak(424_242)"),
+        Node::Vec(_) => String::from("Vec::new()"),
+        Node::Payload
         | Node::PayloadShared
         | Node::PayloadLent
         | Node::PayloadExclusive
         | Node::Future(_, _)
-        | Node::Iterator
-        | Node::Vec(_) => {
+        | Node::Iterator => {
             unreachable!("the verdict leaves no mismatch for this type")
         }
     }

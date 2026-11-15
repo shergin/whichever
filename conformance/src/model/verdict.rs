@@ -652,14 +652,22 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             Some((_, output)) => *output,
             None => node,
         };
-        // A `Self` in the mismatch is a variant built around a fresh
-        // payload, which only the enum's attribute can name, and only for a
-        // variant that holds its payload by value.
+        // A `Self` in the mismatch is the first variant built around a
+        // fresh payload, which only the enum's attribute can name: "An
+        // expression on the trait method or on the enum may use the
+        // method's parameters, a `Self` argument included" (options.md),
+        // and the trait names no variant, nor can it make a `Self` of a
+        // reference to one. A place no payload holds is leaked.
         let nameable = argument.mismatch == MismatchSite::Enum
-            && cell.s0.descriptor().storage == Storage::Payload
             && cell.cfg.of(0) != Some("any()")
             && cell.generic != Generics::Payload
             && cell.owner == Owner::Local;
+        let on_trait = argument.mismatch == MismatchSite::Trait;
+        if on_trait && output.holds_this() && !output.has_constant(nameable) {
+            return Some(
+                "a mismatch on the trait answering `Self`, which the trait names no variant of",
+            );
+        }
         if !output.has_constant(nameable) {
             return Some("a mismatch expression for a return type that needs a payload to make");
         }
