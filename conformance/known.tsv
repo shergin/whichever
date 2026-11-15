@@ -5,6 +5,3 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
-path=block-some cfg=every-on	shape:m	A partial block's method with a body for the variants its mark leaves out carries `#[allow(unused_variables)]` over an enum that may be empty, which the user did not write and its body, the arm of every build, does not need.
-path=block-some cfg=every-off	shape:m	A partial block's method with a body for the variants its mark leaves out carries `#[allow(unused_variables)]` over an enum that may be empty, which the user did not write and its body, the arm of every build, does not need.
-path=block-some cfg=every-on	shape:fmt	A partial block's method with a body for the variants its mark leaves out carries `#[allow(unused_variables)]` over an enum that may be empty, which the user did not write and its body, the arm of every build, does not need.

@@ -472,7 +472,7 @@ suite array-rejected
   unreached 2002
 
 suite known
-  pass 2
+  pass 0
   limit 0
   rejected 0
   malformed 0
