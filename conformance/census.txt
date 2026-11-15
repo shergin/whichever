@@ -323,6 +323,40 @@ suite route-paths
   never 36 unmodelled: an inherent body for a return type that needs a payload to make
   never 12 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
+suite restatements
+  pass 117
+  limit 0
+  rejected 33
+  malformed 0
+  never 66 unmodelled: a default body that would need a payload to make its answer
+  never 180 unmodelled: a mark or a mismatch for a method the restatement leaves out
+  never 36 unmodelled: a mismatch expression for a return type that needs a payload to make
+
+suite restatement-shapes
+  pass 132
+  limit 33
+  rejected 0
+  malformed 0
+  never 60 non-canonical
+  never 15 unmodelled: a supertrait generic over the enum's const parameter
+
+suite foreign
+  pass 371
+  limit 118
+  rejected 27
+  malformed 0
+  never 110 non-canonical
+  never 12 unmodelled: a limit beside a rejection the limit does not replace
+  never 2 unmodelled: a struct's inherent or block method naming its field, not modelled yet
+  never 80 unmodelled: an inherent or partial method naming variants under `#[cfg]`
+
+suite foreign-conversions
+  pass 54
+  limit 36
+  rejected 0
+  malformed 0
+  never 18 non-canonical
+
 suite thirds
   pass 187
   limit 709
@@ -358,38 +392,38 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 63
+  pass 67
   limit 14
   rejected 4
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 7498
+  pass 7552
   limit 0
   rejected 0
   malformed 0
-  rows 7498
-  covered 75058
-  unreached 34971
+  rows 7552
+  covered 75473
+  unreached 35144
 
 suite array-limits
   pass 0
-  limit 491
+  limit 531
   rejected 0
   malformed 0
-  rows 491
-  covered 8508
-  unreached 1401
+  rows 531
+  covered 8952
+  unreached 1545
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 935
+  rejected 895
   malformed 0
-  rows 935
-  covered 7520
-  unreached 2389
+  rows 895
+  covered 8614
+  unreached 1883
 
 suite known
   pass 0

@@ -8,6 +8,7 @@
 pub mod context;
 mod conversions;
 mod declarations;
+mod foreign;
 mod hand;
 mod law;
 mod payload;
@@ -296,6 +297,12 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
     writer.blank();
     writer.begin(Part::Payloads);
     payload::write(&mut writer, context);
+    // The restatement is the subject's, in its crate, which reads it.
+    if parts.subject && context.declaration.restated {
+        writer.begin(Part::Restatement);
+        declarations::write_restatement(&mut writer, context);
+        writer.blank();
+    }
     if parts.subject {
         writer.begin(Part::Subject);
         declarations::write_subject(&mut writer, context);

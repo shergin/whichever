@@ -174,6 +174,9 @@ struct Method {
     inline: &'static str,
     /// The name of its `u64` argument.
     parameter: &'static str,
+    /// Whether each arm passes that argument after the target and the
+    /// `Self` argument.
+    passes: bool,
     /// Whether its `Self` argument is handed over as it is, the enum
     /// itself, rather than matched beside `self`.
     hands_enum: bool,
@@ -185,6 +188,11 @@ struct Method {
 pub fn write(writer: &mut Writer, context: &Context) {
     writer.line("/// The same subject with the forwarding written by hand.");
     writer.open("mod hand {");
+    // The foreign trait's impl names no payload where no variant holding
+    // one is in the build, nor anything else of the cell.
+    if context.foreign() && context.live().is_empty() {
+        writer.line("#[allow(unused_imports)]");
+    }
     writer.line("use super::*;");
     writer.blank();
     let generics = context.generics();
@@ -226,6 +234,11 @@ pub fn write(writer: &mut Writer, context: &Context) {
         }
     }
     write_other(writer, context);
+    if context.foreign() {
+        write_foreign(writer, context);
+        writer.close("}");
+        return;
+    }
     allow_unread(writer, context);
     writer.open(format!(
         "impl{} {} for E{} {{",
@@ -283,6 +296,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         attributes: Vec::new(),
         inline: "inline",
         parameter: "x",
+        passes: false,
         hands_enum: false,
         trait_path: context.trait_path(),
     };
@@ -347,6 +361,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
         attributes,
         inline: context.item.inline,
         parameter: context.parameter(),
+        passes: true,
         hands_enum: false,
         trait_path: context.trait_path(),
     };
@@ -450,12 +465,75 @@ fn write_other(writer: &mut Writer, context: &Context) {
         attributes: Vec::new(),
         inline: "inline",
         parameter: "x",
+        passes: false,
         hands_enum: false,
         trait_path: String::from(OTHER),
     };
     write_method(writer, context, &method);
     writer.close("}");
     writer.blank();
+}
+
+/// Writes the hand's impl of `core::fmt::Display`, the trait
+/// `whichever::foreign::Display` implements: `fmt` forwarded to the
+/// variants it reaches, with the body the block writes for the rest, or
+/// that body alone.
+fn write_foreign(writer: &mut Writer, context: &Context) {
+    use super::foreign::{body, SIGNATURE};
+    use crate::model::declaration::CORE_DISPLAY;
+    allow_unread(writer, context);
+    writer.open(format!(
+        "impl{} {CORE_DISPLAY} for E{} {{",
+        context.impl_generics(),
+        context.type_generics()
+    ));
+    // A partial block's method over an enum whose every variant is under
+    // `#[cfg]` allows its arguments to go unused, as `m`'s does.
+    let user_item = context.path.site != crate::model::path::Site::Attribute;
+    let may_be_empty = context.cell.every_under_cfg() && !is_struct(&context.slots);
+    let attributes = match user_item && may_be_empty {
+        true => vec![String::from("#[allow(unused_variables)]")],
+        false => Vec::new(),
+    };
+    let method = Method {
+        name: "fmt",
+        signature: String::from(SIGNATURE),
+        receiver: Receiver::Shared,
+        argument: None,
+        node: Node::Tag,
+        asyncness: false,
+        unsafety: false,
+        turbofish: "",
+        slots: context
+            .cell
+            .method_slots()
+            .iter()
+            .map(|(slot, _, _)| slot.index)
+            .collect(),
+        fallback: (context.path.form == PathForm::First).then(body),
+        inherent: false,
+        callee: Callee::Method,
+        lift: Lift::Bare,
+        target: Node::Tag,
+        by_place: context.cell.every_under_cfg(),
+        attributes,
+        inline: "inline",
+        parameter: "f",
+        passes: true,
+        hands_enum: false,
+        trait_path: String::from(CORE_DISPLAY),
+    };
+    match context.path.form {
+        PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
+        PathForm::Default => {}
+        PathForm::Written => {
+            writer.blank();
+            writer.open(format!("{SIGNATURE} {{"));
+            writer.line(body());
+            writer.close("}");
+        }
+    }
+    writer.close("}");
 }
 
 /// Writes the `#[allow(unused_variables)]` a hand's impl over an enum
@@ -621,7 +699,7 @@ fn arm(
     }
     let mut arguments = vec![own.handed(handover)];
     arguments.extend(other_argument);
-    if method.name == "m" {
+    if method.passes {
         arguments.push(String::from(method.parameter));
     }
     let mut call = format!(

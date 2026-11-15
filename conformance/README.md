@@ -109,6 +109,18 @@ associated item is checked across three payloads, and in a block the
 control method names every variant that holds a payload, with a body for
 the rest.
 
+The `decl` axis says how the trait is declared (`docs/restatements.md`).
+Under `remote` the trait is declared without the attribute, in a module
+`real` of the cell, in the sibling module or in the trait's crate, and the
+subject's crate restates it with `#[whichever::dispatchable(remote =
+path)]`, which the subject's attribute reads; under `remote-base` the
+restatement lists the control method alone, so a provided `m` is the real
+trait's default whatever its payload overrides. Under `foreign` the trait
+is `whichever::foreign::Display`: the payloads implement
+`core::fmt::Display`, beside an inherent `fmt` that prints a poison, the
+hand implements `core::fmt::Display` with the same `match`, and the law
+compares what the subject prints with what a twin of its payload prints.
+
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`

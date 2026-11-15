@@ -25,15 +25,15 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
-    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
-    Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
+    Lift, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
 /// Returns the cell's verdict.
 pub fn verdict(cell: &Cell) -> Verdict {
     // The callee and the lift are an inherent method's alone.
-    let inherent = cell.path.descriptor().site == PathSite::Inherent;
+    let inherent = cell.path_descriptor().site == PathSite::Inherent;
     if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
         return Verdict::NonCanonical;
     }
@@ -78,6 +78,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
         return Verdict::NonCanonical;
     }
+    if let Some(verdict) = declared(cell) {
+        return verdict;
+    }
     if let Some(reason) = malformed(cell) {
         if !canonical_when_malformed(cell) {
             return Verdict::NonCanonical;
@@ -89,6 +92,10 @@ pub fn verdict(cell: &Cell) -> Verdict {
     }
     let mut expected = limits(cell);
     let mut rejections = rejections(cell);
+    // `whichever::foreign::Display` has no control method.
+    if cell.decl.descriptor().foreign {
+        rejections.retain(|rejection| rejection.method == Forwarded::Method);
+    }
     // A method the trait declares under a `#[cfg]` that does not hold has
     // no generated item in this build ("the generated item exists exactly
     // when the trait's does", what-is-generated.md), so nothing about it
@@ -192,6 +199,62 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.stack == Stack::Absent
         && cell.deprecated == Deprecation::Absent
         && cell.s2 == Third::Absent
+        && cell.decl == Declaration::Dispatchable
+}
+
+/// The shapes a trait restated beside the subject or shipped in
+/// `whichever::foreign` takes (restatements.md), or `None` where the cell
+/// is judged as any other.
+fn declared(cell: &Cell) -> Option<Verdict> {
+    let declaration = cell.decl.descriptor();
+    let path = cell.path.descriptor();
+    if declaration.foreign {
+        // `whichever::foreign::Display` has one method, `fmt(&self, f)`,
+        // which the payloads implement for `core::fmt::Display`; the axes
+        // of the method under test, of the trait's own items and of where
+        // it lives are `Probe`'s, and a mark of `default` meets a method
+        // with no default body in a trait of another crate.
+        let neutral = cell.recv == Receiver::Shared
+            && cell.ret == Return::Tag
+            && cell.arg == Argument::Absent
+            && cell.qual == Qualifier::Plain
+            && cell.item == Item::Bare
+            && cell.home == Home::Local
+            && cell.generic == Generics::Bare
+            && cell.agree == Agreement::Absent
+            && cell.stack == Stack::Absent;
+        let block = matches!(path.form, PathForm::Default) || path.site == PathSite::Inherent;
+        if !neutral || block {
+            return Some(Verdict::NonCanonical);
+        }
+        return None;
+    }
+    if !declaration.restated {
+        return None;
+    }
+    // An inherent method is no trait's, so the restatement would list the
+    // control method alone, which every other cell forwards already.
+    if path.site == PathSite::Inherent {
+        return Some(Verdict::NonCanonical);
+    }
+    if cell.item != Item::Bare {
+        return Some(Verdict::Unmodelled(
+            "attributes on a restated method, whose home is the restatement's",
+        ));
+    }
+    if declaration.lists_method {
+        return None;
+    }
+    // A restatement that leaves the method out forwards it not at all, so
+    // the impl takes the real trait's default; a required method has none,
+    // and a mark or a mismatch would name a method the restatement does
+    // not have.
+    if path.in_block || cell.arg != Argument::Absent {
+        return Some(Verdict::Unmodelled(
+            "a mark or a mismatch for a method the restatement leaves out",
+        ));
+    }
+    None
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -209,7 +272,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // subject over `&'a P0` declares, and only an inherent method can
     // spell; the model writes it for a place read through such variants.
     if cell.ret == Return::Lent {
-        let inherent = cell.path.descriptor().site == PathSite::Inherent;
+        let inherent = cell.path_descriptor().site == PathSite::Inherent;
         let place = matches!(cell.callee, Callee::Value | Callee::Field);
         let lent = cell
             .live_slots()
@@ -231,7 +294,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     if cell.item == Item::Inline && !qualifier.provided {
         return Some("`#[inline]` on a required method, which rustc warns of in the trait");
     }
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     if let Some(reason) = unpredicted_generics(cell) {
         return Some(reason);
     }
@@ -457,7 +520,7 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
     // the first variant, and would be warned of as the user's own code.
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     let names_first = cell.arg.descriptor().kind.is_some()
         || matches!(path.form, PathForm::First | PathForm::Written);
     if cell.deprecated == Deprecation::First && names_first {
@@ -585,7 +648,7 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     // An inherent method that names the first variant has a body for the
     // rest, a constant of the declared type; only rendering builds that
     // type, so its constant is read here from the target's.
-    let first = cell.path.descriptor().form == PathForm::First;
+    let first = cell.path_descriptor().form == PathForm::First;
     let constant = match lift {
         Lift::Bare | Lift::Into => cell.target_node().has_constant(false),
         Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => true,
@@ -680,7 +743,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let receiver = cell.recv.descriptor();
     let argument = cell.reached_argument();
     let slots = cell.slots();
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     // The variant-specific rules of `m` concern the variants it is
     // forwarded to, and the method-wide ones apply when it is forwarded at
     // all: a method a block writes, or leaves to the default, is no
@@ -710,7 +773,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     // "`#[dispatch(default)]` on a bodiless method leaves it to the trait's
     // default" (partial-impl-blocks.md), which a required method has none of.
-    if path.form == PathForm::Default && !cell.qual.descriptor().provided {
+    // "Over a restatement that is the real trait's default, which the
+    // restatement cannot see", so no sentence is written there, and the
+    // impl lacks the method as a hand's does.
+    let restated = cell.decl.descriptor().restated;
+    if path.form == PathForm::Default && !cell.qual.descriptor().provided && !restated {
         expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
     }
 
@@ -1049,7 +1116,7 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // The method's body is written wherever it is forwarded, even when every
     // arm is a variant's sentence, so what the body itself captures is
     // rejected whatever the variants hold.
-    let form = cell.path.descriptor().form;
+    let form = cell.path_descriptor().form;
     let forwarded = cell.method_present()
         && matches!(form, PathForm::Forwarded | PathForm::First)
         && !cell.slots().is_empty();
@@ -1109,6 +1176,17 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // The sentence for a route through a method concerns one that ends in
     // the call (limits.md), so a hand's call gets rustc's error, and so
     // does the attribute's.
+    // A method left to the default of a real trait that gives it none,
+    // through a mark of `default` or a restatement that leaves it out, is
+    // missing from the impl, a hand's included.
+    let defaulted = cell.path_descriptor().form == PathForm::Default;
+    if defaulted && cell.decl.descriptor().restated && !qualifier.provided {
+        reject(
+            "E0046",
+            "a method left to the real trait's default, which it does not have",
+            Forwarded::Method,
+        );
+    }
     let through_loan = any(&|target| target.reads_through_a_loan());
     let exclusive =
         receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive);

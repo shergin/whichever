@@ -438,6 +438,52 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "restatements",
+        summary: "a trait restated beside the subject, every method listed or the control method alone, through the paths, with its home, its provided method, its `Self` argument and the returns that name `Self` or an associated type",
+        vary: &[
+            ("decl", &["remote", "remote-base"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("home", &[]),
+            ("qual", &["plain", "provided"]),
+            ("ret", &["u64", "self", "assoc"]),
+            ("arg", &["none", "ref-trait"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "restatement-shapes",
+        summary: "a restated trait over the target kinds, receivers, generics and second traits whose signatures the restatement spells",
+        vary: &[
+            ("s0", &["plain", "deref-box", "via-field", "struct"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-mut"]),
+            ("generic", &["none", "concrete", "own", "defaulted"]),
+            ("stack", &[]),
+        ],
+        fixed: &[("decl", "remote")],
+    },
+    Zone {
+        name: "foreign",
+        summary: "`whichever::foreign::Display` over the target kinds and the second variants, through the enum's attribute and the blocks, beside variants under `#[cfg]`",
+        vary: &[
+            ("s0", &["plain", "deref-box", "deref-rc", "deref-ref", "via-field", "via-index", "via-method", "via-method-value", "marked-tuple", "marked-struct", "struct", "struct-named"]),
+            ("s1", &["plain", "none", "unit", "pair"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-written"]),
+            ("cfg", &["none", "second-off", "every-on"]),
+        ],
+        fixed: &[("decl", "foreign")],
+    },
+    Zone {
+        name: "foreign-conversions",
+        summary: "`whichever::foreign::Display` with the conversions, a third variant and a deprecated one",
+        vary: &[
+            ("conv", &[]),
+            ("s1", &["plain", "none", "unit"]),
+            ("s2", &["none", "plain"]),
+            ("deprecated", &["none", "first"]),
+        ],
+        fixed: &[("decl", "foreign")],
+    },
+    Zone {
         name: "thirds",
         summary: "a third variant beside a second, over the target kinds of the first, the receivers that hand each arm over and the returns that rewrap it",
         vary: &[

@@ -9,6 +9,7 @@ pub mod agreement;
 pub mod argument;
 pub mod axes;
 pub mod conversion;
+pub mod declaration;
 pub mod generics;
 pub mod home;
 pub mod item;
@@ -23,8 +24,8 @@ mod verdict;
 pub mod wording;
 
 pub use axes::{
-    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
-    Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
+    Lift, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -234,7 +235,7 @@ impl Cell {
     /// (inherent-methods.md), so no variant's target is reached through it.
     pub fn reached_argument(&self) -> argument::ArgumentDescriptor {
         let argument = self.arg.descriptor();
-        let inherent = self.path.descriptor().site == path::Site::Inherent;
+        let inherent = self.path_descriptor().site == path::Site::Inherent;
         if inherent && !self.s0.descriptor().is_struct() {
             return argument::ArgumentDescriptor {
                 kind: None,
@@ -299,7 +300,34 @@ impl Cell {
     /// for every arm, so the targets of different variants have to be one
     /// type, reached as each variant reaches it (inherent-methods.md).
     pub fn shares_payload(&self) -> bool {
-        self.path.descriptor().site == path::Site::Inherent && self.callee == Callee::Value
+        self.path_descriptor().site == path::Site::Inherent && self.callee == Callee::Value
+    }
+
+    /// Returns how the method under test reaches the subject: the path's
+    /// description, except that a restatement which does not list the
+    /// method leaves it to the real trait's default, as `#[dispatch(default)]`
+    /// in a block does, with no mark (restatements.md: "a restatement
+    /// forwards only the methods it lists").
+    pub fn path_descriptor(&self) -> path::PathDescriptor {
+        let path = self.path.descriptor();
+        if self.decl.descriptor().lists_method {
+            return path;
+        }
+        path::PathDescriptor {
+            form: path::Form::Default,
+            mark: None,
+            in_block: false,
+            ..path
+        }
+    }
+
+    /// Returns the name of the method under test, in backticks, as a
+    /// sentence names it.
+    pub fn method_name(&self) -> &'static str {
+        match self.decl.descriptor().foreign {
+            true => "`fmt`",
+            false => "`m`",
+        }
     }
 
     /// Returns whether every variant is under `#[cfg]`, so that the enum
@@ -351,7 +379,7 @@ impl Cell {
         if !self.method_present() {
             return Vec::new();
         }
-        let form = self.path.descriptor().form;
+        let form = self.path_descriptor().form;
         self.live_slots()
             .into_iter()
             .filter(|(slot, _, _)| match form {
@@ -371,7 +399,7 @@ impl Cell {
     /// payload, so that a mark on the method under test is the one thing
     /// that meets the variant.
     pub fn base_reaches_all(&self) -> bool {
-        let block = self.path.descriptor().site == path::Site::Block;
+        let block = self.path_descriptor().site == path::Site::Block;
         let unreachable = self.slots().iter().any(|slot| slot.target().is_none());
         !(block && unreachable)
     }

@@ -85,6 +85,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
 /// Writes the payload of slot `index`: its struct, its inherent methods,
 /// its impl of the trait and, for a function lift, its count.
 fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
+    if context.foreign() {
+        super::foreign::write_payload(writer, context, index);
+        return;
+    }
     let payload = format!("P{index}");
     if context.inherent() && context.cell.callee == Callee::Value {
         writer.line("#[derive(Clone, Copy)]");

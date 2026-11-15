@@ -394,10 +394,13 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                 .filter(|module| entries[by_module[module.as_str()]].state == State::Full)
                 .map(|module| {
                     let cell = &entries[by_module[module.as_str()]].cell;
-                    let mut traits = vec![(
-                        render::context::TRAIT,
-                        cell.path.descriptor().site != PathSite::Block,
-                    )];
+                    // A foreign trait's impl is of the real trait, by its
+                    // last segment.
+                    let name = match cell.decl.descriptor().foreign {
+                        true => "Display",
+                        false => render::context::TRAIT,
+                    };
+                    let mut traits = vec![(name, cell.path.descriptor().site != PathSite::Block)];
                     if cell.stack.descriptor().present {
                         traits.push((crate::model::stack::OTHER, true));
                     }

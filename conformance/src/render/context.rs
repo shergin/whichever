@@ -4,6 +4,7 @@
 use crate::cell::Cell;
 use crate::model::agreement::AgreementDescriptor;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
+use crate::model::declaration::{DeclarationDescriptor, DISPLAY, REAL};
 use crate::model::generics::GenericsDescriptor;
 use crate::model::home::HomeDescriptor;
 use crate::model::item::ItemDescriptor;
@@ -66,6 +67,8 @@ pub struct Context {
     pub agreement: AgreementDescriptor,
     /// The second trait dispatched on the subject.
     pub stack: StackDescriptor,
+    /// How the trait under test is declared.
+    pub declaration: DeclarationDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -104,12 +107,13 @@ impl Context {
             qualifier: cell.qual.descriptor(),
             slots: cell.slots(),
             declared: cell.declared_slots(),
-            path: cell.path.descriptor(),
+            path: cell.path_descriptor(),
             item: cell.item.descriptor(),
             home: cell.home.descriptor(),
             generics: cell.generic.descriptor(),
             agreement: cell.agree.descriptor(),
             stack: cell.stack.descriptor(),
+            declaration: cell.decl.descriptor(),
         }
     }
 
@@ -252,7 +256,56 @@ impl Context {
     /// Returns the trait as an impl names it, its arguments included:
     /// `Probe<support::Json>`, `Probe<N>`.
     pub fn trait_path(&self) -> String {
+        if self.foreign() {
+            return String::from(DISPLAY);
+        }
         format!("{TRAIT}{}", self.generics.argument)
+    }
+
+    /// Returns whether the trait under test is `whichever::foreign::Display`.
+    pub fn foreign(&self) -> bool {
+        self.declaration.foreign
+    }
+
+    /// Returns the module of the cell the trait is declared in, beside the
+    /// subject: a sibling module, or, for a trait restated beside the
+    /// subject, the module the real trait is declared in without the
+    /// attribute; `None` where it is the cell's own or another crate's.
+    pub fn trait_module(&self) -> Option<&'static str> {
+        if self.home.module.is_some() {
+            return self.home.module;
+        }
+        (self.declaration.restated && !self.home.foreign).then_some(REAL)
+    }
+
+    /// Returns the path a restatement names the real trait by: in a module
+    /// of the cell, or at the cell's module in the trait's crate.
+    pub fn real_trait(&self) -> String {
+        if let Some(module) = self.trait_module() {
+            return format!("{module}::{TRAIT}");
+        }
+        format!("{}::{}::{TRAIT}", self.trait_crate(), self.cell.module())
+    }
+
+    /// Returns the name of the crate the trait and the payloads live in
+    /// where they live in a crate of their own.
+    pub fn trait_crate(&self) -> String {
+        crate::run::workspace::crate_name(
+            &crate::run::workspace::ShardKind::Traits.shard(self.cell.hash()),
+        )
+    }
+
+    /// Returns the signature of the method under test as a restatement
+    /// spells it: the trait's, with a type the trait's crate names by
+    /// `crate::` spelled by that crate's name, since the restatement's
+    /// `crate::` is the subject's (restatements.md: "write the signature
+    /// types in full").
+    pub fn restated_signature(&self) -> String {
+        let signature = self.signature(Site::Trait);
+        match self.home.foreign {
+            true => signature.replace("crate::", &format!("{}::", self.trait_crate())),
+            false => signature,
+        }
     }
 
     /// Returns the trait as the law names it on a value: `Probe<3>`.
