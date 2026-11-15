@@ -109,8 +109,11 @@ numbers: the trait's crate, a `traits-NNN` shard every other shard depends
 on, holds the cell up to its payloads, and the subject's shard holds the
 rest and takes `support` from the trait's crate. A cell whose trait's crate
 fails is set aside from both, its findings kept, and the check repeats. A
-trait away from the subject names its argument `crate::support::Count`, so
-the rewrite of `crate::` paths to the trait's crate is exercised.
+trait in a sibling module names its argument `crate::support::Count`, and
+one in another crate names `crate::Tally`, a type only the trait's shard
+declares at its root, so the rewrite of `crate::` paths to the trait's
+crate is exercised: left as written, the path names nothing in the
+subject's crate.
 
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over

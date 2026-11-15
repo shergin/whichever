@@ -238,9 +238,17 @@ impl Workspace {
              \n",
             shard.name
         );
-        // A traits shard's modules are reached from the subject's crate.
+        // A traits shard's modules are reached from the subject's crate, and
+        // its root declares the type its traits name by a `crate::` path,
+        // which no other shard declares.
         let visibility = match shard.kind {
-            ShardKind::Traits => "pub ",
+            ShardKind::Traits => {
+                text.push_str(
+                    "/// The argument a trait of this crate names by a `crate::` path.\n\
+                     pub type Tally = u64;\n\n",
+                );
+                "pub "
+            }
             ShardKind::Pass | ShardKind::Limit | ShardKind::Malformed | ShardKind::Rejected => "",
         };
         for module in modules {
