@@ -77,15 +77,19 @@ wish.
    signature does not name, is a limit, not a clever expansion.
    *Held by* the expansion goldens in `tests/expand`, the assembly
    comparison that `benchmarks/scripts/codegen.py` runs in CI against the
-   hand-written impl, and the `hand` row of every benchmark table.
+   hand-written impl, the `hand` row of every benchmark table, and the
+   conformance matrix, which writes the forwarding by hand beside the
+   attribute's for every combination of features it selects and compares
+   what the two compile to, answer and perform.
 2. **Nothing is kept between expansions.** The trait's tokens travel in a
    macro the trait exports; the enum's expansion reads them and remembers
    nothing. A build is a function of the source alone, so the trait and the
    enum live in any crates, in any order, and under rust-analyzer.
    *Held by* the `smoke/` crates, which declare a trait in one crate and
-   dispatch it from another, and by the carrier macro's name, a hash of the
-   trait's tokens and their position, so that nothing has to be remembered
-   to tell two traits apart.
+   dispatch it from another, by the conformance matrix, which does the
+   same across its other axes, and by the carrier macro's name, a hash of
+   the trait's tokens and their position, so that nothing has to be
+   remembered to tell two traits apart.
 3. **A shape earns support when real code has it.** A receiver, a return
    shape or an option enters when a surveyed project writes the forwarding
    by hand and no composition of what exists (a partial impl block, a
@@ -100,8 +104,11 @@ wish.
    says what is wrong and, where one exists, the way around it. The enum is
    still emitted, so that one error stands alone.
    *Held by* `tests/ui`, one compile-fail case per limit, with the wording
-   pinned to stable's, and by a unit test of the macro crate that reads
-   every sentence its sources write and fails when one has no snapshot.
+   pinned to stable's, by a unit test of the macro crate that reads
+   every sentence its sources write and fails when one has no snapshot,
+   and by the conformance matrix, whose model says for every combination
+   whether it is forwarded or which sentence answers it, and fails on a
+   rustc error where a sentence was due.
 5. **Claims are measured against the hand.** Every number in these docs
    comes from the benchmark suite, with machine, toolchain and date, called
    from a crate other than the enum's, without link-time optimisation. The
