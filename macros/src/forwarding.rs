@@ -462,14 +462,23 @@ impl MethodPlan {
         // an arm that is a call hands the payload's own box over, which the
         // receiver's expression checks, and an arm that is a place moves
         // its target out unless the return type borrows it.
-        let boxed_place = matches!(self.receiver, ReceiverKind::Boxed)
-            && matches!(
-                callee,
-                Callee::Place { borrow, .. } if !matches!(borrow, PlaceBorrow::Reference(_))
-            );
+        // By value as well, an arm that is a place moves its target out
+        // unless the return type borrows it: `&*inner` on a `&'a T` payload
+        // is the reference the variant holds, and moves nothing.
+        let moves_the_place = !matches!(
+            callee,
+            Callee::Place {
+                borrow: PlaceBorrow::Reference(_),
+                ..
+            }
+        );
         let moved = match self.receiver {
-            ReceiverKind::Boxed if boxed_place => Some(String::from("`self: Box<Self>`")),
-            ReceiverKind::Value(Access::Owned) => Some(String::from("`self` by value")),
+            ReceiverKind::Boxed if matches!(callee, Callee::Place { .. }) && moves_the_place => {
+                Some(String::from("`self: Box<Self>`"))
+            }
+            ReceiverKind::Value(Access::Owned) if moves_the_place => {
+                Some(String::from("`self` by value"))
+            }
             ReceiverKind::Value(_) | ReceiverKind::Pinned(_) | ReceiverKind::Boxed => self
                 .taken(Access::Owned)
                 .map(|argument| format!("`{argument}` by value")),
