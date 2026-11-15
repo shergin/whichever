@@ -290,41 +290,41 @@ suite lent-places
   never 12 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite pinned
-  pass 54
-  limit 4
+  pass 50
+  limit 8
   rejected 2
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4373
+  pass 4397
   limit 0
   rejected 0
   malformed 0
-  rows 4373
-  covered 50927
-  unreached 29150
+  rows 4397
+  covered 50794
+  unreached 29283
 
 suite array-limits
   pass 0
-  limit 376
+  limit 372
   rejected 0
   malformed 0
-  rows 376
-  covered 6572
-  unreached 1183
+  rows 372
+  covered 6565
+  unreached 1190
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 650
+  rejected 666
   malformed 0
-  rows 650
-  covered 5701
-  unreached 2054
+  rows 666
+  covered 5702
+  unreached 2053
 
 suite known
-  pass 2
+  pass 0
   limit 0
   rejected 0
   malformed 0

@@ -35,6 +35,8 @@ pub enum Limit {
     /// A mutable borrow through a `deref` variant over an `Rc`, an `Arc`
     /// or a `&T`.
     MutableBorrowThroughSharedPointer,
+    /// A `mismatch` on the enum for a method a `#[cfg]` compiled out.
+    MismatchForAbsentMethod,
 
     /// A `&mut self` method on a route ending in a method call.
     MethodRouteOnMutSelf,
@@ -94,6 +96,7 @@ impl Limit {
         Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
         Limit::MutableBorrowThroughSharedPointer,
+        Limit::MismatchForAbsentMethod,
         Limit::MethodRouteOnMutSelf,
         Limit::UnsuppliedType,
         Limit::DefaultWithoutDefault,
@@ -180,6 +183,13 @@ impl Limit {
                 "which cannot be borrowed mutably; hold a `Box` or a `&mut`",
                 "mutable_borrow_through_a_shared_pointer",
             ),
+            // The case `mismatch_for_a_method_under_a_cfg` is to pin it; until
+            // it lands, `unknown_option_names` holds the same sentence.
+            Limit::MismatchForAbsentMethod => entry(
+                "mismatch-for-absent-method",
+                "so there is no mismatch to decide",
+                "unknown_option_names",
+            ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
                 "ends in a method call, whose result cannot be borrowed mutably",
@@ -248,7 +258,8 @@ impl Limit {
             | Limit::IntoOtherFields
             | Limit::IntoWithoutPayload
             | Limit::TypeDisagreement
-            | Limit::ConstDisagreement => false,
+            | Limit::ConstDisagreement
+            | Limit::MismatchForAbsentMethod => false,
             Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
@@ -295,6 +306,7 @@ impl Limit {
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MutableBorrowThroughSharedPointer
+            | Limit::MismatchForAbsentMethod
             | Limit::MethodRouteOnMutSelf
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement => false,

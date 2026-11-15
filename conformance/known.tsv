@@ -6,9 +6,3 @@
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
 
-# A `mismatch` option naming a method the trait declares under a `#[cfg]`
-# that does not hold.
-arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
-arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
-arg=ref-enum item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.
-arg=value item=cfg-off	sentence:"`Probe` has no method `m` with a `Self`  `&Self` or `&mut Se"@block-attribute	A `mismatch` option for a method the trait declares under a `#[cfg]` that does not hold is reported as naming no method with a `Self` argument.

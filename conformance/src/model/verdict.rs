@@ -900,6 +900,22 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // A `mismatch` on the enum names a method of every build: one under a
+    // `#[cfg]` that does not hold takes its mismatch on the trait method
+    // (docs/decisions/an-option-names-an-item-of-every-build.md), and the
+    // option is reported where it is written.
+    let enum_mismatch = path.form == PathForm::Forwarded
+        && path.site != PathSite::Inherent
+        && cell.arg.descriptor().kind.is_some()
+        && cell.arg.descriptor().mismatch == MismatchSite::Enum;
+    if enum_mismatch && !cell.method_present() {
+        let anchor = match path.site {
+            PathSite::Block => Anchor::BlockAttribute,
+            PathSite::Attribute | PathSite::Inherent => Anchor::Attribute,
+        };
+        expect(Limit::MismatchForAbsentMethod, anchor);
+    }
+
     // "A route ending in a method call cannot serve a `&mut self` method."
     //
     // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
@@ -1002,7 +1018,11 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     let argument = cell.reached_argument();
     let qualifier = cell.qual.descriptor();
     let live = cell.method_slots();
-    let forwarded = !live.is_empty();
+    // The method's body is written wherever it is forwarded, even when every
+    // arm is a variant's sentence, so what the body itself captures is
+    // rejected whatever the variants hold.
+    let form = cell.path.descriptor().form;
+    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };
