@@ -287,42 +287,76 @@ suite lent-places
   malformed 0
   never 12 unmodelled: an inherent body for a return type that needs a payload to make
 
+suite thirds
+  pass 187
+  limit 709
+  rejected 0
+  malformed 0
+  never 128 non-canonical
+
+suite third-paths
+  pass 286
+  limit 290
+  rejected 0
+  malformed 0
+  never 64 non-canonical
+
+suite third-items
+  pass 160
+  limit 272
+  rejected 0
+  malformed 0
+
+suite third-conversions
+  pass 58
+  limit 78
+  rejected 0
+  malformed 0
+  never 64 unmodelled: `TryFrom` over a variant that stores more than its payload
+  never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
+
+suite third-stacks
+  pass 24
+  limit 168
+  rejected 0
+  malformed 0
+
 suite pinned
-  pass 63
-  limit 10
+  pass 64
+  limit 12
   rejected 2
   malformed 0
   never 1 unmodelled: `TryFrom` over a variant that stores more than its payload
 
 suite array
-  pass 4809
+  pass 4827
   limit 0
   rejected 0
   malformed 0
-  rows 4809
-  covered 54877
-  unreached 33066
+  rows 4827
+  covered 55530
+  unreached 33083
 
 suite array-limits
   pass 0
-  limit 417
+  limit 414
   rejected 0
   malformed 0
-  rows 417
-  covered 6928
-  unreached 1307
+  rows 414
+  covered 7572
+  unreached 1333
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 691
+  rejected 696
   malformed 0
-  rows 691
-  covered 5909
-  unreached 2326
+  rows 696
+  covered 6573
+  unreached 2332
 
 suite known
   pass 0
-  limit 0
+  limit 2
   rejected 0
   malformed 0

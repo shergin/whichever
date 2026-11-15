@@ -1,7 +1,7 @@
 //! What a target kind is: the type a variant stores, how the variant is
 //! written, and the route from the variant's binding to the payload.
 
-use super::axes::{Second, Target};
+use super::axes::{Second, Target, Third};
 
 /// What a variant stores around its payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,12 +220,12 @@ impl Target {
     }
 }
 
-/// What the second variant is.
+/// What a variant after the first is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SecondSlot {
+pub enum LaterSlot {
     /// There is none.
     Absent,
-    /// A variant over `P1` with this target kind.
+    /// A variant over the slot's payload with this target kind.
     Live(Target),
     /// A unit variant.
     Unit,
@@ -235,23 +235,36 @@ pub enum SecondSlot {
 
 impl Second {
     /// Returns what the second variant is.
-    pub fn slot(self) -> SecondSlot {
+    pub fn slot(self) -> LaterSlot {
         match self {
-            Second::Plain => SecondSlot::Live(Target::Plain),
-            Second::Absent => SecondSlot::Absent,
-            Second::DerefBox => SecondSlot::Live(Target::DerefBox),
-            Second::DerefRc => SecondSlot::Live(Target::DerefRc),
-            Second::DerefArc => SecondSlot::Live(Target::DerefArc),
-            Second::DerefShared => SecondSlot::Live(Target::DerefShared),
-            Second::DerefExclusive => SecondSlot::Live(Target::DerefExclusive),
-            Second::ViaField => SecondSlot::Live(Target::ViaField),
-            Second::ViaIndex => SecondSlot::Live(Target::ViaIndex),
-            Second::ViaMethod => SecondSlot::Live(Target::ViaMethod),
-            Second::MarkedTuple => SecondSlot::Live(Target::MarkedTuple),
-            Second::MarkedStruct => SecondSlot::Live(Target::MarkedStruct),
-            Second::MarkedVia => SecondSlot::Live(Target::MarkedVia),
-            Second::Unit => SecondSlot::Unit,
-            Second::Pair => SecondSlot::Pair,
+            Second::Plain => LaterSlot::Live(Target::Plain),
+            Second::Absent => LaterSlot::Absent,
+            Second::DerefBox => LaterSlot::Live(Target::DerefBox),
+            Second::DerefRc => LaterSlot::Live(Target::DerefRc),
+            Second::DerefArc => LaterSlot::Live(Target::DerefArc),
+            Second::DerefShared => LaterSlot::Live(Target::DerefShared),
+            Second::DerefExclusive => LaterSlot::Live(Target::DerefExclusive),
+            Second::ViaField => LaterSlot::Live(Target::ViaField),
+            Second::ViaIndex => LaterSlot::Live(Target::ViaIndex),
+            Second::ViaMethod => LaterSlot::Live(Target::ViaMethod),
+            Second::MarkedTuple => LaterSlot::Live(Target::MarkedTuple),
+            Second::MarkedStruct => LaterSlot::Live(Target::MarkedStruct),
+            Second::MarkedVia => LaterSlot::Live(Target::MarkedVia),
+            Second::Unit => LaterSlot::Unit,
+            Second::Pair => LaterSlot::Pair,
+        }
+    }
+}
+
+impl Third {
+    /// Returns what the third variant is.
+    pub fn slot(self) -> LaterSlot {
+        match self {
+            Third::Absent => LaterSlot::Absent,
+            Third::Plain => LaterSlot::Live(Target::Plain),
+            Third::DerefBox => LaterSlot::Live(Target::DerefBox),
+            Third::ViaField => LaterSlot::Live(Target::ViaField),
+            Third::Unit => LaterSlot::Unit,
         }
     }
 }

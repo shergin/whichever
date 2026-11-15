@@ -674,32 +674,43 @@ fn write_mismatch(writer: &mut Writer, context: &Context) {
         PathForm::First => true,
         PathForm::Default | PathForm::Written => false,
     };
-    let [first, second] = context.slots.as_slice() else {
+    if !checked || context.slots.len() < 2 {
         return;
-    };
-    if !checked {
-        return;
+    }
+    // Each variant against the next, and over three variants the last
+    // against the first, so that every variant meets another on either
+    // side of the `match`.
+    let slots = &context.slots;
+    let mut pairs: Vec<(&Slot, &Slot)> = slots.iter().zip(slots.iter().skip(1)).collect();
+    if slots.len() > 2 {
+        pairs.push((&slots[slots.len() - 1], &slots[0]));
     }
     let exclusive = context.receiver.call.contains("&mut");
     let other_exclusive = context.argument.kind == Some(ArgumentKind::Exclusive);
-    writer.line(format!(
-        "// `{}` against `{}`: two different variants answer the mismatch.",
-        first.name(),
-        second.name()
-    ));
-    writer.open("{");
-    write_subject(writer, "S", first, "subject", seed(0), exclusive);
-    write_subject(writer, "S", second, "other", OTHER_SEED, other_exclusive);
-    let output = context.output();
-    writer.line(format!(
-        "let mismatch: {} = {};",
-        spell(&output, "S", Associates::Qualified),
-        context.mismatched_output("S")
-    ));
-    writer.line(format!(
-        "let answer = observe({});",
-        call(context, "S", "subject", Some("other"), "2u64")
-    ));
-    writer.line("assert_eq!(answer, observe(mismatch), \"m on two different variants\");");
-    writer.close("}");
+    for (first, second) in pairs {
+        writer.line(format!(
+            "// `{}` against `{}`: two different variants answer the mismatch.",
+            first.name(),
+            second.name()
+        ));
+        writer.open("{");
+        write_subject(writer, "S", first, "subject", seed(first.index), exclusive);
+        write_subject(writer, "S", second, "other", OTHER_SEED, other_exclusive);
+        let output = context.output();
+        writer.line(format!(
+            "let mismatch: {} = {};",
+            spell(&output, "S", Associates::Qualified),
+            context.mismatched_output("S")
+        ));
+        writer.line(format!(
+            "let answer = observe({});",
+            call(context, "S", "subject", Some("other"), "2u64")
+        ));
+        writer.line(format!(
+            "assert_eq!(answer, observe(mismatch), \"m on `{}` against `{}`\");",
+            first.name(),
+            second.name()
+        ));
+        writer.close("}");
+    }
 }

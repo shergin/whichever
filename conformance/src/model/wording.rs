@@ -12,9 +12,26 @@ use super::{Callee, Receiver, Slot, SlotVariant};
 use crate::cell::Cell;
 use crate::render::context::storage;
 
-/// Returns the fragments a sentence the model predicts has to hold, each
-/// in full.
-pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<String> {
+/// What a sentence has to hold: one of the texts, in full. A sentence
+/// that each of several variants gets on one anchor names one of them, so
+/// its name is any of theirs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fragment(pub Vec<String>);
+
+impl Fragment {
+    /// Returns a fragment of one text.
+    pub fn one(text: String) -> Fragment {
+        Fragment(vec![text])
+    }
+
+    /// Returns whether a message holds one of the texts.
+    pub fn is_in(&self, message: &str) -> bool {
+        self.0.iter().any(|text| message.contains(text.as_str()))
+    }
+}
+
+/// Returns the fragments a sentence the model predicts has to hold.
+pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     let entry = expected.limit.entry();
     let slot = match expected.anchor {
         Anchor::Variant(index) => cell
@@ -40,11 +57,11 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<String> {
         expected.limit == Limit::SelfReturnOtherFields && body_for_the_rest;
     let mut fragments = Vec::new();
     if !rebuild_left_to_the_body {
-        fragments.push(String::from(entry.way_out));
+        fragments.push(Fragment::one(String::from(entry.way_out)));
     }
     if entry.tail || rebuild_left_to_the_body {
         if let Some(tail) = tail(cell, variant.as_deref()) {
-            fragments.push(tail);
+            fragments.push(Fragment::one(tail));
         }
     }
     fragments.extend(names(cell, expected.limit, slot));
@@ -163,7 +180,7 @@ fn route(target: &TargetDescriptor) -> Option<String> {
 }
 
 /// Returns the names a sentence interpolates for the cell.
-fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<String> {
+fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     let method = "`m`";
     let target = slot.and_then(|slot| slot.target());
     let stored = slot
@@ -171,7 +188,10 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<String> {
         .map(|(slot, (_, target))| storage(&slot, &target));
     let variant = slot.map(|slot| named(cell, &slot));
     let mut names = Vec::new();
-    let mut push = |name: Option<String>| names.extend(name);
+    // A name that is any of several, which a sentence about one of several
+    // variants on one anchor holds.
+    let mut any: Option<Fragment> = None;
+    let mut push = |name: Option<String>| names.extend(name.map(Fragment::one));
     match limit {
         Limit::Receiver
         | Limit::OpaqueReturn
@@ -239,24 +259,35 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<String> {
             push(Some(format!("{method} has no default body in `Probe")))
         }
         Limit::BodyNeverRuns => push(Some(format!("{method} is forwarded to every variant"))),
+        // Each variant that holds no single payload gets a sentence of its
+        // own on the one anchor (`star_over_variants_without_a_payload_
+        // beside_a_self_argument`), so a sentence names any of them.
         Limit::StarOverUnforwardable => {
             push(Some(format!("{method} is forwarded to every variant")));
-            let held = cell
+            let held: Vec<String> = cell
                 .slots()
                 .into_iter()
-                .find(|slot| matches!(slot.variant, SlotVariant::Unit | SlotVariant::Pair));
-            push(held.map(|slot| format!("`{}`", slot.name())));
+                .filter(|slot| matches!(slot.variant, SlotVariant::Unit | SlotVariant::Pair))
+                .map(|slot| format!("`{}`", slot.name()))
+                .collect();
+            any = Some(Fragment(held));
         }
         Limit::IntoOtherFields => {}
+        // Open question: whether `into` reports each variant that holds no
+        // payload or the first alone is not pinned; a sentence is read as
+        // naming any of them.
         Limit::IntoWithoutPayload => {
-            let unit = cell
+            let units: Vec<String> = cell
                 .slots()
                 .into_iter()
-                .find(|slot| slot.variant == SlotVariant::Unit);
-            push(unit.map(|slot| format!("`{}` holds no payload", slot.name())));
+                .filter(|slot| slot.variant == SlotVariant::Unit)
+                .map(|slot| format!("`{}` holds no payload", slot.name()))
+                .collect();
+            any = Some(Fragment(units));
         }
         Limit::ConstDisagreement => push(variant.map(|variant| format!("of variant {variant}"))),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
     }
+    names.extend(any.filter(|fragment| !fragment.0.is_empty()));
     names
 }

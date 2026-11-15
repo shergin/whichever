@@ -22,7 +22,7 @@ pub const TRAIT: &str = "Probe";
 
 /// The seed of a slot's fresh payload.
 pub fn seed(slot: usize) -> u64 {
-    [11, 23][slot]
+    [11, 23, 37][slot]
 }
 
 /// The seed of the payload a `Self` argument holds.

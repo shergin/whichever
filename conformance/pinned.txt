@@ -174,3 +174,17 @@ ret=fallible-self path=block-star
 generic=paired
 path=block-star generic=paired
 home=crate generic=paired
+
+# Three variants. A sentence for each variant a method cannot reach, where
+# the first that would get one is compiled out and a later one is present
+# (a-sentence-about-a-variant-ignores-its-cfg, its second effect).
+s1=deref-box ret=self cfg=second-off s2=deref-box
+# `*` over two variants that hold no single payload, beside a `Self`
+# argument whose mismatch the block names: each gets its sentence and
+# nothing cascades (star-over-an-unforwardable-variant-cascades-with-a-
+# self-argument).
+s1=pair arg=ref-enum path=block-star s2=unit
+# A block's body for the variant its mark leaves out, beside a `Self`
+# argument taken by value, which the fallback arm does not bind again
+# (unused-rebinding-in-a-partial-blocks-fallback-arm).
+arg=value path=block-some s2=unit

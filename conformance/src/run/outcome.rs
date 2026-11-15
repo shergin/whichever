@@ -388,7 +388,7 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                 };
                 let lacks = wording::fragments(cell, wanted)
                     .iter()
-                    .any(|fragment| !message.contains(fragment.as_str()));
+                    .any(|fragment| !fragment.is_in(message));
                 let finding = format!("wording:{key}");
                 if lacks && !findings.contains(&finding) {
                     findings.push(finding);

@@ -205,7 +205,13 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         context.type_generics()
     ));
     if !context.cell.base_reaches_all() {
-        writer.line("#[dispatch(A)]");
+        let named: Vec<&str> = context
+            .cell
+            .base_named()
+            .iter()
+            .map(|slot| slot.name())
+            .collect();
+        writer.line(format!("#[dispatch({})]", named.join(", ")));
         writer.open(format!("{} {{", context.base_signature()));
         writer.line("0");
         writer.close("}");

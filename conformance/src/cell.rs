@@ -9,7 +9,7 @@
 use crate::axis::Axis;
 use crate::model::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
-    Qualifier, Receiver, Return, Second, Stack, Target,
+    Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 
 /// The id of the neutral cell.
@@ -188,6 +188,8 @@ cell! {
     stack: Stack,
     /// The `#[deprecated]` on a variant.
     deprecated: Deprecation,
+    /// The third variant.
+    s2: Third,
 }
 
 impl Cell {

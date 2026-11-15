@@ -268,9 +268,12 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
     if !counted {
         writer.line(format!("let _ = {x};"));
     }
+    // The default's answer starts at nine millions, where a payload's
+    // starts at its slot's number plus one, so no payload's is mistaken
+    // for it.
     let mut number = match counted {
-        true => format!("3_000_000 + self.base() * 100 + {x}"),
-        false => String::from("3_000_000 + self.base() * 100"),
+        true => format!("9_000_000 + self.base() * 100 + {x}"),
+        false => String::from("9_000_000 + self.base() * 100"),
     };
     if context.generics.constant {
         number.push_str(" + N * 1_000");

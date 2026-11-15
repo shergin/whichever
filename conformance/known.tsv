@@ -5,3 +5,5 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
+agree=const-differs s2=plain	missing:const-disagreement@variant-2	The const agreement check is one `const` block whose evaluation stops at the first variant that disagrees, so a later variant that disagrees too is never reported.
+agree=const-differs s2=deref-box	missing:const-disagreement@variant-2	The const agreement check is one `const` block whose evaluation stops at the first variant that disagrees, so a later variant that disagrees too is never reported.

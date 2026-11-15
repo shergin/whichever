@@ -26,7 +26,7 @@ use super::returns::{FutureKind, Node};
 use super::target::{Form, Pointer, Step, Storage};
 use super::{
     Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
-    Qualifier, Receiver, Return, Second, Stack, Target, Verdict,
+    Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
@@ -63,7 +63,13 @@ pub fn verdict(cell: &Cell) -> Verdict {
     }
     // A struct subject has its one field and no second variant.
     let is_struct = cell.s0.descriptor().is_struct();
-    if is_struct && (cell.s1 != Second::Absent || cell.cfg != Cfg::Absent) {
+    let later = cell.s1 != Second::Absent || cell.s2 != Third::Absent;
+    if is_struct && (later || cell.cfg != Cfg::Absent) {
+        return Verdict::NonCanonical;
+    }
+    // A third variant stands beside a second; without one it is a second
+    // variant by another name.
+    if cell.s1 == Second::Absent && cell.s2 != Third::Absent {
         return Verdict::NonCanonical;
     }
     // A deprecation is a variant's, and the second exists only beside a
@@ -206,6 +212,7 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.agree == Agreement::Absent
         && cell.stack == Stack::Absent
         && cell.deprecated == Deprecation::Absent
+        && cell.s2 == Third::Absent
 }
 
 /// The model cannot say what the macro answers, or cannot write the

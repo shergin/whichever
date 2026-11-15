@@ -103,6 +103,19 @@ impl From<Narrow1> for Wide {
     }
 }
 
+/// The associated type of `P2`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Narrow2(pub u64);
+
+impl From<Narrow2> for Wide {
+    fn from(narrow: Narrow2) -> Wide {
+        Wide {
+            slot: 2,
+            value: narrow.0,
+        }
+    }
+}
+
 /// A type parameter no argument fixes.
 pub trait Weight {
     /// What the answer counts it as.

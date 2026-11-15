@@ -24,7 +24,7 @@ pub struct AssociatedItem {
     /// The type a const is declared with; empty for a type.
     pub ty: &'static str,
     /// What each payload gives it, by slot: a type, or a value.
-    pub values: [&'static str; 2],
+    pub values: [&'static str; 3],
     /// What the enum's attribute fixes it at with `Name = ..`, if anything.
     pub overridden: Option<&'static str>,
     /// Whether the kind is one the macro checks the payloads agree on:
@@ -65,13 +65,13 @@ pub struct AgreementDescriptor {
     pub items: &'static [AssociatedItem],
 }
 
-/// Returns a const of a checked type that both payloads give `value`.
+/// Returns a const of a checked type that every payload gives `value`.
 const fn agreed(name: &'static str, ty: &'static str, value: &'static str) -> AssociatedItem {
     AssociatedItem {
         kind: ItemKind::Const,
         name,
         ty,
-        values: [value, value],
+        values: [value, value, value],
         overridden: None,
         comparable: true,
     }
@@ -88,18 +88,22 @@ impl Agreement {
     pub fn descriptor(self) -> AgreementDescriptor {
         let items: &'static [AssociatedItem] = match self {
             Agreement::Absent => &[],
+            // The third payload agrees with the first, so a check across
+            // three payloads that reports it would be wrong.
             Agreement::TypeDiffers => &[AssociatedItem {
                 kind: ItemKind::Type,
                 name: "Kind",
                 ty: "",
-                values: ["u32", "u64"],
+                values: ["u32", "u64", "u32"],
                 overridden: None,
                 comparable: true,
             }],
             Agreement::ConstAgrees => &[LEVEL, RATIO, ON, MARK, NAME],
             Agreement::ConstDiffers => &[
+                // The third payload differs from both, so each variant that
+                // disagrees is reported on its own.
                 AssociatedItem {
-                    values: ["7", "8"],
+                    values: ["7", "8", "9"],
                     ..LEVEL
                 },
                 RATIO,
@@ -111,13 +115,13 @@ impl Agreement {
                 kind: ItemKind::Const,
                 name: "PAIR",
                 ty: "Option<u8>",
-                values: ["Some(1)", "Some(2)"],
+                values: ["Some(1)", "Some(2)", "Some(3)"],
                 overridden: None,
                 comparable: false,
             }],
             Agreement::ConstOverride => &[
                 AssociatedItem {
-                    values: ["\"zero\"", "\"one\""],
+                    values: ["\"zero\"", "\"one\"", "\"two\""],
                     overridden: Some("\"any\""),
                     ..NAME
                 },
@@ -128,7 +132,7 @@ impl Agreement {
                     kind: ItemKind::Const,
                     name: "RANGE",
                     ty: "(u8, u8)",
-                    values: ["(4, 5)", "(0, 255)"],
+                    values: ["(4, 5)", "(0, 255)", "(6, 7)"],
                     overridden: Some("(support::LOW, support::HIGH)"),
                     comparable: false,
                 },

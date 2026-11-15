@@ -421,6 +421,25 @@ axis! {
     }
 }
 
+axis! {
+    /// The third variant, beside a second: a target kind over `P2`, or a
+    /// variant no trait method can be forwarded to. A `match` of three
+    /// arms, a mismatch over three variants, an agreement check across
+    /// three payloads and a body beside two forwarded variants meet here.
+    pub enum Third {
+        /// No third variant.
+        Absent = "none",
+        /// `C(P2)`.
+        Plain = "plain",
+        /// `#[dispatch(deref)] C(Box<P2>)`.
+        DerefBox = "deref-box",
+        /// `#[dispatch(via = .payload)] C(W2)`.
+        ViaField = "via-field",
+        /// `C`, a unit variant.
+        Unit = "unit",
+    }
+}
+
 impl Cfg {
     /// Returns the predicate the variant of a slot is under, if any.
     pub fn of(self, slot: usize) -> Option<&'static str> {
