@@ -343,9 +343,11 @@ pub fn parse_table(text: &str) -> Result<Vec<Row>, String> {
     Ok(rows)
 }
 
-/// Returns the lines of `known` that excuse no divergence of `rows`
-/// although their own cell ran, as a run judges them: only in a complete
-/// run, and a line about a shape only when the shape was compared.
+/// Returns the lines of `known` that excuse no divergence of `rows`, as a
+/// run judges them: only in a complete run, and a line about a shape only
+/// when the shape was compared. A line is judged whether or not the cell
+/// its pattern spells ran, since a pattern may spell a cell the model never
+/// selects.
 pub fn stale_lines<'a>(
     known: &'a [Known],
     rows: &[Row],
@@ -356,10 +358,8 @@ pub fn stale_lines<'a>(
         return Ok(Vec::new());
     }
     let mut used = BTreeSet::new();
-    let mut ran = BTreeSet::new();
     for row in rows {
         let cell = Cell::parse(&row.id).map_err(|error| error.to_string())?;
-        ran.insert(cell);
         if row.standing != "known" && row.standing != "diverges" {
             continue;
         }
@@ -376,7 +376,7 @@ pub fn stale_lines<'a>(
         .iter()
         .enumerate()
         .filter(|(_, line)| shape || !line.finding.starts_with("shape:"))
-        .filter(|(index, line)| ran.contains(&line.pattern.cell) && !used.contains(index))
+        .filter(|(index, _)| !used.contains(index))
         .map(|(_, line)| line)
         .collect())
 }
@@ -960,6 +960,24 @@ replace:
                 example: String::from("`base` law:subject: m"),
             }
         );
+    }
+
+    #[test]
+    fn a_known_line_that_excuses_nothing_is_stale_whether_or_not_its_cell_ran() {
+        let known = ledger::parse_known(
+            "recv=mut\terror:E0596@subject\tA borrow is wrong.\nlift=by-ref\terror:E0308@subject\tA lift is wrong.\n",
+        )
+        .unwrap();
+        let rows = vec![Row {
+            id: String::from("recv=mut ret=ref"),
+            standing: String::from("known"),
+            findings: vec![String::from("error:E0596@subject")],
+            message: String::from("m"),
+        }];
+        let stale = stale_lines(&known, &rows, true, true).unwrap();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].pattern.text, "lift=by-ref");
+        assert!(stale_lines(&known, &rows, false, true).unwrap().is_empty());
     }
 
     /// Every checked-in mutant parses, names a source file of the crate
