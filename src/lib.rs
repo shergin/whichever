@@ -732,8 +732,9 @@
 //!   `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
 //!   allocation, so they are not.
 //! - An associated const of a type other than an integer, a float, `bool`, `char` or
-//!   `&str`, or on a generic enum, is taken from the first variant without
-//!   a check.
+//!   `&str`, on a generic enum, a lifetime parameter included, or of a
+//!   variant reached through a field or a method, is taken from the first
+//!   variant without a check.
 //! - A trait whose items carry more than four distinct `#[cfg]` predicates
 //!   is reported on the fifth: the carrier macro is written once per
 //!   combination of them. Combine the predicates, or move the items under

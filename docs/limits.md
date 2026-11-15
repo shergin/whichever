@@ -74,8 +74,9 @@
   They must also be nameable from there: a private alias or type in a
   signature limits the trait to its own crate.
 - An associated const of a type other than an integer, a float, `bool`, `char` or
-  `&str`, or on a generic enum, is taken from the first variant without a
-  check.
+  `&str`, on a generic enum, a lifetime parameter included, or of a variant
+  reached through a field or a method, is taken from the first variant
+  without a check.
 - A trait whose items carry more than four distinct `#[cfg]` predicates
   is reported on the fifth: the carrier macro is written once per
   combination of them. Combine the predicates, or move the items under
