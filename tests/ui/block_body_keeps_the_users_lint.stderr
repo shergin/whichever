@@ -1,0 +1,11 @@
+error: unused variable: `x`
+  --> tests/ui/block_body_keeps_the_users_lint.rs:48:17
+   |
+48 |     fn m(&self, x: u64) -> u64 {
+   |                 ^ help: if this is intentional, prefix it with an underscore: `_x`
+   |
+note: the lint level is defined here
+  --> tests/ui/block_body_keeps_the_users_lint.rs:7:9
+   |
+ 7 | #![deny(unused_variables)]
+   |         ^^^^^^^^^^^^^^^^

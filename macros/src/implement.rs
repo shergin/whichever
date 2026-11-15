@@ -1402,7 +1402,10 @@ fn forward_trait_method(
     let site = context.site;
     let allow_unreachable =
         allow_unreachable.then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
-    let allow_unused = match derived {
+    // A body for the rest uses the arguments, or is the user's to quiet;
+    // the impl the enum's attribute writes is automatically derived.
+    let has_body = forwarded.is_some_and(|forwarded| forwarded.body.is_some());
+    let allow_unused = match derived || has_body {
         true => None,
         false => plan.allow_unused_when_empty(site),
     };
