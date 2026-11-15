@@ -65,6 +65,24 @@ third while probing the first.
   `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
   changed, since none held such a type.
 
+Fixes the conformance matrix found, none of them from a survey.
+
+- Before, a rustc error inside an arm was reported on a span from the
+  trait's `#[whichever::dispatchable]` to the enum's name, or from the
+  enum's `#[whichever::dispatch]` on an inherent method, where a hand's
+  impl gets it on its own code. A `&mut self` method on a `deref` variant
+  over an `Rc`, an `Arc` or a `&T` is rustc's E0596, cannot borrow data
+  in an `Rc` as mutable; a route ending in a method call whose result does
+  not fit the receiver is E0308 or E0277; an inherent `with = function`
+  handed a place it cannot take is E0308. The arm's bindings were located
+  at the attribute that wrote the trait's carrier macro while the rest of
+  the arm was at the enum, and an expression holding both stretched
+  between them. They are now located where the arm is, so each of these
+  errors is on the enum's name, or on the inherent method's name; the
+  errors themselves are rustc's, for forwardings no hand can write
+  either. The `tests/ui` case `mutable_borrow_through_a_shared_pointer`
+  is new; no other snapshot and no golden changed.
+
 ## 0.7.3 - 2026-11-13
 
 The macro crate moves to `syn` 3, so a build that has left `syn` 2 gains

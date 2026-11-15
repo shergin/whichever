@@ -1,0 +1,10 @@
+error[E0596]: cannot borrow data in an `Rc` as mutable
+  --> tests/ui/mutable_borrow_through_a_shared_pointer.rs:21:10
+   |
+20 | #[whichever::dispatch(Grow)]
+   |                       ---- in this macro invocation
+21 | pub enum Shared {
+   |          ^^^^^^ cannot borrow as mutable
+   |
+   = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `Rc<Square>`
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Grow` (in Nightly builds, run with -Z macro-backtrace for more info)
