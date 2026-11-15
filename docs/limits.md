@@ -13,7 +13,10 @@
   a method returning `Self`: there is no way to put the result back behind
   the pointer or around the other fields. A route ending in a method call
   cannot serve a method that borrows mutably, through `&mut self`, `self:
-  Pin<&mut Self>` or a `&mut Self` argument, and the sentence names which.
+  Pin<&mut Self>` or a `&mut Self` argument, and the sentence names which;
+  nor can a `deref` variant over an `Rc`, an `Arc` or a `&T`, which lends
+  what it points at shared only, and a place an inherent method returns as
+  `&mut` through one is reported too. Hold a `Box` or a `&mut`.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
   default with `#[dispatch(default)]`.

@@ -24,7 +24,11 @@ is `<_ as Shape>::area(&inner.base)`, qualified by the trait alone, so an
 inherent method of the same name still never takes over. A route ending
 in a method call yields a value: it serves `&self` and `self` methods, and
 a `&mut self` method is reported, since nothing can be borrowed mutably
-through a call. A method returning `Self` is reported on a routed variant,
+through a call. A `deref` route over an `Rc`, an `Arc` or a `&T` cannot be
+borrowed mutably either: a method taking `&mut self`, `self: Pin<&mut
+Self>` or a `&mut Self` argument, and an inherent place returned as
+`&mut`, are reported on the payload, and a shared borrow, `-> &Name` under
+`&mut self`, still forwards. A method returning `Self` is reported on a routed variant,
 `deref` included, since the rest of the payload is gone. A variant with
 other fields beside the payload gets no `From` or `TryFrom`, and a variant
 whose target has no nameable type takes no part in the agreement checks,

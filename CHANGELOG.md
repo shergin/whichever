@@ -71,18 +71,19 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
 - Before, a rustc error inside an arm was reported on a span from the
   trait's `#[whichever::dispatchable]` to the enum's name, or from the
   enum's `#[whichever::dispatch]` on an inherent method, where a hand's
-  impl gets it on its own code. A `&mut self` method on a `deref` variant
-  over an `Rc`, an `Arc` or a `&T` is rustc's E0596, cannot borrow data
-  in an `Rc` as mutable; a route ending in a method call whose result does
-  not fit the receiver is E0308 or E0277; an inherent `with = function`
-  handed a place it cannot take is E0308. The arm's bindings were located
-  at the attribute that wrote the trait's carrier macro while the rest of
-  the arm was at the enum, and an expression holding both stretched
-  between them. They are now located where the arm is, so each of these
-  errors is on the enum's name, or on the inherent method's name; the
-  errors themselves are rustc's, for forwardings no hand can write
-  either. The `tests/ui` case `mutable_borrow_through_a_shared_pointer`
-  is new; no other snapshot and no golden changed.
+  impl gets it on its own code. A route ending in a method call whose
+  result does not fit the receiver, `via = .copied()` under `&self`, is
+  rustc's E0308 or E0277, and an inherent `with = function` handed a place
+  it cannot take is E0308. The arm's bindings were located at the
+  attribute that wrote the trait's carrier macro while the rest of the arm
+  was at the enum, and an expression holding both stretched between them.
+  They are now located where the arm is, so each of these errors is on
+  the enum's name, or on the inherent method's name; the errors themselves
+  are rustc's, for forwardings no hand can write either. A `&mut self`
+  method through an `Rc`, which was rustc's E0596 there too, is now a
+  sentence, below. The `tests/ui` case
+  `route_method_result_does_not_fit_the_receiver` is new; no other
+  snapshot and no golden changed.
 - Before, a method that could not be forwarded to one variant was reported
   in every build, whatever `#[cfg]` the variant carried, and named the
   first such variant alone. A `deref` variant under `#[cfg(test)]` beside
@@ -194,6 +195,24 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   say so. The `tests/ui` case `mismatch_for_a_method_under_a_cfg` is new,
   with both forms of the hint; the snapshots `unknown_option_names` and
   `unknown_override_keeps_the_impl` gained the clause; no golden changed.
+- Before, a method that borrows its target mutably, forwarded to a `deref`
+  variant over an `Rc`, an `Arc` or a `&T`, reached rustc as E0596,
+  cannot borrow data in an `Rc` as mutable, in an arm the user did not
+  write, where a move out of the same pointer is a sentence. It is now one
+  sentence on the payload: "`grow` takes `&mut self`, and `Counted`
+  dereferences a `Rc<Square>`, which cannot be borrowed mutably; hold a
+  `Box` or a `&mut`, or implement the method by hand", naming `self:
+  Pin<&mut Self>` or `other: &mut Self` where that is what borrows, and
+  "`name` returns a `&mut`" for an inherent method whose place is
+  returned so. The three pointers are recognised by name, as for a move,
+  and any other is left to rustc. A shared borrow, `#[dispatch(*, value)]
+  fn name(&mut self) -> &Name;` through an `Rc`, still forwards. The
+  decision record "A borrow a shared pointer cannot lend is a sentence"
+  weighs it; `docs/limits.md` and `docs/routes.md` say so. The `tests/ui`
+  cases `mutable_argument_through_a_shared_pointer` and
+  `mutable_place_through_a_shared_pointer` are new, and the snapshot
+  `mutable_borrow_through_a_shared_pointer`, which held E0596 on the
+  enum's name, now holds the sentence; no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

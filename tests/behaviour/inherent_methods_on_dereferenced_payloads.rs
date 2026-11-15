@@ -280,3 +280,34 @@ mod a_borrowed_place_under_self_by_value {
         assert_eq!(Lent::Other(&second).name().0, "second");
     }
 }
+
+/// A shared borrow under `&mut self` still forwards through a pointer that
+/// lends shared only: the place is borrowed as the return type asks.
+mod a_shared_borrow_under_a_mutable_receiver {
+    use std::rc::Rc;
+
+    pub struct Name(pub String);
+
+    #[whichever::dispatch]
+    pub enum Named {
+        #[dispatch(deref)]
+        Shared(Rc<Name>),
+        #[dispatch(deref)]
+        Owned(Box<Name>),
+    }
+
+    #[whichever::dispatch]
+    impl Named {
+        #[dispatch(*, value)]
+        pub fn name(&mut self) -> &Name;
+    }
+
+    #[test]
+    fn the_place_is_lent_shared() {
+        let shared = Rc::new(Name(String::from("shared")));
+        let mut named = Named::Shared(Rc::clone(&shared));
+        assert!(std::ptr::eq(named.name(), &*shared));
+        let mut owned = Named::Owned(Box::new(Name(String::from("owned"))));
+        assert_eq!(owned.name().0, "owned");
+    }
+}

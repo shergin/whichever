@@ -1,6 +1,6 @@
-//! A `&mut self` method on a `deref` variant over an `Rc` is a forwarding no
-//! hand can write either, and rustc's error stands on the enum's name, where
-//! the arm is, not on the trait's attribute.
+//! A `&mut self` method on a `deref` variant over an `Rc` borrows mutably
+//! what the pointer lends shared only, and is one sentence on the payload,
+//! as a move out of the pointer is.
 use std::rc::Rc;
 
 #[whichever::dispatchable]
