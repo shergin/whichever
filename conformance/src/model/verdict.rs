@@ -850,6 +850,27 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
             Forwarded::Method,
         );
     }
+    // An inherent `value` reads the target itself, and a route ending in a
+    // method call hands the method's result over as it is (routes.md: "a
+    // route ending in a method call yields a value";
+    // docs/decisions/an-arm-reaches-its-target-through-a-route.md). A
+    // method that lends yields a reference, so the target declared by
+    // value, or handed to `Some` or `Ok`, is the reference, a type error a
+    // hand handing the result over as it is gets too.
+    //
+    // Open question: the decision is written for the trait's forwarding;
+    // a place read through a route is read as following it, so `value` is
+    // never dereferenced out of what the method lends.
+    let by_value_place = cell.callee == Callee::Value
+        && cell.target_node() == Node::Payload
+        && matches!(cell.lift, Lift::Bare | Lift::Some | Lift::Ok);
+    if by_value_place && any(&|target| target.ends_in_loan()) {
+        reject(
+            "E0308",
+            "a lent target read by value, which hands the reference over as it is",
+            Forwarded::Method,
+        );
+    }
     let base_slots = cell.base_slots();
     let some_yield = base_slots
         .iter()

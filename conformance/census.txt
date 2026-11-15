@@ -132,9 +132,9 @@ suite inherent-into
   never 128 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent-shared
-  pass 417
+  pass 409
   limit 39
-  rejected 0
+  rejected 8
   malformed 0
   never 96 non-canonical
   never 24 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
@@ -229,31 +229,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 4366
+  pass 4356
   limit 0
   rejected 0
   malformed 0
-  rows 4366
-  covered 49459
-  unreached 27102
+  rows 4356
+  covered 49413
+  unreached 27148
 
 suite array-limits
   pass 0
-  limit 386
+  limit 383
   rejected 0
   malformed 0
-  rows 386
-  covered 5067
-  unreached 1130
+  rows 383
+  covered 5062
+  unreached 1135
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 593
+  rejected 589
   malformed 0
-  rows 593
-  covered 4583
-  unreached 1614
+  rows 589
+  covered 4587
+  unreached 1610
 
 suite known
   pass 18

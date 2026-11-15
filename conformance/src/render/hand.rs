@@ -614,7 +614,12 @@ fn inherent_value(
                 }
             }
         }
-        Callee::Value => read(own),
+        // A route ending in a method call hands the method's result over as
+        // it is, a place read through it included.
+        Callee::Value => match own.method_result() {
+            Some(call) => call.text(),
+            None => read(own),
+        },
         Callee::Field => read(&field),
     };
     let handed = match method.callee {
