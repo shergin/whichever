@@ -47,9 +47,11 @@ passing cell holds:
    test, `m`, and a control method, `base`, that every subject forwards.
 2. The payloads `P0`, `P1` and `P2`, whose answers say which payload gave them,
    from which state and for which arguments; a method taking `&mut self`
-   changes the state. Each payload also has an inherent method named `m`
-   that answers a poison value, so an arm that calls it instead of the
-   trait's method shows in the law.
+   changes the state, and one answering `()`, which shows nothing, notes
+   the number its answer would be made from in a `core::cell::Cell` of the
+   support module, which the law reads back after the call. Each payload
+   also has an inherent method named `m` that answers a poison value, so
+   an arm that calls it instead of the trait's method shows in the law.
 3. The subject, `E`, spelled with `#[whichever::dispatch(..)]`.
 4. `mod hand`, the same enum with the forwarding a careful hand writes, as
    `docs/what-is-generated.md` and the goldens show it. The hand is written
@@ -76,8 +78,10 @@ The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
 target or a field of it, and what `with` wraps the result in. An inherent
 method's `Self` argument is the enum, handed over as it is, which the
-payload's method takes as any implementor of the trait; on a struct it is
-the other value's field. Under `value` the two variants hold one payload
+payload's method takes as any implementor of the trait and whose control
+method its answer reads, so the law calls it with the argument holding the
+same variant and the next: an arm that handed over a payload instead shows
+there. On a struct it is the other value's field. Under `value` the two variants hold one payload
 type, each reaching it as its target kind does. `with = Into::into` names
 the enum in the return type and rebuilds it through the `From` impls the
 attribute writes, which the hand writes for its own enum.
@@ -302,7 +306,10 @@ documents and the goldens best support and says so in a comment beginning
   make a cell diverge is decided per verdict in one place: for a pass,
   every finding; for a limit, every finding that is not a predicted
   sentence, `missing:sentence` when none appears, and `missing:KEY@ANCHOR`
-  for a predicted sentence about a variant that does not; for a rejected cell,
+  for a predicted sentence about the subject that does not, a variant's
+  shape, an agreement or a conversion option, and for an anchor none of
+  whose predicted sentences of the method does, since an arm or a method
+  carries one of them; for a rejected cell,
   `compiles:subject`, `missing:error:CODE@subject` when the subject fails
   without the code the model names, and every finding of the subject that
   is not an error off the attributes of a code the hand gets too; for a

@@ -4,8 +4,26 @@
 /// The source of a shard's `support` module.
 pub const SOURCE: &str = r#"//! What every cell of the shard shares.
 
+use core::cell::Cell;
 use core::future::Future;
 use core::task::{Context, Poll, Waker};
+
+std::thread_local! {
+    /// What the last call of a method answering `()` noted: the number its
+    /// answer would have been made from, which the law reads back.
+    static NOTE: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Notes what a method answering `()` was called on and with, so that a
+/// dropped call or a wrong argument shows in the law.
+pub fn note(value: u64) {
+    NOTE.with(|note| note.set(value));
+}
+
+/// Returns what the last call noted, and forgets it.
+pub fn take_note() -> u64 {
+    NOTE.with(|note| note.replace(0))
+}
 
 /// What an inherent method of a payload answers: a forwarding that calls it
 /// instead of the trait's method shows in the law.

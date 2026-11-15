@@ -241,11 +241,15 @@ fn answer_body(writer: &mut Writer, context: &Context, index: usize, x: &str) {
         number.push_str(" + W::VALUE * 10_000");
     }
     writer.line(format!("let n = {number};"));
-    if !uses_number(&context.node) {
-        writer.line("let _ = n;");
-    }
-    if context.node != Node::Unit {
-        writer.line(value(&context.node, this, index, Flavour::Answer));
+    note_or_answer(writer, &context.node, this, index);
+}
+
+/// Writes the answer made from `n`, or, for a method answering `()`, which
+/// shows nothing, the note of `n` that the law reads back.
+fn note_or_answer(writer: &mut Writer, node: &Node, this: &str, index: usize) {
+    match node {
+        Node::Unit => writer.line("support::note(n);"),
+        other => writer.line(value(other, this, index, Flavour::Answer)),
     }
 }
 
@@ -288,35 +292,7 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
         number.push_str(" + other.base() * 7");
     }
     writer.line(format!("let n = {number};"));
-    if !uses_number(&context.node) {
-        writer.line("let _ = n;");
-    }
-    if context.node != Node::Unit {
-        writer.line(value(&context.node, "self", 3, Flavour::Answer));
-    }
-}
-
-/// Returns whether a value of the type reads the answer's number.
-fn uses_number(node: &Node) -> bool {
-    match node {
-        Node::Unit => false,
-        Node::Payload | Node::PayloadShared | Node::PayloadLent | Node::PayloadExclusive => true,
-        Node::Tuple(elements) => elements.iter().any(uses_number),
-        Node::Tag
-        | Node::Shared
-        | Node::Lent
-        | Node::Exclusive
-        | Node::This
-        | Node::Assoc
-        | Node::Overridden(_)
-        | Node::Fault
-        | Node::Option(_)
-        | Node::Result(_, _)
-        | Node::Fallible(_)
-        | Node::Future(_, _)
-        | Node::Iterator
-        | Node::Vec(_) => true,
-    }
+    note_or_answer(writer, &context.node, "self", 3);
 }
 
 /// Returns a value of the type: a true answer made from the number `n`

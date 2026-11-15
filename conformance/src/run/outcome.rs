@@ -294,8 +294,9 @@ pub enum Judgement {
 /// - for a pass, every finding;
 /// - for a limit, every finding that is not a predicted sentence on its
 ///   anchor, `missing:sentence` when no predicted sentence appears, and
-///   `missing:KEY@ANCHOR` for each predicted sentence about a variant that
-///   does not, since every variant gets its own;
+///   `missing:KEY@ANCHOR` for each predicted sentence about the subject
+///   that does not, and for each anchor none of whose predicted sentences
+///   of the method does;
 /// - for a rejected cell, `compiles:subject` when the subject compiles,
 ///   `missing:error:CODE@subject` when it fails without the code the model
 ///   names, and every finding of the subject that is not an error off the
@@ -354,12 +355,13 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
             if !outcome.findings.iter().any(predicted) {
                 findings.push(String::from("missing:sentence"));
             }
-            // Every variant gets a sentence about it, in its own arm or on
-            // its own declaration, so each variant predicted one has to
-            // show one. An arm carries one sentence, and which of several
-            // the docs do not say, so a variant is held to a subset of its
-            // own; so are the sentences on the method or the subject, where
-            // one body stands for several a method could get.
+            // Every sentence the model predicts appears on its anchor. A
+            // sentence of the method is the body of an arm, or of the whole
+            // method, which carries one, and which of several the docs do
+            // not say, so an anchor is held to one of the method's
+            // sentences it predicts. A sentence about the subject, a
+            // variant's shape, an agreement or a conversion option, is
+            // reported on its own, so each of those is held to appearing.
             let appears = |wanted: &crate::model::Expected| {
                 outcome.findings.iter().any(|finding| {
                     let Finding::Sentence { key, place } = finding else {
@@ -367,7 +369,8 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                     };
                     let anchor = wanted.anchor;
                     wanted.limit.entry().key == key
-                        && (*place == anchor.name()
+                        && (anchor == Anchor::Anywhere
+                            || *place == anchor.name()
                             || *place == format!("{}-cfg", anchor.name())
                             || lines.get(place) == Some(&anchor))
                 })
@@ -397,24 +400,33 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                 }
             }
             let found_any = outcome.findings.iter().any(predicted);
-            let variants: Vec<Anchor> = expected
+            let missing = |wanted: &crate::model::Expected| {
+                format!(
+                    "missing:{}@{}",
+                    wanted.limit.entry().key,
+                    wanted.anchor.name()
+                )
+            };
+            let anchors: std::collections::BTreeSet<Anchor> = expected
                 .iter()
+                .filter(|wanted| wanted.limit.is_of_method())
                 .map(|wanted| wanted.anchor)
-                .filter(|anchor| matches!(anchor, Anchor::Variant(_)))
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
                 .collect();
-            for anchor in variants {
+            for anchor in anchors {
                 let own: Vec<&crate::model::Expected> = expected
                     .iter()
-                    .filter(|wanted| wanted.anchor == anchor)
+                    .filter(|wanted| wanted.limit.is_of_method() && wanted.anchor == anchor)
                     .collect();
                 if found_any && !own.iter().any(|wanted| appears(wanted)) {
-                    findings.push(format!(
-                        "missing:{}@{}",
-                        own[0].limit.entry().key,
-                        anchor.name()
-                    ));
+                    findings.push(missing(own[0]));
+                }
+            }
+            for wanted in expected
+                .iter()
+                .filter(|wanted| !wanted.limit.is_of_method())
+            {
+                if found_any && !appears(wanted) {
+                    findings.push(missing(wanted));
                 }
             }
             divergent(findings)
@@ -575,6 +587,32 @@ mod tests {
             judge(&cell, &verdict, &Outcome::default(), &rendered),
             Judgement::Diverges(_)
         ));
+    }
+
+    #[test]
+    fn every_predicted_sentence_about_the_subject_appears() {
+        let cell = Cell::parse("s1=unit conv=into").expect("an id");
+        let rendered = render(&cell);
+        let verdict = cell.verdict();
+        let sentence = |key: &str, place: &str| Finding::Sentence {
+            key: String::from(key),
+            place: String::from(place),
+        };
+        let outcome = |findings: Vec<Finding>| Outcome {
+            findings,
+            first_message: None,
+            sentences: Vec::new(),
+        };
+        let both = outcome(vec![
+            sentence("unit-variant", "variant-1"),
+            sentence("into-without-payload", "attribute"),
+        ]);
+        assert_eq!(judge(&cell, &verdict, &both, &rendered), Judgement::Agrees);
+        let variant_alone = outcome(vec![sentence("unit-variant", "variant-1")]);
+        assert_eq!(
+            judge(&cell, &verdict, &variant_alone, &rendered),
+            Judgement::Diverges(vec![String::from("missing:into-without-payload@attribute")])
+        );
     }
 
     #[test]
