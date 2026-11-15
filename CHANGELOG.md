@@ -247,6 +247,14 @@ mp4-atom 0.17.1 found that the matrix showed to be wider.
   `self_return_beside_the_other_fields_of_a_variant` and
   `box_self_on_a_plain_field` are new; no other snapshot and no golden
   changed.
+- Before, an associated type or const that no variant can supply in every
+  build, every variant being under `#[cfg]` or reached through a field or
+  a method, withheld the whole impl: its sentence was followed by rustc's
+  error at every call through the trait, E0599, no method named `tag`.
+  The impl is now written, with the item holding its sentence, so the
+  calls resolve and the sentence stands alone. The `tests/ui` case
+  `unsupplied_items_keep_the_impl` is new; no other snapshot and no golden
+  changed.
 
 ## 0.7.3 - 2026-11-13
 

@@ -2,7 +2,8 @@
 
 Status: accepted, 2026-11-02 (0.2.2; `#[cfg]` in 0.4.0; inherent blocks in
 0.5.0; per attribute since 0.5.0; a rejected trait method written with its
-error as its body since 2026-11-05). Serves rule 4 of
+error as its body since 2026-11-05; an associated item no variant can
+supply written holding its error since 2026-11-14). Serves rule 4 of
 the [vision](../vision.md), a limit is one sentence; this is its mechanism.
 Reopen never; superseding it would mean changing the rule.
 

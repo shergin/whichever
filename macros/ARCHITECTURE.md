@@ -361,9 +361,11 @@ keeps its other arms and has the sentence as that variant's arm, under the
 variant's own `cfg`, as a variant of another shape is reported under its
 own: a build that compiles the variant out has neither, and each such
 variant gets its sentence; only a signature the substitution could not write,
-a projection it could not qualify, withholds the impl, as does an
-associated item that cannot be supplied, since neither has a body to hold
-an error. An option naming nothing in the trait, or a route through no
+a projection it could not qualify, withholds the impl, since it has no body
+to hold an error. An associated item no variant can supply holds its
+sentence as what it is: a const its value, `{ compile_error!(..) }`, and a
+type an array whose length is the error, `[(); { compile_error!(..); 0 }]`,
+which rustc takes as an erroneous type and checks nothing against. An option naming nothing in the trait, or a route through no
 variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could

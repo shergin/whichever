@@ -1039,7 +1039,17 @@ fn associated_type<'a>(
             if cfgs.count() == 0 {
                 agreed.push(name);
             }
-            supplier.item(name)?
+            match supplier.item(name) {
+                Ok(item) => item,
+                // An array whose length is an error is a type rustc takes
+                // as erroneous: nothing that names the item is checked
+                // further, so the impl is complete, the calls around it
+                // resolve, and the sentence stands alone.
+                Err(error) => {
+                    let error = error.to_compile_error();
+                    quote_spanned! { site => [(); { #error; 0 }] }
+                }
+            }
         }
     };
     Ok(quote_spanned! { site => #(#carried)* type #name = #ty; })
@@ -1073,7 +1083,15 @@ fn associated_const<'a>(
             if cfgs.count() == 0 {
                 agreed.push((name, ty.clone()));
             }
-            supplier.item(name)?
+            // A value that is an error is of any type, as a method's body
+            // that is one is.
+            match supplier.item(name) {
+                Ok(item) => item,
+                Err(error) => {
+                    let error = error.to_compile_error();
+                    quote_spanned! { site => { #error } }
+                }
+            }
         }
     };
     Ok(quote_spanned! { site => #(#carried)* const #name: #ty = #value; })

@@ -95,8 +95,9 @@ error, and each variant a method cannot reach is named in a sentence of its
 own. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
-as its body, so the impl is complete and the calls around it resolve: that
-one error stands alone.
+as its body, and so is an associated type or const no variant can supply,
+holding its sentence, so the impl is complete and the calls around it
+resolve: that one error stands alone.
 
 "cannot find macro `Shape` in this scope" at the enum means the trait is not
 marked `#[dispatchable]`, or the trait, which carries the macro, is not
