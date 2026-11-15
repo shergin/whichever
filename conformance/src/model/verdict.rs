@@ -16,6 +16,7 @@
 //! rejection of `m` would have; a cell with a rejection and no limit is
 //! rejected; what is left passes.
 
+use super::agreement::ItemKind;
 use super::argument::{ArgumentKind, MismatchSite};
 use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
@@ -24,8 +25,8 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Pointer, Step, Storage};
 use super::{
-    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver, Return,
-    Second, Slot, Target, Verdict,
+    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver,
+    Return, Second, Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -97,15 +98,18 @@ pub fn verdict(cell: &Cell) -> Verdict {
     // With no variant to supply an associated item the impl is withheld,
     // so no arm of it is written, and a block that is the impl reports
     // nothing of the variants either; the subject's attribute, where it
-    // names a trait, still reports a variant that holds no payload.
+    // names a trait, still reports a variant that holds no payload. An
+    // inherent method is no arm of the trait's impl, and keeps its own.
     let unsupplied = expected
         .iter()
         .any(|expected| expected.limit == Limit::UnsuppliedType);
     if unsupplied {
-        let declared = cell.path.descriptor().site != PathSite::Block;
+        let site = cell.path.descriptor().site;
+        let declared = site != PathSite::Block;
         expected.retain(|expected| {
-            let arm =
-                expected.limit.is_of_method() && matches!(expected.anchor, Anchor::Variant(_));
+            let arm = expected.limit.is_of_method()
+                && matches!(expected.anchor, Anchor::Variant(_))
+                && site != PathSite::Inherent;
             match expected.limit {
                 Limit::UnitVariant | Limit::TwoFields => declared,
                 _ => !arm,
@@ -193,6 +197,7 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.home == Home::Local
         && cell.generic == Generics::Bare
         && cell.conv == Conversion::Unchecked
+        && cell.agree == Agreement::Absent
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -464,7 +469,13 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
     }
     // An associated type taken from a type parameter is the parameter's
     // own, which a hand bounds or overrides; the model spells neither.
-    if !cell.ret.node().associated().is_empty() {
+    let typed = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .any(|item| item.kind == ItemKind::Type);
+    if !cell.ret.node().associated().is_empty() || typed {
         return Some(
             "an associated type beside generics, which the model spells for the plain trait",
         );
@@ -793,17 +804,46 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // (what-is-generated.md), and a variant whose target has no nameable
     // type takes no part (routes.md): with no variant whose target is
     // named, the sentence of `all_variants_conditional` is on the enum.
-    let taken = node.associated().iter().any(|(_, overridden)| !overridden);
     // "An associated type or const comes from the first variant without a
     // `#[cfg]`", so only those can supply it.
-    let named = cell
-        .declared_slots()
-        .iter()
-        .filter(|slot| slot.cfg.is_none())
-        .filter_map(Slot::target)
-        .any(|(_, target)| target.route.iter().all(|step| *step == Step::Deref));
-    if taken && !named {
+    let items = cell.agree.descriptor().items;
+    let taken = node.associated().iter().any(|(_, overridden)| !overridden)
+        || items.iter().any(|item| item.overridden.is_none());
+    let supplier = cell.supplier();
+    if taken && supplier.is_none() {
         expect(Limit::UnsuppliedType, Anchor::Enum);
+    }
+
+    // "Every other variant is checked to agree; a disagreement is reported
+    // on that variant", for a type and, "for an integer, a float, `bool`,
+    // `char` or `&str` const on a non-generic enum", for a const
+    // (what-is-generated.md). A variant whose target has no nameable type
+    // "takes no part in the agreement checks" (routes.md), nor does one
+    // that holds no payload.
+    //
+    // Open question: a variant under a `#[cfg]` that holds is read as
+    // checked in the builds that hold it, its check carried under the
+    // `cfg` as its arm is.
+    if let Some(supplier) = supplier {
+        for item in items.iter().filter(|item| item.overridden.is_none()) {
+            let checked = match item.kind {
+                ItemKind::Type => true,
+                ItemKind::Const => item.comparable && !cell.is_generic(),
+            };
+            if !checked {
+                continue;
+            }
+            let limit = match item.kind {
+                ItemKind::Type => Limit::TypeDisagreement,
+                ItemKind::Const => Limit::ConstDisagreement,
+            };
+            for slot in &slots {
+                let other = slot.index != supplier.index && slot.names_its_target();
+                if other && item.differs(supplier.holds, slot.holds) {
+                    expect(limit, Anchor::Variant(slot.index));
+                }
+            }
+        }
     }
 
     expected.sort();

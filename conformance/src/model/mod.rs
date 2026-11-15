@@ -5,6 +5,7 @@
 //! descriptor in the module of its kind, which the renderers interpret.
 //! [`verdict`] is the limits table, `docs/limits.md` made executable.
 
+pub mod agreement;
 pub mod argument;
 pub mod axes;
 pub mod conversion;
@@ -20,8 +21,8 @@ pub mod target;
 mod verdict;
 
 pub use axes::{
-    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier, Receiver,
-    Return, Second, Target,
+    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier,
+    Receiver, Return, Second, Target,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -164,6 +165,14 @@ impl Slot {
         format!("W{}", self.index)
     }
 
+    /// Returns whether the slot's target has a type an associated item can
+    /// be taken from: a live variant whose route is `deref` or nothing
+    /// (routes.md).
+    pub fn names_its_target(&self) -> bool {
+        self.target()
+            .is_some_and(|(_, target)| target.route.iter().all(|step| *step == target::Step::Deref))
+    }
+
     /// Returns the target kind and its description of a live slot.
     pub fn target(&self) -> Option<(Target, TargetDescriptor)> {
         match self.variant {
@@ -292,12 +301,36 @@ impl Cell {
         self.declared_slots().iter().all(|slot| slot.cfg.is_some())
     }
 
-    /// Returns the slot an associated type is taken from: the first
-    /// variant without a `#[cfg]` (what-is-generated.md).
+    /// Returns the slot an associated item is taken from: the first
+    /// variant without a `#[cfg]` (what-is-generated.md) whose target has a
+    /// type to take it from, reached by `deref` or not at all (routes.md,
+    /// and the sentence of `all_variants_conditional`: "under `#[cfg]` or
+    /// reached through a field or a method, so none can supply").
+    ///
+    /// Open question: the docs say "the first variant without a
+    /// `#[cfg]`"; a first variant reached through a field is read as
+    /// passed over for the next, since its target's type cannot be named.
     pub fn supplier(&self) -> Option<Slot> {
         self.declared_slots()
             .into_iter()
-            .find(|slot| slot.cfg.is_none())
+            .filter(|slot| slot.cfg.is_none())
+            .find(Slot::names_its_target)
+    }
+
+    /// Returns whether the subject is generic, so that its associated
+    /// consts are taken without a check (what-is-generated.md, limits.md):
+    /// over a type, a const, or the lifetime the `deref` variants over a
+    /// reference give it.
+    ///
+    /// Open question: the docs say "a generic enum"; a lifetime alone is
+    /// read as making it generic, as it makes the enum's impl generic,
+    /// though no payload's const here depends on it.
+    pub fn is_generic(&self) -> bool {
+        let borrows = self
+            .live_slots()
+            .iter()
+            .any(|(_, _, target)| target.borrows());
+        self.generic.descriptor().parameter.is_some() || borrows
     }
 
     /// Returns the slots whose variant forwards to a payload.

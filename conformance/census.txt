@@ -225,38 +225,55 @@ suite items
   never 108 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
+suite agreements
+  pass 542
+  limit 334
+  rejected 0
+  malformed 0
+  never 174 non-canonical
+  never 30 unmodelled: an enum with no variant in this build
+
+suite agreement-paths
+  pass 294
+  limit 135
+  rejected 0
+  malformed 0
+  never 144 non-canonical
+  never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
+  never 72 unmodelled: an associated type beside generics, which the model spells for the plain trait
+
 suite pinned
-  pass 45
-  limit 1
+  pass 47
+  limit 3
   rejected 2
   malformed 0
 
 suite array
-  pass 4356
+  pass 4377
   limit 0
   rejected 0
   malformed 0
-  rows 4356
-  covered 49413
-  unreached 27148
+  rows 4377
+  covered 50144
+  unreached 27119
 
 suite array-limits
   pass 0
-  limit 380
+  limit 373
   rejected 0
   malformed 0
-  rows 380
-  covered 5081
-  unreached 1116
+  rows 373
+  covered 5821
+  unreached 1078
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 589
+  rejected 580
   malformed 0
-  rows 589
-  covered 4587
-  unreached 1610
+  rows 580
+  covered 5285
+  unreached 1614
 
 suite known
   pass 2

@@ -303,4 +303,26 @@ pub const ZONES: &[Zone] = &[
         ],
         fixed: &[],
     },
+    Zone {
+        name: "agreements",
+        summary: "the trait's own associated items, agreed, disagreed, unchecked and fixed on the enum, over the variants that take part in the checks and those that do not, under `#[cfg]` or not",
+        vary: &[
+            ("agree", &[]),
+            ("s0", &["plain", "deref-box", "deref-ref", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "unit", "deref-rc", "via-field", "marked-struct"]),
+            ("cfg", &[]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "agreement-paths",
+        summary: "the trait's own associated items through every path, on generic subjects and traits, with the trait at home, in a sibling module and in another crate",
+        vary: &[
+            ("agree", &[]),
+            ("path", &[]),
+            ("generic", &[]),
+            ("home", &[]),
+        ],
+        fixed: &[],
+    },
 ];

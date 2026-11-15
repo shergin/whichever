@@ -353,6 +353,30 @@ axis! {
     }
 }
 
+axis! {
+    /// The trait's associated items beside those its return types name,
+    /// and whether the payloads agree on them (what-is-generated.md, the
+    /// first two rows of its table; options.md on `Name = value`).
+    pub enum Agreement {
+        /// No associated item of its own.
+        Absent = "none",
+        /// `type Kind;`, `u32` in `P0` and `u64` in `P1`, with no override.
+        TypeDiffers = "type-differs",
+        /// A const of every checked type, an integer, a float, `bool`,
+        /// `char` and `&str`, on which the payloads agree.
+        ConstAgrees = "const-agrees",
+        /// The same consts, of which the integer differs in `P1`.
+        ConstDiffers = "const-differs",
+        /// `const PAIR: Option<u8>`, a type the check does not compare,
+        /// different in each payload.
+        ConstUnchecked = "const-unchecked",
+        /// A `&str` const and a tuple const that differ in each payload,
+        /// fixed on the enum with `NAME = "any"` and `RANGE = (support::LOW,
+        /// support::HIGH)`.
+        ConstOverride = "const-override",
+    }
+}
+
 impl Cfg {
     /// Returns the predicate the variant of a slot is under, if any.
     pub fn of(self, slot: usize) -> Option<&'static str> {

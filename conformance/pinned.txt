@@ -112,3 +112,13 @@ conv=try-mut
 home=crate conv=into
 conv=variant-try
 conv=variant-from-off
+
+# The agreement checks: an associated type and a const of a checked type
+# over a variant that borrows, first or second, whose check failed with
+# E0794 or E0309 rather than its own error before 2026-11-02
+# (agreement-check-passes-late-bound-lifetimes, the polars-pipe survey;
+# agreement-check-misses-implied-outlives-bounds, the mrml survey).
+s1=deref-ref agree=type-differs
+s0=deref-ref agree=type-differs
+s1=deref-ref agree=const-differs
+s0=deref-ref s1=none agree=const-agrees

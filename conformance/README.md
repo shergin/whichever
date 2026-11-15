@@ -126,6 +126,17 @@ variant with other fields, on a struct or under `from = false`, is written
 by hand beside the subject, which compiles only if the attribute wrote
 none.
 
+The `agree` axis gives the trait associated items of its own beside those
+the return types name: a type the payloads give differently, consts of
+every checked type that agree or of which one differs, a const of a type
+the check does not compare, and consts fixed on the enum with `NAME =
+value`. A disagreement is a limit on the variant that disagrees with the
+supplier, the first variant without a `#[cfg]` whose target has a type; a
+variant reached through a field or a method takes no part, and a const on
+a generic enum, a lifetime included, is not checked. The hand takes each
+item from the supplier or as fixed, and the law reads every item through
+the subject.
+
 ## Running it
 
 ```sh

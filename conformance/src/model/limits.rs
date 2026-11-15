@@ -46,6 +46,12 @@ pub enum Limit {
     IntoOtherFields,
     /// `into` beside a variant that holds no payload.
     IntoWithoutPayload,
+    /// An associated type a variant gives otherwise than the first, with
+    /// no override.
+    TypeDisagreement,
+    /// An associated const of a checked type a variant gives otherwise
+    /// than the first, with no override.
+    ConstDisagreement,
 }
 
 /// A catalogue entry.
@@ -87,6 +93,8 @@ impl Limit {
         Limit::StructConversion,
         Limit::IntoOtherFields,
         Limit::IntoWithoutPayload,
+        Limit::TypeDisagreement,
+        Limit::ConstDisagreement,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -188,6 +196,16 @@ impl Limit {
                 "`into` converts every variant's payload",
                 "into_with_a_unit_variant",
             ),
+            Limit::TypeDisagreement => entry(
+                "type-disagreement",
+                "type mismatch resolving",
+                "associated_type_disagreement",
+            ),
+            Limit::ConstDisagreement => entry(
+                "const-disagreement",
+                "differs from the first variant's; set it on the enum with",
+                "associated_const_disagreement",
+            ),
             Limit::UnsuppliedType => Entry {
                 keeps_impl: false,
                 ..entry(
@@ -209,7 +227,9 @@ impl Limit {
             | Limit::UnsuppliedType
             | Limit::StructConversion
             | Limit::IntoOtherFields
-            | Limit::IntoWithoutPayload => false,
+            | Limit::IntoWithoutPayload
+            | Limit::TypeDisagreement
+            | Limit::ConstDisagreement => false,
             Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
             | Limit::OpaqueReturn
@@ -252,7 +272,9 @@ impl Limit {
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
             | Limit::MovesThroughSharedPointer
-            | Limit::MethodRouteOnMutSelf => false,
+            | Limit::MethodRouteOnMutSelf
+            | Limit::TypeDisagreement
+            | Limit::ConstDisagreement => false,
         }
     }
 

@@ -37,6 +37,9 @@ fn write_trait_items(writer: &mut Writer, context: &Context) {
     for (associated, _) in context.associated() {
         writer.line(format!("type {};", associated.name()));
     }
+    for item in context.agreement.items {
+        writer.line(item.declaration());
+    }
     writer.line("/// The control method, which every subject forwards.");
     writer.line(format!("{};", context.base_signature()));
     let mismatched = context.argument.kind.is_some() && !context.inherent();

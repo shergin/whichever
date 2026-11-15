@@ -7,6 +7,7 @@
 use super::context::{seed, spell, Associates, Context, LABEL, OTHER_SEED, SAMPLES};
 use super::payload::answer_type;
 use super::writer::Writer;
+use crate::model::agreement::ItemKind;
 use crate::model::argument::{ArgumentKind, MismatchSite};
 use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
@@ -39,6 +40,7 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.open("macro_rules! law {");
     writer.open("() => {");
     write_seen(writer, context);
+    write_associated(writer, context);
     // A method in no build is not called; the control method still is.
     let present = context.cell.method_present();
     if present {
@@ -106,6 +108,43 @@ fn write_seen(writer: &mut Writer, context: &Context) {
     writer.close("}");
     writer.close("}");
     writer.blank();
+}
+
+/// Writes the checks of the trait's own associated items: each is the
+/// value the enum fixes, or the supplier's.
+fn write_associated(writer: &mut Writer, context: &Context) {
+    let items = context.agreement.items;
+    if items.is_empty() {
+        return;
+    }
+    // The law names a payload by its own type, a type parameter's at the
+    // argument the law takes it at.
+    let supplier = context
+        .cell
+        .supplier()
+        .map_or_else(|| String::from("P0"), |slot| slot.payload());
+    let instance = context.trait_instance();
+    writer.line(format!(
+        "// The associated items: fixed on the enum, or `{supplier}`'s."
+    ));
+    for item in items {
+        let name = item.name;
+        match (item.kind, item.overridden) {
+            (ItemKind::Type, _) => {
+                // A value of the supplier's type is one of the subject's.
+                writer.open("{");
+                writer.line(format!("let kind: <{supplier} as {instance}>::{name} = 1;"));
+                writer.line(format!("let _: <S as {instance}>::{name} = kind;"));
+                writer.close("}");
+            }
+            (ItemKind::Const, Some(value)) => writer.line(format!(
+                "assert_eq!(<S as {instance}>::{name}, {value}, \"{name}\");"
+            )),
+            (ItemKind::Const, None) => writer.line(format!(
+                "assert_eq!(<S as {instance}>::{name}, <{supplier} as {instance}>::{name}, \"{name}\");"
+            )),
+        }
+    }
 }
 
 /// Returns the payload reached from a binding by method-call syntax,

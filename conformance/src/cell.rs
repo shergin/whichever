@@ -8,8 +8,8 @@
 
 use crate::axis::Axis;
 use crate::model::{
-    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier, Receiver,
-    Return, Second, Target,
+    Agreement, Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Path, Qualifier,
+    Receiver, Return, Second, Target,
 };
 
 /// The id of the neutral cell.
@@ -182,6 +182,8 @@ cell! {
     generic: Generics,
     /// The conversions the subject's attribute writes.
     conv: Conversion,
+    /// The trait's own associated items and whether the payloads agree.
+    agree: Agreement,
 }
 
 impl Cell {

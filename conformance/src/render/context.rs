@@ -2,6 +2,7 @@
 //! the spellings the trait, the payloads, the subject and the hand share.
 
 use crate::cell::Cell;
+use crate::model::agreement::AgreementDescriptor;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
 use crate::model::generics::GenericsDescriptor;
 use crate::model::home::HomeDescriptor;
@@ -60,6 +61,8 @@ pub struct Context {
     pub home: HomeDescriptor,
     /// The generics of the trait or the subject.
     pub generics: GenericsDescriptor,
+    /// The trait's own associated items.
+    pub agreement: AgreementDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -102,6 +105,7 @@ impl Context {
             item: cell.item.descriptor(),
             home: cell.home.descriptor(),
             generics: cell.generic.descriptor(),
+            agreement: cell.agree.descriptor(),
         }
     }
 
@@ -449,12 +453,26 @@ impl Context {
         self.node.associated()
     }
 
+    /// Returns the payload type an associated item is taken from, as the
+    /// subject declares it: the supplier's, or the first's where no variant
+    /// supplies it and the verdict reports so.
+    pub fn supplier_payload(&self) -> String {
+        self.cell
+            .supplier()
+            .map_or_else(|| String::from("P0"), |slot| slot.declared_payload())
+    }
+
     /// Returns the subject's attribute options after the trait's path.
     pub fn options(&self) -> Vec<String> {
         let mut options = Vec::new();
         for (associated, overridden) in self.associated() {
             if overridden {
                 options.push(format!("{} = support::Wide", associated.name()));
+            }
+        }
+        for item in self.agreement.items {
+            if let Some(value) = item.overridden {
+                options.push(format!("{} = {value}", item.name));
             }
         }
         // An inherent method has no mismatch: its `Self` argument is the

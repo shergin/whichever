@@ -33,6 +33,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             context.payload_generics(),
             context.trait_path()
         ));
+        for item in context.agreement.items {
+            writer.line(item.definition(item.values[0]));
+        }
         writer.open(format!("{} {{", context.base_signature()));
         writer.line("self.base");
         writer.close("}");
@@ -144,6 +147,9 @@ fn write_impl(writer: &mut Writer, context: &Context, index: usize) {
             (Associated::Error, false) => unreachable!("an error type is only ever overridden"),
         };
         writer.line(format!("type {} = {ty};", associated.name()));
+    }
+    for item in context.agreement.items {
+        writer.line(item.definition(item.values[index]));
     }
     writer.blank();
     writer.open(format!("{} {{", context.base_signature()));

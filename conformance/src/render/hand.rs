@@ -228,15 +228,29 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let name = associated.name();
         let ty = match (associated, overridden) {
             (Associated::Out | Associated::Error, true) => String::from("support::Wide"),
-            (Associated::Out | Associated::Error, false) => {
-                let supplier = context
-                    .cell
-                    .supplier()
-                    .map_or_else(|| String::from("P0"), |slot| slot.declared_payload());
-                format!("<{supplier} as {}>::{name}", context.trait_path())
-            }
+            (Associated::Out | Associated::Error, false) => format!(
+                "<{} as {}>::{name}",
+                context.supplier_payload(),
+                context.trait_path()
+            ),
         };
         writer.line(format!("type {name} = {ty};"));
+    }
+    // An item the enum fixes is the value fixed, and any other is the
+    // supplier's (what-is-generated.md).
+    for item in context.agreement.items {
+        let value = item.overridden.map_or_else(
+            || {
+                format!(
+                    "<{} as {}>::{}",
+                    context.supplier_payload(),
+                    context.trait_path(),
+                    item.name
+                )
+            },
+            String::from,
+        );
+        writer.line(item.definition(&value));
     }
     let indices = |slots: Vec<(Slot, crate::model::Target, TargetDescriptor)>| -> Vec<usize> {
         slots.iter().map(|(slot, _, _)| slot.index).collect()
