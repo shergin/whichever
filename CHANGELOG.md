@@ -104,6 +104,20 @@ Fixes the conformance matrix found, none of them from a survey.
   the snapshot `route_moves_through_a_shared_pointer` gains the sentence
   for its second variant, `Borrowed`, which it did not name before; no
   other snapshot and no golden changed.
+- Before, a partial impl block forwarding a method that takes a `Self`
+  argument by value or by `&mut`, `fn merge(self, other: Self, by: u64)`
+  under `mismatch(merge = by)`, warned in the user's crate, unused
+  variable: `other`: the arm for two different variants bound every such
+  argument again, so that the `mismatch` might use it, whether it did or
+  not. The enum's own attribute hid the warning, since its impl is
+  automatically derived and a partial block's is not. The argument is now
+  bound again only where the `mismatch` names it, a name a format string
+  captures, `format!("{other:?}")`, included. Beside it, a partial block
+  over an enum whose only variant in the build holds no payload reported
+  the variant's sentence and, with it, unused variable on each of the
+  method's arguments; the sentence now stands alone. The `tests/ui` case
+  `block_over_a_variant_without_a_payload_alone_in_the_build` is new; no
+  other snapshot and no golden changed.
 
 ## 0.7.3 - 2026-11-13
 

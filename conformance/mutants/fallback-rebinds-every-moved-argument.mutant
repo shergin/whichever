@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: The output is the hand's, as `docs/vision.md` says: a moved `Self` argument the `mismatch` does not name stays in the scrutinee, and no binding is left unused in the user's crate.
+expect: killed
+
+find:
+            !matches!(access, Access::Shared) && names(&value, &self.arguments[*index])
+replace:
+            !matches!(access, Access::Shared) && (true || names(&value, &self.arguments[*index]))
