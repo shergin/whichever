@@ -236,7 +236,8 @@ documents and the goldens best support and says so in a comment beginning
   defect, so that it cannot excuse another defect's finding. A line that
   excuses no finding in a complete run, every suite and no filter, fails it
   as stale; a line about a shape is judged so only under `--shape`. The
-  pattern's own cell is always run.
+  pattern's own cell is always run when the model selects it, and a line
+  is judged stale whether or not it does.
 - `pinned.txt` holds cells always run, one id per line, with a `#` comment
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the
