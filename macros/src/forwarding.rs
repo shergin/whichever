@@ -84,6 +84,17 @@ fn holds_a_box(payload: &syn::Type) -> bool {
     last_segment(payload).is_some_and(|segment| segment.ident == "Box")
 }
 
+/// Returns whether `payload` is a pointer that lends what it points at
+/// shared and never exclusively: an `Rc` or an `Arc`, by the name its path
+/// ends in, or a `&T`.
+fn lends_only_shared(payload: &syn::Type) -> bool {
+    match payload {
+        syn::Type::Reference(reference) => reference.mutability.is_none(),
+        other => last_segment(other)
+            .is_some_and(|segment| segment.ident == "Rc" || segment.ident == "Arc"),
+    }
+}
+
 /// Returns the pattern that binds `ident` and nothing else.
 fn plain(ident: Ident) -> Pat {
     Pat::Ident(PatIdent {
@@ -450,10 +461,30 @@ impl MethodPlan {
                 .taken(Access::Exclusive)
                 .map(|argument| format!("`{argument}: &mut Self`")),
         };
-        if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {
+        if let Some(taken) = exclusive.as_ref().filter(|_| route.ends_in_a_method()) {
             return Err(Error::new_spanned(
                 payload,
                 format!("`{method}` takes {taken}, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), context.way_out(target_ident)),
+            ));
+        }
+        // An `Rc`, an `Arc` and a `&T` lend what they point at shared and
+        // never exclusively. A call borrows its target as the method takes
+        // it; an arm that is a place borrows it as the return type asks.
+        // Any other pointer is rustc's to judge.
+        let borrows_mutably = match callee {
+            Callee::Place { borrow, .. } => matches!(borrow, PlaceBorrow::Reference(Some(_)))
+                .then(|| String::from("returns a `&mut`")),
+            Callee::Qualified { .. } | Callee::Method { .. } => {
+                exclusive.map(|taken| format!("takes {taken}"))
+            }
+        };
+        if let Some(does) =
+            borrows_mutably.filter(|_| route.starts_with_deref() && lends_only_shared(payload))
+        {
+            let spelled = spelling::spelled(payload);
+            return Err(Error::new_spanned(
+                payload,
+                format!("`{method}` {does}, and `{target_ident}` dereferences a `{spelled}`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or {}", context.way_out(target_ident)),
             ));
         }
         // A value is moved out of a `Box` by dereferencing it, and out of
