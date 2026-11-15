@@ -112,7 +112,10 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
         answer_body(writer, context, index, "x");
         writer.close("}");
     }
-    if !context.inherent() || callee != Callee::Method {
+    // A poison returning for the subject's lifetime could not name it in
+    // the payload; nothing calls it there, since only a place answers so.
+    let lent = matches!(context.node, Node::Lent);
+    if (!context.inherent() || callee != Callee::Method) && !lent {
         writer.blank();
         writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
         writer.line("/// method meant shows in the law.");
@@ -288,10 +291,11 @@ pub fn default_body(writer: &mut Writer, context: &Context) {
 fn uses_number(node: &Node) -> bool {
     match node {
         Node::Unit => false,
-        Node::Payload | Node::PayloadShared | Node::PayloadExclusive => true,
+        Node::Payload | Node::PayloadShared | Node::PayloadLent | Node::PayloadExclusive => true,
         Node::Tuple(elements) => elements.iter().any(uses_number),
         Node::Tag
         | Node::Shared
+        | Node::Lent
         | Node::Exclusive
         | Node::This
         | Node::Assoc
@@ -318,12 +322,12 @@ fn value(node: &Node, this: &str, index: usize, flavour: Flavour) -> String {
         Flavour::Poison => yes,
     };
     match node {
-        Node::Payload | Node::PayloadShared | Node::PayloadExclusive => {
+        Node::Payload | Node::PayloadShared | Node::PayloadLent | Node::PayloadExclusive => {
             unreachable!("no payload answers with a payload; an inherent place reads it")
         }
         Node::Unit => String::from("()"),
         Node::Tag | Node::Assoc => String::from(number),
-        Node::Shared => match flavour {
+        Node::Shared | Node::Lent => match flavour {
             Flavour::Answer => branch(format!("&{this}.state"), format!("&{this}.spare")),
             Flavour::Poison => String::from("&support::POISON_PLACE"),
         },

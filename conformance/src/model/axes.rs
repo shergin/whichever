@@ -155,6 +155,9 @@ axis! {
         VecThis = "vec-self",
         /// `Option<(Self, u64)>`.
         OptionTupleThis = "option-tuple-self",
+        /// `&'a u64`, borrowed for the subject's own lifetime, which an
+        /// inherent place over a variant holding `&'a P0` answers.
+        Lent = "lent",
     }
 }
 

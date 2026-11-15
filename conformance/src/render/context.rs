@@ -623,10 +623,12 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
     match node {
         Node::Payload => String::from("P0"),
         Node::PayloadShared => String::from("&P0"),
+        Node::PayloadLent => String::from("&'a P0"),
         Node::PayloadExclusive => String::from("&mut P0"),
         Node::Unit => String::from("()"),
         Node::Tag => String::from("u64"),
         Node::Shared => String::from("&u64"),
+        Node::Lent => String::from("&'a u64"),
         Node::Exclusive => String::from("&mut u64"),
         Node::This => String::from(this),
         Node::Assoc => associated(Associated::Out, this, associates),
@@ -671,7 +673,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::This => String::from(this),
         Node::Unit => String::from("()"),
         Node::Tag | Node::Assoc => String::from("424_242"),
-        Node::Shared => String::from("&support::MISMATCH"),
+        Node::Shared | Node::Lent => String::from("&support::MISMATCH"),
         Node::Overridden(_) => String::from("support::Wide::MISMATCH"),
         Node::Fault => String::from("support::Fault(424_242)"),
         Node::Option(_) => String::from("None"),
@@ -686,6 +688,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::Exclusive
         | Node::Payload
         | Node::PayloadShared
+        | Node::PayloadLent
         | Node::PayloadExclusive
         | Node::Future(_, _)
         | Node::Iterator

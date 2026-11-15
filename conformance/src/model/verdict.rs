@@ -177,7 +177,7 @@ fn malformed(cell: &Cell) -> Option<&'static str> {
     if node.borrows_mutably() && lends == Lends::Shared {
         return Some("a `&mut` return under a shared receiver, which no payload can lend");
     }
-    if node.borrows() && lends == Lends::Nothing && !borrowed_argument {
+    if node.borrows_from_the_call() && lends == Lends::Nothing && !borrowed_argument {
         return Some("a reference return under a receiver that holds no lifetime");
     }
     if matches!(node.future(), Some((FutureKind::Boxed, _)))
@@ -216,8 +216,28 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     let argument = cell.arg.descriptor();
     let qualifier = cell.qual.descriptor();
 
-    if node.borrows() && receiver.lends == Lends::Nothing {
+    if node.borrows_from_the_call() && receiver.lends == Lends::Nothing {
         return Some("a reference return that borrows from the `Self` argument");
+    }
+    // A return for the subject's own lifetime names `'a`, which only a
+    // subject over `&'a P0` declares, and only an inherent method can
+    // spell; the model writes it for a place read through such variants.
+    if cell.ret == Return::Lent {
+        let inherent = cell.path.descriptor().site == PathSite::Inherent;
+        let place = matches!(cell.callee, Callee::Value | Callee::Field);
+        let lent = cell
+            .live_slots()
+            .iter()
+            .all(|(_, target, _)| *target == Target::DerefShared);
+        let plain = cell.lift == Lift::Bare
+            && cell.arg == Argument::Absent
+            && cell.cfg == Cfg::Absent
+            && cell.qual == Qualifier::Plain;
+        if !(inherent && place && lent && plain) {
+            return Some(
+                "a return for the subject's lifetime outside an inherent place over `&'a P0`",
+            );
+        }
     }
     // rustc warns of `#[inline]` on a method with no body in the trait
     // itself, and is phasing it out, so the attribute is the provided
@@ -319,7 +339,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::This
             | Return::OptionThis
             | Return::ResultThis
-            | Return::Future => true,
+            | Return::Future
+            | Return::Lent => true,
             Return::TupleThis
             | Return::Assoc
             | Return::Out
@@ -615,7 +636,8 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 | Return::BoxedFutureOut
                 | Return::Iterator
                 | Return::VecThis
-                | Return::OptionTupleThis => false,
+                | Return::OptionTupleThis
+                | Return::Lent => false,
             };
             let fits = match lift {
                 Lift::Bare | Lift::Some | Lift::Ok => true,
@@ -631,7 +653,10 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
             }
         }
         Callee::Value | Callee::Field => {
-            if !matches!(cell.ret, Return::Tag | Return::Shared | Return::Exclusive) {
+            if !matches!(
+                cell.ret,
+                Return::Tag | Return::Shared | Return::Exclusive | Return::Lent
+            ) {
                 return Some("a place read as a return type other than a value or a reference");
             }
             if cell.qual != Qualifier::Plain {
@@ -826,8 +851,22 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // return type borrows it: the case
     // `place_moves_through_a_shared_pointer_under_a_boxed_receiver` holds
     // the same fragment.
-    let boxed_place = cell.recv == Receiver::Boxed && place && !node.borrows();
-    if cell.recv == Receiver::Owned || boxed_place || argument.kind == Some(ArgumentKind::Owned) {
+    // A place the return type borrows moves nothing, under `self` by value
+    // as under `self: Box<Self>`: the arm hands over the reference the
+    // variant holds.
+    let moved_place = place && !node.borrows();
+    let moves = match cell.recv {
+        Receiver::Owned => !place || moved_place,
+        Receiver::Boxed => moved_place,
+        Receiver::Shared
+        | Receiver::Exclusive
+        | Receiver::PinShared
+        | Receiver::PinExclusive
+        | Receiver::Rc
+        | Receiver::Arc
+        | Receiver::PinBoxed => false,
+    };
+    if moves || argument.kind == Some(ArgumentKind::Owned) {
         for (slot, _, target) in &method_live {
             if target.pointer().is_some_and(|pointer| !pointer.owns()) {
                 expect(

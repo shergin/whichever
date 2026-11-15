@@ -629,7 +629,9 @@ fn inherent_value(
     slot: &Slot,
 ) -> String {
     let read = |place: &Place| match method.target {
-        Node::PayloadShared | Node::Shared => place.borrowed(false),
+        Node::PayloadShared | Node::PayloadLent | Node::Shared | Node::Lent => {
+            place.borrowed(false)
+        }
         Node::PayloadExclusive | Node::Exclusive => place.borrowed(true),
         Node::Payload
         | Node::Tag

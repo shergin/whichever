@@ -405,6 +405,7 @@ impl Cell {
         match node {
             returns::Node::Tag => returns::Node::Payload,
             returns::Node::Shared => returns::Node::PayloadShared,
+            returns::Node::Lent => returns::Node::PayloadLent,
             returns::Node::Exclusive => returns::Node::PayloadExclusive,
             other => other,
         }

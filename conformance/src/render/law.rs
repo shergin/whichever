@@ -183,7 +183,9 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         }
         false => output,
     };
-    let subject_type = spell(&declared, "S", Associates::Qualified);
+    // The law has no lifetime of its own to name, so a return for the
+    // subject's lifetime is observed as an elided reference.
+    let subject_type = spell(&declared, "S", Associates::Qualified).replace("&'a ", "&");
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
     writer.line(observation(&declared, "answer", Side::Subject, 0));
@@ -194,7 +196,7 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         writer.line(format!("/// Returns what the answer of `P{index}` shows."));
         writer.open(format!(
             "fn observe_p{index}(answer: {}) -> String {{",
-            answer_type(&output, index)
+            answer_type(&output, index).replace("&'a ", "&")
         ));
         writer.line(observation(&output, "answer", Side::Payload(index), 0));
         writer.close("}");
@@ -209,12 +211,12 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
     match node {
         Node::Unit => format!("{{ let () = {value}; String::from(\"()\") }}"),
         Node::Tag | Node::Assoc => format!("{value}.to_string()"),
-        Node::Shared => format!("format!(\"&{{}}\", {value})"),
+        Node::Shared | Node::Lent => format!("format!(\"&{{}}\", {value})"),
         // A mutable reference is written through, so that the state checked
         // afterwards shows whether it was the payload's own.
         Node::Exclusive => format!("{{ *{value} += 100; format!(\"&mut {{}}\", {value}) }}"),
         Node::Payload => format!("{value}.state.to_string()"),
-        Node::PayloadShared => format!("format!(\"&{{}}\", {value}.state)"),
+        Node::PayloadShared | Node::PayloadLent => format!("format!(\"&{{}}\", {value}.state)"),
         Node::PayloadExclusive => {
             format!("{{ {value}.state += 100; format!(\"&mut {{}}\", {value}.state) }}")
         }
@@ -426,7 +428,9 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 Callee::Field | Callee::Method | Callee::Renamed => "twin.state",
             };
             let read = match context.cell.target_node() {
-                Node::PayloadShared | Node::Shared => format!("&{place}"),
+                Node::PayloadShared | Node::PayloadLent | Node::Shared | Node::Lent => {
+                    format!("&{place}")
+                }
                 Node::PayloadExclusive | Node::Exclusive => format!("&mut {place}"),
                 Node::Payload
                 | Node::Tag
@@ -551,6 +555,19 @@ fn write_method_checks(
         }
     }
     let other = context.argument.kind.map(|_| "other");
+    // A return for the subject's lifetime is the very reference the
+    // variant holds, or the place behind it, not a copy of its value.
+    if matches!(context.node, Node::Lent) && twin_needed {
+        write_subject(writer, "S", slot, "lent", seed, exclusive);
+        let place = match context.cell.callee {
+            Callee::Field => "&lent_held.state",
+            Callee::Value | Callee::Method | Callee::Renamed => "&lent_held",
+        };
+        writer.line(format!(
+            "assert!(core::ptr::eq({}, {place}), \"m on {name} hands over the place itself\");",
+            call(context, "S", "lent", None, "x")
+        ));
+    }
     writer.line(format!(
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
@@ -576,7 +593,7 @@ fn write_method_checks(
             };
             writer.line(format!(
                 "let written: {} = {constant};",
-                spell(&written, "S", Associates::Qualified)
+                spell(&written, "S", Associates::Qualified).replace("&'a ", "&")
             ));
             writer.line("let expected = observe(written);");
         }

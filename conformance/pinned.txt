@@ -137,3 +137,9 @@ deprecated=first
 s1=deref-box conv=try-ref deprecated=second
 conv=into deprecated=first
 stack=second deprecated=second
+
+# A place the return type borrows is handed over under `self` by value,
+# the very reference the variant holds
+# (borrowed-place-under-self-by-value-is-refused, found by a probe).
+s0=deref-ref s1=none recv=value ret=lent path=inherent callee=value
+s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=field

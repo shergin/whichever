@@ -373,4 +373,15 @@ pub const ZONES: &[Zone] = &[
         ],
         fixed: &[],
     },
+    Zone {
+        name: "lent-places",
+        summary: "a place read for the subject's own lifetime through variants over `&'a P0`, under every receiver that forwards",
+        vary: &[
+            ("recv", FORWARDED),
+            ("callee", &["value", "field"]),
+            ("s1", &["none", "deref-ref"]),
+            ("path", &["inherent", "inherent-some"]),
+        ],
+        fixed: &[("s0", "deref-ref"), ("ret", "lent")],
+    },
 ];
