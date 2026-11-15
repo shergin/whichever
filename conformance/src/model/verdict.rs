@@ -593,16 +593,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if !supported {
             return Some("an inherent method with a return type the inherent docs do not describe for an enum");
         }
-        let routed_self = node.holds_this()
-            && cell
-                .method_slots()
-                .iter()
-                .any(|(_, _, target)| target.is_routed() || target.has_other_fields());
-        if routed_self {
-            return Some(
-                "an inherent `Self` return on a variant reached through a route or a marked field",
-            );
-        }
+        // "A method returning `Self`, `Option<Self>` or `Result<Self, E>`
+        // wraps the payload's result back into the variant, as trait
+        // dispatch does" (inherent-methods.md), so a variant reached
+        // through a route or a marked field gets the trait's sentences,
+        // below, ending in the inherent method's way out.
         let method_route = cell
             .method_slots()
             .iter()

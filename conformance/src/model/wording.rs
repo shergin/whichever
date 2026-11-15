@@ -53,9 +53,15 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     // and has a body for the rest, it is that body
     // (`self_return_beside_the_other_fields_of_a_variant` holds the other
     // form), and the entry's own way out is not written.
+    //
+    // Open question: no snapshot holds the sentence on an inherent method;
+    // there the entry's way out, a `#[whichever::dispatch] impl` block, is
+    // where the method already is, so it is read as ending in the
+    // inherent method's own way out, a body.
     let body_for_the_rest = cell.path_descriptor().form == PathForm::First;
+    let inherent = cell.path_descriptor().site == PathSite::Inherent;
     let rebuild_left_to_the_body =
-        expected.limit == Limit::SelfReturnOtherFields && body_for_the_rest;
+        expected.limit == Limit::SelfReturnOtherFields && (body_for_the_rest || inherent);
     let mut fragments = Vec::new();
     if !rebuild_left_to_the_body {
         fragments.push(Fragment::one(String::from(entry.way_out)));
