@@ -12,7 +12,11 @@
 - A variant reached through a route, `deref` included, cannot take part in
   a method returning `Self`: there is no way to put the result back behind
   the pointer or around the other fields. A route ending in a method call
-  cannot serve a `&mut self` method.
+  cannot serve a method that borrows mutably, through `&mut self`, `self:
+  Pin<&mut Self>` or a `&mut Self` argument, and the sentence names which;
+  nor can a `deref` variant over an `Rc`, an `Arc` or a `&T`, which lends
+  what it points at shared only, and a place an inherent method returns as
+  `&mut` through one is reported too. Hold a `Box` or a `&mut`.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
   default with `#[dispatch(default)]`.
@@ -22,11 +26,22 @@
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- A dispatch struct whose one field is named, `struct Named { shape: Square
+  }`, cannot forward a method returning `Option<Self>` or `Result<Self, E>`:
+  the value is rebuilt with a path, and no path builds such a struct. Make
+  it a tuple struct, `struct Named(Square);`; `-> Self` is rebuilt by the
+  braces either way.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`
   with `F: Format + Clone`, cannot be qualified at the enum; the trait
   writes `<F as Format>::Value`.
+- A `mismatch` on the enum names a method the trait has in every build: one
+  the trait declares under a `#[cfg]` that does not hold is not in that
+  build's trait, and the option is reported as naming nothing. Put the
+  answer on the trait method, `#[dispatch(mismatch = ..)]`, which travels
+  under its `cfg`; for another crate's trait, write the enum's attribute
+  twice under `cfg_attr` with the trait's predicate.
 - An associated type or const a partial impl block declares under `#[cfg]`
   is an error: the forwarded methods convert into the type in every build.
   Put the whole block under the `cfg`, with a second block for the other
@@ -45,10 +60,14 @@
   when every payload is `Unpin`. `Rc<Self>`, `Arc<Self>` and
   `Pin<Box<Self>>` would need a refcount or an allocation, so they are not.
 - A value cannot be moved out of a `deref` variant that holds anything but
-  a `Box`: a method taking `self` is reported on the payload, and so is an
-  inherent method's `value` or `field` under `self: Box<Self>` unless the
-  return type borrows the place. Hold a `Box`, or give the method a body,
-  or implement a trait method by hand.
+  a `Box`: a method taking `self` or a `Self` argument by value is reported
+  on the payload, naming the one that would move, and so is an inherent
+  method's `value` or `field` under `self` or `self: Box<Self>` unless the
+  return type borrows the place. A method taking `self: Box<Self>` on such a
+  variant is reported too, since there is no box to hand over. Hold a
+  `Box`, or give the method a body, or implement a trait method by hand; a
+  method that names its variants and has a body for the rest is offered
+  that body.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
@@ -69,7 +88,11 @@
   `#[dispatchable(name = ..)]`.
 
 Every unsupported shape is reported as one sentence on the offending trait
-item or variant; see `tests/ui` for all of them. A rejected enum is still
+item or variant; see `tests/ui` for all of them. A sentence about one
+variant, whether about its shape or about the way a method reaches it, is
+reported under that variant's `#[cfg]`, so a variant compiled out is no
+error, and each variant a method cannot reach is named in a sentence of its
+own. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
 as its body, so the impl is complete and the calls around it resolve: that

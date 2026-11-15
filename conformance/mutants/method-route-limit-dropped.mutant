@@ -3,7 +3,9 @@ breaks: A route ending in a method call cannot serve a `&mut self` method and sa
 expect: killed
 
 find:
-        let exclusive = matches!(self.receiver, ReceiverKind::Value(Access::Exclusive))
-            || matches!
+        if let Some(taken) = exclusive.as_ref().filter(|_| route.ends_in_a_method()) {
 replace:
-        let exclusive = matches!
+        if let Some(taken) = exclusive
+            .as_ref()
+            .filter(|taken| route.ends_in_a_method() && !taken.starts_with("`&mut self"))
+        {

@@ -47,7 +47,10 @@ All options follow the trait path in `#[dispatch(..)]`.
   takes `&self`; `&mut self` and `self` are moved into the `match`.
   A path in an expression on the trait method resolves where the enum is,
   as the signature types do, so a helper beside the trait is spelled from
-  `crate::`.
+  `crate::`. A method the trait declares under a `#[cfg]` takes its
+  mismatch on the trait method, which travels under its `cfg`: on the
+  enum it names nothing in a build where the `cfg` does not hold, and is
+  reported.
 
 - `from = false` suppresses the `From<Payload>` impls. A payload type held
   by two variants gets none either way, and a payload whose `From` is
@@ -108,8 +111,11 @@ parameter with a default may be left out, `#[whichever::dispatch(Enc)]`
 for `trait Enc<F = Json>`, as `impl Enc for A` leaves it out. Type,
 lifetime and const parameters are substituted in every signature, and a
 projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
-bound; with several bounds the trait has to spell `<F as Format>::Value`
-itself. A payload that is a type parameter of the enum, `Raw(Raw)` on
-`enum Lazy<Raw, Parsed>`, or `Box<T>` under `deref`, gives the impl the
-bound `Raw: Trait`, which is the bound a hand writes; a struct's field the
-same, `impl<T: Shape> Shape for Wrapper<T>` for `struct Wrapper<T>(T)`.
+bound, written with the bound's generic arguments and without a constraint
+on an associated type, so `F: Format<Text, Value = u64>` gives `<Json as
+Format<Text>>::Value`; with several bounds the trait has to spell `<F as
+Format>::Value` itself. A payload that is a type parameter of the enum,
+`Raw(Raw)` on `enum Lazy<Raw, Parsed>`, or `Box<T>` under `deref`, gives
+the impl the bound `Raw: Trait`, which is the bound a hand writes; a
+struct's field the same, `impl<T: Shape> Shape for Wrapper<T>` for `struct
+Wrapper<T>(T)`.

@@ -7,12 +7,13 @@
 //! the place is handed over. The return type says how the answer is
 //! converted.
 
-use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site};
+use super::context::{constructor, is_struct, pattern, variant, write_struct, Context, Site, HOLE};
 use super::writer::Writer;
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
 use crate::model::returns::{Associated, Conversion, FutureKind, Node};
+use crate::model::stack::OTHER;
 use crate::model::target::{Step, TargetDescriptor};
 use crate::model::{Callee, Lift, Receiver, Slot};
 
@@ -196,6 +197,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
             if let Some(predicate) = slot.cfg {
                 writer.line(format!("#[cfg({predicate})]"));
             }
+            if slot.deprecated {
+                writer.line("#[deprecated]");
+            }
             writer.line(declaration);
         }
         writer.close("}");
@@ -210,6 +214,9 @@ pub fn write(writer: &mut Writer, context: &Context) {
     if rebuilds {
         for (slot, _, _) in context.cell.method_slots() {
             let payload = slot.payload();
+            if slot.deprecated {
+                writer.line("#[allow(deprecated)]");
+            }
             writer.open(format!("impl From<{payload}> for E {{"));
             writer.open(format!("fn from(payload: {payload}) -> E {{"));
             writer.line(format!("E::{}(payload)", slot.name()));
@@ -218,6 +225,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.blank();
         }
     }
+    write_other(writer, context);
     writer.open(format!(
         "impl{} {} for E{} {{",
         context.impl_generics(),
@@ -228,15 +236,29 @@ pub fn write(writer: &mut Writer, context: &Context) {
         let name = associated.name();
         let ty = match (associated, overridden) {
             (Associated::Out | Associated::Error, true) => String::from("support::Wide"),
-            (Associated::Out | Associated::Error, false) => {
-                let supplier = context
-                    .cell
-                    .supplier()
-                    .map_or_else(|| String::from("P0"), |slot| slot.declared_payload());
-                format!("<{supplier} as {}>::{name}", context.trait_path())
-            }
+            (Associated::Out | Associated::Error, false) => format!(
+                "<{} as {}>::{name}",
+                context.supplier_payload(),
+                context.trait_path()
+            ),
         };
         writer.line(format!("type {name} = {ty};"));
+    }
+    // An item the enum fixes is the value fixed, and any other is the
+    // supplier's (what-is-generated.md).
+    for item in context.agreement.items {
+        let value = item.overridden.map_or_else(
+            || {
+                format!(
+                    "<{} as {}>::{}",
+                    context.supplier_payload(),
+                    context.trait_path(),
+                    item.name
+                )
+            },
+            String::from,
+        );
+        writer.line(item.definition(&value));
     }
     let indices = |slots: Vec<(Slot, crate::model::Target, TargetDescriptor)>| -> Vec<usize> {
         slots.iter().map(|(slot, _, _)| slot.index).collect()
@@ -362,6 +384,57 @@ pub fn write(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
+/// Writes the hand's impl of the second trait: its associated items as the
+/// trait under test takes them, and its method forwarded to every variant
+/// as the control method is.
+fn write_other(writer: &mut Writer, context: &Context) {
+    if !context.stack.present {
+        return;
+    }
+    writer.open(format!(
+        "impl{} {OTHER} for E{} {{",
+        context.impl_generics(),
+        context.type_generics()
+    ));
+    for item in context.agreement.items {
+        let value = item.overridden.map_or_else(
+            || format!("<{} as {OTHER}>::{}", context.supplier_payload(), item.name),
+            String::from,
+        );
+        writer.line(item.definition(&value));
+    }
+    let receiver = context.other_receiver();
+    let method = Method {
+        name: "other",
+        signature: context.other_signature(),
+        receiver,
+        argument: None,
+        node: Node::Tag,
+        asyncness: false,
+        unsafety: false,
+        turbofish: "",
+        slots: context
+            .live()
+            .iter()
+            .map(|(slot, _, _)| slot.index)
+            .collect(),
+        fallback: None,
+        inherent: false,
+        callee: Callee::Method,
+        lift: Lift::Bare,
+        target: Node::Tag,
+        by_place: context.cell.every_under_cfg() && receiver != Receiver::Owned,
+        attributes: Vec::new(),
+        inline: "inline",
+        parameter: "x",
+        hands_enum: false,
+        trait_path: String::from(OTHER),
+    };
+    write_method(writer, context, &method);
+    writer.close("}");
+    writer.blank();
+}
+
 /// How the arms of a method meet its return type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Wrapping {
@@ -476,9 +549,6 @@ fn arm(
         (true, Binding::Owned) | (false, _) => "inner",
     };
     let mut pattern_text = pattern("E", slot, target, bound);
-    if let Some(predicate) = slot.cfg {
-        pattern_text = format!("#[cfg({predicate})] {pattern_text}");
-    }
     // The `Self` argument: the enum handed over as it is, or the same
     // variant's target, matched beside `self`.
     let mut other_argument = None;
@@ -496,6 +566,15 @@ fn arm(
                 other_argument = Some(other.handed(other_handover));
             }
         }
+    }
+    // The arms of a deprecated variant are under `#[allow(deprecated)]`
+    // (what-is-generated.md, golden `deprecated`), and a variant's `#[cfg]`
+    // is carried onto its arm; both are the arm's, outside its pattern.
+    if slot.deprecated {
+        pattern_text = format!("#[allow(deprecated)] {pattern_text}");
+    }
+    if let Some(predicate) = slot.cfg {
+        pattern_text = format!("#[cfg({predicate})] {pattern_text}");
     }
     if method.inherent {
         let value = inherent_value(
@@ -550,7 +629,9 @@ fn inherent_value(
     slot: &Slot,
 ) -> String {
     let read = |place: &Place| match method.target {
-        Node::PayloadShared | Node::Shared => place.borrowed(false),
+        Node::PayloadShared | Node::PayloadLent | Node::Shared | Node::Lent => {
+            place.borrowed(false)
+        }
         Node::PayloadExclusive | Node::Exclusive => place.borrowed(true),
         Node::Payload
         | Node::Tag
@@ -614,7 +695,12 @@ fn inherent_value(
                 }
             }
         }
-        Callee::Value => read(own),
+        // A route ending in a method call hands the method's result over as
+        // it is, a place read through it included.
+        Callee::Value => match own.method_result() {
+            Some(call) => call.text(),
+            None => read(own),
+        },
         Callee::Field => read(&field),
     };
     let handed = match method.callee {
@@ -635,6 +721,8 @@ fn inherent_value(
 fn convert(conversion: &Conversion, value: &str, variant: &str) -> String {
     match conversion {
         Conversion::Keep => String::from(value),
+        // A struct with a named field is rebuilt by its braces.
+        Conversion::Rewrap if variant.contains(HOLE) => variant.replace(HOLE, value),
         Conversion::Rewrap => format!("{variant}({value})"),
         Conversion::Into => format!("Into::into({value})"),
         Conversion::Map(inner) => format!("{value}.map({})", path(inner, variant)),
@@ -669,6 +757,9 @@ fn convert(conversion: &Conversion, value: &str, variant: &str) -> String {
 /// Returns a conversion as the path a `.map(..)` takes.
 fn path(conversion: &Conversion, variant: &str) -> String {
     match conversion {
+        Conversion::Rewrap if variant.contains(HOLE) => {
+            unreachable!("the verdict maps no struct with a named field")
+        }
         Conversion::Rewrap => String::from(variant),
         Conversion::Into => String::from("Into::into"),
         Conversion::Keep | Conversion::Map(_) | Conversion::Result(_, _) | Conversion::Tuple(_) => {

@@ -7,10 +7,12 @@
 use super::context::{seed, spell, Associates, Context, LABEL, OTHER_SEED, SAMPLES};
 use super::payload::answer_type;
 use super::writer::Writer;
+use crate::model::agreement::ItemKind;
 use crate::model::argument::{ArgumentKind, MismatchSite};
 use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
+use crate::model::stack::OTHER;
 use crate::model::target::{Form, Pointer, Step, Storage, TargetDescriptor};
 use crate::model::{Callee, Lift, Slot, SlotVariant, Target};
 
@@ -27,8 +29,10 @@ enum Side {
 /// `hand` against `hand::E`.
 pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.line("#[cfg(test)]");
-    // The law calls a deprecated method, which the deprecation reaches.
-    if context.item.deprecated {
+    // The law calls a deprecated method, or names a deprecated variant,
+    // which the deprecation reaches.
+    let deprecated = context.declared.iter().any(|slot| slot.deprecated);
+    if context.item.deprecated || deprecated {
         writer.line("#[allow(deprecated)]");
     }
     writer.open("mod law {");
@@ -39,6 +43,7 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.open("macro_rules! law {");
     writer.open("() => {");
     write_seen(writer, context);
+    write_associated(writer, context);
     // A method in no build is not called; the control method still is.
     let present = context.cell.method_present();
     if present {
@@ -108,6 +113,50 @@ fn write_seen(writer: &mut Writer, context: &Context) {
     writer.blank();
 }
 
+/// Writes the checks of the trait's own associated items: each is the
+/// value the enum fixes, or the supplier's.
+fn write_associated(writer: &mut Writer, context: &Context) {
+    let items = context.agreement.items;
+    if items.is_empty() {
+        return;
+    }
+    // The law names a payload by its own type, a type parameter's at the
+    // argument the law takes it at.
+    let supplier = context
+        .cell
+        .supplier()
+        .map_or_else(|| String::from("P0"), |slot| slot.payload());
+    let instance = context.trait_instance();
+    writer.line(format!(
+        "// The associated items: fixed on the enum, or `{supplier}`'s."
+    ));
+    let mut traits = vec![instance.clone()];
+    if context.stack.present {
+        traits.push(String::from(OTHER));
+    }
+    for (item, instance) in traits
+        .iter()
+        .flat_map(|instance| items.iter().map(move |item| (item, instance)))
+    {
+        let name = item.name;
+        match (item.kind, item.overridden) {
+            (ItemKind::Type, _) => {
+                // A value of the supplier's type is one of the subject's.
+                writer.open("{");
+                writer.line(format!("let kind: <{supplier} as {instance}>::{name} = 1;"));
+                writer.line(format!("let _: <S as {instance}>::{name} = kind;"));
+                writer.close("}");
+            }
+            (ItemKind::Const, Some(value)) => writer.line(format!(
+                "assert_eq!(<S as {instance}>::{name}, {value}, \"{name}\");"
+            )),
+            (ItemKind::Const, None) => writer.line(format!(
+                "assert_eq!(<S as {instance}>::{name}, <{supplier} as {instance}>::{name}, \"{name}\");"
+            )),
+        }
+    }
+}
+
 /// Returns the payload reached from a binding by method-call syntax,
 /// which dereferences on its own.
 fn reach(binding: &str, route: &[Step]) -> String {
@@ -134,7 +183,9 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         }
         false => output,
     };
-    let subject_type = spell(&declared, "S", Associates::Qualified);
+    // The law has no lifetime of its own to name, so a return for the
+    // subject's lifetime is observed as an elided reference.
+    let subject_type = spell(&declared, "S", Associates::Qualified).replace("&'a ", "&");
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
     writer.line(observation(&declared, "answer", Side::Subject, 0));
@@ -145,7 +196,7 @@ fn write_observers(writer: &mut Writer, context: &Context) {
         writer.line(format!("/// Returns what the answer of `P{index}` shows."));
         writer.open(format!(
             "fn observe_p{index}(answer: {}) -> String {{",
-            answer_type(&output, index)
+            answer_type(&output, index).replace("&'a ", "&")
         ));
         writer.line(observation(&output, "answer", Side::Payload(index), 0));
         writer.close("}");
@@ -160,12 +211,12 @@ fn observation(node: &Node, value: &str, side: Side, depth: usize) -> String {
     match node {
         Node::Unit => format!("{{ let () = {value}; String::from(\"()\") }}"),
         Node::Tag | Node::Assoc => format!("{value}.to_string()"),
-        Node::Shared => format!("format!(\"&{{}}\", {value})"),
+        Node::Shared | Node::Lent => format!("format!(\"&{{}}\", {value})"),
         // A mutable reference is written through, so that the state checked
         // afterwards shows whether it was the payload's own.
         Node::Exclusive => format!("{{ *{value} += 100; format!(\"&mut {{}}\", {value}) }}"),
         Node::Payload => format!("{value}.state.to_string()"),
-        Node::PayloadShared => format!("format!(\"&{{}}\", {value}.state)"),
+        Node::PayloadShared | Node::PayloadLent => format!("format!(\"&{{}}\", {value}.state)"),
         Node::PayloadExclusive => {
             format!("{{ {value}.state += 100; format!(\"&mut {{}}\", {value}.state) }}")
         }
@@ -265,6 +316,7 @@ fn write_subject(
         Form::MarkedStruct => format!("{path}::{variant} {{ label: {LABEL}, held: {stored} }}"),
         Form::Struct => format!("{path}({stored})"),
         Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
+        Form::StructNamed => format!("{path} {{ held: {stored} }}"),
     };
     writer.line(format!("{binding} {name} = {value};"));
 }
@@ -377,7 +429,9 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
                 Callee::Field | Callee::Method | Callee::Renamed => "twin.state",
             };
             let read = match context.cell.target_node() {
-                Node::PayloadShared | Node::Shared => format!("&{place}"),
+                Node::PayloadShared | Node::PayloadLent | Node::Shared | Node::Lent => {
+                    format!("&{place}")
+                }
                 Node::PayloadExclusive | Node::Exclusive => format!("&mut {place}"),
                 Node::Payload
                 | Node::Tag
@@ -433,6 +487,17 @@ fn write_slot(writer: &mut Writer, context: &Context, slot: &Slot, present: bool
             context.base_call("S", "subject")
         )),
         Expect::Default => unreachable!("the control method is never left to a default"),
+    }
+    // The second trait's method answers what a twin's does, on every
+    // variant that holds a payload.
+    if context.stack.present && slot.target().is_some() {
+        write_subject(writer, "S", slot, "stacked", seed, false);
+        writer.line(format!("let stacked_twin = {payload}::new({seed});"));
+        writer.line(format!(
+            "assert_eq!({}, {}, \"other on {name}\");",
+            context.other_call("S", "stacked"),
+            context.other_call(&payload, "stacked_twin")
+        ));
     }
     writer.close("}");
 }
@@ -491,6 +556,19 @@ fn write_method_checks(
         }
     }
     let other = context.argument.kind.map(|_| "other");
+    // A return for the subject's lifetime is the very reference the
+    // variant holds, or the place behind it, not a copy of its value.
+    if matches!(context.node, Node::Lent) && twin_needed {
+        write_subject(writer, "S", slot, "lent", seed, exclusive);
+        let place = match context.cell.callee {
+            Callee::Field => "&lent_held.state",
+            Callee::Value | Callee::Method | Callee::Renamed => "&lent_held",
+        };
+        writer.line(format!(
+            "assert!(core::ptr::eq({}, {place}), \"m on {name} hands over the place itself\");",
+            call(context, "S", "lent", None, "x")
+        ));
+    }
     writer.line(format!(
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
@@ -516,7 +594,7 @@ fn write_method_checks(
             };
             writer.line(format!(
                 "let written: {} = {constant};",
-                spell(&written, "S", Associates::Qualified)
+                spell(&written, "S", Associates::Qualified).replace("&'a ", "&")
             ));
             writer.line("let expected = observe(written);");
         }

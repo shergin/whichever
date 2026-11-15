@@ -1,0 +1,5 @@
+error: `merge` takes `other` by value, and `Shared` dereferences a `Rc<Square>`, which a value cannot be moved out of; hold a `Box`, or implement the method by hand
+  --> tests/ui/self_argument_moves_through_a_shared_pointer.rs:22:12
+   |
+22 |     Shared(Rc<Square>),
+   |            ^^^^^^^^^^

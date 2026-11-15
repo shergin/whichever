@@ -87,8 +87,10 @@ a block's mark on `m` included, carries the method's `#[cfg]` and its
 hold exists in no build: its sentences and rejections are dropped, the
 hand writes none of it, and the law checks the control method alone.
 
-Two values of `s0`, `struct` and `struct-marked`, make the subject a
-struct: one field, or a field marked `#[dispatch]` beside a label. A struct
+Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
+the subject a struct: one field, a field marked `#[dispatch]` beside a
+label, or one named field, which the hand rebuilds by its braces and
+which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
@@ -125,6 +127,27 @@ handing the enum back. An impl the docs say is not written, beside a
 variant with other fields, on a struct or under `from = false`, is written
 by hand beside the subject, which compiles only if the attribute wrote
 none.
+
+The `agree` axis gives the trait associated items of its own beside those
+the return types name: a type the payloads give differently, consts of
+every checked type that agree or of which one differs, a const of a type
+the check does not compare, and consts fixed on the enum with `NAME =
+value`. A disagreement is a limit on the variant that disagrees with the
+supplier, the first variant without a `#[cfg]` whose target has a type; a
+variant reached through a field or a method takes no part, and a const on
+a generic enum, a lifetime included, is not checked. The hand takes each
+item from the supplier or as fixed, and the law reads every item through
+the subject.
+
+The `stack` axis dispatches a second trait, `Other`, or a supertrait
+`Other: Probe`, on the same subject through an attribute of its own. Its
+one method takes the control method's receiver and is checked by the law
+as `base` is; it declares the associated items the `agree` axis gives
+`Probe` and takes the same overrides. In a block path the subject's
+attribute names `Other` and the block is the impl of `Probe`. The
+`deprecated` axis puts `#[deprecated]` on a variant: the hand writes its
+arms and the conversions that name it under `#[allow(deprecated)]`, and
+the law, which names it, allows the lint.
 
 ## Running it
 
@@ -229,14 +252,16 @@ documents and the goldens best support and says so in a comment beginning
   diverge is excused by a line whose pattern matches it. Which findings
   make a cell diverge is decided per verdict in one place: for a pass,
   every finding; for a limit, every finding that is not a predicted
-  sentence, and `missing:sentence` when none appears; for a rejected cell,
+  sentence, `missing:sentence` when none appears, and `missing:KEY@ANCHOR`
+  for a predicted sentence about a variant that does not; for a rejected cell,
   `compiles:subject` and every finding of the subject that is neither a
   catalogued sentence nor a rustc error off the attributes; for a
   malformed cell, `compiles:trait`. A line names the axes that cause its
   defect, so that it cannot excuse another defect's finding. A line that
   excuses no finding in a complete run, every suite and no filter, fails it
   as stale; a line about a shape is judged so only under `--shape`. The
-  pattern's own cell is always run.
+  pattern's own cell is always run when the model selects it, and a line
+  is judged stale whether or not it does.
 - `pinned.txt` holds cells always run, one id per line, with a `#` comment
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the

@@ -87,24 +87,21 @@ impl Report<'_> {
             .collect()
     }
 
-    /// Returns the known lines that excuse nothing although their own cell
-    /// ran.
+    /// Returns the known lines that excuse nothing in a complete run. A
+    /// line is judged whether or not its pattern's own cell ran: a pattern
+    /// such as `lift=by-ref` spells a cell the model never selects, and its
+    /// line still outlives its defect.
     fn stale(&self, standings: &[Standing]) -> Vec<&Known> {
         self.known
             .iter()
             .enumerate()
             .filter(|_| self.complete)
             .filter(|(_, line)| self.shape || !line.finding.starts_with("shape:"))
-            .filter(|(index, line)| {
-                let ran = self
-                    .entries
-                    .iter()
-                    .any(|entry| entry.cell == line.pattern.cell);
-                let used = standings.iter().any(|standing| match standing {
+            .filter(|(index, _)| {
+                !standings.iter().any(|standing| match standing {
                     Standing::Known(lines) | Standing::Unexcused(_, lines) => lines.contains(index),
                     Standing::Agrees | Standing::ModelBroken => false,
-                });
-                ran && !used
+                })
             })
             .map(|(_, line)| line)
             .collect()
@@ -290,5 +287,43 @@ impl Report<'_> {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::parse_known;
+    use std::path::PathBuf;
+
+    fn report<'a>(known: &'a [Known], workspace: &'a Workspace) -> Report<'a> {
+        Report {
+            entries: &[],
+            judgements: &[],
+            known,
+            workspace,
+            census_differences: &[],
+            timings: &[],
+            complete: true,
+            shape: false,
+            quiet: true,
+        }
+    }
+
+    #[test]
+    fn a_line_whose_own_cell_did_not_run_is_still_judged() {
+        let known = parse_known("lift=by-ref\terror:E0308@subject\tThe arm borrows twice.\n")
+            .expect("a valid file");
+        let workspace = Workspace {
+            root: PathBuf::new(),
+            target: PathBuf::new(),
+        };
+        let report = report(&known, &workspace);
+        assert!(report
+            .entries
+            .iter()
+            .all(|entry| entry.cell != known[0].pattern.cell));
+        assert_eq!(report.stale(&[Standing::Agrees]).len(), 1);
+        assert!(report.stale(&[Standing::Known(vec![0])]).is_empty());
     }
 }

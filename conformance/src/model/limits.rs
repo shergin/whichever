@@ -26,9 +26,21 @@ pub enum Limit {
     SelfReturnOtherFields,
     /// `self: Box<Self>` on a variant that holds no `Box` under `deref`.
     BoxSelfPlain,
+    /// `Self` inside an `Option` or a `Result` through a struct with one
+    /// named field, which no path builds.
+    NamedFieldUnderWrapper,
+    /// `self: Box<Self>` on a `deref` variant over a pointer that is no
+    /// `Box`.
+    BoxSelfOnSharedPointer,
     /// A value moved out of a `deref` variant holding anything but a
     /// `Box`.
     MovesThroughSharedPointer,
+    /// A mutable borrow through a `deref` variant over an `Rc`, an `Arc`
+    /// or a `&T`.
+    MutableBorrowThroughSharedPointer,
+    /// A `mismatch` on the enum for a method a `#[cfg]` compiled out.
+    MismatchForAbsentMethod,
+
     /// A `&mut self` method on a route ending in a method call.
     MethodRouteOnMutSelf,
     /// An associated type taken from the first variant, where no variant's
@@ -46,6 +58,12 @@ pub enum Limit {
     IntoOtherFields,
     /// `into` beside a variant that holds no payload.
     IntoWithoutPayload,
+    /// An associated type a variant gives otherwise than the first, with
+    /// no override.
+    TypeDisagreement,
+    /// An associated const of a checked type a variant gives otherwise
+    /// than the first, with no override.
+    ConstDisagreement,
 }
 
 /// A catalogue entry.
@@ -78,7 +96,11 @@ impl Limit {
         Limit::RouteSelfReturn,
         Limit::SelfReturnOtherFields,
         Limit::BoxSelfPlain,
+        Limit::NamedFieldUnderWrapper,
+        Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
+        Limit::MutableBorrowThroughSharedPointer,
+        Limit::MismatchForAbsentMethod,
         Limit::MethodRouteOnMutSelf,
         Limit::UnsuppliedType,
         Limit::DefaultWithoutDefault,
@@ -87,6 +109,8 @@ impl Limit {
         Limit::StructConversion,
         Limit::IntoOtherFields,
         Limit::IntoWithoutPayload,
+        Limit::TypeDisagreement,
+        Limit::ConstDisagreement,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -148,10 +172,32 @@ impl Limit {
                 "holds a plain",
                 "box_self_plain_variant",
             ),
+            Limit::NamedFieldUnderWrapper => entry(
+                "named-field-under-wrapper",
+                "has a named field, which no path builds",
+                "named_field_under_a_wrapper",
+            ),
+            Limit::BoxSelfOnSharedPointer => entry(
+                "box-self-on-shared-pointer",
+                "which is no `Box` to hand over",
+                "box_self_on_a_shared_pointer",
+            ),
             Limit::MovesThroughSharedPointer => entry(
                 "moves-through-shared-pointer",
                 "which a value cannot be moved out of",
                 "route_moves_through_a_shared_pointer",
+            ),
+            Limit::MutableBorrowThroughSharedPointer => entry(
+                "mutable-borrow-through-shared-pointer",
+                "which cannot be borrowed mutably; hold a `Box` or a `&mut`",
+                "mutable_borrow_through_a_shared_pointer",
+            ),
+            // The case `mismatch_for_a_method_under_a_cfg` is to pin it; until
+            // it lands, `unknown_option_names` holds the same sentence.
+            Limit::MismatchForAbsentMethod => entry(
+                "mismatch-for-absent-method",
+                "so there is no mismatch to decide",
+                "unknown_option_names",
             ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
@@ -188,6 +234,16 @@ impl Limit {
                 "`into` converts every variant's payload",
                 "into_with_a_unit_variant",
             ),
+            Limit::TypeDisagreement => entry(
+                "type-disagreement",
+                "type mismatch resolving",
+                "associated_type_disagreement",
+            ),
+            Limit::ConstDisagreement => entry(
+                "const-disagreement",
+                "differs from the first variant's; set it on the enum with",
+                "associated_const_disagreement",
+            ),
             Limit::UnsuppliedType => Entry {
                 keeps_impl: false,
                 ..entry(
@@ -199,9 +255,9 @@ impl Limit {
         }
     }
 
-    /// Returns whether the sentence is the body of the method under test,
-    /// which then reports nothing else, rather than a sentence on a variant
-    /// that leaves the method's other arms written.
+    /// Returns whether the sentence concerns the method under test, on
+    /// the method or on one of the variants it is forwarded to, rather than
+    /// the subject as a whole.
     pub fn is_of_method(self) -> bool {
         match self {
             Limit::UnitVariant
@@ -209,8 +265,12 @@ impl Limit {
             | Limit::UnsuppliedType
             | Limit::StructConversion
             | Limit::IntoOtherFields
-            | Limit::IntoWithoutPayload => false,
-            Limit::Receiver
+            | Limit::IntoWithoutPayload
+            | Limit::TypeDisagreement
+            | Limit::ConstDisagreement
+            | Limit::MismatchForAbsentMethod => false,
+            Limit::MutableBorrowThroughSharedPointer
+            | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
             | Limit::OpaqueReturn
             | Limit::SelfInReturn
@@ -218,11 +278,49 @@ impl Limit {
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
+            | Limit::NamedFieldUnderWrapper
+            | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
             | Limit::StarOverUnforwardable => true,
+        }
+    }
+
+    /// Returns whether the sentence replaces the body of the method under
+    /// test, which then reports nothing else. A sentence about one variant
+    /// is that variant's arm instead, and the other arms are written and
+    /// type-checked beside it (macros/ARCHITECTURE.md 3.8).
+    pub fn replaces_method(self) -> bool {
+        match self {
+            Limit::Receiver
+            | Limit::SelfArgumentWithoutMismatch
+            | Limit::OpaqueReturn
+            | Limit::SelfInReturn
+            | Limit::DefaultWithoutDefault
+            | Limit::BodyNeverRuns => true,
+            // The variants a mark of `*` names are forwarded, each arm
+            // carrying a sentence of its own, beside the one on the mark.
+            Limit::StarOverUnforwardable
+            | Limit::UnitVariant
+            | Limit::TwoFields
+            | Limit::UnsuppliedType
+            | Limit::StructConversion
+            | Limit::IntoOtherFields
+            | Limit::IntoWithoutPayload
+            | Limit::DerefSelfReturn
+            | Limit::RouteSelfReturn
+            | Limit::SelfReturnOtherFields
+            | Limit::BoxSelfPlain
+            | Limit::NamedFieldUnderWrapper
+            | Limit::BoxSelfOnSharedPointer
+            | Limit::MovesThroughSharedPointer
+            | Limit::MutableBorrowThroughSharedPointer
+            | Limit::MismatchForAbsentMethod
+            | Limit::MethodRouteOnMutSelf
+            | Limit::TypeDisagreement
+            | Limit::ConstDisagreement => false,
         }
     }
 

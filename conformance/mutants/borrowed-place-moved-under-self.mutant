@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: Under `self` by value a place the return type borrows is handed over and moves nothing, as `docs/inherent-methods.md` says.
+expect: killed
+
+find:
+            ReceiverKind::Value(Access::Owned) if moves_the_place => {
+replace:
+            ReceiverKind::Value(Access::Owned) => {

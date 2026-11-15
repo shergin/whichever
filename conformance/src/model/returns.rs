@@ -43,6 +43,9 @@ pub enum Node {
     PayloadShared,
     /// `&mut P0`.
     PayloadExclusive,
+    /// `&'a P0`, the payload a variant over `&'a P0` holds, for the
+    /// subject's own lifetime.
+    PayloadLent,
     /// `()`.
     Unit,
     /// `u64`.
@@ -51,6 +54,9 @@ pub enum Node {
     Shared,
     /// `&mut u64`, borrowed mutably from the payload's state.
     Exclusive,
+    /// `&'a u64`, borrowed from the payload's state for the subject's own
+    /// lifetime: what a place reached through a variant over `&'a P0` is.
+    Lent,
     /// `Self`.
     This,
     /// `Self::Out`, taken from the first variant: `u64` in every payload.
@@ -125,10 +131,12 @@ impl Node {
         match self {
             Node::Payload
             | Node::PayloadShared
+            | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::Unit
             | Node::Tag
             | Node::Shared
+            | Node::Lent
             | Node::Exclusive
             | Node::This
             | Node::Assoc
@@ -146,9 +154,15 @@ impl Node {
         self.any(&|node| matches!(node, Node::Exclusive))
     }
 
+    /// Returns whether the type borrows from the receiver or an argument,
+    /// rather than for the subject's own lifetime.
+    pub fn borrows_from_the_call(&self) -> bool {
+        self.any(&|node| matches!(node, Node::Shared | Node::Exclusive))
+    }
+
     /// Returns whether the type borrows at all.
     pub fn borrows(&self) -> bool {
-        self.any(&|node| matches!(node, Node::Shared | Node::Exclusive))
+        self.any(&|node| matches!(node, Node::Shared | Node::Lent | Node::Exclusive))
     }
 
     /// Returns the associated types the trait declares for this type, with
@@ -161,10 +175,12 @@ impl Node {
                 Node::Overridden(associated) => (*associated, true),
                 Node::Payload
                 | Node::PayloadShared
+                | Node::PayloadLent
                 | Node::PayloadExclusive
                 | Node::Unit
                 | Node::Tag
                 | Node::Shared
+                | Node::Lent
                 | Node::Exclusive
                 | Node::This
                 | Node::Fault
@@ -213,10 +229,12 @@ impl Node {
         match self {
             Node::Payload
             | Node::PayloadShared
+            | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::Unit
             | Node::Tag
             | Node::Shared
+            | Node::Lent
             | Node::Exclusive
             | Node::Assoc
             | Node::Fault => Some(Conversion::Keep),
@@ -276,6 +294,7 @@ impl Node {
             Node::Unit
             | Node::Tag
             | Node::Shared
+            | Node::Lent
             | Node::Assoc
             | Node::Overridden(_)
             | Node::Fault
@@ -286,6 +305,7 @@ impl Node {
             Node::Exclusive
             | Node::Payload
             | Node::PayloadShared
+            | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::Future(_, _)
             | Node::Iterator
@@ -303,9 +323,11 @@ impl Node {
             Node::Result(ok, error) => ok.has_default() && error.has_default(),
             Node::Tuple(elements) => elements.iter().all(Node::has_default),
             Node::Shared
+            | Node::Lent
             | Node::Exclusive
             | Node::Payload
             | Node::PayloadShared
+            | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::This
             | Node::Assoc
@@ -324,10 +346,12 @@ impl Node {
         match self {
             Node::Payload
             | Node::PayloadShared
+            | Node::PayloadLent
             | Node::PayloadExclusive
             | Node::Unit
             | Node::Tag
             | Node::Shared
+            | Node::Lent
             | Node::Exclusive
             | Node::This
             | Node::Assoc
@@ -358,6 +382,7 @@ impl Return {
             Return::Tag => Node::Tag,
             Return::Unit => Node::Unit,
             Return::Shared => Node::Shared,
+            Return::Lent => Node::Lent,
             Return::Exclusive => Node::Exclusive,
             Return::This => Node::This,
             Return::OptionThis => Node::Option(&Node::This),

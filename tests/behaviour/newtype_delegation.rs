@@ -158,3 +158,74 @@ fn a_single_field_struct_is_rebuilt_around_self() {
     assert_eq!(Wrapped(Size(3)).halved(), None);
     assert_eq!(Wrapped(Size(4)).grown_again(), Wrapped(Size(6)));
 }
+
+/// A struct whose one field is named rebuilds a bare `Self` with its
+/// braces; a tuple struct rebuilds `Option<Self>` and `Result<Self, E>`
+/// with its path as well.
+mod rebuilt_around_one_field {
+    #[whichever::dispatchable]
+    pub trait Grow: Sized {
+        fn grown(&self) -> Self;
+        fn maybe_grown(&self) -> Option<Self> {
+            None
+        }
+        fn tried_grown(&self) -> Result<Self, String> {
+            Err(String::from("default"))
+        }
+        fn side(&self) -> u64;
+    }
+
+    pub struct Square(pub u64);
+
+    impl Grow for Square {
+        fn grown(&self) -> Self {
+            Square(self.0 + 1)
+        }
+        fn maybe_grown(&self) -> Option<Self> {
+            Some(Grow::grown(self))
+        }
+        fn tried_grown(&self) -> Result<Self, String> {
+            Err(format!("{}", self.0))
+        }
+        fn side(&self) -> u64 {
+            self.0
+        }
+    }
+
+    #[whichever::dispatchable]
+    pub trait Bare: Sized {
+        fn grown(&self) -> Self;
+        fn side(&self) -> u64;
+    }
+
+    impl Bare for Square {
+        fn grown(&self) -> Self {
+            Square(self.0 + 2)
+        }
+        fn side(&self) -> u64 {
+            self.0
+        }
+    }
+
+    #[whichever::dispatch(Bare)]
+    pub struct Named {
+        shape: Square,
+    }
+
+    #[whichever::dispatch(Grow)]
+    pub struct Tuple(Square);
+
+    #[test]
+    fn a_named_field_rebuilds_a_bare_self() {
+        let named = Named { shape: Square(1) };
+        assert_eq!(Bare::side(&Bare::grown(&named)), 3);
+    }
+
+    #[test]
+    fn a_tuple_struct_rebuilds_every_wrapper() {
+        let tuple = Tuple(Square(1));
+        assert_eq!(Grow::grown(&tuple).side(), 2);
+        assert_eq!(tuple.maybe_grown().map(|grown| grown.side()), Some(2));
+        assert_eq!(tuple.tried_grown().err(), Some(String::from("1")));
+    }
+}

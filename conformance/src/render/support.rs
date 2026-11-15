@@ -17,6 +17,12 @@ pub static POISON_PLACE: u64 = POISON;
 /// The place a mismatched reference points at.
 pub static MISMATCH: u64 = 424_242;
 
+/// The low end of the range a tuple const is fixed at on the enum.
+pub const LOW: u8 = 1;
+
+/// The high end of the range a tuple const is fixed at on the enum.
+pub const HIGH: u8 = 9;
+
 /// The argument of the method under test, named by a `crate::` path where
 /// the trait lives away from the subject.
 pub type Count = u64;

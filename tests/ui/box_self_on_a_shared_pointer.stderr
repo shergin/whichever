@@ -1,0 +1,5 @@
+error: `finish` takes `self: Box<Self>`, and `Shared` dereferences a `Rc<Square>`, which is no `Box` to hand over; hold a `Box`, or implement the method by hand
+  --> tests/ui/box_self_on_a_shared_pointer.rs:24:12
+   |
+24 |     Shared(Rc<Square>),
+   |            ^^^^^^^^^^

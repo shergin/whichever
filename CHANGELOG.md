@@ -65,6 +65,174 @@ third while probing the first.
   `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
   changed, since none held such a type.
 
+Fixes the conformance matrix found, and one the survey of 2026-11-13 of
+mp4-atom 0.17.1 found that the matrix showed to be wider.
+
+- Before, a rustc error inside an arm was reported on a span from the
+  trait's `#[whichever::dispatchable]` to the enum's name, or from the
+  enum's `#[whichever::dispatch]` on an inherent method, where a hand's
+  impl gets it on its own code. A route ending in a method call whose
+  result does not fit the receiver, `via = .copied()` under `&self`, is
+  rustc's E0308 or E0277, and an inherent `with = function` handed a place
+  it cannot take is E0308. The arm's bindings were located at the
+  attribute that wrote the trait's carrier macro while the rest of the arm
+  was at the enum, and an expression holding both stretched between them.
+  They are now located where the arm is, so each of these errors is on
+  the enum's name, or on the inherent method's name; the errors themselves
+  are rustc's, for forwardings no hand can write either. A `&mut self`
+  method through an `Rc`, which was rustc's E0596 there too, is now a
+  sentence, below. The `tests/ui` case
+  `route_method_result_does_not_fit_the_receiver` is new; no other
+  snapshot and no golden changed.
+- Before, a method that could not be forwarded to one variant was reported
+  in every build, whatever `#[cfg]` the variant carried, and named the
+  first such variant alone. A `deref` variant under `#[cfg(test)]` beside
+  `fn grown(&self) -> Self` failed the build that leaves the variant out
+  with "`grown` returns `Self`, which cannot be wrapped back into the
+  dereferenced payload of `Boxed`", where a hand's arm under the same
+  `cfg` compiles; the same held for a `Self` return through a route or
+  beside other fields, a route ending in a method call under `&mut self`,
+  `self: Box<Self>` on a variant that is not a `deref` over a `Box`, and a
+  move out of a shared pointer. The sentence is now the result of that
+  variant's arm, under the variant's own `#[cfg]`: a build without the
+  variant forwards the rest, a build with it reports as before, and each
+  variant the method cannot reach is named. A second effect of the same
+  change: `#[dispatch(*)]` in a partial block over a variant without a
+  payload, for a method taking a `Self` argument, was answered by its
+  sentence and by rustc's E0308 on the enum's name, and is now answered by
+  the sentence alone. The `tests/ui` cases
+  `deref_with_self_return_under_a_cfg_that_holds` and
+  `star_over_variants_without_a_payload_beside_a_self_argument` are new;
+  the snapshot `route_moves_through_a_shared_pointer` gains the sentence
+  for its second variant, `Borrowed`, which it did not name before; no
+  other snapshot and no golden changed.
+- Before, a partial impl block forwarding a method that takes a `Self`
+  argument by value or by `&mut`, `fn merge(self, other: Self, by: u64)`
+  under `mismatch(merge = by)`, warned in the user's crate, unused
+  variable: `other`: the arm for two different variants bound every such
+  argument again, so that the `mismatch` might use it, whether it did or
+  not. The enum's own attribute hid the warning, since its impl is
+  automatically derived and a partial block's is not. The argument is now
+  bound again only where the `mismatch` names it, a name a format string
+  captures, `format!("{other:?}")`, included. Beside it, a partial block
+  over an enum whose only variant in the build holds no payload reported
+  the variant's sentence and, with it, unused variable on each of the
+  method's arguments; the sentence now stands alone. The `tests/ui` case
+  `block_over_a_variant_without_a_payload_alone_in_the_build` is new; no
+  other snapshot and no golden changed.
+- Before, a partial impl block whose mark sat under the trait method's own
+  `#[cfg]`, `#[cfg(test)] #[dispatch(default)] fn extra(&self) -> u8;` for
+  a trait that declares `extra` under `#[cfg(test)]`, reported a variant no
+  method can forward to, `Other(u8, u8)`, in the build where the `cfg`
+  holds, so `cargo build` passed and `cargo test` failed. The mark leaves
+  the plain forwarding only the builds where the `cfg` does not hold, in
+  which the trait has no such method, and the variant was reported as
+  though the method were forwarded to every variant. A mark naming
+  variants, `#[dispatch(*)]` and a method the block writes, each under the
+  trait method's `#[cfg]`, did the same; mp4-atom 0.17.1's `Encode`, with a
+  `#[cfg(test)]` provided method, is the shape. The variant is now
+  reported in the builds in which some method is forwarded to every
+  variant and in no other, so a mark under a `cfg` the trait method does
+  not carry still leaves it reported where the `cfg` does not hold.
+  `docs/partial-impl-blocks.md` says so. The `tests/ui` case
+  `conditional_mark_leaves_builds_to_the_forwarding` is new; no other
+  snapshot and no golden changed.
+- Before, a generic trait whose parameter's one bound constrains an
+  associated type, `trait Encoder<F: Format<Value = u64>>` with a method
+  taking `F::Value`, could not be dispatched: the projection was
+  qualified with the bound as written, `<Json as Format<Value =
+  u64>>::Value`, and rustc rejected it with E0229, associated item
+  constraints are not allowed here, on the trait's bound. The projection
+  is now qualified with the bound's generic arguments and without its
+  constraints, `<Json as Format>::Value`, and `<Json as
+  Format<Text>>::Value` for `F: Format<Text, Value = u64>`, which name the
+  same type. `docs/options.md` says so. No golden and no `tests/ui`
+  snapshot changed.
+- Before, three sentences named a receiver the method does not take, and
+  one gave advice that would not compile. `fn merge(&self, other: Self)`
+  over `#[dispatch(deref)] Shared(Rc<Square>)` was told that "`merge`
+  takes `self` by value", where `other` is what would move; it is now
+  "`merge` takes `other` by value, and `Shared` dereferences a
+  `Rc<Square>`, which a value cannot be moved out of". A route ending in
+  a method call under `self: Pin<&mut Self>`, or with a `&mut Self`
+  argument, was told that the method "takes `&mut self`"; it now names
+  `self: Pin<&mut Self>`, or `other: &mut Self`. `fn finish(self:
+  Box<Self>)` over a `deref` variant holding an `Rc<Square>` was told to
+  "hold `Box<Rc<Square>>` in a `#[dispatch(deref)]` variant", which
+  `Rc<Square>` does not implement the trait to make work; it is now
+  "`finish` takes `self: Box<Self>`, and `Shared` dereferences a
+  `Rc<Square>`, which is no `Box` to hand over; hold a `Box`, or
+  implement the method by hand". Beside them, a method that names its
+  variants and has a body for the rest was told to "give it a body" for a
+  variant it cannot be forwarded to; it is now offered that body, "or
+  leave `Borrowed` to the body", and a method without one keeps its
+  sentence. `docs/limits.md` says so. The `tests/ui` cases
+  `box_self_on_a_shared_pointer`,
+  `self_argument_moves_through_a_shared_pointer` and
+  `route_method_under_a_pinned_receiver_or_a_mut_argument` are new; the
+  snapshot `sentence_spells_a_type_with_its_spaces` moved, each of its
+  four sentences now ending "or leave `Borrowed` to the body" with its
+  own variant; no golden changed.
+- Before, an inherent method taking `self` by value whose arm is a place
+  the return type borrows, `#[dispatch(*, value)] pub fn name(self) ->
+  &'a Name;` over `#[dispatch(deref)] Borrowed(&'a Name)`, was refused:
+  "`name` takes `self` by value, and `Borrowed` dereferences a `&'a
+  Name`, which a value cannot be moved out of". Nothing moves there, and
+  the same method under `self: Box<Self>` already compiled. A place under
+  `self` is now refused only where the return type takes it by value, so
+  the arm hands over the reference the variant holds. A method call under
+  `self` is refused as before. `docs/inherent-methods.md` and
+  `docs/limits.md` say so. No golden and no `tests/ui` snapshot changed.
+- A `mismatch` on the enum naming a method the trait declares under a
+  `#[cfg]` that does not hold, `mismatch(same = false)` for a `same` under
+  a feature that is off, is still reported, as a name the trait lacks,
+  since that build's trait has no such method; the enum built only with
+  the feature on. The sentence now ends with the way around it: "a method
+  under a `#[cfg]` that does not hold in this build takes its mismatch on
+  the trait method, `#[dispatch(mismatch = ..)]`", which travels under the
+  method's `cfg`. The decision record "An option names an item of every
+  build" weighs the alternative; `docs/limits.md` and `docs/options.md`
+  say so. The `tests/ui` case `mismatch_for_a_method_under_a_cfg` is new,
+  with both forms of the hint; the snapshots `unknown_option_names` and
+  `unknown_override_keeps_the_impl` gained the clause; no golden changed.
+- Before, a method that borrows its target mutably, forwarded to a `deref`
+  variant over an `Rc`, an `Arc` or a `&T`, reached rustc as E0596,
+  cannot borrow data in an `Rc` as mutable, in an arm the user did not
+  write, where a move out of the same pointer is a sentence. It is now one
+  sentence on the payload: "`grow` takes `&mut self`, and `Counted`
+  dereferences a `Rc<Square>`, which cannot be borrowed mutably; hold a
+  `Box` or a `&mut`, or implement the method by hand", naming `self:
+  Pin<&mut Self>` or `other: &mut Self` where that is what borrows, and
+  "`name` returns a `&mut`" for an inherent method whose place is
+  returned so. The three pointers are recognised by name, as for a move,
+  and any other is left to rustc. A shared borrow, `#[dispatch(*, value)]
+  fn name(&mut self) -> &Name;` through an `Rc`, still forwards. The
+  decision record "A borrow a shared pointer cannot lend is a sentence"
+  weighs it; `docs/limits.md` and `docs/routes.md` say so. The `tests/ui`
+  cases `mutable_argument_through_a_shared_pointer` and
+  `mutable_place_through_a_shared_pointer` are new, and the snapshot
+  `mutable_borrow_through_a_shared_pointer`, which held E0596 on the
+  enum's name, now holds the sentence; no golden changed.
+- A dispatch struct whose one field is named, `struct Named { shape:
+  Square }`, no longer forwards a method returning `Option<Self>` or
+  `Result<Self, E>`. Since 0.4.0 it rebuilt the value with a closure,
+  `.map(|value| Named { shape: value })`, the one closure the generated
+  code held, where the docs say it holds none; `.map` takes a path, and no
+  path builds such a struct. It is now one sentence on the field:
+  "`maybe_grown` returns `Self` inside an `Option` or a `Result`, where a path rebuilds
+  the value, and `Named` has a named field, which no path builds; make it
+  a tuple struct, `struct Named(Square);`, or write the method in a
+  `#[whichever::dispatch] impl` block". This breaks a struct that
+  compiled: one named field and a dispatched method returning
+  `Option<Self>` or `Result<Self, E>`; make it a tuple struct, which
+  forwards all three as before, or write the method in a partial block.
+  `-> Self` on the named struct is rebuilt by its braces as before. The
+  decision record "A named field is not rebuilt under a wrapper" weighs
+  it; `docs/structs.md`, `docs/limits.md` and the `Self` row of
+  `docs/what-is-generated.md` say so. The `tests/ui` case
+  `named_field_under_a_wrapper` is new; no other snapshot and no golden
+  changed.
+
 ## 0.7.3 - 2026-11-13
 
 The macro crate moves to `syn` 3, so a build that has left `syn` 2 gains

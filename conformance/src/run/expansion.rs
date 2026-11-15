@@ -61,13 +61,13 @@ fn expand(workspace: &Workspace, shard: &Shard) -> Result<syn::File, RunError> {
 }
 
 /// What the shape step checks of one cell.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Expected<'a> {
     /// The cell's module.
     pub module: &'a str,
-    /// Whether the subject's attribute writes the trait's impl, which is
-    /// then `#[automatically_derived]`.
-    pub derived: bool,
+    /// The traits the subject implements, each with whether the subject's
+    /// attribute writes its impl, which is then `#[automatically_derived]`.
+    pub traits: Vec<(&'static str, bool)>,
 }
 
 /// Returns, for each of `cells` in the shard, how its subject's
@@ -77,12 +77,11 @@ pub fn compare(
     workspace: &Workspace,
     shard: &Shard,
     cells: &[Expected<'_>],
-    trait_name: &str,
 ) -> Result<BTreeMap<String, Differences>, RunError> {
     let file = expand(workspace, shard)?;
     let mut found = BTreeMap::new();
     for cell in cells {
-        let differences = compare_cell(&file, cell, trait_name);
+        let differences = compare_cell(&file, cell);
         if !differences.is_empty() {
             found.insert(String::from(cell.module), differences);
         }
@@ -126,7 +125,7 @@ fn list_attributes(attributes: &[String]) -> String {
     spelled.join(" ")
 }
 
-fn compare_cell(file: &syn::File, cell: &Expected<'_>, trait_name: &str) -> Differences {
+fn compare_cell(file: &syn::File, cell: &Expected<'_>) -> Differences {
     let module = cell.module;
     let mut found = Differences::new();
     let missing = |what: &str| vec![format!("the expansion holds no {what}")];
@@ -138,23 +137,28 @@ fn compare_cell(file: &syn::File, cell: &Expected<'_>, trait_name: &str) -> Diff
         found.insert(String::from("module"), missing("hand"));
         return found;
     };
-    let mut subject = shape::impls(items, "E", Some(trait_name));
-    let derived = subject.iter().all(|block| {
-        block
-            .attrs
-            .iter()
-            .any(|attribute| attribute.path().is_ident("automatically_derived"))
-    });
-    if cell.derived && !derived {
-        found.insert(
-            String::from("impl"),
-            vec![String::from(
-                "the impl the subject's attribute writes is not `#[automatically_derived]`",
-            )],
-        );
+    let mut subject = Vec::new();
+    let mut hand = Vec::new();
+    for (trait_name, written) in &cell.traits {
+        let impls = shape::impls(items, "E", Some(trait_name));
+        let derived = impls.iter().all(|block| {
+            block
+                .attrs
+                .iter()
+                .any(|attribute| attribute.path().is_ident("automatically_derived"))
+        });
+        if *written && !derived {
+            found.insert(
+                String::from("impl"),
+                vec![format!(
+                    "the impl of `{trait_name}` the subject's attribute writes is not `#[automatically_derived]`"
+                )],
+            );
+        }
+        subject.extend(impls);
+        hand.extend(shape::impls(hand_items, "E", Some(trait_name)));
     }
     subject.extend(shape::impls(items, "E", None));
-    let mut hand = shape::impls(hand_items, "E", Some(trait_name));
     hand.extend(shape::impls(hand_items, "E", None));
     for block in &hand {
         for item in &block.items {

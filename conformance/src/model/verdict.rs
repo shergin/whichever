@@ -16,16 +16,17 @@
 //! rejection of `m` would have; a cell with a rejection and no limit is
 //! rejected; what is left passes.
 
+use super::agreement::ItemKind;
 use super::argument::{ArgumentKind, MismatchSite};
 use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
 use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
-use super::target::{Pointer, Step, Storage};
+use super::target::{Form, Pointer, Step, Storage};
 use super::{
-    Argument, Callee, Cfg, Conversion, Generics, Home, Item, Lift, Qualifier, Receiver, Return,
-    Second, Slot, Target, Verdict,
+    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
+    Qualifier, Receiver, Return, Second, Stack, Target, Verdict,
 };
 use crate::cell::Cell;
 
@@ -65,6 +66,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if is_struct && (cell.s1 != Second::Absent || cell.cfg != Cfg::Absent) {
         return Verdict::NonCanonical;
     }
+    // A deprecation is a variant's, and the second exists only beside a
+    // second variant.
+    let deprecated_absent = cell.deprecated == Deprecation::Second && cell.s1 == Second::Absent;
+    if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
+        return Verdict::NonCanonical;
+    }
     if let Some(reason) = malformed(cell) {
         if !canonical_when_malformed(cell) {
             return Verdict::NonCanonical;
@@ -85,15 +92,46 @@ pub fn verdict(cell: &Cell) -> Verdict {
         expected.retain(|expected| !expected.limit.is_of_method());
         rejections.retain(|rejection| rejection.method == Forwarded::Base);
     }
+    // A sentence that replaces the method is its whole body, so no arm of
+    // it is written to carry a sentence about a variant.
+    if expected
+        .iter()
+        .any(|expected| expected.limit.replaces_method())
+    {
+        expected
+            .retain(|expected| expected.limit.replaces_method() || !expected.limit.is_of_method());
+    }
+    // With no variant to supply an associated item the impl is withheld,
+    // so no arm of it is written, and a block that is the impl reports
+    // nothing of the variants either; the subject's attribute, where it
+    // names a trait, still reports a variant that holds no payload. An
+    // inherent method is no arm of the trait's impl, and keeps its own.
+    let unsupplied = expected
+        .iter()
+        .any(|expected| expected.limit == Limit::UnsuppliedType);
+    if unsupplied {
+        let site = cell.path.descriptor().site;
+        let declared = site != PathSite::Block || cell.stack.descriptor().present;
+        expected.retain(|expected| {
+            let arm = expected.limit.is_of_method()
+                && matches!(expected.anchor, Anchor::Variant(_))
+                && site != PathSite::Inherent;
+            match expected.limit {
+                Limit::UnitVariant | Limit::TwoFields => declared,
+                _ => !arm,
+            }
+        });
+    }
     if !expected.is_empty() {
         // A method that cannot be forwarded is written with its sentence as
         // its body (macros/ARCHITECTURE.md 3.8), so a sentence on `m`
-        // stands for any rejection of `m`; a rejection of the control
-        // method, or one beside a sentence on a variant only, would be a
-        // second error the model does not predict yet.
+        // stands for any rejection of `m`. A sentence about a variant is
+        // that variant's arm, and the other arms are type-checked beside
+        // it, so a rejection there shows as it does for a hand; that pair,
+        // and a rejection of the control method, are not modelled yet.
         let on_method = expected
             .iter()
-            .any(|expected| expected.limit.is_of_method());
+            .any(|expected| expected.limit.replaces_method());
         let covered = rejections
             .iter()
             .all(|rejection| on_method && rejection.method == Forwarded::Method);
@@ -139,7 +177,7 @@ fn malformed(cell: &Cell) -> Option<&'static str> {
     if node.borrows_mutably() && lends == Lends::Shared {
         return Some("a `&mut` return under a shared receiver, which no payload can lend");
     }
-    if node.borrows() && lends == Lends::Nothing && !borrowed_argument {
+    if node.borrows_from_the_call() && lends == Lends::Nothing && !borrowed_argument {
         return Some("a reference return under a receiver that holds no lifetime");
     }
     if matches!(node.future(), Some((FutureKind::Boxed, _)))
@@ -165,6 +203,9 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.home == Home::Local
         && cell.generic == Generics::Bare
         && cell.conv == Conversion::Unchecked
+        && cell.agree == Agreement::Absent
+        && cell.stack == Stack::Absent
+        && cell.deprecated == Deprecation::Absent
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -175,8 +216,28 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     let argument = cell.arg.descriptor();
     let qualifier = cell.qual.descriptor();
 
-    if node.borrows() && receiver.lends == Lends::Nothing {
+    if node.borrows_from_the_call() && receiver.lends == Lends::Nothing {
         return Some("a reference return that borrows from the `Self` argument");
+    }
+    // A return for the subject's own lifetime names `'a`, which only a
+    // subject over `&'a P0` declares, and only an inherent method can
+    // spell; the model writes it for a place read through such variants.
+    if cell.ret == Return::Lent {
+        let inherent = cell.path.descriptor().site == PathSite::Inherent;
+        let place = matches!(cell.callee, Callee::Value | Callee::Field);
+        let lent = cell
+            .live_slots()
+            .iter()
+            .all(|(_, target, _)| *target == Target::DerefShared);
+        let plain = cell.lift == Lift::Bare
+            && cell.arg == Argument::Absent
+            && cell.cfg == Cfg::Absent
+            && cell.qual == Qualifier::Plain;
+        if !(inherent && place && lent && plain) {
+            return Some(
+                "a return for the subject's lifetime outside an inherent place over `&'a P0`",
+            );
+        }
     }
     // rustc warns of `#[inline]` on a method with no body in the trait
     // itself, and is phasing it out, so the attribute is the provided
@@ -189,6 +250,9 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         return Some(reason);
     }
     if let Some(reason) = unpredicted_conversions(cell) {
+        return Some(reason);
+    }
+    if let Some(reason) = unpredicted_stack(cell) {
         return Some(reason);
     }
     if cell.cfg != Cfg::Absent && cell.slots().is_empty() {
@@ -275,7 +339,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::This
             | Return::OptionThis
             | Return::ResultThis
-            | Return::Future => true,
+            | Return::Future
+            | Return::Lent => true,
             Return::TupleThis
             | Return::Assoc
             | Return::Out
@@ -372,6 +437,55 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     None
 }
 
+/// The second trait and the deprecated variant the model writes.
+fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
+    let stack = cell.stack.descriptor();
+    // Open question: which of two attributes writes the conversions, and
+    // whose `from` decides them, is not documented; the model leaves the
+    // default to both, which writes them once (behaviour test
+    // `foreign_traits`, `ReadError`).
+    if stack.present && cell.conv != Conversion::Unchecked {
+        return Some("conversion options beside a second attribute");
+    }
+    // The type-parameter payload's `from = false` would have to be spelled
+    // on the second attribute too.
+    if stack.present && cell.generic == Generics::Payload {
+        return Some("a type-parameter payload beside a second attribute");
+    }
+    // A supertrait would name the trait's const parameter, which the second
+    // trait does not take.
+    if stack.supertrait && cell.generic == Generics::Own {
+        return Some("a supertrait generic over the enum's const parameter");
+    }
+    // A supertrait's impl needs the trait's, which a type no variant can
+    // supply withholds, so the second impl fails as a hand's would.
+    let taken = cell
+        .ret
+        .node()
+        .associated()
+        .iter()
+        .any(|(_, overridden)| !overridden)
+        || cell
+            .agree
+            .descriptor()
+            .items
+            .iter()
+            .any(|item| item.overridden.is_none());
+    if stack.supertrait && taken && cell.supplier().is_none() {
+        return Some("a supertrait beside an impl withheld for want of a supplier");
+    }
+    // "The deprecation reaches the code that names the variant"
+    // (what-is-generated.md): a mismatch or a body the user writes names
+    // the first variant, and would be warned of as the user's own code.
+    let path = cell.path.descriptor();
+    let names_first = cell.arg.descriptor().kind.is_some()
+        || matches!(path.form, PathForm::First | PathForm::Written);
+    if cell.deprecated == Deprecation::First && names_first {
+        return Some("a mismatch or a body of the user's naming the deprecated variant");
+    }
+    None
+}
+
 /// The conversions the model checks: over payloads it builds by value,
 /// in a build that holds every variant.
 fn unpredicted_conversions(cell: &Cell) -> Option<&'static str> {
@@ -436,7 +550,13 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
     }
     // An associated type taken from a type parameter is the parameter's
     // own, which a hand bounds or overrides; the model spells neither.
-    if !cell.ret.node().associated().is_empty() {
+    let typed = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .any(|item| item.kind == ItemKind::Type);
+    if !cell.ret.node().associated().is_empty() || typed {
         return Some(
             "an associated type beside generics, which the model spells for the plain trait",
         );
@@ -516,7 +636,8 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
                 | Return::BoxedFutureOut
                 | Return::Iterator
                 | Return::VecThis
-                | Return::OptionTupleThis => false,
+                | Return::OptionTupleThis
+                | Return::Lent => false,
             };
             let fits = match lift {
                 Lift::Bare | Lift::Some | Lift::Ok => true,
@@ -532,7 +653,10 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
             }
         }
         Callee::Value | Callee::Field => {
-            if !matches!(cell.ret, Return::Tag | Return::Shared | Return::Exclusive) {
+            if !matches!(
+                cell.ret,
+                Return::Tag | Return::Shared | Return::Exclusive | Return::Lent
+            ) {
                 return Some("a place read as a return type other than a value or a reference");
             }
             if cell.qual != Qualifier::Plain {
@@ -624,7 +748,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // variant with no mark: the control method, or the method under test
     // a block is silent about.
     let silent = path.form == PathForm::Forwarded && path.mark.is_none() && cell.method_present();
-    let dispatched = cell.base_reaches_all() || silent;
+    // The second trait is forwarded to every variant through its own
+    // attribute.
+    let stacked = cell.stack.descriptor().present;
+    let dispatched = cell.base_reaches_all() || silent || stacked;
     for slot in slots.iter().filter(|_| dispatched) {
         match slot.variant {
             super::SlotVariant::Live(_) => {}
@@ -690,18 +817,42 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // A struct whose one field is named has no path that builds it, so
+    // `Self` inside an `Option` or a `Result`, which `.map(..)` rebuilds
+    // through a path, is reported on the field; `-> Self` is rebuilt by
+    // the braces (docs/decisions/a-named-field-is-not-rebuilt-under-a-
+    // wrapper.md).
+    let named = cell.s0.descriptor().form == Form::StructNamed;
+    if named
+        && forwarded
+        && node
+            .conversion()
+            .is_some_and(|conversion| maps(&conversion))
+    {
+        expect(Limit::NamedFieldUnderWrapper, Anchor::Variant(0));
+    }
+
     // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain
-    // variant is an error, since boxing it again would allocate.
+    // variant is an error, since boxing it again would allocate, and a
+    // `deref` variant over another pointer has no `Box` to hand over
+    // (`box_self_on_a_shared_pointer`).
     //
-    // Open question: a variant over another pointer, or reached through a
-    // field, is read as getting the same sentence.
+    // Open question: a variant reached through a field is read as getting
+    // the plain variant's sentence.
     let place = matches!(cell.callee, Callee::Value | Callee::Field);
     if cell.recv == Receiver::Boxed && !place {
         for (slot, _, target) in &method_live {
-            let boxed = target.pointer() == Some(Pointer::Box) && target.route == [Step::Deref];
-            if !boxed {
-                expect(Limit::BoxSelfPlain, Anchor::Variant(slot.index));
-            }
+            let deref = target.route == [Step::Deref];
+            let limit = match target.pointer() {
+                Some(Pointer::Box) if deref => continue,
+                Some(Pointer::Rc | Pointer::Arc | Pointer::Shared | Pointer::Exclusive)
+                    if deref =>
+                {
+                    Limit::BoxSelfOnSharedPointer
+                }
+                Some(_) | None => Limit::BoxSelfPlain,
+            };
+            expect(limit, Anchor::Variant(slot.index));
         }
     }
 
@@ -709,14 +860,28 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // anything but a `Box`: a method taking `self` is reported on the
     // payload."
     //
-    // A `Self` argument by value gets the same sentence, which names the
-    // receiver though it is the argument that would move.
+    // A `Self` argument by value gets the same sentence, naming the
+    // argument that would move.
     // An inherent place under `self: Box<Self>` is moved too, unless the
     // return type borrows it: the case
     // `place_moves_through_a_shared_pointer_under_a_boxed_receiver` holds
     // the same fragment.
-    let boxed_place = cell.recv == Receiver::Boxed && place && !node.borrows();
-    if cell.recv == Receiver::Owned || boxed_place || argument.kind == Some(ArgumentKind::Owned) {
+    // A place the return type borrows moves nothing, under `self` by value
+    // as under `self: Box<Self>`: the arm hands over the reference the
+    // variant holds.
+    let moved_place = place && !node.borrows();
+    let moves = match cell.recv {
+        Receiver::Owned => !place || moved_place,
+        Receiver::Boxed => moved_place,
+        Receiver::Shared
+        | Receiver::Exclusive
+        | Receiver::PinShared
+        | Receiver::PinExclusive
+        | Receiver::Rc
+        | Receiver::Arc
+        | Receiver::PinBoxed => false,
+    };
+    if moves || argument.kind == Some(ArgumentKind::Owned) {
         for (slot, _, target) in &method_live {
             if target.pointer().is_some_and(|pointer| !pointer.owns()) {
                 expect(
@@ -727,10 +892,50 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
+    // (docs/options.md), but nothing can be borrowed mutably through them:
+    // a method that borrows its target mutably gets one sentence on the
+    // payload (docs/decisions/a-borrow-a-shared-pointer-cannot-lend-is-a-
+    // sentence.md). An inherent place borrows mutably only where its
+    // declared type does.
+    let exclusive = (receiver.lends == Lends::Exclusive
+        || argument.kind == Some(ArgumentKind::Exclusive))
+        && (!place || node.borrows_mutably());
+    if exclusive {
+        for (slot, _, target) in &method_live {
+            if target
+                .pointer()
+                .is_some_and(|pointer| !pointer.lends_mutably())
+            {
+                expect(
+                    Limit::MutableBorrowThroughSharedPointer,
+                    Anchor::Variant(slot.index),
+                );
+            }
+        }
+    }
+
+    // A `mismatch` on the enum names a method of every build: one under a
+    // `#[cfg]` that does not hold takes its mismatch on the trait method
+    // (docs/decisions/an-option-names-an-item-of-every-build.md), and the
+    // option is reported where it is written.
+    let enum_mismatch = path.form == PathForm::Forwarded
+        && path.site != PathSite::Inherent
+        && cell.arg.descriptor().kind.is_some()
+        && cell.arg.descriptor().mismatch == MismatchSite::Enum;
+    if enum_mismatch && !cell.method_present() {
+        let anchor = match path.site {
+            PathSite::Block => Anchor::BlockAttribute,
+            PathSite::Attribute | PathSite::Inherent => Anchor::Attribute,
+        };
+        expect(Limit::MismatchForAbsentMethod, anchor);
+    }
+
     // "A route ending in a method call cannot serve a `&mut self` method."
     //
     // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
-    // sentence, which names `&mut self` for both.
+    // sentence, naming the receiver or the argument as the signature has
+    // it.
     if receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive) {
         for (slot, _, target) in &method_live {
             if target.ends_in_method() {
@@ -765,21 +970,67 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // (what-is-generated.md), and a variant whose target has no nameable
     // type takes no part (routes.md): with no variant whose target is
     // named, the sentence of `all_variants_conditional` is on the enum.
-    let taken = node.associated().iter().any(|(_, overridden)| !overridden);
     // "An associated type or const comes from the first variant without a
     // `#[cfg]`", so only those can supply it.
-    let named = cell
-        .declared_slots()
-        .iter()
-        .filter(|slot| slot.cfg.is_none())
-        .filter_map(Slot::target)
-        .any(|(_, target)| target.route.iter().all(|step| *step == Step::Deref));
-    if taken && !named {
+    let items = cell.agree.descriptor().items;
+    let taken = node.associated().iter().any(|(_, overridden)| !overridden)
+        || items.iter().any(|item| item.overridden.is_none());
+    let supplier = cell.supplier();
+    if taken && supplier.is_none() {
         expect(Limit::UnsuppliedType, Anchor::Enum);
+    }
+
+    // "Every other variant is checked to agree; a disagreement is reported
+    // on that variant", for a type and, "for an integer, a float, `bool`,
+    // `char` or `&str` const on a non-generic enum", for a const
+    // (what-is-generated.md). A variant whose target has no nameable type
+    // "takes no part in the agreement checks" (routes.md), nor does one
+    // that holds no payload.
+    //
+    // Open question: a variant under a `#[cfg]` that holds is read as
+    // checked in the builds that hold it, its check carried under the
+    // `cfg` as its arm is.
+    if let Some(supplier) = supplier {
+        for item in items.iter().filter(|item| item.overridden.is_none()) {
+            let checked = match item.kind {
+                ItemKind::Type => true,
+                ItemKind::Const => item.comparable && !cell.is_generic(),
+            };
+            if !checked {
+                continue;
+            }
+            let limit = match item.kind {
+                ItemKind::Type => Limit::TypeDisagreement,
+                ItemKind::Const => Limit::ConstDisagreement,
+            };
+            for slot in &slots {
+                let other = slot.index != supplier.index && slot.names_its_target();
+                if other && item.differs(supplier.holds, slot.holds) {
+                    expect(limit, Anchor::Variant(slot.index));
+                }
+            }
+        }
     }
 
     expected.sort();
     expected
+}
+
+/// Returns whether a conversion rebuilds `Self` through a path that
+/// `.map(..)` or `.map_err(..)` takes.
+fn maps(conversion: &super::returns::Conversion) -> bool {
+    use super::returns::Conversion as Step;
+    match conversion {
+        Step::Keep | Step::Rewrap | Step::Into => false,
+        Step::Map(inner) => matches!(**inner, Step::Rewrap) || maps(inner),
+        Step::Result(ok, error) => {
+            matches!(**ok, Step::Rewrap)
+                || matches!(**error, Step::Rewrap)
+                || maps(ok)
+                || maps(error)
+        }
+        Step::Tuple(elements) => elements.iter().any(maps),
+    }
 }
 
 /// The forwardings no hand can write, each with the rustc error the hand
@@ -799,32 +1050,14 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     let argument = cell.reached_argument();
     let qualifier = cell.qual.descriptor();
     let live = cell.method_slots();
-    let forwarded = !live.is_empty();
+    // The method's body is written wherever it is forwarded, even when every
+    // arm is a variant's sentence, so what the body itself captures is
+    // rejected whatever the variants hold.
+    let form = cell.path.descriptor().form;
+    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };
-
-    // `deref` dispatches `Rc<T>`, `Arc<T>` and `&T` "like a plain `T`"
-    // (docs/options.md), but nothing can be borrowed mutably through them:
-    // the hand's `&mut **inner` is E0596, and no sentence is documented.
-    // An inherent place borrows mutably only where the declared type asks.
-    let place = matches!(cell.callee, Callee::Value | Callee::Field);
-    let exclusive = (receiver.lends == Lends::Exclusive
-        || argument.kind == Some(ArgumentKind::Exclusive))
-        && (!place || node.borrows_mutably());
-    if exclusive
-        && any(&|target| {
-            target
-                .pointer()
-                .is_some_and(|pointer| !pointer.lends_mutably())
-        })
-    {
-        reject(
-            "E0596",
-            "a mutable borrow through a pointer that lends only shared access",
-            Forwarded::Method,
-        );
-    }
 
     // A route ending in a method call hands the method's result over as it
     // is (docs/decisions/an-arm-reaches-its-target-through-a-route.md): a
@@ -850,6 +1083,27 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
             Forwarded::Method,
         );
     }
+    // An inherent `value` reads the target itself, and a route ending in a
+    // method call hands the method's result over as it is (routes.md: "a
+    // route ending in a method call yields a value";
+    // docs/decisions/an-arm-reaches-its-target-through-a-route.md). A
+    // method that lends yields a reference, so the target declared by
+    // value, or handed to `Some` or `Ok`, is the reference, a type error a
+    // hand handing the result over as it is gets too.
+    //
+    // Open question: the decision is written for the trait's forwarding;
+    // a place read through a route is read as following it, so `value` is
+    // never dereferenced out of what the method lends.
+    let by_value_place = cell.callee == Callee::Value
+        && cell.target_node() == Node::Payload
+        && matches!(cell.lift, Lift::Bare | Lift::Some | Lift::Ok);
+    if by_value_place && any(&|target| target.ends_in_loan()) {
+        reject(
+            "E0308",
+            "a lent target read by value, which hands the reference over as it is",
+            Forwarded::Method,
+        );
+    }
     let base_slots = cell.base_slots();
     let some_yield = base_slots
         .iter()
@@ -861,6 +1115,22 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "E0308",
             "a yielded target handed to the control method, which takes `&self`",
+            Forwarded::Base,
+        );
+    }
+    // The second trait's method takes the receiver its own variants allow,
+    // over every variant.
+    let live_all = cell.live_slots();
+    let other_some = live_all
+        .iter()
+        .any(|(_, _, target)| target.ends_in_temporary());
+    let other_every = live_all
+        .iter()
+        .all(|(_, _, target)| target.ends_in_temporary());
+    if cell.stack.descriptor().present && other_some && !other_every {
+        reject(
+            "E0308",
+            "a yielded target handed to the second trait's method, which takes `&self`",
             Forwarded::Base,
         );
     }

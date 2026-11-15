@@ -133,7 +133,7 @@ struct MethodPlan {              // read off the signature once
     self_token: Token![self],    // reused, so the `match` shares its hygiene
     arguments: Vec<Ident>,       // the bindings after the receiver
     same_variant: Vec<(usize, Access)>, // the `Self` arguments, matched beside the receiver
-    turbofish: Option<TokenStream>,     // the generics a call spells out when inference could not
+    turbofish: Option<Vec<Ident>>,      // the generics a call spells out when inference could not
     return_model: ReturnModel,
     future: bool, awaited: bool, unsafety: bool,
     by_place: bool,              // `match *self` with `ref` bindings, over an enum that may be empty
@@ -144,10 +144,11 @@ struct ArmContext<'a> {          // what every arm of one method shares
     method: &'a Ident, subject: &'a Ident,
     prefix: Path,                // the subject's name, or `Self`
     lift: Option<&'a Path>,      // the inherent `with = path`
+    has_body: bool,              // a body for the variants a mark leaves, the way out a sentence offers
     site: Span,                  // the span every written token carries
 }
 
-struct Arm { cfgs: Vec<Attribute>, pattern: TokenStream, value: TokenStream }
+struct Arm { cfgs: Vec<Attribute>, pattern: TokenStream, value: TokenStream, site: Span }
 
 struct Forwarding {
     scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, one of them behind `*`, or a tuple with the Self arguments
@@ -158,8 +159,16 @@ struct Forwarding {
 ```
 
 Both entry points do the same three things: read the signature into a
-`MethodPlan`, build an `Arm` per selected target with `MethodPlan::arm`
-and the shared `ArmContext`, and hand the `Forwarding` to the one renderer.
+`MethodPlan`, build an `Arm` per selected target with
+`MethodPlan::arm_or_sentence` and the shared `ArmContext`, and hand the
+`Forwarding` to the one renderer. Where `MethodPlan::arm` cannot write a
+target's arm, `arm_or_sentence` writes the arm that says so: the variant
+whatever it holds, `Target::whole`, with the sentence as its result,
+under the variant's own attributes, so a build without the variant
+forwards the rest and every variant the method cannot reach is named.
+`MethodPlan::beside_arguments` gives that arm, and the unforwardable ones
+the selection writes, the tuple's shape where `Self` arguments are matched
+beside the receiver.
 Between the first two, `MethodPlan::over` reads the entries the `match` is
 over: where every one is under `#[cfg]`, so that some build may leave none,
 and the receiver is a reference with no `Self` argument beside it,
@@ -172,11 +181,17 @@ the `Callee`, which also tells the two paths apart and so supplies the way
 out each error message offers, which targets are selected, the fallback,
 the `with = path` lift, and two policies that are deliberate once named.
 `MethodPlan::fallback` writes the arm for two different variants and binds
-again the same-variant arguments the scrutinee moved, so that a `mismatch`
-on the trait method may use them. Every token the engine writes carries the
-context's `site`, the subject's or the method's own span: a proc macro's
-call site inside a carrier's expansion is the trait's attribute, which may
-be in another crate. In a trait method
+again a same-variant argument the scrutinee moved where the `mismatch`
+expression names it, an identifier at any depth or a name inside a literal,
+which a format string captures (`names`); one it does not name stays in the
+scrutinee, as a hand leaves it. `MethodPlan::standing_in` is the result of
+an arm that only keeps the `match` exhaustive beside a variant's own error,
+and reads the arguments, so that no lint about them stands beside that
+error. Every token the engine writes carries the context's `site`, the
+subject's or the method's own span, the generated bindings and a
+turbofish's angle brackets included: a proc macro's call site inside a
+carrier's expansion is the trait's attribute, which may be in another
+crate. In a trait method
 `Self` is the implementor, so a `&Self` argument is matched on the same
 variant and needs a mismatch; in an inherent method `Self` is the enum
 itself, so a `&Self` argument is handed to the payload's method as it is,
@@ -194,8 +209,14 @@ rejected with its sentence as its body, an associated type or const from
 the override or the first variant, a method forwarded to every variant or
 as a mark names, or a limit; the plain forwarding, or a mark without a
 `#[cfg]`, takes the builds the block's conditional items leave, under the
-complement of their `cfg`s. `ItemWriter` renders the plans while keeping
-what the agreement checks and the shape errors need afterwards.
+complement of their `cfg`s, a `Leftover`. `ItemWriter` renders the plans
+while keeping what the agreement checks and the shape errors need
+afterwards: `PlainForwarding` records the builds in which some method with
+a receiver is forwarded to every variant, every build, none, or the union
+of the leftovers, and `shape_errors` reports a variant no method can
+forward to under that `cfg` beside the variant's own, so a mark under the
+trait method's own `cfg`, whose leftover holds in no build that has the
+method, reports nothing.
 `forward_trait_method` asks `fallback_for` for the arm the targets' arms
 leave and whether the lint about an unreachable pattern is allowed, and
 `check_trait_objects` for the one shape a target refuses. The routes a
@@ -335,7 +356,11 @@ of them, and every generator emits the item. A trait method that cannot be
 forwarded is written with its signature and its sentence as its body, a
 `compile_error!` rustc treats as an error expression and type-checks no
 further, so the impl is complete, the calls around it resolve, and the
-sentence stands alone; only a signature the substitution could not write,
+sentence stands alone. A method that cannot be forwarded to one variant
+keeps its other arms and has the sentence as that variant's arm, under the
+variant's own `cfg`, as a variant of another shape is reported under its
+own: a build that compiles the variant out has neither, and each such
+variant gets its sentence; only a signature the substitution could not write,
 a projection it could not qualify, withholds the impl, as does an
 associated item that cannot be supplied, since neither has a body to hold
 an error. An option naming nothing in the trait, or a route through no
@@ -355,7 +380,8 @@ stack. A trait method's parameter keeps its own name when its
 pattern is a plain identifier and gets `__argument<n>` otherwise, so
 expansions read like the trait, and a `mismatch` expression written on the
 trait method or on the enum may name the arguments, a moved `Self` argument
-included, which the fallback arm binds again, and a `&self` receiver. The
+included, which the fallback arm binds again where the expression names it,
+and a `&self` receiver. The
 two live in different hygiene contexts, the trait's tokens having come
 through a `macro_rules!` body, so the engine resolves the receiver's `self`
 token and the written argument bindings at the chosen expression's span
@@ -364,9 +390,15 @@ token. A rustc error inside generated code is accepted only where a
 hand-written impl gets the same error on the same user token, a variant's
 payload or a trait method; one on an attribute is a defect. So no module
 that writes generated code uses a bare `quote!` or `parse_quote!`: every
-token carries the subject's, the method's or the payload's span, and the
-unit test in `spans.rs` reads those modules and names a token written at
-the call site, which inside `implement!` is the trait's attribute.
+token carries the subject's, the method's or the payload's span. A
+generated binding, `__inner`, `__same<n>`, `__argument<n>` or
+`__element<n>`, is built at `at(site)`, the hygiene of `Span::mixed_site()`
+located where the arm is: one located at the call site would join the span
+of the expression that holds it to the attribute, and rustc's error with
+it. The unit test in `spans.rs` reads those modules and names a token
+written at the call site, which inside `implement!` is the trait's
+attribute, and an identifier or a lifetime built at `Span::mixed_site()`
+or `Span::call_site()` without a location.
 
 ## 4. Plan
 
@@ -748,16 +780,142 @@ comparison key and the name in a sentence stay one string. Compile-fail
 case `sentence_spells_a_type_with_its_spaces` is new; no existing snapshot
 or golden changed; `spelled` has unit tests.
 
+### Stage 24: the conformance matrix's bugs
+
+Status: landed on 2026-11-14, unreleased, on the branch `matrix-findings`:
+five fixes, four of defects the conformance matrix found and one of the
+mp4-atom survey's that the matrix showed wider, each held by lines of
+`known.tsv`, and the tests, docs and mutant of each in a commit of its
+own.
+
+`hygienic` takes the arm's site and builds at `at(site)`, and so does
+`__value` in `Target::constructor`; `shape::turbofish` returns the
+parameters, and the arm writes the angle brackets at its own site. A
+rustc error in an arm, E0596 through a `deref` over `Rc`, E0308 or E0277
+through a route ending in a method call or a `with` lift, lands on the
+enum's name or the inherent method's, where its span ran from the
+attribute (`e8014fe`). The test in `spans.rs` names an identifier or a
+lifetime built at the call site. Compile-fail case
+`mutable_borrow_through_a_shared_pointer` is new; no golden or snapshot
+changed. `known.tsv` loses its thirteen `@attribute` lines: `s0=` and
+`s1=` with `deref-rc`, `deref-arc` and `deref-ref` (E0596),
+`s0=via-method`, `s0=via-method-value` and `s1=via-method` (E0308),
+`s0=via-method` and `s1=via-method` (E0277), `lift=by-ref` and
+`lift=by-value`.
+
+`MethodPlan::arm_or_sentence` writes a target whose arm fails as the arm
+carrying the sentence, under the variant's `arm_attributes`, where the
+error failed the whole method, and `beside_arguments` gives it, and the
+selection's unforwardable arms, the tuple's pattern beside `Self`
+arguments (`4af7dbc`). Compile-fail cases
+`deref_with_self_return_under_a_cfg_that_holds` and
+`star_over_variants_without_a_payload_beside_a_self_argument` are new;
+snapshot `route_moves_through_a_shared_pointer` gains the sentence for
+`Borrowed`; no golden changed; the behaviour test
+`cfg_on_variants_and_methods` is extended. `known.tsv` loses
+`s1=unit path=block-star` (E0308), the twelve `cfg=second-off` and
+`cfg=first-off` sentence lines and `cfg=first-off missing:sentence`.
+
+`MethodPlan::fallback` binds a moved `Self` argument again only where
+`names` finds it in the `mismatch` expression, and the arm beside a
+variant's own error is `MethodPlan::standing_in`, which reads the
+arguments, where it was `unreachable!()` alone (`73d350b`). Compile-fail
+case `block_over_a_variant_without_a_payload_alone_in_the_build` is new;
+no golden or other snapshot changed; the behaviour test
+`mismatch_with_moved_arguments` is extended with a partial block under
+`#[deny(unused_variables)]`. `known.tsv` loses the four
+`warning:unused_variables` lines of `arg=value` and `arg=mut` under
+`path=block` and `path=block-star`, and `path=block cfg=first-off`.
+
+`Substitution::of_trait` keeps a single bound through `qualifier`, which
+drops the constraints on associated items from its last segment's
+arguments (`49df636`). A unit test beside the projection's own holds it,
+a real generic argument kept; the behaviour test `generic_traits` is
+extended; no golden or snapshot changed. `known.tsv` loses
+`generic=concrete qual=provided` (E0229).
+
+`ItemWriter::plain_forwarding` is a `PlainForwarding`, and a plan's
+complement a `Leftover`, so `implement` writes `shape_errors` under
+`#[cfg(any(..))]` of the leftovers where no plain forwarding holds in
+every build (`822f043`). Compile-fail case
+`conditional_mark_leaves_builds_to_the_forwarding` is new; no golden or
+other snapshot changed; the behaviour test
+`marks_under_the_trait_methods_cfg` is new. `known.tsv` loses the four
+`item=cfg-on` lines, `s1=unit` and `s1=pair`, each on `variant-1` and
+`variant-1-cfg`.
+
+The mutants `bindings-at-the-call-site`, `refused-arm-without-its-cfg`,
+`fallback-rebinds-every-moved-argument`, `projection-keeps-the-constraints`
+and `shape-report-in-every-build` revert the five fixes, and each is
+killed.
+
+Five more changes followed on the same branch, two from the sentences the
+matrix showed and three the owner chose on the matrix's questions, each
+with a decision record. None added or deleted a line of `known.tsv`; the
+model learns their sentences in its own change.
+
+`MethodPlan::taken` names the `Self` argument a sentence is about, and the
+move and method-route sentences name the receiver or the argument as the
+signature has it; `receiver_expression` reports `self: Box<Self>` on a
+`deref` variant over another pointer in a sentence of its own, where it
+advised a `Box` of that pointer; `ArmContext::has_body` makes
+`way_out` and `rebuild_hint` offer the body of a method that names its
+variants (`a615da8`). Compile-fail cases `box_self_on_a_shared_pointer`,
+`self_argument_moves_through_a_shared_pointer` and
+`route_method_under_a_pinned_receiver_or_a_mut_argument` are new; snapshot
+`sentence_spells_a_type_with_its_spaces` moved, its four sentences ending
+"or leave `<variant>` to the body"; no golden changed. The mutants
+`method-route-limit-dropped` and `move-limit-on-box` are rewritten for the
+moved text, making the change each made before.
+
+Under `self` by value a place counts as moved unless its `PlaceBorrow` is
+`Reference`, as under `self: Box<Self>` (`f7949a3`). The behaviour test
+`inherent_methods_on_dereferenced_payloads` is extended; no golden or
+snapshot changed, `route_moves_through_a_shared_pointer` included.
+
+`unknown_names` ends the sentence of a `mismatch` naming no method with
+where a method under a `#[cfg]` takes its mismatch (`09f24e7`, the record
+"An option names an item of every build"). Compile-fail case
+`mismatch_for_a_method_under_a_cfg` is new, with both forms of the hint;
+snapshots `unknown_option_names` and `unknown_override_keeps_the_impl`
+moved; no golden changed.
+
+`lends_only_shared` recognises an `Rc`, an `Arc` and a `&T`, and a
+method that borrows its target mutably through one, by its receiver, a
+`&mut Self` argument or a place returned as `&mut`, is a sentence on the
+payload (`59dab88`, the record "A borrow a shared pointer cannot lend is
+a sentence"). Compile-fail cases `mutable_argument_through_a_shared_pointer`,
+`mutable_place_through_a_shared_pointer` and
+`route_method_result_does_not_fit_the_receiver` are new, the last the pin
+of where a rustc error in an arm lands that
+`mutable_borrow_through_a_shared_pointer` was before its snapshot moved to
+the sentence; the behaviour test `inherent_methods_on_dereferenced_payloads`
+is extended with a shared borrow under `&mut self`; no golden changed.
+
+`Target::constructor` writes no closure: a struct whose one field is named
+has no path to `map` with, and `Target::is_built_by_no_path` gives the
+rebuild error its sentence, with the tuple struct as the way around
+(`5c80735`, the record "A named field is not rebuilt under a wrapper").
+Compile-fail case `named_field_under_a_wrapper` is new; the behaviour test
+`newtype_delegation` is extended; no golden or other snapshot changed.
+
+The mutants `box-self-advice-on-a-shared-pointer`,
+`borrowed-place-moved-under-self`, `absent-method-hint-dropped`,
+`mutable-borrow-left-to-rustc` and `named-field-rebuilt-with-a-closure`
+revert these five; they wait for the model's correction to be run.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
   qualified call per arm, `#[inline]`, no conversion unless an option asks
   for one. `benchmarks/scripts/codegen.py` keeps checking this.
-- Generated bindings use `Span::mixed_site()`; the receiver uses the trait
+- Generated bindings have the hygiene of `Span::mixed_site()`, located at
+  the arm's site through `at`; the receiver uses the trait
   method's own `self` token; a variant's `#[cfg]` is carried onto its arm,
   a trait item's is decided by which carrier the trait's crate compiled.
 - Every token the engine writes carries a user span, never the call site:
-  `spans.rs` reads the engine's modules and names a bare `quote!`.
+  `spans.rs` reads the engine's modules and names a bare `quote!`, and an
+  identifier or a lifetime built at the call site.
 - Nothing is kept between expansions.
 - `implement!` keeps its name and reads every prefix a 0.x carrier wrote,
   `v1` and `v2`; the request stays `v1`; a carrier's last rule reports any

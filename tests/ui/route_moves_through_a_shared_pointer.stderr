@@ -3,3 +3,9 @@ error: `consume` takes `self` by value, and `Shared` dereferences a `Rc<Account>
    |
 25 |     Shared(Rc<Account>),
    |            ^^^^^^^^^^^
+
+error: `consume` takes `self` by value, and `Borrowed` dereferences a `&'a Inner`, which a value cannot be moved out of; hold a `Box`, or implement the method by hand
+  --> tests/ui/route_moves_through_a_shared_pointer.rs:27:14
+   |
+27 |     Borrowed(&'a Inner),
+   |              ^^^^^^^^^

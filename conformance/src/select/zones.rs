@@ -213,7 +213,7 @@ pub const ZONES: &[Zone] = &[
         name: "structs",
         summary: "the struct subjects under every receiver, return type and qualifier",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("recv", &[]),
             ("ret", &[]),
             ("qual", &[]),
@@ -224,7 +224,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-arguments",
         summary: "the struct subjects with every `Self` argument",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("arg", &[]),
             ("recv", &["ref", "mut", "value"]),
             ("ret", &["u64", "unit", "self", "option-self", "future"]),
@@ -235,7 +235,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-paths",
         summary: "the struct subjects through the block paths",
         vary: &[
-            ("s0", &["struct", "struct-marked"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
             ("path", &["attribute", "block", "block-star", "block-default", "block-written"]),
             ("ret", &[]),
             ("qual", &["plain", "provided"]),
@@ -302,5 +302,86 @@ pub const ZONES: &[Zone] = &[
             ("recv", &["ref", "value", "rc"]),
         ],
         fixed: &[],
+    },
+    Zone {
+        name: "agreements",
+        summary: "the trait's own associated items, agreed, disagreed, unchecked and fixed on the enum, over the variants that take part in the checks and those that do not, under `#[cfg]` or not",
+        vary: &[
+            ("agree", &[]),
+            ("s0", &["plain", "deref-box", "deref-ref", "via-field", "marked-tuple", "struct"]),
+            ("s1", &["plain", "none", "unit", "deref-rc", "via-field", "marked-struct"]),
+            ("cfg", &[]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "agreement-paths",
+        summary: "the trait's own associated items through every path, on generic subjects and traits, with the trait at home, in a sibling module and in another crate",
+        vary: &[
+            ("agree", &[]),
+            ("path", &[]),
+            ("generic", &[]),
+            ("home", &[]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "stacks",
+        summary: "a second trait and a supertrait through their own attribute beside every path of the trait under test, over the target kinds that change its receiver, the variants it reaches and the associated items both traits take",
+        vary: &[
+            ("stack", &["second", "supertrait"]),
+            ("path", &[]),
+            ("s0", &["plain", "deref-box", "via-method-value", "struct"]),
+            ("s1", &["plain", "none", "unit"]),
+            ("agree", &["none", "type-differs", "const-override"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "stack-homes",
+        summary: "a second trait under the variants' `#[cfg]`, the receivers, the trait's homes and its generics",
+        vary: &[
+            ("stack", &["second", "supertrait"]),
+            ("cfg", &[]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref"]),
+            ("home", &[]),
+            ("generic", &["none", "concrete", "defaulted"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "deprecations",
+        summary: "a deprecated variant through every path, beside the variants, arguments and conversions that name it",
+        vary: &[
+            ("deprecated", &["first", "second"]),
+            ("path", &[]),
+            ("s1", &["plain", "unit", "deref-box", "marked-struct"]),
+            ("arg", &["none", "ref-trait", "ref-enum"]),
+            ("conv", &["none", "from", "try-ref", "into"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "deprecation-cfg",
+        summary: "a deprecated variant under the variants' `#[cfg]`, beside a second trait, over the returns that rewrap it",
+        vary: &[
+            ("deprecated", &["first", "second"]),
+            ("stack", &[]),
+            ("cfg", &[]),
+            ("ret", &["u64", "self", "option-self", "future-self", "assoc"]),
+            ("recv", &["ref", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "lent-places",
+        summary: "a place read for the subject's own lifetime through variants over `&'a P0`, under every receiver that forwards",
+        vary: &[
+            ("recv", FORWARDED),
+            ("callee", &["value", "field"]),
+            ("s1", &["none", "deref-ref"]),
+            ("path", &["inherent", "inherent-some"]),
+        ],
+        fixed: &[("s0", "deref-ref"), ("ret", "lent")],
     },
 ];

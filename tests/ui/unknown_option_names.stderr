@@ -16,7 +16,7 @@ error: `Shape` has no associated type or const `target`; an enum forwards to eve
 44 | #[whichever::dispatch(Shape, target = inner, mismatch(area = 0))]
    |                              ^^^^^^
 
-error: `Shape` has no method `area` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one
+error: `Shape` has no method `area` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; none of its methods takes one; a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`
   --> tests/ui/unknown_option_names.rs:44:55
    |
 44 | #[whichever::dispatch(Shape, target = inner, mismatch(area = 0))]

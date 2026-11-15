@@ -1,0 +1,10 @@
+error: `Other` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `Other(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
+  --> tests/ui/conditional_mark_leaves_builds_to_the_forwarding.rs:21:5
+   |
+21 |     Other(u8, u8),
+   |     ^^^^^^^^^^^^^
+...
+24 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Voice` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

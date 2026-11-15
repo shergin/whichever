@@ -276,6 +276,17 @@ impl Target {
         }
     }
 
+    /// Returns the pattern that matches the variant, or the struct,
+    /// whatever it holds, binding nothing: the pattern of an arm that does
+    /// not reach the payload.
+    pub(crate) fn whole(&self, prefix: &Path, site: Span) -> TokenStream2 {
+        let ident = &self.ident;
+        match &self.place {
+            Place::Variant { .. } => quote_spanned!(site => #prefix::#ident { .. }),
+            Place::Field { .. } => quote_spanned!(site => #prefix { .. }),
+        }
+    }
+
     /// Returns the expression building the subject around `value`, or
     /// `None` when other fields would be missing.
     pub(crate) fn rebuild(
@@ -314,17 +325,28 @@ impl Target {
                 member: Member::Unnamed(_),
                 rebuildable: true,
             } => Some(quote_spanned!(site => #prefix)),
+            // A struct with a named field is built by its braces, which a
+            // closure would have to hold; the caller says so.
             Place::Field {
-                member,
-                rebuildable: true,
-            } => {
-                let value = Ident::new("__value", Span::mixed_site());
-                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
+                member: Member::Named(_),
+                ..
             }
-            Place::Field {
+            | Place::Field {
                 rebuildable: false, ..
             } => None,
         }
+    }
+
+    /// Returns whether the subject can be built around a payload and yet no
+    /// path builds it: a struct whose one field is named.
+    pub(crate) fn is_built_by_no_path(&self) -> bool {
+        matches!(
+            &self.place,
+            Place::Field {
+                member: Member::Named(_),
+                rebuildable: true,
+            }
+        )
     }
 
     /// Returns the type the trait is called on, when the route lets it be
@@ -493,12 +515,17 @@ pub(crate) fn targets(entries: &[Entry]) -> Vec<&Target> {
 }
 
 /// Returns the errors of the entries no method can forward to, each under
-/// its own `cfg`, so that a variant compiled out is no error.
-pub(crate) fn shape_errors(entries: &[Entry]) -> TokenStream2 {
+/// its own `cfg`, so that a variant compiled out is no error, and under
+/// `builds`, the `#[cfg]` of the builds in which something forwards to
+/// every variant, when that is not every build.
+pub(crate) fn shape_errors(entries: &[Entry], builds: Option<&TokenStream2>) -> TokenStream2 {
     entries
         .iter()
         .filter_map(|entry| match entry {
-            Entry::Unforwardable(unforwardable) => Some(unforwardable.compile_error()),
+            Entry::Unforwardable(unforwardable) => {
+                let error = unforwardable.compile_error();
+                Some(quote_spanned! { unforwardable.ident.span() => #builds #error })
+            }
             Entry::Target(_) => None,
         })
         .collect()

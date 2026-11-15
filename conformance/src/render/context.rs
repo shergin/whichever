@@ -2,6 +2,7 @@
 //! the spellings the trait, the payloads, the subject and the hand share.
 
 use crate::cell::Cell;
+use crate::model::agreement::AgreementDescriptor;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
 use crate::model::generics::GenericsDescriptor;
 use crate::model::home::HomeDescriptor;
@@ -10,6 +11,7 @@ use crate::model::path::{Form as PathForm, PathDescriptor};
 use crate::model::qualifier::{Generic, QualifierDescriptor};
 use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
+use crate::model::stack::{StackDescriptor, OTHER};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
 use crate::model::{Anchor, Callee, Lift, Receiver, Slot, SlotVariant, Target, Verdict};
 
@@ -60,6 +62,10 @@ pub struct Context {
     pub home: HomeDescriptor,
     /// The generics of the trait or the subject.
     pub generics: GenericsDescriptor,
+    /// The trait's own associated items.
+    pub agreement: AgreementDescriptor,
+    /// The second trait dispatched on the subject.
+    pub stack: StackDescriptor,
 }
 
 /// How an associated type is spelled where a signature is written.
@@ -102,6 +108,8 @@ impl Context {
             item: cell.item.descriptor(),
             home: cell.home.descriptor(),
             generics: cell.generic.descriptor(),
+            agreement: cell.agree.descriptor(),
+            stack: cell.stack.descriptor(),
         }
     }
 
@@ -155,6 +163,63 @@ impl Context {
             true => Receiver::Owned,
             false => Receiver::Shared,
         }
+    }
+
+    /// Returns the second trait's method's receiver: `&self`, or `self`
+    /// when every live target is yielded by a route's method, as for the
+    /// control method, over every variant.
+    pub fn other_receiver(&self) -> Receiver {
+        let live = self.live();
+        let yielded =
+            !live.is_empty() && live.iter().all(|(_, _, target)| target.ends_in_temporary());
+        match yielded {
+            true => Receiver::Owned,
+            false => Receiver::Shared,
+        }
+    }
+
+    /// Returns the second trait's method's signature.
+    pub fn other_signature(&self) -> String {
+        format!(
+            "fn other({}) -> u64",
+            self.other_receiver().descriptor().spelling
+        )
+    }
+
+    /// Returns a call of the second trait's method as `path` implements it,
+    /// on `value`, which it borrows or takes.
+    pub fn other_call(&self, path: &str, value: &str) -> String {
+        let argument = self.other_receiver().descriptor().call.replace("{}", value);
+        format!("<{path} as {OTHER}>::other({argument})")
+    }
+
+    /// Returns the second trait's bound on the trait under test, as its
+    /// declaration spells it: ` : Probe`, `: Probe<support::Json>`.
+    pub fn supertrait(&self) -> String {
+        match self.stack.supertrait {
+            true => format!(": {}", self.trait_path()),
+            false => String::new(),
+        }
+    }
+
+    /// Returns the second trait's attribute options: the associated items
+    /// it fixes as the trait under test does.
+    pub fn other_options(&self) -> Vec<String> {
+        self.agreement
+            .items
+            .iter()
+            .filter_map(|item| {
+                item.overridden
+                    .map(|value| format!("{} = {value}", item.name))
+            })
+            .collect()
+    }
+
+    /// Returns the second trait's attribute on the subject.
+    pub fn other_attribute(&self) -> String {
+        let mut arguments = vec![String::from(OTHER)];
+        arguments.extend(self.other_options());
+        format!("#[whichever::dispatch({})]", arguments.join(", "))
     }
 
     /// Returns the control method's signature.
@@ -449,12 +514,26 @@ impl Context {
         self.node.associated()
     }
 
+    /// Returns the payload type an associated item is taken from, as the
+    /// subject declares it: the supplier's, or the first's where no variant
+    /// supplies it and the verdict reports so.
+    pub fn supplier_payload(&self) -> String {
+        self.cell
+            .supplier()
+            .map_or_else(|| String::from("P0"), |slot| slot.declared_payload())
+    }
+
     /// Returns the subject's attribute options after the trait's path.
     pub fn options(&self) -> Vec<String> {
         let mut options = Vec::new();
         for (associated, overridden) in self.associated() {
             if overridden {
                 options.push(format!("{} = support::Wide", associated.name()));
+            }
+        }
+        for item in self.agreement.items {
+            if let Some(value) = item.overridden {
+                options.push(format!("{} = {value}", item.name));
             }
         }
         // An inherent method has no mismatch: its `Self` argument is the
@@ -534,6 +613,7 @@ impl Context {
             Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {payload} }}"),
             Form::Struct => format!("{path}({payload})"),
             Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {payload} }}"),
+            Form::StructNamed => format!("{path} {{ held: {payload} }}"),
         };
         constant(&self.output(), &this)
     }
@@ -544,10 +624,12 @@ pub fn spell(node: &Node, this: &str, associates: Associates) -> String {
     match node {
         Node::Payload => String::from("P0"),
         Node::PayloadShared => String::from("&P0"),
+        Node::PayloadLent => String::from("&'a P0"),
         Node::PayloadExclusive => String::from("&mut P0"),
         Node::Unit => String::from("()"),
         Node::Tag => String::from("u64"),
         Node::Shared => String::from("&u64"),
+        Node::Lent => String::from("&'a u64"),
         Node::Exclusive => String::from("&mut u64"),
         Node::This => String::from(this),
         Node::Assoc => associated(Associated::Out, this, associates),
@@ -592,7 +674,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::This => String::from(this),
         Node::Unit => String::from("()"),
         Node::Tag | Node::Assoc => String::from("424_242"),
-        Node::Shared => String::from("&support::MISMATCH"),
+        Node::Shared | Node::Lent => String::from("&support::MISMATCH"),
         Node::Overridden(_) => String::from("support::Wide::MISMATCH"),
         Node::Fault => String::from("support::Fault(424_242)"),
         Node::Option(_) => String::from("None"),
@@ -607,6 +689,7 @@ pub fn constant(node: &Node, this: &str) -> String {
         Node::Exclusive
         | Node::Payload
         | Node::PayloadShared
+        | Node::PayloadLent
         | Node::PayloadExclusive
         | Node::Future(_, _)
         | Node::Iterator
@@ -659,7 +742,7 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             None,
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
-        Form::Struct | Form::StructMarked => {
+        Form::Struct | Form::StructMarked | Form::StructNamed => {
             unreachable!("a struct subject is written by `write_struct`")
         }
     }
@@ -706,6 +789,14 @@ pub fn write_struct(
             writer.line(format!("{mark}pub held: {stored},"));
             writer.close("}");
         }
+        Form::StructNamed => {
+            writer.open(format!("pub struct E{generics} {{"));
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("pub held: {stored},"));
+            writer.close("}");
+        }
         Form::Single | Form::MarkedTuple | Form::MarkedStruct => {
             unreachable!("an enum subject is written variant by variant")
         }
@@ -722,18 +813,26 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
         Form::Struct => format!("{path}({binding}, ..)"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
+        Form::StructNamed => format!("{path} {{ held: {binding} }}"),
     }
 }
 
-/// Returns the constructor a rewrap calls: the variant's path, or the
-/// struct's name.
+/// Returns the constructor a rewrap calls: the variant's path, the
+/// struct's name, or for a struct with a named field its braces, with
+/// [`HOLE`] where the value goes, since no path builds it.
 pub fn constructor(path: &str, slot: &Slot) -> String {
-    let is_struct = slot.target().is_some_and(|(_, target)| target.is_struct());
-    match is_struct {
-        true => String::from(path),
-        false => format!("{path}::{}", slot.name()),
+    let form = slot.target().map(|(_, target)| target.form);
+    match form {
+        Some(Form::StructNamed) => format!("{path} {{ held: {HOLE} }}"),
+        Some(Form::Struct | Form::StructMarked) => String::from(path),
+        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct) | None => {
+            format!("{path}::{}", slot.name())
+        }
     }
 }
+
+/// Where a rebuild by braces takes its value.
+pub const HOLE: &str = "@";
 
 /// Returns whether the subject is a struct.
 pub fn is_struct(slots: &[Slot]) -> bool {

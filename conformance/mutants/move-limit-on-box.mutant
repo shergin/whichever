@@ -3,6 +3,6 @@ breaks: A value is moved out of a `deref` variant holding a `Box`, and one holdi
 expect: killed
 
 find:
-        if owned && route.starts_with_deref() && !holds_a_box(payload) {
+        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && !holds_a_box(payload)) {
 replace:
-        if owned && route.starts_with_deref() && holds_a_box(payload) {
+        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && holds_a_box(payload)) {

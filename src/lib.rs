@@ -105,7 +105,9 @@
 //! - `mismatch(method = expr, ..)` gives the result of `method` when its
 //!   `Self` arguments hold a different variant than `self`. The trait author
 //!   can decide this once instead, with `#[dispatch(mismatch = expr)]` on
-//!   the method. See [`Self` arguments](#self-arguments).
+//!   the method, which is where a method under a `#[cfg]` takes it: on the
+//!   enum, an option names a method of every build. See
+//!   [`Self` arguments](#self-arguments).
 //! - `from = false` suppresses the `From<Payload>` impls. A payload type
 //!   held by two variants gets none either way, and a payload whose `From`
 //!   is written by hand, or that a derive supplies, stays out with
@@ -157,11 +159,11 @@
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | `unsafe trait` | An `unsafe impl`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, or a tuple under an `Option` or a `Result`, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
+//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, a tuple under an `Option` or a `Result`, or an `Option<Self>` or `Result<Self, E>` on a struct whose one field is named, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
-//! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. An associated type or const comes from the first variant without a `#[cfg]`. An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings where the receiver is a reference, so a build that leaves no variant still compiles, as a hand's does. |
+//! | `#[cfg]` on a variant | Carried onto the arm, and decided where the enum is. So is a sentence about the variant, which a method that cannot be forwarded to it has as that arm's result: a variant compiled out is no error, and each variant the method cannot reach is named. An associated type or const comes from the first variant without a `#[cfg]`. An enum whose every variant is under `#[cfg]` is matched as `match *self` with `ref` bindings where the receiver is a reference, so a build that leaves no variant still compiles, as a hand's does. |
 //! | `#[deprecated]` on a variant | Its arms and its conversions are written under `#[allow(deprecated)]`; the deprecation reaches the code that names the variant. |
 //! | `#[deprecated]` on a method or an associated item | Forwarded under `#[allow(deprecated)]`, as a hand writes it; the deprecation reaches the callers through the trait's item. |
 //! | `#[inline]` | Added to every generated method; a trait method's own `#[inline(..)]` is carried instead. |
@@ -176,8 +178,10 @@
 //! for `trait Enc<F = Json>`, as `impl Enc for A` leaves it out. Type,
 //! lifetime and const parameters are substituted in every signature, and a
 //! projection such as `F::Value` becomes `<Json as Format>::Value` when `F`
-//! has exactly one bound; with several bounds the trait has to spell
-//! `<F as Format>::Value` itself. The enum itself may be generic; its
+//! has exactly one bound, written with the bound's generic arguments and
+//! without a constraint on an associated type, so `F: Format<Text, Value = u64>`
+//! gives `<Json as Format<Text>>::Value`; with several bounds the trait has
+//! to spell `<F as Format>::Value` itself. The enum itself may be generic; its
 //! parameters, bounds and `where` clause carry into the impl, and a payload
 //! that is one of its type parameters, `Raw(Raw)` on `enum Lazy<Raw,
 //! Parsed>` or `Box<T>` under `deref`, gives the impl the bound `Raw:
@@ -564,7 +568,9 @@
 //! restatement is the real trait's. A mark under `#[cfg]`, that one
 //! included, holds where the `cfg` does, as a written method does, and the
 //! other builds go to a mark of the same name without a `#[cfg]`, or else
-//! to every variant. The block's own header, bounds included, becomes the
+//! to every variant. A variant no method can forward to is reported in the
+//! builds in which some method is forwarded to every variant and in no
+//! other. The block's own header, bounds included, becomes the
 //! impl's,
 //! and may name the enum's parameters as it likes, `impl<T, Ty> Get<T> for
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
@@ -637,7 +643,10 @@
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on
-//! a struct as on an enum. A struct's `match` has one arm, so it forwards a
+//! a struct as on an enum. `Option<Self>` and `Result<Self, E>` are mapped
+//! with a path, which a struct with a named field has not, so there they
+//! are an error and the tuple form, `struct Named(Square);`, is the way
+//! around it. A struct's `match` has one arm, so it forwards a
 //! return-position `impl Trait` as it is, which an enum cannot. A struct
 //! gets no `From` impls, and its `Self` arguments need no `mismatch`: two
 //! values of it always hold the same field, and the argument is unwrapped
@@ -676,7 +685,10 @@
 //!   variant of another shape is reported under its own `#[cfg]`, so a
 //!   variant compiled out is no error, and an enum that only forwards
 //!   inherent methods may hold such variants, which take the method's body.
-//!   A payload type used by two variants gets no `From` impl.
+//!   A sentence about the way a method reaches one variant follows that
+//!   variant's `#[cfg]` as well, and each variant a method cannot reach is
+//!   named in a sentence of its own. A payload type used by two variants
+//!   gets no `From` impl.
 //! - A method without a receiver needs a default body, which the enum uses,
 //!   or an implementation in a `#[dispatch]` impl block.
 //! - An enum cannot dispatch a return-position `impl Trait`, at any depth
@@ -692,6 +704,10 @@
 //!   payload's `Buffered<Payload>` is not the enum's. A provided one is left
 //!   to the trait's default in a partial block with `#[dispatch(default)]`,
 //!   and the default then wraps the enum.
+//! - A dispatch struct whose one field is named cannot forward a method
+//!   returning `Option<Self>` or `Result<Self, E>`: the value is rebuilt
+//!   with a path, and no path builds such a struct. Make it a tuple struct;
+//!   `-> Self` is rebuilt by the braces either way.
 //! - A generic associated type is declared by the enum, in a partial impl
 //!   block; it cannot come from the first variant.
 //! - A projection through a trait parameter with several bounds,

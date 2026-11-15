@@ -1,0 +1,10 @@
+error: `Nothing` holds no payload, so no trait method can be forwarded to it; write it as `Nothing(Payload)`, or forward inherent methods instead, whose body answers for it
+  --> tests/ui/block_over_a_variant_without_a_payload_alone_in_the_build.rs:21:5
+   |
+21 |     Nothing,
+   |     ^^^^^^^
+...
+24 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Shape` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

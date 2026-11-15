@@ -1,0 +1,5 @@
+error: `absorb` takes `other: &mut Self`, and `Shared` dereferences a `Rc<Square>`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or implement the method by hand
+  --> tests/ui/mutable_argument_through_a_shared_pointer.rs:23:12
+   |
+23 |     Shared(Rc<Square>),
+   |            ^^^^^^^^^^

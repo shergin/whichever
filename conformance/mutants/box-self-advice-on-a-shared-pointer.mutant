@@ -1,0 +1,8 @@
+file: macros/src/forwarding.rs
+breaks: `self: Box<Self>` on a `deref` variant over a pointer that is not a `Box` is one sentence naming a way out that compiles, hold a `Box`, as `docs/limits.md` says.
+expect: killed
+
+find:
+                if target.route.starts_with_deref() {
+replace:
+                if target.route.starts_with_deref() && false {

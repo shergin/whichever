@@ -1,0 +1,23 @@
+file: macros/src/subject.rs
+breaks: The generated code holds no closure, as `docs/vision.md` and `docs/what-is-generated.md` say: `Option<Self>` on a struct whose one field is named is a sentence, not `.map(|value| Named { shape: value })`.
+expect: killed
+
+find:
+            Place::Field {
+                member: Member::Named(_),
+                ..
+            }
+            | Place::Field {
+                rebuildable: false, ..
+            } => None,
+replace:
+            Place::Field {
+                member,
+                rebuildable: true,
+            } => {
+                let value = syn::Ident::new("__value", at(site));
+                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
+            }
+            Place::Field {
+                rebuildable: false, ..
+            } => None,

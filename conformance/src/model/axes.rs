@@ -46,6 +46,9 @@ axis! {
         /// `pub struct E { label: u64, #[dispatch] held: P0 }`: a struct
         /// subject with a marked field among several.
         StructMarked = "struct-marked",
+        /// `pub struct E { held: P0 }`: a struct subject with one named
+        /// field.
+        StructNamed = "struct-named",
     }
 }
 
@@ -155,6 +158,9 @@ axis! {
         VecThis = "vec-self",
         /// `Option<(Self, u64)>`.
         OptionTupleThis = "option-tuple-self",
+        /// `&'a u64`, borrowed for the subject's own lifetime, which an
+        /// inherent place over a variant holding `&'a P0` answers.
+        Lent = "lent",
     }
 }
 
@@ -350,6 +356,57 @@ axis! {
         VariantFromOff = "variant-from-off",
         /// `#[dispatch(try_from = true)]` on the first variant.
         VariantTry = "variant-try",
+    }
+}
+
+axis! {
+    /// The trait's associated items beside those its return types name,
+    /// and whether the payloads agree on them (what-is-generated.md, the
+    /// first two rows of its table; options.md on `Name = value`).
+    pub enum Agreement {
+        /// No associated item of its own.
+        Absent = "none",
+        /// `type Kind;`, `u32` in `P0` and `u64` in `P1`, with no override.
+        TypeDiffers = "type-differs",
+        /// A const of every checked type, an integer, a float, `bool`,
+        /// `char` and `&str`, on which the payloads agree.
+        ConstAgrees = "const-agrees",
+        /// The same consts, of which the integer differs in `P1`.
+        ConstDiffers = "const-differs",
+        /// `const PAIR: Option<u8>`, a type the check does not compare,
+        /// different in each payload.
+        ConstUnchecked = "const-unchecked",
+        /// A `&str` const and a tuple const that differ in each payload,
+        /// fixed on the enum with `NAME = "any"` and `RANGE = (support::LOW,
+        /// support::HIGH)`.
+        ConstOverride = "const-override",
+    }
+}
+
+axis! {
+    /// A second trait dispatched on the subject by an attribute of its own
+    /// (options.md), with one method taking the control method's receiver,
+    /// which the law checks as it checks the control method.
+    pub enum Stack {
+        /// No second trait.
+        Absent = "none",
+        /// `trait Other`, dispatched by a second `#[whichever::dispatch]`.
+        Second = "second",
+        /// `trait Other: Probe`, a supertrait of the trait under test.
+        Supertrait = "supertrait",
+    }
+}
+
+axis! {
+    /// The `#[deprecated]` on a variant of the subject
+    /// (what-is-generated.md).
+    pub enum Deprecation {
+        /// No variant is deprecated.
+        Absent = "none",
+        /// The first variant is `#[deprecated]`.
+        First = "first",
+        /// The second variant is `#[deprecated]`.
+        Second = "second",
     }
 }
 

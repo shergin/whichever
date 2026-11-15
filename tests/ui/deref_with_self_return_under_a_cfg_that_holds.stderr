@@ -1,0 +1,5 @@
+error: `grown` returns `Self`, which cannot be wrapped back into the dereferenced payload of `Boxed`; drop `deref` on it or implement the method by hand
+  --> tests/ui/deref_with_self_return_under_a_cfg_that_holds.rs:21:11
+   |
+21 |     Boxed(Box<Square>),
+   |           ^^^^^^^^^^^

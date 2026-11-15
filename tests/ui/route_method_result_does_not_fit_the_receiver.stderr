@@ -1,0 +1,19 @@
+error[E0308]: mismatched types
+  --> tests/ui/route_method_result_does_not_fit_the_receiver.rs:28:10
+   |
+27 | #[whichever::dispatch(Area)]
+   |                       ---- in this macro invocation
+28 | pub enum Shape {
+   |          ^^^^^
+   |          |
+   |          expected `&_`, found `Square`
+   |          arguments to this function are incorrect
+   |
+   = note: expected reference `&_`
+                 found struct `Square`
+note: method defined here
+  --> tests/ui/route_method_result_does_not_fit_the_receiver.rs:7:8
+   |
+ 7 |     fn area(&self) -> u64;
+   |        ^^^^  ----
+   = note: this error originates in the macro `::whichever::__private::implement` which comes from the expansion of the macro `Area` (in Nightly builds, run with -Z macro-backtrace for more info)

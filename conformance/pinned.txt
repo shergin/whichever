@@ -112,3 +112,41 @@ conv=try-mut
 home=crate conv=into
 conv=variant-try
 conv=variant-from-off
+
+# The agreement checks: an associated type and a const of a checked type
+# over a variant that borrows, first or second, whose check failed with
+# E0794 or E0309 rather than its own error before 2026-11-02
+# (agreement-check-passes-late-bound-lifetimes, the polars-pipe survey;
+# agreement-check-misses-implied-outlives-bounds, the mrml survey).
+s1=deref-ref agree=type-differs
+s0=deref-ref agree=type-differs
+s1=deref-ref agree=const-differs
+s0=deref-ref s1=none agree=const-agrees
+
+# Two traits on one enum, each with its agreement check, which an
+# inherent impl on the subject would have collided between
+# (agreement-check-passes-late-bound-lifetimes, its fix); through the
+# enum's attribute and beside a partial block of the first.
+s1=deref-ref agree=const-agrees stack=second
+s1=deref-ref agree=type-differs stack=second
+path=block agree=const-override stack=supertrait
+# A deprecated variant is forwarded and converted under
+# `#[allow(deprecated)]` (golden `deprecated`, behaviour test
+# `deprecated_items`), here with every conversion and a second trait.
+deprecated=first
+s1=deref-box conv=try-ref deprecated=second
+conv=into deprecated=first
+stack=second deprecated=second
+
+# A place the return type borrows is handed over under `self` by value,
+# the very reference the variant holds
+# (borrowed-place-under-self-by-value-is-refused, found by a probe).
+s0=deref-ref s1=none recv=value ret=lent path=inherent callee=value
+s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=field
+
+# A struct with one named field: `-> Self` rebuilt by its braces, and
+# `Self` under an `Option` a limit on the field, where the attribute once
+# wrote a closure (a-named-field-is-not-rebuilt-under-a-wrapper).
+s0=struct-named s1=none ret=self
+s0=struct-named s1=none ret=option-self
+s0=struct-named s1=none ret=tuple-self

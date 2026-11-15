@@ -1,8 +1,7 @@
 //! Classifying the shapes of receivers, arguments and return types.
 use std::collections::HashSet;
 
-use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote_spanned, ToTokens};
+use quote::ToTokens;
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
@@ -512,7 +511,7 @@ impl<'ast> Visit<'ast> for SelfFinder {
 }
 
 /// How a method reaches its receiver or a `Self` argument.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Access {
     Shared,
     Exclusive,
@@ -602,21 +601,22 @@ fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
 /// Returns the generic arguments a call of the method has to spell out:
 /// every type and const parameter, when at least one of them is named by
 /// no argument's type, so that inference could not find it. A hand writes
-/// the turbofish only then, and so does the generated call.
-pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
+/// the turbofish only then, and so does the generated call, which writes
+/// its punctuation where the rest of the arm is.
+pub(crate) fn turbofish(signature: &Signature) -> Option<Vec<Ident>> {
     let mut named = IdentCollector::default();
     for input in &signature.inputs {
         if let FnArg::Typed(pat_type) = input {
             named.visit_type(&pat_type.ty);
         }
     }
-    let parameters: Vec<&Ident> = signature
+    let parameters: Vec<Ident> = signature
         .generics
         .params
         .iter()
         .filter_map(|param| match param {
-            GenericParam::Type(param) => Some(&param.ident),
-            GenericParam::Const(param) => Some(&param.ident),
+            GenericParam::Type(param) => Some(param.ident.clone()),
+            GenericParam::Const(param) => Some(param.ident.clone()),
             GenericParam::Lifetime(_) => None,
         })
         .collect();
@@ -626,8 +626,7 @@ pub(crate) fn turbofish(signature: &Signature) -> Option<TokenStream2> {
     if parameters.is_empty() || inferred {
         return None;
     }
-    let site = crate::at(signature.ident.span());
-    Some(quote_spanned!(site => ::<#(#parameters),*>))
+    Some(parameters)
 }
 
 /// Every identifier a type names: in its paths, their generic arguments,
@@ -1174,7 +1173,9 @@ mod tests {
 
     #[test]
     fn a_turbofish_is_written_only_when_no_argument_fixes_a_parameter() {
-        let spelled = |signature: Signature| turbofish(&signature).map(|tokens| tokens.to_string());
+        let spelled = |signature: Signature| {
+            turbofish(&signature).map(|parameters| quote!(::<#(#parameters),*>).to_string())
+        };
         assert_eq!(
             spelled(parse_quote!(fn parse<T: FromStr>(&self) -> Option<T>)),
             Some(quote!(::<T>).to_string())
