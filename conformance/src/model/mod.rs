@@ -9,6 +9,7 @@ pub mod agreement;
 pub mod argument;
 pub mod axes;
 pub mod conversion;
+pub mod declaration;
 pub mod generics;
 pub mod home;
 pub mod item;
@@ -23,8 +24,8 @@ mod verdict;
 pub mod wording;
 
 pub use axes::{
-    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift, Path,
-    Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
+    Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -109,6 +110,10 @@ impl Verdict {
     }
 }
 
+/// The type parameters a restated enum declares its payloads as, by slot:
+/// the real enum is another crate's, generic over what its variants hold.
+pub const RESTATED_PARAMETERS: [&str; 3] = ["T0", "T1", "T2"];
+
 /// What a slot's variant is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotVariant {
@@ -132,8 +137,8 @@ pub struct Slot {
     /// The slot whose payload type the variant holds: its own, or the
     /// first slot's where two variants hold one type.
     pub holds: usize,
-    /// Whether the subject declares the payload as its type parameter.
-    pub parameter: bool,
+    /// The type parameter the subject declares the payload as, if any.
+    pub parameter: Option<&'static str>,
     /// Whether the variant is `#[deprecated]`.
     pub deprecated: bool,
 }
@@ -153,8 +158,8 @@ impl Slot {
     /// parameter, or the payload's name.
     pub fn declared_payload(&self) -> String {
         match self.parameter {
-            true => String::from("T"),
-            false => self.payload(),
+            Some(parameter) => String::from(parameter),
+            None => self.payload(),
         }
     }
 
@@ -203,7 +208,11 @@ impl Cell {
             variant: SlotVariant::Live(self.s0),
             cfg: self.cfg.of(0),
             holds: 0,
-            parameter: self.generic.descriptor().payload,
+            parameter: match (self.owner, self.generic.descriptor().payload) {
+                (Owner::Remote, _) => Some(RESTATED_PARAMETERS[0]),
+                (Owner::Local, true) => Some("T"),
+                (Owner::Local, false) => None,
+            },
             deprecated: self.deprecated.slot() == Some(0),
         }];
         for (index, later) in [(1, self.s1.slot()), (2, self.s2.slot())] {
@@ -222,7 +231,12 @@ impl Cell {
                 variant,
                 cfg: self.cfg.of(index),
                 holds,
-                parameter: false,
+                parameter: match (self.owner, variant) {
+                    (Owner::Remote, SlotVariant::Live(_)) => Some(RESTATED_PARAMETERS[index]),
+                    (Owner::Local, _) | (Owner::Remote, SlotVariant::Unit | SlotVariant::Pair) => {
+                        None
+                    }
+                },
                 deprecated: self.deprecated.slot() == Some(index),
             });
         }
@@ -234,7 +248,7 @@ impl Cell {
     /// (inherent-methods.md), so no variant's target is reached through it.
     pub fn reached_argument(&self) -> argument::ArgumentDescriptor {
         let argument = self.arg.descriptor();
-        let inherent = self.path.descriptor().site == path::Site::Inherent;
+        let inherent = self.path_descriptor().site == path::Site::Inherent;
         if inherent && !self.s0.descriptor().is_struct() {
             return argument::ArgumentDescriptor {
                 kind: None,
@@ -299,7 +313,34 @@ impl Cell {
     /// for every arm, so the targets of different variants have to be one
     /// type, reached as each variant reaches it (inherent-methods.md).
     pub fn shares_payload(&self) -> bool {
-        self.path.descriptor().site == path::Site::Inherent && self.callee == Callee::Value
+        self.path_descriptor().site == path::Site::Inherent && self.callee == Callee::Value
+    }
+
+    /// Returns how the method under test reaches the subject: the path's
+    /// description, except that a restatement which does not list the
+    /// method leaves it to the real trait's default, as `#[dispatch(default)]`
+    /// in a block does, with no mark (restatements.md: "a restatement
+    /// forwards only the methods it lists").
+    pub fn path_descriptor(&self) -> path::PathDescriptor {
+        let path = self.path.descriptor();
+        if self.decl.descriptor().lists_method {
+            return path;
+        }
+        path::PathDescriptor {
+            form: path::Form::Default,
+            mark: None,
+            in_block: false,
+            ..path
+        }
+    }
+
+    /// Returns the name of the method under test, in backticks, as a
+    /// sentence names it.
+    pub fn method_name(&self) -> &'static str {
+        match self.decl.descriptor().foreign {
+            true => "`fmt`",
+            false => "`m`",
+        }
     }
 
     /// Returns whether every variant is under `#[cfg]`, so that the enum
@@ -331,7 +372,7 @@ impl Cell {
     /// check" (limits.md); the lifetime the `deref` variants over a
     /// reference give it is no matter.
     pub fn is_generic(&self) -> bool {
-        self.generic.descriptor().parameter.is_some()
+        self.generic.descriptor().parameter.is_some() || self.owner == Owner::Remote
     }
 
     /// Returns the slots whose variant forwards to a payload.
@@ -351,7 +392,7 @@ impl Cell {
         if !self.method_present() {
             return Vec::new();
         }
-        let form = self.path.descriptor().form;
+        let form = self.path_descriptor().form;
         self.live_slots()
             .into_iter()
             .filter(|(slot, _, _)| match form {
@@ -371,7 +412,7 @@ impl Cell {
     /// payload, so that a mark on the method under test is the one thing
     /// that meets the variant.
     pub fn base_reaches_all(&self) -> bool {
-        let block = self.path.descriptor().site == path::Site::Block;
+        let block = self.path_descriptor().site == path::Site::Block;
         let unreachable = self.slots().iter().any(|slot| slot.target().is_none());
         !(block && unreachable)
     }

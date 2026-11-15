@@ -200,3 +200,24 @@ s1=pair arg=ref-enum path=block-star s2=unit
 # argument taken by value, which the fallback arm does not bind again
 # (unused-rebinding-in-a-partial-blocks-fallback-arm).
 arg=value path=block-some s2=unit
+
+# Restatements (restatements.md): a restatement listing the required
+# methods alone leaves a provided one to the real trait's default, as
+# tokio's `AsyncWrite` minimal example does (behaviour test
+# `pinned_writers_with_provided_methods`), through the enum's attribute and
+# an empty block; a restated trait in another crate whose signature names
+# a type of that crate; and a partial block over `whichever::foreign`
+# (behaviour test `partial_block_over_a_foreign_trait`).
+qual=provided decl=remote-base
+recv=pin-mut qual=provided path=block decl=remote-base
+home=crate decl=remote
+path=block-written decl=foreign
+# An enum of another crate restated beside the subject, the impl written
+# for the real path (golden `restated_enum`), with a partial block over the
+# real enum imported under the restatement's name and a restated trait
+# (behaviour test `restated_enum`), and a conversion option it refuses
+# (`restated_enum_conversions`).
+ret=self owner=remote
+path=block owner=remote
+decl=remote owner=remote
+conv=from-off owner=remote

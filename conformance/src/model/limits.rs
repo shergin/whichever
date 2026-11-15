@@ -58,6 +58,8 @@ pub enum Limit {
     IntoOtherFields,
     /// `into` beside a variant that holds no payload.
     IntoWithoutPayload,
+    /// A conversion option on a restated enum, which gets no conversions.
+    RestatedConversions,
     /// An associated type a variant gives otherwise than the first, with
     /// no override.
     TypeDisagreement,
@@ -116,6 +118,7 @@ impl Limit {
         Limit::StructConversion,
         Limit::IntoOtherFields,
         Limit::IntoWithoutPayload,
+        Limit::RestatedConversions,
         Limit::TypeDisagreement,
         Limit::ConstDisagreement,
     ];
@@ -241,6 +244,11 @@ impl Limit {
                 "`into` converts every variant's payload",
                 "into_with_a_unit_variant",
             ),
+            Limit::RestatedConversions => entry(
+                "restated-conversions",
+                "a restated enum gets no conversions",
+                "restated_enum_conversions",
+            ),
             Limit::TypeDisagreement => entry(
                 "type-disagreement",
                 "type mismatch resolving",
@@ -283,6 +291,10 @@ impl Limit {
             Limit::StructConversion => ("a struct gets no conversions", false),
             Limit::IntoOtherFields => ("or is left out with `from = false`", false),
             Limit::IntoWithoutPayload => ("holds no payload", false),
+            Limit::RestatedConversions => (
+                "would implement a foreign trait for another crate's type",
+                false,
+            ),
             Limit::TypeDisagreement => ("type mismatch resolving", false),
             Limit::ConstDisagreement => ("set it on the enum with", false),
             Limit::UnsuppliedType => ("fix it on the enum with", false),
@@ -305,6 +317,7 @@ impl Limit {
             | Limit::StructConversion
             | Limit::IntoOtherFields
             | Limit::IntoWithoutPayload
+            | Limit::RestatedConversions
             | Limit::TypeDisagreement
             | Limit::ConstDisagreement
             | Limit::MismatchForAbsentMethod => false,
@@ -348,6 +361,7 @@ impl Limit {
             | Limit::StructConversion
             | Limit::IntoOtherFields
             | Limit::IntoWithoutPayload
+            | Limit::RestatedConversions
             | Limit::DerefSelfReturn
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields

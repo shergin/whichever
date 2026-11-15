@@ -25,15 +25,15 @@ use super::receiver::Lends;
 use super::returns::{FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
-    Agreement, Argument, Callee, Cfg, Conversion, Deprecation, Generics, Home, Item, Lift,
-    Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
+    Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
 /// Returns the cell's verdict.
 pub fn verdict(cell: &Cell) -> Verdict {
     // The callee and the lift are an inherent method's alone.
-    let inherent = cell.path.descriptor().site == PathSite::Inherent;
+    let inherent = cell.path_descriptor().site == PathSite::Inherent;
     if !inherent && (cell.callee != Callee::Method || cell.lift != Lift::Bare) {
         return Verdict::NonCanonical;
     }
@@ -78,6 +78,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if deprecated_absent || (is_struct && cell.deprecated != Deprecation::Absent) {
         return Verdict::NonCanonical;
     }
+    if let Some(verdict) = declared(cell) {
+        return verdict;
+    }
+    if let Some(verdict) = owned(cell) {
+        return verdict;
+    }
     if let Some(reason) = malformed(cell) {
         if !canonical_when_malformed(cell) {
             return Verdict::NonCanonical;
@@ -89,6 +95,10 @@ pub fn verdict(cell: &Cell) -> Verdict {
     }
     let mut expected = limits(cell);
     let mut rejections = rejections(cell);
+    // `whichever::foreign::Display` has no control method.
+    if cell.decl.descriptor().foreign {
+        rejections.retain(|rejection| rejection.method == Forwarded::Method);
+    }
     // A method the trait declares under a `#[cfg]` that does not hold has
     // no generated item in this build ("the generated item exists exactly
     // when the trait's does", what-is-generated.md), so nothing about it
@@ -192,6 +202,138 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.stack == Stack::Absent
         && cell.deprecated == Deprecation::Absent
         && cell.s2 == Third::Absent
+        && cell.decl == Declaration::Dispatchable
+        && cell.owner == Owner::Local
+}
+
+/// The shapes a restated enum takes (restatements.md, "Enums from other
+/// crates"), or `None` where the cell is judged as any other. The real
+/// enum is another crate's, generic over what its variants hold, as the
+/// golden `restated_enum` and the behaviour test `restated_enum` write it.
+fn owned(cell: &Cell) -> Option<Verdict> {
+    if cell.owner == Owner::Local {
+        return None;
+    }
+    if cell.s0.descriptor().is_struct() {
+        return Some(Verdict::NonCanonical);
+    }
+    let first = matches!(cell.s0, Target::Plain | Target::DerefBox);
+    let second = matches!(
+        cell.s1,
+        Second::Plain | Second::Absent | Second::DerefBox | Second::Unit
+    );
+    let third = matches!(
+        cell.s2,
+        Third::Absent | Third::Plain | Third::DerefBox | Third::Unit
+    );
+    if !(first && second && third) {
+        return Some(Verdict::Unmodelled(
+            "a restated enum over a variant other than a payload, a boxed payload or a unit",
+        ));
+    }
+    if cell.home == Home::Crate || cell.decl == Declaration::Foreign {
+        return Some(Verdict::Unmodelled(
+            "a restated enum beside a trait of another crate, an impl the orphan rules refuse",
+        ));
+    }
+    if cell.path.descriptor().site == PathSite::Inherent {
+        return Some(Verdict::Unmodelled(
+            "an inherent block over a restated enum, which is its sentence",
+        ));
+    }
+    let plain = cell.generic == Generics::Bare
+        && cell.cfg == Cfg::Absent
+        && cell.deprecated == Deprecation::Absent;
+    if !plain {
+        return Some(Verdict::Unmodelled(
+            "a restated enum with generics, `#[cfg]` or `#[deprecated]` the real enum would share",
+        ));
+    }
+    // The enum's own conversion options are the sentence; the checked
+    // default and a variant's options would ask the law for conversions
+    // the restatement does not get.
+    let conversion = cell.conv.descriptor();
+    if conversion.checked && conversion.option.is_none() {
+        return Some(Verdict::Unmodelled(
+            "the conversions a restated enum does not get, which no impl beside it can prove",
+        ));
+    }
+    // The payloads are type parameters, so a pinned receiver needs each to
+    // be `Unpin`, and an associated type taken from the first needs every
+    // other bound to agree, bounds the model spells for no generic subject
+    // (as `unpredicted_generics` says of a type-parameter payload).
+    if matches!(cell.recv, Receiver::PinShared | Receiver::PinExclusive) {
+        return Some(Verdict::Unmodelled(
+            "a restated enum under a pinned receiver, which needs its parameters `Unpin`",
+        ));
+    }
+    let typed = cell
+        .agree
+        .descriptor()
+        .items
+        .iter()
+        .any(|item| item.kind == ItemKind::Type);
+    if typed || !cell.ret.node().associated().is_empty() {
+        return Some(Verdict::Unmodelled(
+            "an associated type over a restated enum, which its parameters would have to agree on",
+        ));
+    }
+    None
+}
+
+/// The shapes a trait restated beside the subject or shipped in
+/// `whichever::foreign` takes (restatements.md), or `None` where the cell
+/// is judged as any other.
+fn declared(cell: &Cell) -> Option<Verdict> {
+    let declaration = cell.decl.descriptor();
+    let path = cell.path.descriptor();
+    if declaration.foreign {
+        // `whichever::foreign::Display` has one method, `fmt(&self, f)`,
+        // which the payloads implement for `core::fmt::Display`; the axes
+        // of the method under test, of the trait's own items and of where
+        // it lives are `Probe`'s, and a mark of `default` meets a method
+        // with no default body in a trait of another crate.
+        let neutral = cell.recv == Receiver::Shared
+            && cell.ret == Return::Tag
+            && cell.arg == Argument::Absent
+            && cell.qual == Qualifier::Plain
+            && cell.item == Item::Bare
+            && cell.home == Home::Local
+            && cell.generic == Generics::Bare
+            && cell.agree == Agreement::Absent
+            && cell.stack == Stack::Absent;
+        let block = matches!(path.form, PathForm::Default) || path.site == PathSite::Inherent;
+        if !neutral || block {
+            return Some(Verdict::NonCanonical);
+        }
+        return None;
+    }
+    if !declaration.restated {
+        return None;
+    }
+    // An inherent method is no trait's, so the restatement would list the
+    // control method alone, which every other cell forwards already.
+    if path.site == PathSite::Inherent {
+        return Some(Verdict::NonCanonical);
+    }
+    if cell.item != Item::Bare {
+        return Some(Verdict::Unmodelled(
+            "attributes on a restated method, whose home is the restatement's",
+        ));
+    }
+    if declaration.lists_method {
+        return None;
+    }
+    // A restatement that leaves the method out forwards it not at all, so
+    // the impl takes the real trait's default; a required method has none,
+    // and a mark or a mismatch would name a method the restatement does
+    // not have.
+    if path.in_block || cell.arg != Argument::Absent {
+        return Some(Verdict::Unmodelled(
+            "a mark or a mismatch for a method the restatement leaves out",
+        ));
+    }
+    None
 }
 
 /// The model cannot say what the macro answers, or cannot write the
@@ -209,7 +351,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // subject over `&'a P0` declares, and only an inherent method can
     // spell; the model writes it for a place read through such variants.
     if cell.ret == Return::Lent {
-        let inherent = cell.path.descriptor().site == PathSite::Inherent;
+        let inherent = cell.path_descriptor().site == PathSite::Inherent;
         let place = matches!(cell.callee, Callee::Value | Callee::Field);
         let lent = cell
             .live_slots()
@@ -231,7 +373,7 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     if cell.item == Item::Inline && !qualifier.provided {
         return Some("`#[inline]` on a required method, which rustc warns of in the trait");
     }
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     if let Some(reason) = unpredicted_generics(cell) {
         return Some(reason);
     }
@@ -392,8 +534,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if node.holds_future() {
             return Some("a block body for a future return");
         }
-        let nameable =
-            cell.s0.descriptor().storage == Storage::Payload && cell.cfg.of(0) != Some("any()");
+        // A restated enum's variant around a fresh payload is of another
+        // instantiation than `Self`.
+        let nameable = cell.s0.descriptor().storage == Storage::Payload
+            && cell.cfg.of(0) != Some("any()")
+            && cell.owner == Owner::Local;
         if !node.has_constant(nameable) {
             return Some("a block body for a return type that needs a payload to make");
         }
@@ -413,7 +558,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         // variant that holds its payload by value.
         let nameable = argument.mismatch == MismatchSite::Enum
             && cell.s0.descriptor().storage == Storage::Payload
-            && cell.generic != Generics::Payload;
+            && cell.generic != Generics::Payload
+            && cell.owner == Owner::Local;
         if !output.has_constant(nameable) {
             return Some("a mismatch expression for a return type that needs a payload to make");
         }
@@ -457,7 +603,7 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
     // the first variant, and would be warned of as the user's own code.
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     let names_first = cell.arg.descriptor().kind.is_some()
         || matches!(path.form, PathForm::First | PathForm::Written);
     if cell.deprecated == Deprecation::First && names_first {
@@ -585,7 +731,7 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     // An inherent method that names the first variant has a body for the
     // rest, a constant of the declared type; only rendering builds that
     // type, so its constant is read here from the target's.
-    let first = cell.path.descriptor().form == PathForm::First;
+    let first = cell.path_descriptor().form == PathForm::First;
     let constant = match lift {
         Lift::Bare | Lift::Into => cell.target_node().has_constant(false),
         Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => true,
@@ -680,7 +826,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let receiver = cell.recv.descriptor();
     let argument = cell.reached_argument();
     let slots = cell.slots();
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     // The variant-specific rules of `m` concern the variants it is
     // forwarded to, and the method-wide ones apply when it is forwarded at
     // all: a method a block writes, or leaves to the default, is no
@@ -710,7 +856,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
 
     // "`#[dispatch(default)]` on a bodiless method leaves it to the trait's
     // default" (partial-impl-blocks.md), which a required method has none of.
-    if path.form == PathForm::Default && !cell.qual.descriptor().provided {
+    // "Over a restatement that is the real trait's default, which the
+    // restatement cannot see", so no sentence is written there, and the
+    // impl lacks the method as a hand's does.
+    let restated = cell.decl.descriptor().restated;
+    if path.form == PathForm::Default && !cell.qual.descriptor().provided && !restated {
         expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
     }
 
@@ -945,6 +1095,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     if one_arm && conversion.option.is_some() {
         expect(Limit::StructConversion, Anchor::Attribute);
     }
+    // "A restated enum gets no conversions, which the orphan rules [..]
+    // refuse" (restatements.md), and an option asking for one, or for
+    // none, is its sentence (`restated_enum_conversions`).
+    if cell.owner == Owner::Remote && conversion.option.is_some() {
+        expect(Limit::RestatedConversions, Anchor::Attribute);
+    }
     if conversion.into && !one_arm {
         for slot in &slots {
             match slot.variant {
@@ -1049,7 +1205,7 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // The method's body is written wherever it is forwarded, even when every
     // arm is a variant's sentence, so what the body itself captures is
     // rejected whatever the variants hold.
-    let form = cell.path.descriptor().form;
+    let form = cell.path_descriptor().form;
     let forwarded = cell.method_present()
         && matches!(form, PathForm::Forwarded | PathForm::First)
         && !cell.slots().is_empty();
@@ -1109,6 +1265,17 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // The sentence for a route through a method concerns one that ends in
     // the call (limits.md), so a hand's call gets rustc's error, and so
     // does the attribute's.
+    // A method left to the default of a real trait that gives it none,
+    // through a mark of `default` or a restatement that leaves it out, is
+    // missing from the impl, a hand's included.
+    let defaulted = cell.path_descriptor().form == PathForm::Default;
+    if defaulted && cell.decl.descriptor().restated && !qualifier.provided {
+        reject(
+            "E0046",
+            "a method left to the real trait's default, which it does not have",
+            Forwarded::Method,
+        );
+    }
     let through_loan = any(&|target| target.reads_through_a_loan());
     let exclusive =
         receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive);

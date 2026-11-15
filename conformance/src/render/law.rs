@@ -28,6 +28,10 @@ enum Side {
 /// Writes `mod law` with the tests named, `subject` against `E` and
 /// `hand` against `hand::E`.
 pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
+    if context.foreign() {
+        write_foreign(writer, context, tests);
+        return;
+    }
     writer.line("#[cfg(test)]");
     // The law calls a deprecated method, or names a deprecated variant,
     // which the deprecation reaches.
@@ -63,6 +67,75 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
     super::conversions::write_law(writer, context);
     writer.close("};");
     writer.close("}");
+    write_tests(writer, context, tests);
+    writer.close("}");
+}
+
+/// Writes the law of a cell whose trait is `whichever::foreign::Display`:
+/// what the subject prints is what a twin of its payload prints, or the
+/// body the block writes, and printing leaves the payload as it was.
+fn write_foreign(writer: &mut Writer, context: &Context, tests: &[&str]) {
+    writer.line("#[cfg(test)]");
+    if context.declared.iter().any(|slot| slot.deprecated) {
+        writer.line("#[allow(deprecated)]");
+    }
+    writer.open("mod law {");
+    // Where no variant holding a payload is in the build, the law names
+    // the subject's type alone.
+    if context.live().is_empty() {
+        writer.line("#[allow(unused_imports)]");
+    }
+    writer.line("use super::*;");
+    writer.blank();
+    writer.line("/// The law, the same against the subject and the hand: `S` is the one");
+    writer.line("/// under test.");
+    writer.open("macro_rules! law {");
+    writer.open("() => {");
+    write_seen(writer, context);
+    let forwarded = context.cell.method_slots();
+    for slot in &context.slots {
+        let index = slot.index;
+        let name = slot.name();
+        let seed = seed(index);
+        let twin = forwarded_to(slot, forwarded.clone());
+        match twin {
+            true => writer.line(format!(
+                "// `{name}` prints what a twin of its `{}` prints.",
+                slot.payload()
+            )),
+            false => writer.line(format!("// `{name}` prints the body the block writes.")),
+        }
+        writer.open("{");
+        write_subject(writer, "S", slot, "subject", seed, false);
+        let expected = match twin {
+            true => {
+                writer.line(format!("let twin = {}::new({seed});", slot.payload()));
+                String::from("format!(\"{}\", twin)")
+            }
+            false => format!("String::from(\"{}\")", super::foreign::WRITTEN),
+        };
+        writer.line(format!(
+            "assert_eq!(format!(\"{{}}\", subject), {expected}, \"fmt on {name}\");"
+        ));
+        let state = match slot.variant {
+            SlotVariant::Unit => String::from("\"unit\""),
+            SlotVariant::Live(_) | SlotVariant::Pair => seed.to_string(),
+        };
+        writer.line(format!(
+            "assert_eq!(seen(&subject), format!(\"{index}:{{}}\", {state}), \"{name} after fmt\");"
+        ));
+        writer.close("}");
+    }
+    super::conversions::write_law(writer, context);
+    writer.close("};");
+    writer.close("}");
+    write_tests(writer, context, tests);
+    writer.close("}");
+}
+
+/// Writes the tests that run the law, `subject` against `E` and `hand`
+/// against `hand::E`.
+fn write_tests(writer: &mut Writer, context: &Context, tests: &[&str]) {
     for test in tests {
         let path = match *test {
             "subject" => "super::E",
@@ -72,15 +145,17 @@ pub fn write(writer: &mut Writer, context: &Context, tests: &[&str]) {
         writer.line("#[test]");
         writer.open(format!("fn {test}() {{"));
         // A generic subject is named at the argument the law takes it at.
-        match context.generics.parameter {
-            Some(_) => writer.line(format!("type S = {};", context.subject_instance(path))),
-            None => writer.line(format!("use {path} as S;")),
+        // A restated enum is generic over what its variants hold.
+        let generic = context.generics.parameter.is_some()
+            || context.cell.owner == crate::model::Owner::Remote;
+        match generic {
+            true => writer.line(format!("type S = {};", context.subject_instance(path))),
+            false => writer.line(format!("use {path} as S;")),
         }
         writer.anchor(format!("law-{test}"));
         writer.line("law!();");
         writer.close("}");
     }
-    writer.close("}");
 }
 
 fn write_seen(writer: &mut Writer, context: &Context) {

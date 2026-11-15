@@ -12,9 +12,16 @@ use crate::model::Anchor;
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
 /// `base` and the method under test `m`.
 pub fn write_trait(writer: &mut Writer, context: &Context) {
+    if context.foreign() {
+        super::foreign::write_trait(writer);
+        return;
+    }
     // A trait in a sibling module is imported where the subject is, the
-    // carrier macro with it, as a user imports a trait of another module.
-    let Some(module) = context.home.module else {
+    // carrier macro with it, as a user imports a trait of another module;
+    // a trait the subject restates is imported the same way, as the
+    // behaviour test `pinned_writers_with_provided_methods` imports its
+    // `io::AsyncWrite`.
+    let Some(module) = context.trait_module() else {
         write_trait_items(writer, context);
         return;
     };
@@ -48,9 +55,13 @@ fn write_trait_items(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
-/// Writes the trait under test with `#[whichever::dispatchable]`.
+/// Writes the trait under test with `#[whichever::dispatchable]`, or
+/// without it where the subject restates it.
 fn write_probe_trait(writer: &mut Writer, context: &Context) {
-    writer.line("#[whichever::dispatchable]");
+    let restated = context.declaration.restated;
+    if !restated {
+        writer.line("#[whichever::dispatchable]");
+    }
     writer.open(format!(
         "pub trait {TRAIT}{} {{",
         context.trait_parameters()
@@ -64,7 +75,7 @@ fn write_probe_trait(writer: &mut Writer, context: &Context) {
     writer.line("/// The control method, which every subject forwards.");
     writer.line(format!("{};", context.base_signature()));
     let mismatched = context.argument.kind.is_some() && !context.inherent();
-    if mismatched && context.argument.mismatch == MismatchSite::Trait {
+    if mismatched && context.argument.mismatch == MismatchSite::Trait && !restated {
         writer.line(format!(
             "#[dispatch(mismatch = {})]",
             context.mismatch("Self")
@@ -77,7 +88,9 @@ fn write_probe_trait(writer: &mut Writer, context: &Context) {
     if let Some(attribute) = context.item.attribute {
         writer.line(format!("#[{attribute}]"));
     }
-    writer.anchor(Anchor::Method.name());
+    if !restated {
+        writer.anchor(Anchor::Method.name());
+    }
     let signature = context.signature(Site::Trait);
     if !context.qualifier.provided {
         writer.line(format!("{signature};"));
@@ -90,16 +103,69 @@ fn write_probe_trait(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
+/// Writes the restatement of a trait declared without the attribute,
+/// beside the subject: its items as the trait declares them, and the method
+/// under test bodiless where the restatement lists it, with `remote` naming
+/// the real trait (restatements.md).
+pub fn write_restatement(writer: &mut Writer, context: &Context) {
+    writer.line(format!(
+        "#[whichever::dispatchable(remote = {})]",
+        context.real_trait()
+    ));
+    writer.open(format!("trait {TRAIT}{} {{", context.trait_parameters()));
+    for (associated, _) in context.associated() {
+        writer.line(format!("type {};", associated.name()));
+    }
+    for item in context.agreement.items {
+        writer.line(item.declaration());
+    }
+    writer.line(format!("{};", context.base_signature()));
+    if context.declaration.lists_method {
+        if context.argument.kind.is_some() && context.argument.mismatch == MismatchSite::Trait {
+            writer.line(format!(
+                "#[dispatch(mismatch = {})]",
+                context.mismatch("Self")
+            ));
+        }
+        writer.anchor(Anchor::Method.name());
+        writer.line(format!("{};", context.restated_signature()));
+    }
+    writer.close("}");
+}
+
+/// Writes the enum another crate declares, which the subject restates:
+/// generic over what its variants hold, as `either::Either` is.
+pub fn write_real(writer: &mut Writer, context: &Context) {
+    writer.line("/// The enum another crate declares, which the subject restates.");
+    writer.open(format!("pub enum E{} {{", context.generics()));
+    for slot in &context.declared {
+        let (_, declaration) = variant(slot, false);
+        writer.line(declaration);
+    }
+    writer.close("}");
+}
+
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
     let mut arguments = vec![context.trait_path()];
     arguments.extend(context.options());
+    // A restated enum names the real one, and the attribute registers it
+    // for a block as the bare one does (restatements.md).
+    let restated = context.cell.owner == crate::model::Owner::Remote;
+    if restated {
+        writer.line(format!(
+            "#[whichever::dispatch(remote = {}::{}::E)]",
+            context.trait_crate(),
+            context.cell.module()
+        ));
+    }
     writer.anchor(Anchor::Attribute.name());
     // In a block path the second trait is the subject's attribute, and the
     // block is the impl of the first.
     match (block, context.stack.present) {
         (true, true) => writer.line(context.other_attribute()),
+        (true, false) if restated => {}
         (true, false) => writer.line("#[whichever::dispatch]"),
         (false, stacked) => {
             writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));
@@ -192,7 +258,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         context.trait_path(),
         context.type_generics()
     ));
-    if !context.cell.base_reaches_all() {
+    if !context.cell.base_reaches_all() && !context.foreign() {
         let named: Vec<&str> = context
             .cell
             .base_named()
@@ -226,6 +292,11 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         }
         let signature = context.signature(Site::Impl);
         writer.anchor(Anchor::BlockSignature.name());
+        if context.foreign() {
+            super::foreign::write_block_method(writer, context);
+            writer.close("}");
+            return;
+        }
         match context.path.form {
             PathForm::Forwarded | PathForm::Default => writer.line(format!("{signature};")),
             PathForm::First | PathForm::Written => {
@@ -242,6 +313,10 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
 /// Writes a function that calls `base` through the trait on the subject,
 /// so that a cascade or a withheld impl shows as a second error.
 pub fn write_probe(writer: &mut Writer, context: &Context) {
+    if context.foreign() {
+        super::foreign::write_probe(writer);
+        return;
+    }
     writer.line("/// Calls the control method through the trait, so that a withheld impl");
     writer.line("/// shows as an error of its own.");
     let subject = context.subject_instance("E");

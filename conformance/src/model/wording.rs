@@ -52,7 +52,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     // and has a body for the rest, it is that body
     // (`self_return_beside_the_other_fields_of_a_variant` holds the other
     // form), and the entry's own way out is not written.
-    let body_for_the_rest = cell.path.descriptor().form == PathForm::First;
+    let body_for_the_rest = cell.path_descriptor().form == PathForm::First;
     let rebuild_left_to_the_body =
         expected.limit == Limit::SelfReturnOtherFields && body_for_the_rest;
     let mut fragments = Vec::new();
@@ -90,7 +90,7 @@ fn named(cell: &Cell, slot: &Slot) -> String {
 /// block's alike, and by hand for a trait's method, a block's bodiless
 /// mark included.
 fn tail(cell: &Cell, variant: Option<&str>) -> Option<String> {
-    let path = cell.path.descriptor();
+    let path = cell.path_descriptor();
     let tail = match (path.form, path.site) {
         (PathForm::First, _) => Tail::LeaveToBody,
         (PathForm::Forwarded | PathForm::Default | PathForm::Written, PathSite::Inherent) => {
@@ -131,7 +131,7 @@ fn takes(cell: &Cell, limit: Limit) -> String {
             | Receiver::PinBoxed => String::from("takes `other` by value"),
         },
         Limit::MutableBorrowThroughSharedPointer | Limit::MethodRouteOnMutSelf => {
-            let inherent = cell.path.descriptor().site == PathSite::Inherent;
+            let inherent = cell.path_descriptor().site == PathSite::Inherent;
             if inherent && place && limit == Limit::MutableBorrowThroughSharedPointer {
                 return String::from("returns a `&mut`");
             }
@@ -161,6 +161,7 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::StructConversion
         | Limit::IntoOtherFields
         | Limit::IntoWithoutPayload
+        | Limit::RestatedConversions
         | Limit::TypeDisagreement
         | Limit::ConstDisagreement
         | Limit::MismatchForAbsentMethod => String::new(),
@@ -191,7 +192,7 @@ fn route(target: &TargetDescriptor) -> Option<String> {
 
 /// Returns the names a sentence interpolates for the cell.
 fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
-    let method = "`m`";
+    let method = cell.method_name();
     let target = slot.and_then(|slot| slot.target());
     let stored = slot
         .zip(target)
@@ -282,7 +283,7 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .collect();
             any = Some(Fragment(held));
         }
-        Limit::IntoOtherFields => {}
+        Limit::IntoOtherFields | Limit::RestatedConversions => {}
         // Open question: whether `into` reports each variant that holds no
         // payload or the first alone is not pinned; a sentence is read as
         // naming any of them.

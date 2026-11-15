@@ -442,6 +442,39 @@ axis! {
 }
 
 axis! {
+    /// How the trait under test is declared (restatements.md).
+    pub enum Declaration {
+        /// `#[whichever::dispatchable] pub trait Probe`.
+        Dispatchable = "dispatchable",
+        /// The trait declared without the attribute, in another module of
+        /// the cell or in the trait's crate, and restated beside the subject
+        /// with `#[whichever::dispatchable(remote = path)]`, every method
+        /// listed.
+        Remote = "remote",
+        /// The same restatement listing the control method alone, so the
+        /// method under test, a provided one, is the real trait's default
+        /// whatever its payload overrides.
+        RemoteBase = "remote-base",
+        /// `whichever::foreign::Display`, whose `fmt` takes `&self` and an
+        /// argument; the payloads implement `core::fmt::Display`.
+        Foreign = "foreign",
+    }
+}
+
+axis! {
+    /// Which crate declares the enum the subject dispatches over
+    /// (restatements.md, "Enums from other crates").
+    pub enum Owner {
+        /// The subject's crate: the subject is the enum.
+        Local = "local",
+        /// Another crate, the trait's crate shard, declares the enum generic
+        /// over its payloads, and the subject restates it with
+        /// `#[whichever::dispatch(remote = path)]`.
+        Remote = "remote",
+    }
+}
+
+axis! {
     /// The third variant, beside a second: a target kind over `P2`, or a
     /// variant no trait method can be forwarded to. A `match` of three
     /// arms, a mismatch over three variants, an agreement check across
