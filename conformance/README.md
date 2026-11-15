@@ -230,6 +230,10 @@ cargo run -p whichever-conformance --release -- show 's0=via-field recv=mut'
 A run writes a workspace of shard crates under `target/conformance/ws`, one
 file per cell, and builds it in `target/conformance/target`. A file is
 written only when it changed, so a second run rebuilds only what moved.
+The nested cargo runs with none of the outer cargo's environment but
+`CARGO_HOME` and `CARGO_INCREMENTAL`: a run that starts cold, as CI's does,
+sets `CARGO_INCREMENTAL=0`, since an incremental cache no later run reads
+only fills the disk.
 `cargo check` runs first; a passing cell whose subject has an error is
 checked again rendered with its hand alone, so that its hand's law still
 runs and the divergence is known to be the macro's, and the check repeats
