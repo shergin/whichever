@@ -259,7 +259,7 @@ suite array-rejected
   unreached 1610
 
 suite known
-  pass 8
-  limit 2
+  pass 2
+  limit 0
   rejected 0
   malformed 0
