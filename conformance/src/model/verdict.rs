@@ -793,17 +793,26 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     }
 
     // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain
-    // variant is an error, since boxing it again would allocate.
+    // variant is an error, since boxing it again would allocate, and a
+    // `deref` variant over another pointer has no `Box` to hand over
+    // (`box_self_on_a_shared_pointer`).
     //
-    // Open question: a variant over another pointer, or reached through a
-    // field, is read as getting the same sentence.
+    // Open question: a variant reached through a field is read as getting
+    // the plain variant's sentence.
     let place = matches!(cell.callee, Callee::Value | Callee::Field);
     if cell.recv == Receiver::Boxed && !place {
         for (slot, _, target) in &method_live {
-            let boxed = target.pointer() == Some(Pointer::Box) && target.route == [Step::Deref];
-            if !boxed {
-                expect(Limit::BoxSelfPlain, Anchor::Variant(slot.index));
-            }
+            let deref = target.route == [Step::Deref];
+            let limit = match target.pointer() {
+                Some(Pointer::Box) if deref => continue,
+                Some(Pointer::Rc | Pointer::Arc | Pointer::Shared | Pointer::Exclusive)
+                    if deref =>
+                {
+                    Limit::BoxSelfOnSharedPointer
+                }
+                Some(_) | None => Limit::BoxSelfPlain,
+            };
+            expect(limit, Anchor::Variant(slot.index));
         }
     }
 
@@ -811,8 +820,8 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // anything but a `Box`: a method taking `self` is reported on the
     // payload."
     //
-    // A `Self` argument by value gets the same sentence, which names the
-    // receiver though it is the argument that would move.
+    // A `Self` argument by value gets the same sentence, naming the
+    // argument that would move.
     // An inherent place under `self: Box<Self>` is moved too, unless the
     // return type borrows it: the case
     // `place_moves_through_a_shared_pointer_under_a_boxed_receiver` holds
@@ -832,7 +841,8 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // "A route ending in a method call cannot serve a `&mut self` method."
     //
     // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
-    // sentence, which names `&mut self` for both.
+    // sentence, naming the receiver or the argument as the signature has
+    // it.
     if receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive) {
         for (slot, _, target) in &method_live {
             if target.ends_in_method() {

@@ -26,6 +26,9 @@ pub enum Limit {
     SelfReturnOtherFields,
     /// `self: Box<Self>` on a variant that holds no `Box` under `deref`.
     BoxSelfPlain,
+    /// `self: Box<Self>` on a `deref` variant over a pointer that is no
+    /// `Box`.
+    BoxSelfOnSharedPointer,
     /// A value moved out of a `deref` variant holding anything but a
     /// `Box`.
     MovesThroughSharedPointer,
@@ -84,6 +87,7 @@ impl Limit {
         Limit::RouteSelfReturn,
         Limit::SelfReturnOtherFields,
         Limit::BoxSelfPlain,
+        Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
         Limit::MethodRouteOnMutSelf,
         Limit::UnsuppliedType,
@@ -155,6 +159,11 @@ impl Limit {
                 "box-self-plain",
                 "holds a plain",
                 "box_self_plain_variant",
+            ),
+            Limit::BoxSelfOnSharedPointer => entry(
+                "box-self-on-shared-pointer",
+                "which is no `Box` to hand over",
+                "box_self_on_a_shared_pointer",
             ),
             Limit::MovesThroughSharedPointer => entry(
                 "moves-through-shared-pointer",
@@ -238,6 +247,7 @@ impl Limit {
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
+            | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
@@ -271,6 +281,7 @@ impl Limit {
             | Limit::RouteSelfReturn
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
+            | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
             | Limit::TypeDisagreement
