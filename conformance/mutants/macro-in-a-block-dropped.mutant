@@ -1,0 +1,14 @@
+file: macros/src/partial.rs
+breaks: A macro invocation in a partial impl block is reported, since the items it writes cannot be told from the ones to forward, as `docs/limits.md` and `docs/partial-impl-blocks.md` say.
+expect: killed
+
+find:
+                ImplItem::Macro(invocation) => {
+                    return Err(Error::new_spanned(
+                        invocation,
+                        "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
+                    ));
+                }
+                _ => None,
+replace:
+                _ => None,
