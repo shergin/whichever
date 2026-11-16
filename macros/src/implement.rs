@@ -22,6 +22,7 @@ use crate::options::{
 use crate::protocol::ImplementInput;
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{takes_self_argument, ReturnSite};
+use crate::spelling;
 use crate::subject::{
     allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
     Entry, Subject, Target,
@@ -87,7 +88,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // the subject names it and the subject's own generics.
     let block_header = {
         let (impl_generics, ty_generics, _) = subject.generics().split_for_impl();
-        spelled(
+        spelling::spelled(
             &quote_spanned!(site => impl #impl_generics #spec_path for #subject_path #ty_generics),
         )
     };
@@ -679,21 +680,6 @@ fn with_payload_bounds(
     generics
 }
 
-/// Spells `tokens` as a hand writes them, without the spaces `quote` puts
-/// around punctuation.
-fn spelled(tokens: &impl ToTokens) -> String {
-    tokens
-        .to_token_stream()
-        .to_string()
-        .replace(" :: ", "::")
-        .replace(" < ", "<")
-        .replace("< ", "<")
-        .replace(" >", ">")
-        .replace(" ,", ",")
-        .replace("& ", "&")
-        .replace(" : ", ": ")
-}
-
 /// Returns the path the impl is written for: a restated trait's real path,
 /// with the generic arguments the subject named on the declaration's path,
 /// or the path named.
@@ -1027,7 +1013,7 @@ fn associated_type<'a>(
     // complete and the sentence stands alone. Its parameters and `where`
     // clause are the trait's, which the impl may not strengthen.
     if !assoc.generics.params.is_empty() {
-        let parameters = spelled(&assoc.generics);
+        let parameters = spelling::spelled(&assoc.generics);
         let error = Error::new_spanned(
             assoc,
             format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
