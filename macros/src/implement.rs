@@ -18,12 +18,10 @@ use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{
-    closest, is_dispatch_attribute, listed, ForwardingOptions, Override, TraitOptions,
-};
+use crate::options::{is_dispatch_attribute, ForwardingOptions, Override, TraitOptions};
 use crate::protocol::ImplementInput;
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
-use crate::shape::{takes_self_argument, ReturnSite};
+use crate::shape::ReturnSite;
 use crate::signatures::{carried_attributes, Method, Signatures};
 use crate::site::{at, Site};
 use crate::spelling;
@@ -172,11 +170,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // is reported beside the impl, which is right without it; only an item
     // that cannot be written withholds the impl.
     let mut reported = route_errors;
-    reported.extend(unknown_names(
-        &options,
+    reported.extend(options.unknown_names(
         item_trait,
         trait_ident,
-        &subject,
+        subject.has_one_target(),
         partial.is_none(),
     ));
     // An item that withholds the impl is reported with the errors that
@@ -228,76 +225,6 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #shape_errors
         #reported
     })
-}
-
-/// Returns the errors for the options naming nothing in the trait: an
-/// override of an associated item it does not have, or a `mismatch` for a
-/// method without a `Self` argument. Each is a typo that would otherwise
-/// turn into a type error somewhere else, so the message says what was
-/// probably meant, or what there is to mean.
-fn unknown_names(
-    options: &TraitOptions,
-    item_trait: &ItemTrait,
-    trait_ident: &Ident,
-    subject: &Subject,
-    on_subject: bool,
-) -> Vec<Error> {
-    let mut errors = vec![];
-    let associated: Vec<String> = item_trait
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            TraitItem::Type(assoc) => Some(assoc.ident.to_string()),
-            TraitItem::Const(constant) => Some(constant.ident.to_string()),
-            _ => None,
-        })
-        .collect();
-    for fixed in &options.overrides {
-        let name = fixed.name.to_string();
-        if associated.contains(&name) {
-            continue;
-        }
-        let hint = unknown_override_hint(&name, &associated, subject, on_subject);
-        errors.push(Error::new(
-            fixed.name.span(),
-            format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
-        ));
-    }
-    let deciding: Vec<String> = item_trait
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            TraitItem::Fn(function) if takes_self_argument(&function.sig) => {
-                Some(function.sig.ident.to_string())
-            }
-            _ => None,
-        })
-        .collect();
-    for (method, _) in &options.mismatch {
-        let name = method.to_string();
-        if deciding.contains(&name) {
-            continue;
-        }
-        // A method the trait declares under a `#[cfg]` that does not hold
-        // is not in this build's trait, and nothing here tells it from a
-        // name the trait never had: the sentence names the way around both.
-        let elsewhere = "a method under a `#[cfg]` that does not hold in this build takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`";
-        let hint = match closest(&name, deciding.iter().map(String::as_str)) {
-            Some(near) => format!("did you mean `{near}`?"),
-            None if deciding.is_empty() => {
-                format!("none of its methods takes one; {elsewhere}")
-            }
-            None => format!(
-                "its methods taking one are {}; {elsewhere}",
-                listed(&deciding)
-            ),
-        };
-        errors.push(Error::new(
-            method.span(),
-            format!("`{trait_ident}` has no method `{name}` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; {hint}"),
-        ));
-    }
-    errors
 }
 
 /// One thing an item of the trait becomes in the impl, decided before
@@ -546,48 +473,6 @@ impl<'a> ItemWriter<'a> {
         }
         plans
     }
-}
-
-/// Returns the second half of the message for an override naming nothing in
-/// the trait: the item or option probably meant, where the forwarded field
-/// or variants are chosen when the name is a field-choosing option of
-/// another crate, or else everything there is to name.
-fn unknown_override_hint(
-    name: &str,
-    associated: &[String],
-    subject: &Subject,
-    on_subject: bool,
-) -> String {
-    if let Some(near) = closest(name, associated.iter().map(String::as_str)) {
-        return format!("did you mean `{near}`?");
-    }
-    let switches = if on_subject {
-        &["from", "try_from"][..]
-    } else {
-        &[]
-    };
-    if let Some(near) = closest(name, switches.iter().copied()) {
-        return format!("did you mean the enum's option `{near} = ..`?");
-    }
-    if matches!(name, "target" | "to" | "field" | "delegate" | "via") {
-        return if subject.has_one_target() {
-            "a struct forwards to its one field, or to the field marked `#[dispatch]`".to_owned()
-        } else {
-            "an enum forwards to every variant, and an inherent method names the variants it forwards to".to_owned()
-        };
-    }
-    let options = if on_subject {
-        "`mismatch(method = expr)`, `from = false` and `try_from = true`"
-    } else {
-        "`mismatch(method = expr)`"
-    };
-    if associated.is_empty() {
-        return format!("it has none, and the other options are {options}");
-    }
-    format!(
-        "its associated items are {}, and the other options are {options}",
-        listed(associated)
-    )
 }
 
 /// Returns `generics` with `Param: Trait` added for every target whose
