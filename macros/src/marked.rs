@@ -129,3 +129,107 @@ impl Parse for BodylessMethod {
         Ok(Self { attrs, vis, sig })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+    use syn::parse_quote;
+
+    use super::*;
+    use crate::options::TraitMark;
+
+    /// The method a marked item reads as, or a panic for any other item.
+    fn marked(item: ImplItem) -> Marked {
+        match BlockItem::read(item) {
+            BlockItem::Marked(method) => method,
+            _ => panic!("a marked method"),
+        }
+    }
+
+    #[test]
+    fn a_marked_method_is_told_from_a_bodyless_one_unread_tokens_and_a_plain_item() {
+        let with_body = marked(parse_quote! {
+            #[inline]
+            #[dispatch(*)]
+            fn area(&self) -> u32 { 0 }
+        });
+        assert!(with_body.body.is_some());
+        assert_eq!(with_body.attrs.len(), 1, "the mark is taken off");
+        assert!(with_body.attribute.path().is_ident("dispatch"));
+        let without_body = marked(parse_quote! {
+            #[dispatch(Square)]
+            fn area(&self) -> u32;
+        });
+        assert!(without_body.body.is_none() && without_body.attrs.is_empty());
+        assert!(matches!(
+            BlockItem::read(parse_quote!(fn area(&self) -> u32;)),
+            BlockItem::Bodyless(sig) if sig.ident == "area"
+        ));
+        assert!(matches!(
+            BlockItem::read(ImplItem::Verbatim(quote!(
+                struct Nested;
+            ))),
+            BlockItem::Unread(_)
+        ));
+        assert!(matches!(
+            BlockItem::read(parse_quote!(
+                fn area(&self) -> u32 {
+                    1
+                }
+            )),
+            BlockItem::Plain(ImplItem::Fn(_))
+        ));
+        assert!(matches!(
+            BlockItem::read(parse_quote!(
+                const SIDES: u32 = 4;
+            )),
+            BlockItem::Plain(ImplItem::Const(_))
+        ));
+    }
+
+    #[test]
+    fn a_second_mark_is_reported_and_taken_off_with_every_other() {
+        let mut method = marked(parse_quote! {
+            #[dispatch(default)]
+            #[inline]
+            #[dispatch(*)]
+            #[dispatch(Square)]
+            fn sides(&self) -> u32;
+        });
+        let error = match method.mark(TraitMark::read) {
+            Ok(_) => panic!("a second mark is an error"),
+            Err(error) => error.to_string(),
+        };
+        assert_eq!(
+            error,
+            "one `#[dispatch(..)]` per method; name every variant it forwards to in that one"
+        );
+        assert_eq!(method.attrs.len(), 1, "only `#[inline]` is left");
+        assert!(method.attrs[0].path().is_ident("inline"));
+        let mut once = marked(parse_quote! {
+            #[dispatch(default)]
+            fn sides(&self) -> u32;
+        });
+        assert!(matches!(once.mark(TraitMark::read), Ok(TraitMark::Default)));
+    }
+
+    #[test]
+    fn a_method_stands_unmarked_with_its_body_and_not_without_one() {
+        let with_body = marked(parse_quote! {
+            #[inline]
+            #[dispatch(*)]
+            fn area(&self) -> u32 { 0 }
+        });
+        let Some(ImplItem::Fn(function)) = with_body.unmarked() else {
+            panic!("the method as written");
+        };
+        assert_eq!(function.attrs.len(), 1);
+        assert!(function.attrs[0].path().is_ident("inline"));
+        assert_eq!(function.sig.ident, "area");
+        let without_body = marked(parse_quote! {
+            #[dispatch(*)]
+            fn area(&self) -> u32;
+        });
+        assert!(without_body.unmarked().is_none());
+    }
+}

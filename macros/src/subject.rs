@@ -879,3 +879,493 @@ pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
         .cloned()
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use proc_macro2::Span;
+    use quote::quote;
+    use syn::parse_quote;
+
+    use super::*;
+    use crate::options::TraitOptions;
+
+    fn site() -> Site {
+        Site::at(Span::call_site())
+    }
+
+    fn shapes() -> Subject {
+        parse_quote! {
+            enum Any {
+                Plain(Circle),
+                #[cfg(unix)]
+                #[deprecated]
+                #[dispatch(deref)]
+                Boxed(Box<Circle>),
+                Tagged(u32, #[dispatch] Circle),
+                Named {
+                    #[dispatch]
+                    inner: Circle,
+                },
+                Labelled {
+                    label: u32,
+                    #[dispatch]
+                    inner: Circle,
+                },
+                #[dispatch(from = false)]
+                Kept(Circle),
+                Empty,
+                Pair(Circle, Circle),
+                Fields { a: u32 },
+            }
+        }
+    }
+
+    fn target<'a>(entries: &'a Entries, name: &str) -> Target<'a> {
+        entries
+            .targets()
+            .into_iter()
+            .find(|target| target.ident() == name)
+            .expect("a target of that name")
+    }
+
+    fn names(targets: &[Target]) -> Vec<String> {
+        targets
+            .iter()
+            .map(|target| target.ident().to_string())
+            .collect()
+    }
+
+    /// Where a target's payload sits, in words.
+    fn field(target: &Target) -> String {
+        match &target.place.field {
+            PayloadField::Only => "only".to_owned(),
+            PayloadField::OnlyNamed(name) => format!("only named {name}"),
+            PayloadField::Beside(member) => format!("beside {}", member.to_token_stream()),
+        }
+    }
+
+    fn message<T>(result: Result<T>) -> String {
+        match result {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    fn spelled(tokens: Option<TokenStream2>) -> Option<String> {
+        tokens.map(|tokens| tokens.to_string())
+    }
+
+    #[test]
+    fn an_enum_reads_every_variant_and_says_why_one_holds_no_target() {
+        let subject = shapes();
+        let entries = subject.read().unwrap();
+        assert_eq!(entries.iter().count(), 9);
+        assert_eq!(
+            names(&entries.targets()),
+            ["Plain", "Boxed", "Tagged", "Named", "Labelled", "Kept"]
+        );
+        let reasons: Vec<&str> = entries
+            .iter()
+            .filter_map(|entry| entry.unforwardable())
+            .map(|unforwardable| unforwardable.reason.as_str())
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                "holds no payload",
+                "holds 2 fields, not one payload",
+                "has named fields, not one payload"
+            ]
+        );
+        let boxed = target(&entries, "Boxed");
+        assert!(boxed.entry.is_conditional() && boxed.entry.deprecated);
+        assert!(boxed.route.is_deref());
+        assert_eq!(
+            boxed.arm_attributes(site()).len(),
+            2,
+            "its `cfg` and an allowance"
+        );
+        let plain = target(&entries, "Plain");
+        assert!(!plain.entry.is_conditional() && !plain.entry.deprecated);
+        assert!(plain.arm_attributes(site()).is_empty());
+        assert_eq!(field(&plain), "only");
+        assert_eq!(field(&target(&entries, "Tagged")), "beside 1");
+        assert_eq!(
+            field(&target(&entries, "Named")),
+            "only named inner",
+            "a variant's one field, named and marked, is rebuilt by its braces"
+        );
+        assert_eq!(field(&target(&entries, "Labelled")), "beside inner");
+    }
+
+    #[test]
+    fn a_struct_reads_its_fields_and_the_traits_they_name() {
+        let subject: Subject = parse_quote! {
+            struct Mapper {
+                #[dispatch(Rom)]
+                rom: Cartridge,
+                #[dispatch(deref)]
+                bus: Box<Bus>,
+            }
+        };
+        let entries = subject.read().unwrap();
+        let targets = entries.targets();
+        assert_eq!(names(&targets), ["rom", "bus"]);
+        assert!(targets
+            .iter()
+            .all(|target| matches!(target.place.holder, Holder::Struct)));
+        assert_eq!(field(&targets[0]), "beside rom");
+        assert!(targets[1].route.is_deref());
+        let traits: Vec<String> = entries
+            .field_traits()
+            .into_iter()
+            .map(|(field, path)| format!("{field}: {}", path.to_token_stream()))
+            .collect();
+        assert_eq!(traits, ["rom: Rom"]);
+        let tuple: Subject = parse_quote!(
+            struct Wrapped(Circle);
+        );
+        let entries = tuple.read().unwrap();
+        assert_eq!(names(&entries.targets()), ["_0"]);
+        assert_eq!(field(&entries.targets()[0]), "only");
+        assert!(shapes().read().unwrap().field_traits().is_empty());
+    }
+
+    #[test]
+    fn a_trait_goes_to_the_field_naming_it_else_the_bare_one_else_the_only_one() {
+        let subject: Subject = parse_quote! {
+            struct Mapper {
+                #[dispatch(Rom)]
+                rom: Cartridge,
+                #[dispatch]
+                bus: Bus,
+                clock: u32,
+            }
+        };
+        let for_trait =
+            |path: Path| names(&subject.read().unwrap().for_trait(&path).unwrap().targets());
+        assert_eq!(for_trait(parse_quote!(Rom)), ["rom"]);
+        assert_eq!(
+            for_trait(parse_quote!(crate::Rom)),
+            ["bus"],
+            "a macro cannot resolve names, so another spelling is another trait"
+        );
+        assert_eq!(for_trait(parse_quote!(Interrupt)), ["bus"]);
+        let only: Subject = parse_quote!(
+            struct Wrapped {
+                inner: Circle,
+            }
+        );
+        let entries = only
+            .read()
+            .unwrap()
+            .for_trait(&parse_quote!(Shape))
+            .unwrap();
+        assert_eq!(names(&entries.targets()), ["inner"]);
+        assert_eq!(field(&entries.targets()[0]), "only named inner");
+        assert_eq!(
+            names(
+                &shapes()
+                    .read()
+                    .unwrap()
+                    .for_trait(&parse_quote!(Shape))
+                    .unwrap()
+                    .targets()
+            )
+            .len(),
+            6,
+            "an enum forwards every trait to every variant"
+        );
+    }
+
+    #[test]
+    fn a_struct_that_names_no_field_for_a_trait_says_how_to_name_one() {
+        let error =
+            |subject: Subject| message(subject.read().unwrap().for_trait(&parse_quote!(Rom)));
+        assert_eq!(
+            error(parse_quote!(struct Mapper { #[dispatch] a: A, #[dispatch] b: B })),
+            "only one field can be the target of every trait not named elsewhere; name the traits on the others"
+        );
+        assert_eq!(
+            error(parse_quote!(
+                struct Mapper {
+                    #[dispatch(Rom)]
+                    a: A,
+                    #[dispatch(Rom)]
+                    b: B,
+                }
+            )),
+            "`Rom` is named on two fields; one is its target"
+        );
+        assert_eq!(
+            error(parse_quote!(
+                struct Mapper {}
+            )),
+            "a dispatch struct needs a field to forward to"
+        );
+        assert_eq!(
+            error(parse_quote!(struct Mapper { a: A, b: B })),
+            "`Mapper` has several fields; mark the one to forward `Rom` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`"
+        );
+    }
+
+    #[test]
+    fn star_names_every_variant_or_the_field_that_stands_for_the_struct() {
+        let enum_entries = shapes();
+        let entries = enum_entries.read().unwrap();
+        assert_eq!(names(&entries.star().unwrap()), names(&entries.targets()));
+        let bare: Subject = parse_quote!(
+            struct Mapper {
+                #[dispatch(Rom)]
+                a: A,
+                #[dispatch]
+                b: B,
+            }
+        );
+        assert_eq!(names(&bare.read().unwrap().star().unwrap()), ["b"]);
+        let only: Subject = parse_quote!(
+            struct Wrapped(Circle);
+        );
+        assert_eq!(names(&only.read().unwrap().star().unwrap()), ["_0"]);
+        let named: Subject = parse_quote!(
+            struct Mapper {
+                #[dispatch(Rom)]
+                a: A,
+                #[dispatch(Bus)]
+                b: B,
+            }
+        );
+        assert!(message(named.read().unwrap().star()).starts_with(
+            "`Mapper` names traits on its fields and marks none bare, so `*` names no field"
+        ));
+        let unmarked: Subject = parse_quote!(
+            struct Mapper {
+                a: A,
+                b: B,
+            }
+        );
+        assert_eq!(
+            message(unmarked.read().unwrap().star()),
+            "`Mapper` has several fields; mark the one to forward with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`"
+        );
+    }
+
+    #[test]
+    fn a_trait_routes_through_the_variants_it_names_and_reports_the_rest() {
+        let subject = shapes();
+        let mut entries = subject.read().unwrap();
+        let options: TraitOptions = syn::parse_str("via(Plain = .0, Wide = .1)").unwrap();
+        let errors: Vec<String> = entries
+            .route(&options.routes)
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect();
+        assert_eq!(errors, ["`Any` has no variant `Wide` to route through"]);
+        assert_eq!(target(&entries, "Plain").route.spelled(), ".0");
+        assert!(target(&entries, "Kept").route.is_direct());
+    }
+
+    #[test]
+    fn the_payloads_are_spelled_with_the_names_a_block_gives_the_parameters() {
+        struct Renaming;
+        impl VisitMut for Renaming {
+            fn visit_ident_mut(&mut self, ident: &mut Ident) {
+                if ident == "T" {
+                    *ident = parse_quote!(U);
+                }
+            }
+        }
+        let subject: Subject = parse_quote!(
+            enum Kind<T> {
+                One(T),
+                Many(Vec<T>),
+                Empty,
+            }
+        );
+        let mut entries = subject.read().unwrap();
+        entries.rename(&mut Renaming);
+        let payloads: Vec<String> = entries
+            .targets()
+            .iter()
+            .map(|target| target.payload.to_token_stream().to_string())
+            .collect();
+        assert_eq!(payloads, ["U", quote!(Vec<U>).to_string().as_str()]);
+    }
+
+    #[test]
+    fn an_entry_no_method_can_forward_to_is_reported_under_its_cfg_and_the_builds() {
+        let subject: Subject = parse_quote! {
+            enum Any {
+                Plain(Circle),
+                Empty,
+                #[cfg(unix)]
+                Unit,
+            }
+        };
+        let entries = subject.read().unwrap();
+        let errors = entries.shape_errors(None).to_string();
+        assert_eq!(errors.matches("compile_error").count(), 2);
+        assert!(errors.contains(&quote!(#[cfg(unix)] ::core::compile_error!).to_string()));
+        let builds = quote!(#[cfg(test)]);
+        let under = entries.shape_errors(Some(&builds)).to_string();
+        assert!(
+            under.contains(&quote!(#[cfg(test)] #[cfg(unix)] ::core::compile_error!).to_string())
+        );
+        assert!(under.contains(&quote!(#[cfg(test)] ::core::compile_error!).to_string()));
+    }
+
+    #[test]
+    fn a_target_is_matched_and_built_as_its_holder_and_field_say() {
+        let subject = shapes();
+        let entries = subject.read().unwrap();
+        let prefix: Path = parse_quote!(Any);
+        let value = || quote!(__value);
+        let binding = quote!(__inner);
+        let pattern = |name: &str| {
+            target(&entries, name)
+                .pattern(&prefix, &binding, site())
+                .to_string()
+        };
+        let rebuild =
+            |name: &str| spelled(target(&entries, name).rebuild(&prefix, value(), site()));
+        let constructor = |name: &str| spelled(target(&entries, name).constructor(&prefix, site()));
+        assert_eq!(pattern("Plain"), quote!(Any::Plain(__inner)).to_string());
+        assert_eq!(
+            pattern("Tagged"),
+            quote!(Any::Tagged(_, __inner, ..)).to_string()
+        );
+        assert_eq!(
+            pattern("Named"),
+            quote!(Any::Named { inner: __inner, .. }).to_string()
+        );
+        assert_eq!(
+            pattern("Labelled"),
+            quote!(Any::Labelled { inner: __inner, .. }).to_string()
+        );
+        assert_eq!(rebuild("Plain"), spelled(Some(quote!(Any::Plain(__value)))));
+        assert_eq!(
+            rebuild("Named"),
+            spelled(Some(quote!(Any::Named { inner: __value })))
+        );
+        assert_eq!(rebuild("Tagged"), None);
+        assert_eq!(rebuild("Labelled"), None);
+        assert_eq!(constructor("Plain"), spelled(Some(quote!(Any::Plain))));
+        assert_eq!(constructor("Named"), None, "braces are no path");
+        assert_eq!(constructor("Tagged"), None);
+        assert_eq!(
+            target(&entries, "Tagged")
+                .whole(&prefix, site())
+                .to_string(),
+            quote!(Any::Tagged { .. }).to_string()
+        );
+        let wrapped: Subject = parse_quote!(
+            struct Wrapped(Circle);
+        );
+        let tuple = wrapped.read().unwrap();
+        let named: Subject = parse_quote!(
+            struct Wrapped {
+                inner: Circle,
+            }
+        );
+        let braces = named.read().unwrap();
+        let prefix: Path = parse_quote!(Wrapped);
+        let only = &tuple.targets()[0];
+        let one_named = &braces.targets()[0];
+        assert_eq!(
+            only.pattern(&prefix, &binding, site()).to_string(),
+            quote!(Wrapped(__inner, ..)).to_string()
+        );
+        assert_eq!(
+            spelled(only.rebuild(&prefix, value(), site())),
+            spelled(Some(quote!(Wrapped(__value))))
+        );
+        assert_eq!(
+            spelled(only.constructor(&prefix, site())),
+            spelled(Some(quote!(Wrapped)))
+        );
+        assert_eq!(
+            one_named.pattern(&prefix, &binding, site()).to_string(),
+            quote!(Wrapped { inner: __inner, .. }).to_string()
+        );
+        assert_eq!(
+            spelled(one_named.rebuild(&prefix, value(), site())),
+            spelled(Some(quote!(Wrapped { inner: __value })))
+        );
+        assert_eq!(
+            only.whole(&prefix, site()).to_string(),
+            quote!(Wrapped { .. }).to_string()
+        );
+    }
+
+    #[test]
+    fn a_target_says_how_it_is_rebuilt_converted_and_spoken_of() {
+        let subject = shapes();
+        let entries = subject.read().unwrap();
+        let wrapped: Subject = parse_quote!(
+            struct Wrapped(Circle);
+        );
+        let tuple = wrapped.read().unwrap();
+        let named: Subject = parse_quote!(
+            struct Wrapped {
+                inner: Circle,
+            }
+        );
+        let braces = named.read().unwrap();
+        let several: Subject = parse_quote!(
+            struct Wrapped {
+                #[dispatch]
+                inner: Circle,
+                n: u32,
+            }
+        );
+        let beside = several.read().unwrap();
+        let subject_ident: Ident = parse_quote!(Wrapped);
+        // Rebuilt at all, by a path, by no path, converted, spoken of as,
+        // and called.
+        let said = |target: Target<'_>| {
+            (
+                target.is_rebuilt(),
+                target.is_built_by_a_path(),
+                target.is_built_by_no_path(),
+                target.conversions().map(|conversions| conversions.from),
+                target.spoken(&subject_ident).to_string(),
+                target.noun(),
+            )
+        };
+        let variant = |name: &str| said(target(&entries, name));
+        let owned = |name: &str| name.to_owned();
+        assert_eq!(
+            variant("Plain"),
+            (true, true, false, Some(true), owned("Plain"), "variant")
+        );
+        assert_eq!(
+            variant("Kept"),
+            (true, true, false, Some(false), owned("Kept"), "variant"),
+            "`from = false` leaves the variant out of the conversions"
+        );
+        assert_eq!(
+            variant("Named"),
+            (true, false, true, None, owned("Named"), "variant")
+        );
+        assert_eq!(
+            variant("Tagged"),
+            (false, false, false, None, owned("Tagged"), "variant")
+        );
+        assert_eq!(
+            variant("Labelled"),
+            (false, false, false, None, owned("Labelled"), "variant")
+        );
+        assert_eq!(
+            said(tuple.targets()[0]),
+            (true, true, false, None, owned("Wrapped"), "field")
+        );
+        assert_eq!(
+            said(braces.targets()[0]),
+            (true, false, true, None, owned("Wrapped"), "field")
+        );
+        assert_eq!(
+            said(target(&beside, "inner")),
+            (false, false, false, None, owned("Wrapped"), "field")
+        );
+    }
+}

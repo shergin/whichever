@@ -146,3 +146,85 @@ fn written_by_hand(attribute: &Attribute) -> bool {
         .and_then(|ident| ident.span().source_text())
         .is_some_and(|text| text == "allow")
 }
+
+#[cfg(test)]
+mod tests {
+    use quote::ToTokens;
+    use syn::{parse_quote, TraitItem};
+
+    use super::*;
+
+    fn signatures(remote: Option<Path>) -> Signatures {
+        Signatures {
+            item: parse_quote! {
+                trait Shape {
+                    fn area(&self) -> u32;
+                    fn sides(&self) -> u32 { 4 }
+                    fn name(&self) -> &str;
+                }
+            },
+            remote,
+            provided: vec![parse_quote!(name)],
+        }
+    }
+
+    fn function<'a>(signatures: &'a Signatures, name: &str) -> &'a TraitItemFn {
+        signatures
+            .item
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TraitItem::Fn(function) if function.sig.ident == name => Some(function),
+                _ => None,
+            })
+            .expect("a method of the trait")
+    }
+
+    fn default(signatures: &Signatures, name: &str) -> DefaultBody {
+        signatures.method(function(signatures, name)).default
+    }
+
+    #[test]
+    fn a_default_body_is_given_by_the_trait_or_named_by_the_carrier() {
+        let own = signatures(None);
+        assert!(default(&own, "sides") == DefaultBody::Given, "a body");
+        assert!(
+            default(&own, "name") == DefaultBody::Given,
+            "a name the carrier lists in `provided`"
+        );
+        assert!(default(&own, "area") == DefaultBody::Required);
+        let restated = signatures(Some(parse_quote!(other::Shape)));
+        assert!(default(&restated, "sides") == DefaultBody::Given);
+        assert!(
+            default(&restated, "area") == DefaultBody::Unseen,
+            "a restatement cannot see the real trait's bodies"
+        );
+    }
+
+    #[test]
+    fn only_a_seen_body_is_a_default_and_only_a_seen_absence_refuses_one() {
+        let own = signatures(None);
+        let restated = signatures(Some(parse_quote!(other::Shape)));
+        let given = own.method(function(&own, "sides"));
+        let required = own.method(function(&own, "area"));
+        let unseen = restated.method(function(&restated, "area"));
+        assert!(given.has_default() && given.may_be_left_to_default());
+        assert!(!required.has_default() && !required.may_be_left_to_default());
+        assert!(!unseen.has_default() && unseen.may_be_left_to_default());
+        assert_eq!(given.ident(), "sides");
+    }
+
+    #[test]
+    fn a_restated_trait_is_implemented_at_its_real_path_with_the_named_arguments() {
+        let named: Path = parse_quote!(Shape<u8>);
+        let spelled = |path: Path| path.to_token_stream().to_string();
+        assert_eq!(
+            spelled(signatures(None).implemented_path(&named)),
+            spelled(parse_quote!(Shape<u8>))
+        );
+        assert_eq!(
+            spelled(signatures(Some(parse_quote!(other::Shape))).implemented_path(&named)),
+            spelled(parse_quote!(other::Shape<u8>))
+        );
+    }
+}

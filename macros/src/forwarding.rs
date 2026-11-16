@@ -653,3 +653,385 @@ impl Forwarding {
         TokenTree::Group(group).into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+    use crate::refusal::Refusal;
+
+    fn site() -> Site {
+        Site::at(Span::call_site())
+    }
+
+    /// An enum with a target of every kind the refusals tell apart.
+    fn shapes() -> Subject {
+        parse_quote! {
+            enum Any {
+                Plain(Circle),
+                #[dispatch(deref)]
+                Boxed(Box<Circle>),
+                #[dispatch(deref)]
+                Shared(Rc<Circle>),
+                #[dispatch(deref)]
+                Dyn(Box<dyn Shape>),
+                #[dispatch(via = .0)]
+                Routed(Wrapper),
+                #[dispatch(via = .get())]
+                Got(Holder),
+                Tagged(#[dispatch] Circle, u32),
+                Named {
+                    #[dispatch]
+                    inner: Circle,
+                },
+            }
+        }
+    }
+
+    fn way_out() -> WayOut {
+        WayOut {
+            on_trait: true,
+            has_body: false,
+        }
+    }
+
+    /// Reads `signature` over `entries` as a trait's method is read.
+    fn plan(signature: &Signature, subject: &Subject, entries: &Entries) -> MethodPlan {
+        let mut signature = signature.clone();
+        let read = MethodPlan::read(
+            &mut signature,
+            ArgumentNames::WrittenOrGenerated,
+            SelfArguments::Dispatch,
+            None,
+            &ReturnSite {
+                subject: subject.ident(),
+                one_target: subject.has_one_target(),
+                way_out: way_out(),
+                default: None,
+            },
+            None,
+            entries,
+        );
+        match read {
+            Ok(plan) => plan,
+            Err(error) => panic!("a plan: {error}"),
+        }
+    }
+
+    /// The refusal a trait's method `signature` meets at `variant` of
+    /// `shapes()`, in words.
+    fn refusal(signature: Signature, variant: &str) -> &'static str {
+        let subject = shapes();
+        let entries = subject.read().unwrap();
+        let plan = plan(&signature, &subject, &entries);
+        let trait_path: Path = parse_quote!(Shape);
+        let method = signature.ident.clone();
+        let context = ArmContext {
+            kind: ArmKind::QualifiedCall {
+                trait_path: &trait_path,
+                method: &method,
+            },
+            method: &method,
+            subject: subject.ident(),
+            prefix: parse_quote!(Any),
+            lift: None,
+            way_out: way_out(),
+            declared: Some(Declared {
+                signature: &signature,
+                block_header: "impl Shape for Any",
+            }),
+            site: site(),
+        };
+        let target = entries
+            .targets()
+            .into_iter()
+            .find(|target| target.ident() == variant)
+            .expect("a variant of `shapes()`");
+        match plan.refusal(&target, &context) {
+            None => "none",
+            Some(Refusal::TraitObject { .. }) => "trait object",
+            Some(Refusal::RewrapThroughRoute) => "rewrap through a route",
+            Some(Refusal::MethodRouteBorrowedMutably(_)) => "method route borrowed mutably",
+            Some(Refusal::SharedPointerBorrowedMutably(_)) => "shared pointer borrowed mutably",
+            Some(Refusal::MovedOutOfPointer(_)) => "moved out of a pointer",
+            Some(Refusal::NoBoxToHandOver) => "no box to hand over",
+            Some(Refusal::NotRebuilt) => "not rebuilt",
+        }
+    }
+
+    #[test]
+    fn a_plain_target_takes_any_method() {
+        for signature in [
+            parse_quote!(fn area(&self) -> u32),
+            parse_quote!(fn grow(&mut self)),
+            parse_quote!(fn into_area(self) -> u32),
+            parse_quote!(fn grown(&self) -> Self),
+            parse_quote!(fn halved(&self) -> Option<Self>),
+        ] {
+            assert_eq!(refusal(signature, "Plain"), "none");
+        }
+    }
+
+    #[test]
+    fn each_target_refuses_what_it_cannot_give() {
+        assert_eq!(
+            refusal(
+                parse_quote!(fn sized(&self) -> u32 where Self: Sized),
+                "Dyn"
+            ),
+            "trait object"
+        );
+        assert_eq!(
+            refusal(
+                parse_quote!(fn sized(&self) -> u32 where Self: Sized),
+                "Boxed"
+            ),
+            "none"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&self) -> Self), "Boxed"),
+            "rewrap through a route"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&self) -> Self), "Routed"),
+            "rewrap through a route"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grow(&mut self)), "Got"),
+            "method route borrowed mutably"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grow(&mut self)), "Routed"),
+            "none",
+            "a field is a place"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grow(&mut self)), "Shared"),
+            "shared pointer borrowed mutably"
+        );
+        assert_eq!(refusal(parse_quote!(fn grow(&mut self)), "Boxed"), "none");
+        assert_eq!(
+            refusal(parse_quote!(fn into_area(self) -> u32), "Shared"),
+            "moved out of a pointer"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn into_area(self) -> u32), "Boxed"),
+            "none"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn boxed(self: Box<Self>) -> u32), "Plain"),
+            "no box to hand over"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn boxed(self: Box<Self>) -> u32), "Boxed"),
+            "none"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&self) -> Self), "Tagged"),
+            "not rebuilt"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&self) -> Self), "Named"),
+            "none"
+        );
+        assert_eq!(
+            refusal(parse_quote!(fn halved(&self) -> Option<Self>), "Named"),
+            "not rebuilt",
+            "a `Self` under an `Option` is rebuilt by a path, and braces are none"
+        );
+    }
+
+    #[test]
+    fn the_first_reason_that_holds_is_the_one_given() {
+        // A trait object is named before the route it is reached by.
+        assert_eq!(
+            refusal(
+                parse_quote!(fn grown(&self) -> Self where Self: Sized),
+                "Dyn"
+            ),
+            "trait object"
+        );
+        // A route that cannot rewrap is named before the method call that
+        // ends it.
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&mut self) -> Self), "Got"),
+            "rewrap through a route"
+        );
+        // A shared pointer lent mutably is named before the box it is not.
+        assert_eq!(
+            refusal(
+                parse_quote!(fn boxed(self: Box<Self>, other: &mut Self) -> u32),
+                "Shared"
+            ),
+            "shared pointer borrowed mutably"
+        );
+        // A value moved out of a shared pointer is named before the box it
+        // is not.
+        assert_eq!(
+            refusal(
+                parse_quote!(fn boxed(self: Box<Self>, other: Self) -> u32),
+                "Shared"
+            ),
+            "moved out of a pointer"
+        );
+        // A missing box is named before the variant it cannot rebuild.
+        assert_eq!(
+            refusal(parse_quote!(fn boxed(self: Box<Self>) -> Self), "Tagged"),
+            "no box to hand over"
+        );
+    }
+
+    #[test]
+    fn a_reference_receiver_over_an_enum_that_may_be_empty_matches_the_place() {
+        let conditional: Subject = parse_quote! {
+            enum Any {
+                #[cfg(unix)]
+                Unix(Circle),
+                #[cfg(not(unix))]
+                Other(Circle),
+            }
+        };
+        let entries = conditional.read().unwrap();
+        let read = |signature: Signature| plan(&signature, &conditional, &entries);
+        let by_reference = read(parse_quote!(fn scaled(&self, by: u32) -> u32));
+        assert!(by_reference.by_place && by_reference.may_be_empty);
+        assert!(
+            by_reference.allow_unused_when_empty(site()).is_some(),
+            "a build without a variant leaves `by` unused"
+        );
+        assert!(read(parse_quote!(fn area(&mut self) -> u32)).by_place);
+        assert!(
+            !read(parse_quote!(fn area(self) -> u32)).by_place,
+            "a value is matched as it is"
+        );
+        assert!(
+            !read(parse_quote!(fn same(&self, other: &Self) -> bool)).by_place,
+            "a `Self` argument is matched beside the receiver in a tuple"
+        );
+        assert!(read(parse_quote!(fn area(&self) -> u32))
+            .allow_unused_when_empty(site())
+            .is_none());
+        let subject = shapes();
+        let entries = subject.read().unwrap();
+        let always = plan(
+            &parse_quote!(fn scaled(&self, by: u32) -> u32),
+            &subject,
+            &entries,
+        );
+        assert!(!always.by_place && !always.may_be_empty);
+        assert!(always.allow_unused_when_empty(site()).is_none());
+    }
+
+    /// The fallback arm a trait method `signature` over `subject` gets,
+    /// with its mark's body when given, in words: the arm's value and
+    /// whether the lint about an unreachable pattern is allowed, or the
+    /// error.
+    fn fallback(
+        subject: Subject,
+        signature: Signature,
+        mismatch: Option<Expr>,
+        body: Option<Block>,
+    ) -> std::result::Result<(Option<String>, bool), String> {
+        let entries = subject.read().unwrap();
+        let plan = plan(&signature, &subject, &entries);
+        let trait_path: Path = parse_quote!(Shape);
+        let subject_path: Path = parse_quote!(Any);
+        let method = signature.ident.clone();
+        let options = TraitOptions {
+            overrides: vec![],
+            mismatch: vec![],
+            routes: vec![],
+        };
+        let forwarding: ForwardingOptions = syn::parse_str("*").unwrap();
+        let mark = body.as_ref().map(|body| Mark {
+            options: &forwarding,
+            body: Some(body),
+        });
+        let origin = Origin::Trait {
+            method: TraitMethod {
+                trait_path: &trait_path,
+                subject_path: &subject_path,
+                declared: &signature,
+                has_default: false,
+                block_header: "impl Shape for Any",
+                options: &options,
+                mismatch,
+                resolution: None,
+                derived: true,
+            },
+            mark,
+        };
+        let context = ArmContext {
+            kind: ArmKind::QualifiedCall {
+                trait_path: &trait_path,
+                method: &method,
+            },
+            method: &method,
+            subject: subject.ident(),
+            prefix: subject_path.clone(),
+            lift: None,
+            way_out: way_out(),
+            declared: None,
+            site: site(),
+        };
+        match plan.fallback_for(&entries, &subject, &origin, &context) {
+            Ok(Fallback {
+                arm,
+                allow_unreachable,
+            }) => Ok((arm.map(|arm| arm.value.to_string()), allow_unreachable)),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    #[test]
+    fn the_rest_is_the_marks_body_the_mismatch_or_nothing() {
+        let two: Subject = parse_quote!(
+            enum Any {
+                A(Circle),
+                B(Square),
+            }
+        );
+        let same: Signature = parse_quote!(fn same(&self, other: &Self) -> bool);
+        let area: Signature = parse_quote!(fn area(&self) -> u32);
+        assert_eq!(
+            fallback(two.clone(), area.clone(), None, Some(parse_quote!({ 0 }))),
+            Ok((Some(quote::quote!({ 0 }).to_string()), false)),
+            "a marked method's body answers for the rest"
+        );
+        assert_eq!(fallback(two.clone(), area, None, None), Ok((None, false)));
+        assert_eq!(
+            fallback(two.clone(), same.clone(), Some(parse_quote!(false)), None),
+            Ok((Some("false".to_owned()), false))
+        );
+        let error = fallback(two, same.clone(), None, None).unwrap_err();
+        assert!(
+            error.starts_with(
+                "`same` takes `Self` arguments; give the result for two different variants"
+            ),
+            "{error}"
+        );
+        let one: Subject = parse_quote!(
+            enum Any {
+                A(Circle),
+            }
+        );
+        assert_eq!(
+            fallback(one, same.clone(), None, None),
+            Ok((None, false)),
+            "one variant always compiled in has no second to meet"
+        );
+        let conditional: Subject = parse_quote!(
+            enum Any {
+                A(Circle),
+                #[cfg(unix)]
+                B(Square),
+            }
+        );
+        assert_eq!(
+            fallback(conditional, same, Some(parse_quote!(false)), None),
+            Ok((Some("false".to_owned()), true)),
+            "the arm is unreachable in a build without `B`"
+        );
+    }
+}

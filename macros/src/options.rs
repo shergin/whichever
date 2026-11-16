@@ -1186,4 +1186,118 @@ mod tests {
             syn::parse_str("*, via = .content(), call = refresh").unwrap();
         assert_eq!(forwarding.via.unwrap().spelled(), ".content()");
     }
+
+    /// The message of an error, or a panic for a result that is none.
+    fn message<T>(result: Result<T>) -> String {
+        match result {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_variants_field_takes_a_route_and_nothing_else() {
+        let field =
+            |attribute: Attribute| TargetOptions::read(&[attribute], Position::VariantField);
+        assert!(field(parse_quote!(#[dispatch])).unwrap().route.is_none());
+        assert!(field(parse_quote!(#[dispatch(deref)]))
+            .unwrap()
+            .route
+            .is_some_and(|route| route.is_deref()));
+        let routed = field(parse_quote!(#[dispatch(via = .base)])).unwrap();
+        assert_eq!(routed.route.unwrap().spelled(), ".base");
+        let sentence = "the options of a variant's field are `deref` and `via = route`";
+        for refused in [
+            parse_quote!(#[dispatch(Shape)]),
+            parse_quote!(#[dispatch(from = false)]),
+            parse_quote!(#[dispatch(try_from = true)]),
+            parse_quote!(#[dispatch(bogus = 1)]),
+        ] {
+            let error = message(field(refused));
+            assert!(error.contains(sentence), "{error}");
+        }
+        assert!(
+            message(field(parse_quote!(#[dispatch(Shape)]))).starts_with("unknown option `Shape`")
+        );
+    }
+
+    #[test]
+    fn a_partial_blocks_mark_leaves_to_the_default_or_forwards_by_name() {
+        let mark = |attribute: Attribute| TraitMark::read(&attribute);
+        assert!(matches!(
+            mark(parse_quote!(#[dispatch(default)])),
+            Ok(TraitMark::Default)
+        ));
+        let Ok(TraitMark::Forward(forwarding)) = mark(parse_quote!(#[dispatch(Square, via = .0)]))
+        else {
+            panic!("a forward");
+        };
+        assert_eq!(forwarding.variants.len(), 1);
+        assert!(forwarding.via.is_some() && !forwarding.all);
+        assert!(matches!(
+            mark(parse_quote!(#[dispatch(*)])),
+            Ok(TraitMark::Forward(ForwardingOptions { all: true, .. }))
+        ));
+        for (attribute, option) in [
+            (parse_quote!(#[dispatch(*, call = other)]), "`call`"),
+            (parse_quote!(#[dispatch(*, with = Some)]), "`with`"),
+            (parse_quote!(#[dispatch(*, field = inner)]), "`field`"),
+            (parse_quote!(#[dispatch(*, value)]), "`value`"),
+        ] {
+            let error = message(mark(attribute));
+            assert!(
+                error.starts_with(&format!("{option} is an option of an inherent method")),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bare_mark_on_a_method_names_no_variant() {
+        let error = message(ForwardingOptions::read(&parse_quote!(#[dispatch])));
+        assert!(
+            error.starts_with("name the variants to forward to, `#[dispatch(Variant, ..)]`"),
+            "{error}"
+        );
+        assert!(message(TraitMark::read(&parse_quote!(#[dispatch])))
+            .starts_with("name the variants to forward to"));
+    }
+
+    #[test]
+    fn an_option_naming_nothing_in_the_trait_is_reported_with_what_was_meant() {
+        let item_trait: ItemTrait = parse_quote! {
+            trait Shape {
+                type Output;
+                fn same(&self, other: &Self) -> bool;
+                fn area(&self) -> u32;
+            }
+        };
+        let trait_ident: Ident = parse_quote!(Shape);
+        let unknown = |options: &str| {
+            syn::parse_str::<TraitOptions>(options)
+                .expect("valid options")
+                .unknown_names(&item_trait, &trait_ident, false, true)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(unknown("Output = u8, mismatch(same = false)").is_empty());
+        let errors = unknown("Outpt = u8, mismatch(sme = false)");
+        assert_eq!(errors.len(), 2);
+        assert_eq!(
+            errors[0],
+            "`Shape` has no associated type or const `Outpt`; did you mean `Output`?"
+        );
+        assert!(
+            errors[1].starts_with("`Shape` has no method `sme` with a `Self`, `&Self` or `&mut Self` argument, so there is no mismatch to decide; did you mean `same`?"),
+            "{}",
+            errors[1]
+        );
+        let errors = unknown("mismatch(area = false)");
+        assert!(
+            errors[0].contains("its methods taking one are `same`"),
+            "a method without a `Self` argument has no mismatch: {}",
+            errors[0]
+        );
+    }
 }

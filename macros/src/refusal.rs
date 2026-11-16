@@ -230,3 +230,69 @@ impl Refusal<'_> {
         Error::new_spanned(payload, message)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn way_out(on_trait: bool, has_body: bool) -> WayOut {
+        WayOut { on_trait, has_body }
+    }
+
+    #[test]
+    fn a_method_without_a_body_is_implemented_by_hand_or_given_one() {
+        let variant: Ident = parse_quote!(Circle);
+        let on_trait = way_out(true, false);
+        assert_eq!(on_trait.of_method(), "implement the method by hand");
+        assert_eq!(
+            on_trait.of_variant(&variant),
+            "implement the method by hand"
+        );
+        assert_eq!(
+            on_trait.of_rebuilding(&variant),
+            "write the method in a `#[whichever::dispatch] impl` block"
+        );
+        let inherent = way_out(false, false);
+        assert_eq!(inherent.of_method(), "give it a body");
+        assert_eq!(inherent.of_variant(&variant), "give it a body");
+        assert_eq!(inherent.of_rebuilding(&variant), "give it a body instead");
+    }
+
+    #[test]
+    fn a_method_with_a_body_leaves_the_variant_to_it_on_either_path() {
+        let variant: Ident = parse_quote!(Circle);
+        for on_trait in [true, false] {
+            let with_body = way_out(on_trait, true);
+            assert_eq!(
+                with_body.of_method(),
+                "drop its `#[dispatch(..)]`, and the body answers for every variant"
+            );
+            assert_eq!(with_body.of_variant(&variant), "leave `Circle` to the body");
+            assert_eq!(
+                with_body.of_rebuilding(&variant),
+                "leave `Circle` to the body"
+            );
+        }
+    }
+
+    #[test]
+    fn what_a_method_takes_is_spelled_as_its_signature_has_it() {
+        let other: Ident = parse_quote!(other);
+        assert_eq!(Taken::MutSelf.to_string(), "`&mut self`");
+        assert_eq!(Taken::PinnedMutSelf.to_string(), "`self: Pin<&mut Self>`");
+        assert_eq!(Taken::MutArgument(&other).to_string(), "`other: &mut Self`");
+        assert_eq!(Taken::SelfByValue.to_string(), "`self` by value");
+        assert_eq!(Taken::BoxedSelf.to_string(), "`self: Box<Self>`");
+        assert_eq!(
+            Taken::ArgumentByValue(&other).to_string(),
+            "`other` by value"
+        );
+        assert_eq!(
+            MutableBorrow::Takes(Taken::MutSelf).to_string(),
+            "takes `&mut self`"
+        );
+        assert_eq!(MutableBorrow::Returns.to_string(), "returns a `&mut`");
+    }
+}

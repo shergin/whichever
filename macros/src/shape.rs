@@ -1330,4 +1330,85 @@ mod tests {
             Some(quote!(::<T, U>).to_string())
         );
     }
+
+    #[test]
+    fn a_pointer_is_read_by_the_name_its_path_ends_in_or_by_being_a_reference() {
+        let of = |ty: Type| Pointer::of(&ty);
+        assert!(of(parse_quote!(Box<Circle>)) == Pointer::Box);
+        assert!(of(parse_quote!(std::boxed::Box<dyn Shape>)) == Pointer::Box);
+        assert!(of(parse_quote!(Rc<Circle>)) == Pointer::Shared);
+        assert!(of(parse_quote!(std::sync::Arc<Circle>)) == Pointer::Shared);
+        assert!(of(parse_quote!(&'a Circle)) == Pointer::Shared);
+        assert!(
+            of(parse_quote!(&'a mut Circle)) == Pointer::Other,
+            "a `&mut` is rustc's to judge"
+        );
+        assert!(of(parse_quote!(Circle)) == Pointer::Other);
+    }
+
+    #[test]
+    fn a_pointer_points_at_its_referent_or_its_one_type_argument() {
+        let pointee_of = |ty: Type| pointee(&ty).map(|ty| ty.to_token_stream().to_string());
+        let spelled = |ty: Type| Some(ty.to_token_stream().to_string());
+        assert_eq!(
+            pointee_of(parse_quote!(&'a Circle)),
+            spelled(parse_quote!(Circle))
+        );
+        assert_eq!(
+            pointee_of(parse_quote!(Box<dyn Shape>)),
+            spelled(parse_quote!(dyn Shape))
+        );
+        assert_eq!(
+            pointee_of(parse_quote!(Rc<'a, Circle>)),
+            spelled(parse_quote!(Circle)),
+            "a lifetime is no type argument"
+        );
+        assert_eq!(pointee_of(parse_quote!(Circle)), None);
+        assert_eq!(pointee_of(parse_quote!(HashMap<K, V>)), None);
+    }
+
+    #[test]
+    fn a_rewrap_is_rebuilt_whole_or_by_the_path_a_map_takes() {
+        let rebuilds = |conversion: Conversion| {
+            let rebuilds = conversion.rebuilds();
+            (rebuilds.whole, rebuilds.by_path)
+        };
+        let rewrap = || Box::new(Conversion::Rewrap);
+        assert_eq!(rebuilds(Conversion::Keep), (false, false));
+        assert_eq!(rebuilds(Conversion::Into), (false, false));
+        assert_eq!(rebuilds(Conversion::Rewrap), (true, false));
+        assert_eq!(rebuilds(Conversion::Map(rewrap())), (false, true));
+        assert_eq!(
+            rebuilds(Conversion::Map(Box::new(Conversion::Into))),
+            (false, false)
+        );
+        assert_eq!(
+            rebuilds(Conversion::MapErr(Box::new(Conversion::Keep), rewrap())),
+            (false, true),
+            "a `Self` in the error is mapped with a path too"
+        );
+        assert_eq!(
+            rebuilds(Conversion::Tuple(vec![
+                Conversion::Rewrap,
+                Conversion::Map(rewrap())
+            ])),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn a_receiver_borrows_as_it_is_written_plain_or_pinned() {
+        assert!(Access::Shared.borrow() == Some(Borrow::Shared));
+        assert!(Access::Exclusive.borrow() == Some(Borrow::Exclusive));
+        assert!(Access::Owned.borrow().is_none());
+        assert!(ReceiverKind::Value(Access::Shared).borrow() == Some(Borrow::Shared));
+        assert!(ReceiverKind::Value(Access::Exclusive).borrow() == Some(Borrow::Exclusive));
+        assert!(ReceiverKind::Value(Access::Owned).borrow().is_none());
+        assert!(
+            ReceiverKind::Boxed.borrow().is_none(),
+            "`self: Box<Self>` is matched by value"
+        );
+        assert!(ReceiverKind::Pinned(Borrow::Shared).borrow() == Some(Borrow::Shared));
+        assert!(ReceiverKind::Pinned(Borrow::Exclusive).borrow() == Some(Borrow::Exclusive));
+    }
 }

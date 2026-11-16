@@ -9,9 +9,9 @@
 //! `Span::call_site()` without a location. Such a token is no less written
 //! at the call site for being built outside a `quote!`: an expression that
 //! holds it beside the arm's own tokens has a span joined from the two, and
-//! rustc reports it from the attribute to the subject. `at` in `lib.rs` is
-//! the way a span is made: the hygiene of `Span::mixed_site()`, located
-//! where the user's token is.
+//! rustc reports it from the attribute to the subject. `Site::at` in
+//! `site.rs` is the way a span is made: the hygiene of `Span::mixed_site()`,
+//! located where the user's token is.
 use std::fs;
 use std::path::Path;
 
@@ -19,18 +19,28 @@ use syn::visit::Visit;
 use syn::{Expr, ExprCall, Macro};
 
 /// The modules that write generated code inside `implement!` or
-/// `implement_block!`. The others write at a call site that is the user's
-/// own attribute: `dispatch.rs`, `dispatchable.rs` and `conversions.rs`
-/// expand at `#[dispatch]` or `#[dispatchable]`, `protocol.rs` writes the
-/// messages between the macros, and `route.rs` spells a route back into a
-/// message.
+/// `implement_block!`, or read and judge what it is written from. The
+/// others write at a call site that is the user's own attribute or write
+/// no code: `dispatch.rs`, `dispatchable.rs` and `conversions.rs` expand at
+/// `#[dispatch]` or `#[dispatchable]`, `naming.rs` names the carrier macro
+/// `#[dispatchable]` leaves, `protocol.rs` writes the messages between the
+/// macros, `route.rs` spells a route back into a message, `options.rs`
+/// reads the attributes, and `spelling.rs` spells a type in a sentence.
 const ENGINE: &[&str] = &[
     "agreement.rs",
+    "arm.rs",
     "block.rs",
+    "builds.rs",
     "forwarding.rs",
     "implement.rs",
+    "items.rs",
+    "marked.rs",
+    "partial.rs",
+    "refusal.rs",
     "selection.rs",
     "shape.rs",
+    "signatures.rs",
+    "site.rs",
     "subject.rs",
     "substitution.rs",
 ];

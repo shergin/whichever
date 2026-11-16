@@ -158,3 +158,117 @@ impl Builds {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+    use syn::parse_quote;
+
+    use super::*;
+
+    /// The text of a predicate or an attribute, spelled as `quote!` spells
+    /// the tokens a hand writes.
+    fn spelled(tokens: TokenStream2) -> String {
+        tokens.to_string()
+    }
+
+    fn written(attributes: &[Attribute]) -> Option<String> {
+        Builds::of(attributes)
+            .attribute(Span::call_site())
+            .map(spelled)
+    }
+
+    #[test]
+    fn the_cfg_attributes_of_an_item_are_one_predicate_or_all_of_several() {
+        let none: Vec<Attribute> = vec![parse_quote!(#[inline])];
+        assert!(Predicate::of(&none).is_none());
+        let one: Vec<Attribute> = vec![parse_quote!(#[inline]), parse_quote!(#[cfg(unix)])];
+        assert_eq!(
+            Predicate::of(&one).map(|predicate| predicate.key()),
+            Some(spelled(quote!(unix)))
+        );
+        let several: Vec<Attribute> = vec![
+            parse_quote!(#[cfg(unix)]),
+            parse_quote!(#[allow(dead_code)]),
+            parse_quote!(#[cfg(feature = "named")]),
+        ];
+        assert_eq!(
+            Predicate::of(&several).map(|predicate| predicate.key()),
+            Some(spelled(quote!(all(unix, feature = "named"))))
+        );
+    }
+
+    #[test]
+    fn an_item_without_a_cfg_exists_in_every_build() {
+        let plain: Vec<Attribute> = vec![parse_quote!(#[inline])];
+        assert!(Builds::of(&plain).is_every());
+        assert!(!Builds::of(&plain).is_never());
+        assert_eq!(
+            written(&plain),
+            None,
+            "an item of every build takes no `#[cfg]`"
+        );
+        let conditional: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
+        assert!(!Builds::of(&conditional).is_every());
+        assert!(!Builds::of(&conditional).is_never());
+        assert_eq!(written(&conditional), Some(spelled(quote!(#[cfg(unix)]))));
+        assert_eq!(
+            Builds::Never.attribute(Span::call_site()).map(spelled),
+            Some(spelled(quote!(#[cfg(any())]))),
+            "no build is the predicate that never holds"
+        );
+    }
+
+    #[test]
+    fn every_build_and_no_build_are_the_ends_of_a_union() {
+        let unix = || Builds::of(&[parse_quote!(#[cfg(unix)])]);
+        assert!(unix().or(Builds::Every).is_every());
+        assert!(Builds::Every.or(unix()).is_every());
+        let attribute = |builds: Builds| builds.attribute(Span::call_site()).map(spelled);
+        assert_eq!(
+            attribute(Builds::Never.or(unix())),
+            Some(spelled(quote!(#[cfg(unix)])))
+        );
+        assert_eq!(
+            attribute(unix().or(Builds::Never)),
+            Some(spelled(quote!(#[cfg(unix)])))
+        );
+        assert!(Builds::Never.or(Builds::Never).is_never());
+        let three = unix()
+            .or(Builds::of(&[parse_quote!(#[cfg(test)])]))
+            .or(Builds::of(&[parse_quote!(#[cfg(windows)])]));
+        assert_eq!(
+            attribute(three),
+            Some(spelled(quote!(#[cfg(any(unix, test, windows))]))),
+            "a union grows one `any` rather than nesting one in another"
+        );
+    }
+
+    #[test]
+    fn the_complement_swaps_the_ends_and_negates_a_predicate() {
+        assert!(Builds::Never.complement().is_every());
+        assert!(Builds::Every.complement().is_never());
+        let unix = Builds::of(&[parse_quote!(#[cfg(unix)])]);
+        assert_eq!(
+            unix.complement().attribute(Span::call_site()).map(spelled),
+            Some(spelled(quote!(#[cfg(not(unix))]))),
+            "a composition of one predicate is that predicate, not `not(any(all(unix)))`"
+        );
+    }
+
+    #[test]
+    fn the_builds_two_conditional_items_leave_read_as_a_hand_writes_them() {
+        let first: Vec<Attribute> = vec![
+            parse_quote!(#[cfg(feature = "named")]),
+            parse_quote!(#[cfg(not(test))]),
+        ];
+        let second: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
+        let left = Builds::of(&first).or(Builds::of(&second)).complement();
+        assert_eq!(
+            left.attribute(Span::call_site()).map(spelled),
+            Some(spelled(
+                quote!(#[cfg(not(any(all(feature = "named", not(test)), unix)))])
+            ))
+        );
+    }
+}

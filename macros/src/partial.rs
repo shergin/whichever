@@ -202,3 +202,162 @@ pub(crate) struct Forwarded {
     pub(crate) body: Option<Block>,
     pub(crate) forwarding: ForwardingOptions,
 }
+
+#[cfg(test)]
+mod tests {
+    use proc_macro2::TokenStream as TokenStream2;
+    use quote::quote;
+    use syn::parse_quote;
+
+    use super::*;
+
+    fn read(block: ItemImpl) -> PartialBlock {
+        match PartialBlock::read(block) {
+            Ok(block) => block,
+            Err(error) => panic!("a partial block: {error}"),
+        }
+    }
+
+    fn refused(block: ItemImpl) -> String {
+        match PartialBlock::read(block) {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    /// The `#[cfg]` the block writes the item `name` under, `None` for an
+    /// item of every build.
+    fn written_under(block: &PartialBlock, name: &str) -> Option<String> {
+        block
+            .written(name)
+            .expect("an item the block writes")
+            .builds
+            .attribute(Span::call_site())
+            .map(|attribute| attribute.to_string())
+    }
+
+    fn spelled(tokens: TokenStream2) -> Option<String> {
+        Some(tokens.to_string())
+    }
+
+    #[test]
+    fn the_block_records_the_builds_it_writes_each_item_in() {
+        let block = read(parse_quote! {
+            impl Shape for Any {
+                type Output = u32;
+                const SIDES: u32 = 4;
+                fn area(&self) -> u32 { 1 }
+                #[cfg(unix)]
+                fn name(&self) -> &str { "unix" }
+                #[cfg(not(unix))]
+                fn name(&self) -> &str { "other" }
+                #[cfg(test)]
+                fn label(&self) {}
+                #[dispatch(*)]
+                fn perimeter(&self) -> u32;
+            }
+        });
+        assert_eq!(written_under(&block, "Output"), None);
+        assert_eq!(written_under(&block, "SIDES"), None);
+        assert_eq!(written_under(&block, "area"), None);
+        assert_eq!(
+            written_under(&block, "name"),
+            spelled(quote!(#[cfg(any(unix, not(unix)))]))
+        );
+        assert_eq!(
+            written_under(&block, "label"),
+            spelled(quote!(#[cfg(test)]))
+        );
+        assert!(
+            block.written("perimeter").is_none(),
+            "a marked method is the engine's to write"
+        );
+        assert!(block.written("missing").is_none());
+        assert_eq!(block.user_items.len(), 6);
+        assert_eq!(block.declared_types.len(), 1);
+        assert_eq!(block.declared_types[0].0, "Output");
+    }
+
+    #[test]
+    fn the_block_marks_a_method_for_forwarding_or_for_the_default_once_per_cfg() {
+        let block = read(parse_quote! {
+            impl Shape for Any {
+                #[dispatch(default)]
+                fn sides(&self) -> u32;
+                #[dispatch(*)]
+                fn perimeter(&self) -> u32;
+                #[cfg(unix)]
+                #[dispatch(Square)]
+                fn kind(&self) -> u32 { 0 }
+                #[cfg(not(unix))]
+                #[dispatch(default)]
+                fn kind(&self) -> u32;
+            }
+        });
+        assert!(matches!(
+            block.marked("sides"),
+            [BlockMethod::Default { cfgs, .. }] if cfgs.is_empty()
+        ));
+        assert!(matches!(
+            block.marked("perimeter"),
+            [BlockMethod::Forwarded(forwarded)] if forwarded.forwarding.all && forwarded.body.is_none()
+        ));
+        let kind = block.marked("kind");
+        assert_eq!(kind.len(), 2);
+        assert!(matches!(
+            &kind[0],
+            BlockMethod::Forwarded(forwarded) if forwarded.body.is_some() && forwarded.forwarding.variants.len() == 1
+        ));
+        assert!(matches!(&kind[1], BlockMethod::Default { .. }));
+        assert!(kind.iter().all(|method| method.cfgs().len() == 1));
+        assert!(block.marked("area").is_empty());
+        assert!(block.user_items.is_empty() && block.declared_types.is_empty());
+    }
+
+    #[test]
+    fn a_method_left_to_the_default_takes_no_body() {
+        let error = refused(parse_quote! {
+            impl Shape for Any {
+                #[dispatch(default)]
+                fn sides(&self) -> u32 { 4 }
+            }
+        });
+        assert_eq!(
+            error,
+            "`sides` is left to the trait's default, so it takes no body; end the signature with `;`"
+        );
+    }
+
+    #[test]
+    fn a_bodyless_method_without_a_mark_and_a_macro_invocation_are_refused() {
+        let bodyless = refused(parse_quote! {
+            impl Shape for Any {
+                fn area(&self) -> u32;
+            }
+        });
+        assert!(
+            bodyless.starts_with("`area` has no body; forward it with `#[dispatch(*)]`"),
+            "{bodyless}"
+        );
+        let invocation = refused(parse_quote! {
+            impl Shape for Any {
+                sides!();
+            }
+        });
+        assert!(
+            invocation.starts_with("a macro invocation in a partial impl block is not read"),
+            "{invocation}"
+        );
+        let twice = refused(parse_quote! {
+            impl Shape for Any {
+                #[dispatch(default)]
+                #[dispatch(*)]
+                fn sides(&self) -> u32;
+            }
+        });
+        assert!(
+            twice.starts_with("one `#[dispatch(..)]` per method"),
+            "{twice}"
+        );
+    }
+}
