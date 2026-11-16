@@ -691,12 +691,26 @@ pub(crate) struct TargetOptions {
     pub(crate) traits: Vec<Path>,
 }
 
+/// Where the `#[dispatch(..)]` of a variant or a field is written.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Position {
+    /// On a variant: a route, and the variant's say on its conversions.
+    Variant,
+    /// On the field of a variant: a route.
+    VariantField,
+    /// On a struct's field: a route, and the traits the field is the
+    /// target of.
+    StructField,
+}
+
 impl TargetOptions {
-    /// Reads every `#[dispatch(..)]` attribute of a variant, or of a field
-    /// when `on_variant` is false: `deref` and `via = route` on either,
-    /// `from = false` and `try_from = true` on a variant. A bare
-    /// `#[dispatch]` marks the field to forward to and carries nothing.
-    pub(crate) fn read(attributes: &[Attribute], on_variant: bool) -> Result<Self> {
+    /// Reads every `#[dispatch(..)]` attribute written at `position`:
+    /// `deref` and `via = route` anywhere, `from = false` and `try_from =
+    /// true` on a variant, and the traits a struct's field is the target
+    /// of. A bare `#[dispatch]` marks the field to forward to and carries
+    /// nothing.
+    pub(crate) fn read(attributes: &[Attribute], position: Position) -> Result<Self> {
+        let on_variant = position == Position::Variant;
         let mut options = Self {
             route: None,
             from: true,
@@ -724,6 +738,11 @@ impl TargetOptions {
                                 key.span(),
                                 format!("unknown option `{key}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
                             ));
+                        }
+                        // A variant is the target of every trait its enum
+                        // dispatches, so its field names none.
+                        if position == Position::VariantField {
+                            return Err(variant_field_option(&key));
                         }
                         let mut path = Path::from(key);
                         if input.peek(Token![<]) {
@@ -757,6 +776,8 @@ impl TargetOptions {
                     } else if key == "try_from" && on_variant {
                         input.parse::<Token![=]>()?;
                         options.try_from = Some(TryFromForms::parse(input)?);
+                    } else if position == Position::VariantField {
+                        return Err(variant_field_option(&key));
                     } else {
                         let known = if on_variant {
                             "the options are `deref`, `via = route`, `from = false` and `try_from = true`"
@@ -774,6 +795,15 @@ impl TargetOptions {
         }
         Ok(options)
     }
+}
+
+/// The error for an option a variant's field does not take: a trait's
+/// name, which only a struct's field carries, or anything else.
+fn variant_field_option(key: &Ident) -> Error {
+    Error::new(
+        key.span(),
+        format!("unknown option `{key}`; the options of a variant's field are `deref` and `via = route`, and a trait takes its own route through the variant on the enum, `via(Variant = route)`"),
+    )
 }
 
 /// What `#[dispatch(..)]` on a method of a partial impl block says.
@@ -1099,7 +1129,7 @@ mod tests {
             parse_quote!(#[dispatch(deref, from = false)]),
             parse_quote!(#[dispatch(try_from = true)]),
         ];
-        let variant = TargetOptions::read(&attributes, true).unwrap();
+        let variant = TargetOptions::read(&attributes, Position::Variant).unwrap();
         assert!(variant.route.as_ref().is_some_and(Route::is_deref));
         assert!(
             !variant.from
@@ -1108,31 +1138,38 @@ mod tests {
                     .is_some_and(|forms| forms.owned && !forms.by_ref)
         );
         let by_ref: Vec<Attribute> = vec![parse_quote!(#[dispatch(try_from = ref_mut)])];
-        let forms = TargetOptions::read(&by_ref, true)
+        let forms = TargetOptions::read(&by_ref, Position::Variant)
             .unwrap()
             .try_from
             .unwrap();
         assert!(forms.owned && forms.by_ref && forms.by_mut);
         assert!(
-            TargetOptions::read(&attributes, false).is_err(),
+            TargetOptions::read(&attributes, Position::StructField).is_err(),
             "a field takes `deref` and `via` only"
         );
         let bare: Vec<Attribute> = vec![parse_quote!(#[dispatch])];
-        assert!(TargetOptions::read(&bare, false).unwrap().from);
+        assert!(
+            TargetOptions::read(&bare, Position::StructField)
+                .unwrap()
+                .from
+        );
         let named: Vec<Attribute> =
             vec![parse_quote!(#[dispatch(Rom, io::Write, Encoder<Json>, deref)])];
-        let field = TargetOptions::read(&named, false).unwrap();
+        let field = TargetOptions::read(&named, Position::StructField).unwrap();
         assert_eq!(field.traits.len(), 3);
         assert!(field.route.is_some_and(|route| route.is_deref()));
         assert!(
-            TargetOptions::read(&named, true).is_err(),
+            TargetOptions::read(&named, Position::Variant).is_err(),
             "a variant names no trait"
         );
         let routed: Vec<Attribute> = vec![parse_quote!(#[dispatch(via = .base.get_ref())])];
-        let route = TargetOptions::read(&routed, false).unwrap().route.unwrap();
+        let route = TargetOptions::read(&routed, Position::StructField)
+            .unwrap()
+            .route
+            .unwrap();
         assert_eq!(route.spelled(), ".base.get_ref()");
         let both: Vec<Attribute> = vec![parse_quote!(#[dispatch(deref, via = .0)])];
-        assert!(TargetOptions::read(&both, true).is_err());
+        assert!(TargetOptions::read(&both, Position::Variant).is_err());
         let spec: TraitOptions = syn::parse_str("via(VarChar = .1, Decimal = .2)").unwrap();
         assert_eq!(spec.routes.len(), 2);
         assert_eq!(

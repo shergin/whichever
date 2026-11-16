@@ -11,7 +11,7 @@ use syn::{
     ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
-use crate::options::{is_dispatch_attribute, trait_key, TargetOptions, TryFromForms};
+use crate::options::{is_dispatch_attribute, trait_key, Position, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, is_self, pointee, Pointer};
 use crate::site::Site;
@@ -119,7 +119,7 @@ impl Subject {
                 let mut entries = vec![];
                 let mut marks = vec![];
                 for (index, field) in item.fields.iter().enumerate() {
-                    let options = TargetOptions::read(&field.attrs, false)?;
+                    let options = TargetOptions::read(&field.attrs, Position::StructField)?;
                     entries.push(field_entry(member_of(field, index), field, &options, only));
                     marks.push(Marks {
                         marked: field.attrs.iter().any(is_dispatch_attribute),
@@ -755,7 +755,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
         from,
         try_from,
         traits: _,
-    } = TargetOptions::read(&variant.attrs, true)?;
+    } = TargetOptions::read(&variant.attrs, Position::Variant)?;
     let ident = &variant.ident;
     let cfgs = cfg_attributes(&variant.attrs);
     let deprecated = is_deprecated(&variant.attrs);
@@ -809,7 +809,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
             });
         }
     };
-    let field_options = TargetOptions::read(&field.attrs, false)?;
+    let field_options = TargetOptions::read(&field.attrs, Position::VariantField)?;
     let route = match (route, field_options.route) {
         (Some(_), Some(_)) => {
             return Err(Error::new_spanned(
