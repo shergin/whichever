@@ -4,9 +4,10 @@
 //! to be unique across the crate: it carries the trait's name, a hash of
 //! the trait's text and of the position of every one of its tokens, the
 //! file taken relative to the crate's manifest directory, and the
-//! attribute's call site. A subject's carrier stays in its module and is
-//! named the same way, for one rule. The hash is a fixed FNV-1a, so the
-//! names come out the same on every compiler release.
+//! attribute's call site. A subject's carrier never leaves its crate, so
+//! its name carries the subject's name, a hash of its text and the
+//! attribute's call site, without the positions. The hash is a fixed
+//! FNV-1a, so the names come out the same on every compiler release.
 use std::hash::{Hash, Hasher};
 
 use proc_macro2::{Span, TokenStream as TokenStream2, TokenTree};
