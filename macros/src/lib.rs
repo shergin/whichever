@@ -235,23 +235,10 @@ pub fn implement(input: TokenStream) -> TokenStream {
 #[doc(hidden)]
 #[proc_macro]
 pub fn implement_block(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as BlockInput);
-    let expanded = match input.partial {
-        Some(options) => expand_partial(
-            input.rejected,
-            &input.facade,
-            &input.dispatched,
-            input.remote.as_ref(),
-            input.subject,
-            options,
-            input.item_impl,
-        ),
-        None => expand_inherent(
-            input.rejected,
-            input.remote.as_ref(),
-            input.subject,
-            input.item_impl,
-        ),
+    let mut input = parse_macro_input!(input as BlockInput);
+    let expanded = match input.partial.take() {
+        Some(options) => expand_partial(input, options),
+        None => expand_inherent(input),
     };
     expanded
         .unwrap_or_else(|error| error.to_compile_error())

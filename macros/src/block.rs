@@ -3,14 +3,12 @@
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{
-    Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, Result, Signature, Visibility,
-};
+use syn::{Attribute, Block, Error, ImplItem, Result, Signature, Visibility};
 
 use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
-use crate::protocol::{carrier_path, TraitRequest};
+use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
 use crate::subject::{Entries, Subject};
@@ -22,15 +20,16 @@ use crate::subject::{Entries, Subject};
 /// of a trait the subject's own attribute dispatches would be a second impl,
 /// which rustc reports as conflicting on the trait's attribute; it is
 /// reported here instead, and the attribute's impl stands.
-pub(crate) fn expand_partial(
-    rejected: bool,
-    facade: &Ident,
-    dispatched: &[Path],
-    remote: Option<&Path>,
-    subject: Subject,
-    options: TraitOptions,
-    item_impl: ItemImpl,
-) -> Result<TokenStream2> {
+pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result<TokenStream2> {
+    let BlockInput {
+        rejected,
+        facade,
+        dispatched,
+        remote,
+        subject,
+        item_impl,
+        ..
+    } = input;
     if rejected {
         return Ok(item_impl.to_token_stream());
     }
@@ -47,11 +46,11 @@ pub(crate) fn expand_partial(
     }
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
-        facade,
+        facade: &facade,
         subject: &subject,
         path: trait_path,
         options: &options,
-        remote,
+        remote: remote.as_ref(),
         partial: Some(&item_impl),
     };
     // The invocation carries the block's trait path, so that an error rustc
@@ -65,15 +64,17 @@ pub(crate) fn expand_partial(
 /// dropped when it has no body, so that the rest of the block still
 /// compiles and the real error stands alone. When the enum itself was
 /// rejected nothing is reported here.
-pub(crate) fn expand_inherent(
-    rejected: bool,
-    remote: Option<&Path>,
-    subject: Subject,
-    mut item_impl: ItemImpl,
-) -> Result<TokenStream2> {
+pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
+    let BlockInput {
+        rejected,
+        remote,
+        subject,
+        mut item_impl,
+        ..
+    } = input;
     // An inherent impl of another crate's type is not this crate's to
     // write, with or without forwarding.
-    if let Some(remote) = remote {
+    if let Some(remote) = &remote {
         let spelled = spelling::spelled(remote);
         return Err(Error::new_spanned(
             &item_impl.self_ty,
