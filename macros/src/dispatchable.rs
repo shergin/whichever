@@ -9,7 +9,7 @@ use crate::naming;
 use crate::options::{is_dispatch_attribute, method_mismatch, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
 use crate::shape::takes_self_argument;
-use crate::subject::carried_attributes;
+use crate::signatures::carried_attributes;
 
 /// The most distinct `#[cfg]` predicates a trait's items may carry: each
 /// doubles the carriers, since one is emitted per combination.

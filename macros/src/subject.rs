@@ -867,33 +867,3 @@ pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
         .cloned()
         .collect()
 }
-
-/// Returns the attributes of a trait item that the generated item carries:
-/// `#[cfg]`, since the item exists under the same condition, and the
-/// `#[allow]` the trait's author wrote, since the signature the lint is
-/// allowed on is the one the generated item repeats. A level that only
-/// silences travels; one that raises the level, `warn`, `deny` or `expect`,
-/// is the trait crate's policy and stays there. An `#[allow]` another macro
-/// added, as `#[async_trait]` adds to every method, stays too: rustc exempts
-/// it from the lints about lint names where it was written, and would not
-/// on the way through the carrier.
-pub(crate) fn carried_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
-    attributes
-        .iter()
-        .filter(|attribute| {
-            let path = attribute.path();
-            path.is_ident("cfg") || (path.is_ident("allow") && written_by_hand(attribute))
-        })
-        .cloned()
-        .collect()
-}
-
-/// Returns whether `attribute` was written in the source rather than added
-/// by a macro: a token's span is then exactly the token's own text.
-fn written_by_hand(attribute: &Attribute) -> bool {
-    attribute
-        .path()
-        .get_ident()
-        .and_then(|ident| ident.span().source_text())
-        .is_some_and(|text| text == "allow")
-}

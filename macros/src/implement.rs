@@ -19,35 +19,28 @@ use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
 use crate::options::{
-    closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override,
-    TraitOptions,
+    closest, is_dispatch_attribute, listed, ForwardingOptions, Override, TraitOptions,
 };
 use crate::protocol::ImplementInput;
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{takes_self_argument, ReturnSite};
+use crate::signatures::{carried_attributes, Method, Signatures};
 use crate::site::{at, Site};
 use crate::spelling;
-use crate::subject::{
-    allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, Entries, Subject, Target,
-};
+use crate::subject::{allow_deprecated, cfg_attributes, is_deprecated, Entries, Subject, Target};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
-        item_trait,
-        remote,
-        provided,
+        signatures,
         subject,
         subject_remote,
         path: spec_path,
         mut options,
         partial,
     } = input;
-    // A restatement names the methods it forwards and nothing else, so a
-    // method left to the default is left to the real trait's, which the
-    // restatement cannot see; rustc reports one the trait does not provide.
-    let restated = remote.is_some();
-    let implemented = implemented_path(remote, &spec_path);
+    let item_trait = &signatures.item;
+    let implemented = signatures.implemented_path(&spec_path);
     let trait_path = &implemented;
     let trait_ident = &trait_path
         .segments
@@ -58,7 +51,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         partial.as_ref(),
         &subject,
         subject_remote.as_ref(),
-        &item_trait,
+        item_trait,
         &mut options,
     )?;
     // Patterns and values name the subject by its real path when it is a
@@ -148,14 +141,13 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             options: &options,
             block_header: &block_header,
             derived: partial.is_none(),
-            provided: &provided,
         },
         supplier: &supplier,
         written,
         methods,
         trait_ident,
-        restated,
-        substitution: Substitution::of_trait(&item_trait, trait_path, generics)?,
+        signatures: &signatures,
+        substitution: Substitution::of_trait(item_trait, trait_path, generics)?,
         site,
         items: TokenStream2::new(),
         agreed_types: vec![],
@@ -182,7 +174,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let mut reported = route_errors;
     reported.extend(unknown_names(
         &options,
-        &item_trait,
+        item_trait,
         trait_ident,
         &subject,
         partial.is_none(),
@@ -317,7 +309,7 @@ enum ItemPlan<'a> {
     /// default: written with the sentence as its body, under the `#[cfg]`
     /// of the builds the mark is for.
     Rejected {
-        function: &'a TraitItemFn,
+        method: Method<'a>,
         error: Error,
         builds: Option<TokenStream2>,
     },
@@ -330,7 +322,7 @@ enum ItemPlan<'a> {
     /// writes or marks it in some builds only. A marked method under its
     /// own `#[cfg]` carries that attribute itself.
     Method {
-        function: &'a TraitItemFn,
+        method: Method<'a>,
         forwarded: Option<&'a Forwarded>,
         complement: Option<Leftover>,
     },
@@ -364,9 +356,8 @@ struct ItemWriter<'a> {
     /// The methods the partial block marks with `#[dispatch(..)]`, by name.
     methods: &'a HashMap<String, Vec<BlockMethod>>,
     trait_ident: &'a Ident,
-    /// Whether the trait is a restatement, whose provided methods it cannot
-    /// see.
-    restated: bool,
+    /// The trait as carried, which says what it gives each method.
+    signatures: &'a Signatures,
     substitution: Substitution,
     /// The span the items' own tokens carry.
     site: Site,
@@ -402,10 +393,10 @@ impl<'a> ItemWriter<'a> {
             let site = self.site;
             let generated = match plan {
                 ItemPlan::Rejected {
-                    function,
+                    method,
                     error,
                     builds,
-                } => rejected_method(function, &mut self.substitution, error)
+                } => rejected_method(method, &mut self.substitution, error)
                     .map(|rejected| quote_spanned! { *site => #builds #rejected }),
                 ItemPlan::Type(assoc) => associated_type(
                     assoc,
@@ -424,11 +415,11 @@ impl<'a> ItemWriter<'a> {
                     self.site,
                 ),
                 ItemPlan::Method {
-                    function,
+                    method,
                     forwarded,
                     complement,
                 } => {
-                    if forwarded.is_none() && function.sig.receiver().is_some() {
+                    if forwarded.is_none() && method.function.sig.receiver().is_some() {
                         let builds = match &complement {
                             Some(leftover) => leftover.builds.clone(),
                             None => Builds::Every,
@@ -438,7 +429,7 @@ impl<'a> ItemWriter<'a> {
                         self.plain_forwarding = forwarded.or(builds);
                     }
                     let complement = complement.as_ref().and_then(Leftover::attribute);
-                    expand_method(function, &self.context, &mut self.substitution, forwarded)
+                    expand_method(method, &self.context, &mut self.substitution, forwarded)
                         .map(|forwarded| quote_spanned! { *site => #complement #forwarded })
                 }
                 ItemPlan::Limit(error) => Err(error),
@@ -491,7 +482,7 @@ impl<'a> ItemWriter<'a> {
             ))],
             (TraitItem::Type(assoc), None) => return vec![ItemPlan::Type(assoc)],
             (TraitItem::Const(constant), None) => return vec![ItemPlan::Const(constant)],
-            (TraitItem::Fn(function), _) => function,
+            (TraitItem::Fn(function), _) => self.signatures.method(function),
             _ => return vec![],
         };
         let marked = self
@@ -520,20 +511,17 @@ impl<'a> ItemWriter<'a> {
             taken |= cfgs.is_empty();
             match method {
                 BlockMethod::Default { span, .. } => {
-                    let provided = self.restated
-                        || function.default.is_some()
-                        || self.context.provided.contains(&function.sig.ident);
-                    if provided {
+                    if function.may_be_left_to_default() {
                         continue;
                     }
                     // Written with the sentence as its body, as a method
                     // that cannot be forwarded is, so that the impl stays
                     // complete.
                     plans.push(ItemPlan::Rejected {
-                        function,
+                        method: function,
                         error: Error::new(
                             *span,
-                            format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
+                            format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.ident(), self.trait_ident),
                         ),
                         builds: if cfgs.is_empty() {
                             rest.as_ref().and_then(Leftover::attribute)
@@ -543,7 +531,7 @@ impl<'a> ItemWriter<'a> {
                     });
                 }
                 BlockMethod::Forwarded(forwarded) => plans.push(ItemPlan::Method {
-                    function,
+                    method: function,
                     forwarded: Some(forwarded),
                     complement: if cfgs.is_empty() { rest.clone() } else { None },
                 }),
@@ -551,7 +539,7 @@ impl<'a> ItemWriter<'a> {
         }
         if !taken {
             plans.push(ItemPlan::Method {
-                function,
+                method: function,
                 forwarded: None,
                 complement: rest,
             });
@@ -627,21 +615,6 @@ fn with_payload_bounds(
             .push(parse_quote_spanned!(span => #parameter: #trait_path));
     }
     generics
-}
-
-/// Returns the path the impl is written for: a restated trait's real path,
-/// with the generic arguments the subject named on the declaration's path,
-/// or the path named.
-fn implemented_path(remote: Option<Path>, named: &Path) -> Path {
-    match remote {
-        Some(mut remote) => {
-            if let (Some(last), Some(named)) = (remote.segments.last_mut(), named.segments.last()) {
-                last.arguments = named.arguments.clone();
-            }
-            remote
-        }
-        None => named.clone(),
-    }
 }
 
 /// The impl's header: the partial block's when there is one, together with
@@ -1016,7 +989,7 @@ fn associated_const<'a>(
 /// error stands alone; only a signature that cannot be written at all, a
 /// projection the substitution could not qualify, is an error of the impl.
 fn expand_method(
-    function: &TraitItemFn,
+    method: Method,
     context: &MethodContext,
     substitution: &mut Substitution,
     forwarded: Option<&Forwarded>,
@@ -1026,17 +999,17 @@ fn expand_method(
     let signature = match forwarded {
         Some(forwarded) => forwarded.sig.clone(),
         None => {
-            let mut signature = function.sig.clone();
+            let mut signature = method.function.sig.clone();
             substitution.visit_signature_mut(&mut signature);
             substitution.check()?;
             signature
         }
     };
-    let written = forward_trait_method(function, signature.clone(), context, forwarded);
+    let written = forward_trait_method(method, signature.clone(), context, forwarded);
     Ok(written.unwrap_or_else(|error| {
         let carried = match forwarded {
             Some(forwarded) => forwarded.attrs.clone(),
-            None => carried_attributes(&function.attrs),
+            None => method.carried_attributes(),
         };
         error_body(&signature, carried, error)
     }))
@@ -1126,14 +1099,14 @@ fn fallback_for(
 /// the trait's signature, substituted, with `error`'s sentence as its body.
 /// Only a signature the substitution cannot write is an error of the impl.
 fn rejected_method(
-    function: &TraitItemFn,
+    method: Method,
     substitution: &mut Substitution,
     error: Error,
 ) -> Result<TokenStream2> {
-    let mut signature = function.sig.clone();
+    let mut signature = method.function.sig.clone();
     substitution.visit_signature_mut(&mut signature);
     substitution.check()?;
-    let carried = carried_attributes(&function.attrs);
+    let carried = method.carried_attributes();
     Ok(error_body(&signature, carried, error))
 }
 
@@ -1161,15 +1134,12 @@ struct MethodContext<'a> {
     /// Whether the impl is the enum's attribute's, `#[automatically_derived]`,
     /// rather than a partial impl block's, which is the user's.
     derived: bool,
-    /// The methods the trait gives a default body, as the carrier names
-    /// them; a carrier from before that segment carries the bodies.
-    provided: &'a [Ident],
 }
 
 /// Writes the forwarding method for a trait method whose signature is
 /// written, or the sentence for the shape that stops it.
 fn forward_trait_method(
-    function: &TraitItemFn,
+    declared: Method,
     mut signature: Signature,
     context: &MethodContext,
     forwarded: Option<&Forwarded>,
@@ -1182,13 +1152,13 @@ fn forward_trait_method(
         options,
         block_header,
         derived,
-        provided,
     } = *context;
+    let function = declared.function;
     let subject_ident = subject.ident();
     let method = signature.ident.clone();
     // A method the trait gives a body can be left to it; a restatement
     // lists its methods without one, and they count as required.
-    let has_default = function.default.is_some() || provided.contains(&method);
+    let has_default = declared.has_default();
     if signature.receiver().is_none() {
         if has_default {
             return Ok(TokenStream2::new());
@@ -1214,7 +1184,7 @@ fn forward_trait_method(
     // fallback arm binds resolve where the chosen expression was written.
     let (mismatch, resolution) = match options.mismatch_for(&method) {
         Some(expr) => (Some(expr.clone()), Some(expr.span())),
-        None => (method_mismatch(function)?, None),
+        None => (declared.mismatch()?, None),
     };
     // A block method's parameter names are the user's; the trait's are
     // kept where they are plain identifiers and generated otherwise.
@@ -1332,12 +1302,12 @@ fn forward_trait_method(
             .filter(|attribute| !attribute.path().is_ident("inline"))
             .cloned()
             .collect(),
-        None => carried_attributes(&function.attrs),
+        None => declared.carried_attributes(),
     };
     // A deprecated method is forwarded under `#[allow(deprecated)]`, as a
     // hand writes it; the deprecation reaches the callers through the
     // trait's item.
-    if is_deprecated(&function.attrs) {
+    if declared.is_deprecated() {
         carried.push(allow_deprecated(site));
     }
     let body = Forwarding {

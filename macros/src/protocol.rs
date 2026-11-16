@@ -34,9 +34,10 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
-use syn::{braced, token, Error, Ident, ItemImpl, ItemTrait, Path, PathArguments, Result, Token};
+use syn::{braced, token, Error, Ident, ItemImpl, Path, PathArguments, Result, Token};
 
 use crate::options::{DispatchAttribute, TraitOptions};
+use crate::signatures::Signatures;
 use crate::subject::Subject;
 
 /// The version of a request, which every carrier ever written matches.
@@ -178,14 +179,9 @@ impl ToTokens for CarriedTrait<'_> {
 
 /// What `implement!` reads: a carried trait followed by the request.
 pub(crate) struct ImplementInput {
-    pub(crate) item_trait: ItemTrait,
-    /// The real path of a trait restated with `remote = ..`, which the impl
-    /// is written for.
-    pub(crate) remote: Option<Path>,
-    /// The methods the trait gives a default body, whose bodies the carrier
-    /// leaves behind; a `v1` carrier, written before this segment, carries
-    /// the bodies themselves.
-    pub(crate) provided: Vec<Ident>,
+    /// The trait as carried, under either prefix: a `v1` carrier, written
+    /// before the `provided` segment, carries the bodies themselves.
+    pub(crate) signatures: Signatures,
     pub(crate) subject: Subject,
     /// The real path of a subject restated with `remote = ..`, which the
     /// impl is written for.
@@ -246,9 +242,11 @@ impl Parse for ImplementInput {
             None
         };
         Ok(Self {
-            item_trait,
-            remote,
-            provided,
+            signatures: Signatures {
+                item: item_trait,
+                remote,
+                provided,
+            },
             subject,
             subject_remote,
             path,
@@ -487,13 +485,19 @@ mod tests {
         };
         let rest = rest_of(request);
         let input: ImplementInput = syn::parse2(quote!(#carried #rest)).unwrap();
-        assert_eq!(input.item_trait.ident, "Trait");
+        assert_eq!(input.signatures.item.ident, "Trait");
         assert_eq!(
-            input.remote.map(|path| path.to_token_stream().to_string()),
+            input
+                .signatures
+                .remote
+                .map(|path| path.to_token_stream().to_string()),
             Some(remote.to_string())
         );
         assert_eq!(input.subject.ident(), "Any");
-        assert_eq!(input.provided, vec![parse_quote!(make)] as Vec<Ident>);
+        assert_eq!(
+            input.signatures.provided,
+            vec![parse_quote!(make)] as Vec<Ident>
+        );
         assert!(input.subject_remote.is_some());
         assert!(input.options.is_overridden(&parse_quote!(Error)));
         assert_eq!(input.partial.map(|block| block.items.len()), Some(1));

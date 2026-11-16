@@ -46,6 +46,7 @@ mod protocol;
 mod route;
 mod selection;
 mod shape;
+mod signatures;
 mod site;
 #[cfg(test)]
 mod spans;
