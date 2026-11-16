@@ -57,6 +57,11 @@ changes are expected and listed without apology.
   `From` impls out, the widest `try_from` form applies, and the `into`
   targets of every attribute are collected. The behaviour test
   `conversion_options_on_repeated_attributes` is new.
+- `docs/limits.md` and the crate docs say how an enum keeps its imports
+  short when the trait is in another crate: a glob import of the trait's
+  crate at the enum, or an empty partial impl block per trait in a module
+  that holds the glob. The attribute does not write the glob itself, since
+  around the impl it would shadow the enum module's own names.
 
 ## 0.8.0 - 2026-11-15
 

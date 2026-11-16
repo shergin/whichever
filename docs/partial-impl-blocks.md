@@ -71,8 +71,8 @@ generics and bounds included, becomes the impl's header, and may name the enum's
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
 them, so a block in another module needs them in scope there; the converse
 holds too, so when the trait's signature types are not in scope where the
-enum is, an empty block in a module where they are is the place to write
-the impl. Outer
+enum is, an empty block in a module where they are, such as one holding
+`use trait_crate::*;`, is the place to write the impl. Outer
 attributes on the block are carried onto the impl: `#[typetag::serde(name =
 "..")]` goes there, with `#[whichever::dispatchable]` above
 `#[typetag::serde]` on the trait, so that typetag's own methods are the

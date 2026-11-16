@@ -86,7 +86,15 @@
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
   They must also be nameable from there: a private alias or type in a
-  signature limits the trait to its own crate.
+  signature limits the trait to its own crate. The attribute does not
+  import them itself, since a glob written around the impl would shadow
+  the enum module's own names. A glob import of the trait's crate in the
+  enum's module, `use trait_crate::*;`, brings them in, and the module's
+  own names still win over it; to keep the glob out of the enum's file,
+  a module that holds it writes one empty
+  [partial impl block](partial-impl-blocks.md) per trait,
+  `#[whichever::dispatch] impl Client for ClientWrapper {}`, with the
+  payload types imported there by name.
 - An associated const of a type other than an integer, a float, `bool`, `char` or
   `&str`, on an enum with a type or const parameter, or of a variant reached
   through a field or a method, is taken from the first variant without a

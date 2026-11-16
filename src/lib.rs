@@ -588,8 +588,9 @@
 //! ImmOrNode<Ty>`. The arms name the payload types as the enum spells them,
 //! so a block in another module needs them in scope there; the converse
 //! holds too, so when the trait's signature types are not in scope where
-//! the enum is, an empty block in a module where they are is the place to
-//! write the impl. Outer attributes
+//! the enum is, an empty block in a module where they are, such as one
+//! holding `use trait_crate::*;`, is the place to write the impl. Outer
+//! attributes
 //! on the block are carried onto the impl: `#[typetag::serde(name = "..")]`
 //! goes there, with `#[whichever::dispatchable]` above `#[typetag::serde]`
 //! on the trait, so that typetag's own methods are the block's and never
@@ -690,7 +691,14 @@
 //! impl, and nameable from there: a private alias or type in a signature
 //! limits the trait to its own crate. Paths starting with `crate::` are
 //! rewritten to the trait's crate; `super::` and `self::` paths cannot be
-//! and must not appear in a dispatchable trait's signatures.
+//! and must not appear in a dispatchable trait's signatures. The attribute
+//! does not import them itself, since a glob written around the impl would
+//! shadow the enum module's own names. A glob import of the trait's crate
+//! in the enum's module, `use trait_crate::*;`, brings them in, and the
+//! module's own names still win over it; to keep the glob out of the
+//! enum's file, a module that holds it writes one empty partial impl block
+//! per trait, `#[whichever::dispatch] impl Client for ClientWrapper {}`,
+//! with the payload types imported there by name.
 //!
 //! # Requirements and limits
 //!
