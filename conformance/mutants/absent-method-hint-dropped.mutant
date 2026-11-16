@@ -1,8 +1,8 @@
-file: macros/src/implement.rs
+file: macros/src/options.rs
 breaks: A `mismatch` on the enum for a method under a `#[cfg]` that does not hold is one sentence naming the way around it, the trait method's own `#[dispatch(mismatch = ..)]`, as `docs/limits.md` says.
 expect: killed
 
 find:
-                format!("none of its methods takes one; {elsewhere}")
+                    format!("none of its methods takes one; {elsewhere}")
 replace:
-                "none of its methods takes one".to_owned()
+                    "none of its methods takes one".to_owned()

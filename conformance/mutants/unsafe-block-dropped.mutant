@@ -1,8 +1,8 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: The calls of an `unsafe fn` are wrapped in `unsafe { }`, as `docs/what-is-generated.md` says.
 expect: killed
 
 find:
-            value = quote_spanned! { site => unsafe { #value } };
+            value = quote_spanned! { *site => unsafe { #value } };
 replace:
-            value = quote_spanned! { site => #value };
+            value = quote_spanned! { *site => #value };

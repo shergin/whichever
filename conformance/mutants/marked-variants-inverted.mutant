@@ -3,6 +3,6 @@ breaks: A method of a partial or inherent block forwards to the variants its att
 expect: killed
 
 find:
-                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
+                let entry = entries.iter().find(|entry| entry.ident == *name);
 replace:
-                if let Some(target) = variants.iter().find(|target| &target.ident != name) {
+                let entry = entries.iter().find(|entry| entry.ident != *name);

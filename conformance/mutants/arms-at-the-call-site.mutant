@@ -1,8 +1,17 @@
-file: macros/src/implement.rs
+file: macros/src/forwarding.rs
 breaks: Every token of a forwarded method carries the subject's span, so that no error lands on the trait's attribute, as `macros/ARCHITECTURE.md` 3.8 says.
 expect: killed
 
 find:
-        site: at(subject_ident.span()),
+        way_out,
+        declared,
+        site,
+    };
 replace:
-        site: Span::call_site(),
+        way_out,
+        declared,
+        site: match origin {
+            Origin::Trait { .. } => Site::at(Span::call_site()),
+            Origin::Inherent { .. } => site,
+        },
+    };

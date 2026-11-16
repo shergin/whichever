@@ -1,8 +1,10 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: An inherent `field` or `value` arm is borrowed where the method returns a reference, as `docs/inherent-methods.md` says.
 expect: killed
 
 find:
-                        PlaceBorrow::Reference(None) => quote_spanned! { site => &#place },
+                        PlaceBorrow::Reference(Borrow::Shared) => {
+                            quote_spanned! { *site => &#place }
+                        }
 replace:
-                        PlaceBorrow::Reference(None) => place,
+                        PlaceBorrow::Reference(Borrow::Shared) => place,

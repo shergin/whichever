@@ -1,8 +1,8 @@
-file: macros/src/implement.rs
+file: macros/src/items.rs
 breaks: Every forwarded method carries `#[inline]` or the trait method's own `#[inline(..)]`, as `docs/what-is-generated.md` says.
 expect: killed
 
 find:
-        .unwrap_or_else(|| quote_spanned! { site => #[inline] });
+        .unwrap_or_else(|| quote_spanned! { *site => #[inline] });
 replace:
         .unwrap_or_default();

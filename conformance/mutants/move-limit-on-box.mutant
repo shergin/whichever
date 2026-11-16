@@ -1,8 +1,8 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: A value is moved out of a `deref` variant holding a `Box`, and one holding anything else is reported, as `docs/limits.md` says.
 expect: killed
 
 find:
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && !holds_a_box(payload)) {
+        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && pointer != Pointer::Box)
 replace:
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && holds_a_box(payload)) {
+        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && pointer == Pointer::Box)

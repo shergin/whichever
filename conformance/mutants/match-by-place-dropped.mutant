@@ -3,6 +3,6 @@ breaks: An enum whose every variant is under `#[cfg]` is matched as `match *self
 expect: killed
 
 find:
-        let always_present = entries.iter().any(|entry| match entry {
+        let always_present = entries.iter().any(|entry| !entry.is_conditional());
 replace:
-        let always_present = !entries.is_empty() || entries.iter().any(|entry| match entry {
+        let always_present = !entries.is_empty() || entries.iter().any(|entry| !entry.is_conditional());

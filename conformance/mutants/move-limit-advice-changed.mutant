@@ -1,4 +1,4 @@
-file: macros/src/forwarding.rs
+file: macros/src/refusal.rs
 breaks: The sentence for a value moved out of a `deref` variant names the way around it, holding a `Box`, as `docs/limits.md` says.
 expect: killed
 

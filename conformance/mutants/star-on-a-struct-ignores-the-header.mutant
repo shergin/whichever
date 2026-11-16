@@ -1,12 +1,19 @@
-file: macros/src/selection.rs
+file: macros/src/subject.rs
 breaks: `*` in a partial block over one instantiation of a generic struct names the field as the header instantiates it, as `docs/partial-impl-blocks.md` says of the impl header.
 expect: killed
 
 find:
-            Some(star) => vec![variants
-                .iter()
-                .find(|target| target.ident == star.ident)
-                .map(|target| (*target).clone())
-                .unwrap_or(star)],
+            if let Holds::Payload { ty, .. } = &mut entry.holds {
+                renaming.visit_type_mut(ty);
 replace:
-            Some(star) => vec![star],
+            if let Holds::Payload {
+                ty,
+                place:
+                    Place {
+                        holder: Holder::Variant(_),
+                        ..
+                    },
+                ..
+            } = &mut entry.holds
+            {
+                renaming.visit_type_mut(ty);

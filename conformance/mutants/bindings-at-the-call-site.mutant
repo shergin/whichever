@@ -1,10 +1,10 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: A rustc error in an arm lands on a user token, the enum's name or the method's, and never on an attribute, as `macros/ARCHITECTURE.md` 3.8 says.
 expect: killed
 
 find:
-fn hygienic(name: &str, site: Span) -> Ident {
-    Ident::new(name, at(site))
+pub(crate) fn hygienic(name: &str, site: Site) -> Ident {
+    Ident::new(name, *site)
 replace:
-fn hygienic(name: &str, _site: Span) -> Ident {
-    Ident::new(name, at(Span::call_site()))
+pub(crate) fn hygienic(name: &str, _site: Site) -> Ident {
+    Ident::new(name, proc_macro2::Span::call_site())

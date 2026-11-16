@@ -1,9 +1,9 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: An inherent method with `with = path` wraps each forwarded result in a call to `path`, as `docs/inherent-methods.md` says.
 expect: killed
 
 find:
-            value = quote_spanned! { site => #lift(#value) };
+            value = quote_spanned! { *site => #lift(#value) };
 replace:
-            value = quote_spanned! { site => #value };
+            value = quote_spanned! { *site => #value };
             let _ = lift;

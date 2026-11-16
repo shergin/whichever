@@ -1,10 +1,10 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: The forwarding writes no conversion the signature does not ask for, as `docs/what-is-generated.md` and the rules of `CLAUDE.md` say.
 expect: killed
 
 find:
-    Ok(match conversion {
+    match conversion {
         Conversion::Keep => value,
 replace:
-    Ok(match conversion {
-        Conversion::Keep => quote_spanned! { site => ::core::convert::Into::into(#value) },
+    match conversion {
+        Conversion::Keep => quote_spanned! { *site => ::core::convert::Into::into(#value) },

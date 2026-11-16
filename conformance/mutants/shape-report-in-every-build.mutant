@@ -3,8 +3,6 @@ breaks: A partial block reports a variant no method can forward to only in the b
 expect: killed
 
 find:
-            let builds = quote_spanned! { site => #[cfg(any(#(#predicates),*))] };
-            shape_errors(&entries, Some(&builds))
+            entries.shape_errors(plain_forwarding.attribute(*site).as_ref())
 replace:
-            let _ = predicates;
-            shape_errors(&entries, None)
+            entries.shape_errors(None)
