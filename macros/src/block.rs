@@ -11,9 +11,10 @@ use syn::{
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitOptions};
+use crate::marked::BlockItem;
+use crate::options::{trait_key, ForwardingOptions, TraitOptions};
 use crate::protocol::{carrier_path, TraitRequest};
-use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
+use crate::selection::{check_body, select_targets};
 use crate::shape::{place_borrow, ReturnSite};
 use crate::site::Site;
 use crate::spelling;
@@ -92,70 +93,50 @@ pub(crate) fn expand_inherent(
     let mut items = Vec::with_capacity(item_impl.items.len());
     let mut errors: Vec<Error> = vec![];
     for item in std::mem::take(&mut item_impl.items) {
-        match item {
-            ImplItem::Fn(mut function) => {
-                let Some(position) = function.attrs.iter().position(is_dispatch_attribute) else {
-                    items.push(ImplItem::Fn(function));
-                    continue;
-                };
-                let attribute = function.attrs.remove(position);
-                let Some(variants) = &variants else {
-                    items.push(ImplItem::Fn(function));
-                    continue;
-                };
-                let forwarded =
-                    one_attribute(&mut function.attrs, &attribute).and_then(|forwarding| {
-                        forward_method(
-                            &function.attrs,
-                            &function.vis,
-                            &function.sig,
-                            Some(&function.block),
-                            forwarding,
-                            variants,
-                            &subject,
-                        )
-                    });
-                match forwarded {
-                    Ok(generated) => items.push(ImplItem::Verbatim(generated)),
-                    Err(error) => {
-                        errors.push(error);
-                        items.push(ImplItem::Fn(function));
-                    }
-                }
+        let mut method = match BlockItem::read(item) {
+            BlockItem::Marked(method) => method,
+            BlockItem::Bodyless(sig) => {
+                errors.push(Error::new_spanned(
+                    &sig,
+                    "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                ));
+                continue;
             }
-            ImplItem::Verbatim(tokens) => {
-                let Ok(method) = syn::parse2::<BodylessMethod>(tokens.clone()) else {
-                    errors.push(Error::new_spanned(
-                        &tokens,
-                        "only methods, with or without a body, are forwarded in a `#[dispatch]` impl block",
-                    ));
-                    continue;
-                };
-                let BodylessMethod {
-                    mut attrs,
-                    vis,
-                    sig,
-                } = method;
-                let Some(position) = attrs.iter().position(is_dispatch_attribute) else {
-                    errors.push(Error::new_spanned(
-                        &sig,
-                        "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
-                    ));
-                    continue;
-                };
-                let attribute = attrs.remove(position);
-                let Some(variants) = &variants else {
-                    continue;
-                };
-                let forwarded = one_attribute(&mut attrs, &attribute).and_then(|forwarding| {
-                    forward_method(&attrs, &vis, &sig, None, forwarding, variants, &subject)
-                });
-                match forwarded {
-                    Ok(generated) => items.push(ImplItem::Verbatim(generated)),
-                    Err(error) => errors.push(error),
-                }
+            BlockItem::Unread(tokens) => {
+                errors.push(Error::new_spanned(
+                    &tokens,
+                    "only methods, with or without a body, are forwarded in a `#[dispatch]` impl block",
+                ));
+                continue;
             }
-            other => items.push(other),
+            BlockItem::Plain(item) => {
+                items.push(item);
+                continue;
+            }
+        };
+        // The subject's own error stands alone; the method stays as it is
+        // written, without its mark.
+        let Some(variants) = &variants else {
+            items.extend(method.unmarked());
+            continue;
+        };
+        let forwarded = method.mark(ForwardingOptions::read).and_then(|forwarding| {
+            forward_method(
+                &method.attrs,
+                &method.vis,
+                &method.sig,
+                method.body.as_ref(),
+                forwarding,
+                variants,
+                &subject,
+            )
+        });
+        match forwarded {
+            Ok(generated) => items.push(ImplItem::Verbatim(generated)),
+            Err(error) => {
+                errors.push(error);
+                items.extend(method.unmarked());
+            }
         }
     }
     item_impl.items = items;

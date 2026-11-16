@@ -1,15 +1,11 @@
 //! `implement!`: the forwarding impl of one trait for one subject.
-use std::collections::hash_map::Entry as MapEntry;
-use std::collections::HashMap;
-
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Expr, Generics, Ident, ImplItem, ItemImpl,
-    ItemTrait, Meta, Path, Result, Signature, Token, TraitItem, TraitItemConst, TraitItemFn,
-    TraitItemType, Type,
+    parse_quote_spanned, Attribute, Error, Expr, Generics, Ident, Path, Result, Signature,
+    TraitItem, TraitItemConst, TraitItemFn, TraitItemType, Type,
 };
 
 use crate::agreement::Agreement;
@@ -18,14 +14,15 @@ use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{is_dispatch_attribute, ForwardingOptions, Override, TraitOptions};
+use crate::options::{Override, TraitOptions};
+use crate::partial::{BlockMethod, Forwarded, PartialBlock};
 use crate::protocol::ImplementInput;
-use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
+use crate::selection::{check_body, select_targets};
 use crate::shape::ReturnSite;
 use crate::signatures::{carried_attributes, Method, Signatures};
 use crate::site::{at, Site};
 use crate::spelling;
-use crate::subject::{allow_deprecated, cfg_attributes, is_deprecated, Entries, Subject, Target};
+use crate::subject::{allow_deprecated, is_deprecated, Entries, Subject, Target};
 use crate::substitution::Substitution;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
@@ -45,31 +42,46 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         .last()
         .expect("a path has at least one segment")
         .ident;
-    let header = ImplHeader::new(
-        partial.as_ref(),
-        &subject,
-        subject_remote.as_ref(),
-        item_trait,
-        &mut options,
-    )?;
+    let block = partial.map(PartialBlock::read).transpose()?;
+    // An associated type written in the block is an override like the
+    // `Name = Type` option.
+    for (name, ty) in block.iter().flat_map(|block| &block.declared_types) {
+        options.overrides.push(Override::of_type(name.clone(), ty));
+    }
     // Patterns and values name the subject by its real path when it is a
     // restatement, and by its own name otherwise.
     let subject_path = subject_remote
         .clone()
         .unwrap_or_else(|| Path::from(subject.ident().clone()));
-    let ImplHeader {
-        generics,
-        self_ty,
-        attrs: impl_attrs,
-        unsafety,
-        written,
-        methods,
-        user_items,
-    } = &header;
     // Every token written here carries the subject's span: the call site is
     // the trait's attribute, which may be in another crate.
     let site = Site::at(subject.ident().span());
-    let derived = partial
+    // The impl's header: the partial block's when there is one, or the
+    // subject's own, where an `unsafe trait` is implemented by an `unsafe
+    // impl`.
+    let (generics, self_ty, impl_attrs, unsafety) = match &block {
+        Some(block) => (
+            &block.generics,
+            block.self_ty.clone(),
+            block.attrs.as_slice(),
+            block.unsafety,
+        ),
+        None => {
+            let (_, ty_generics, _) = subject.generics().split_for_impl();
+            (
+                subject.generics(),
+                parse_quote_spanned!(*site => #subject_path #ty_generics),
+                &[][..],
+                item_trait.unsafety,
+            )
+        }
+    };
+    let self_ty = &self_ty;
+    let user_items = block
+        .as_ref()
+        .map(|block| block.user_items.as_slice())
+        .unwrap_or_default();
+    let derived = block
         .is_none()
         .then(|| quote_spanned!(*site => #[automatically_derived]));
     // The partial impl block a message points at, spelled with the trait as
@@ -84,7 +96,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // A partial block's header may name the subject's parameters as it
     // likes, `impl<U> Trait for Kind<U>` over `enum Kind<T>`; the payloads
     // are spelled with the names the subject declared, and follow.
-    if let Some(block) = &partial {
+    if let Some(block) = &block {
         if let Some(mut renaming) = Substitution::of_subject(subject.generics(), &block.self_ty) {
             entries.rename(&mut renaming);
         }
@@ -95,8 +107,8 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // subject gets `Param: Trait` on the impl, which the arms need and
     // nothing else supplies. A partial block's header is the user's and is
     // written as it is.
-    let generics = match partial {
-        Some(_) => (*generics).clone(),
+    let generics = match block {
+        Some(_) => generics.clone(),
         None => with_payload_bounds(generics, &variants, subject.generics(), trait_path),
     };
     let generics = &generics;
@@ -110,7 +122,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         }
         // Every variant was rejected, each with its own sentence; an impl
         // with nothing to forward to would only add rustc's errors to them.
-        return Ok(match &partial {
+        return Ok(match &block {
             Some(_) => entries.shape_errors(None),
             None => TokenStream2::new(),
         });
@@ -138,11 +150,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             trait_path,
             options: &options,
             block_header: &block_header,
-            derived: partial.is_none(),
+            derived: block.is_none(),
         },
         supplier: &supplier,
-        written,
-        methods,
+        block: block.as_ref(),
         trait_ident,
         signatures: &signatures,
         substitution: Substitution::of_trait(item_trait, trait_path, generics)?,
@@ -174,7 +185,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         item_trait,
         trait_ident,
         subject.has_one_target(),
-        partial.is_none(),
+        block.is_none(),
     ));
     // An item that withholds the impl is reported with the errors that
     // would have stood beside it, so that none waits for the next build.
@@ -208,7 +219,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // cannot be forwarded to is reported here, under its own `cfg`, in the
     // builds in which some method forwards to every variant; a block whose
     // every method names its variants leaves such a variant to the bodies.
-    let shape_errors = match &partial {
+    let shape_errors = match &block {
         Some(_) if !plain_forwarding.is_never() => {
             entries.shape_errors(plain_forwarding.attribute(*site).as_ref())
         }
@@ -278,10 +289,8 @@ impl Leftover {
 struct ItemWriter<'a> {
     context: MethodContext<'a>,
     supplier: &'a Supplier<'a>,
-    /// The items the partial block writes, by name, and in which builds.
-    written: &'a HashMap<String, Written>,
-    /// The methods the partial block marks with `#[dispatch(..)]`, by name.
-    methods: &'a HashMap<String, Vec<BlockMethod>>,
+    /// The partial block the impl is written around, when there is one.
+    block: Option<&'a PartialBlock>,
     trait_ident: &'a Ident,
     /// The trait as carried, which says what it gives each method.
     signatures: &'a Signatures,
@@ -393,11 +402,12 @@ impl<'a> ItemWriter<'a> {
         };
         let name = name.to_string();
         // The builds in which the block writes the item itself.
-        let (mut written, mut conditional_at) = match self.written.get(&name) {
-            Some(written) if written.builds.is_every() => return vec![],
-            Some(written) => (written.builds.clone(), Some(written.span)),
-            None => (Builds::Never, None),
-        };
+        let (mut written, mut conditional_at) =
+            match self.block.and_then(|block| block.written(&name)) {
+                Some(written) if written.builds.is_every() => return vec![],
+                Some(written) => (written.builds.clone(), Some(written.span)),
+                None => (Builds::Never, None),
+            };
         let function = match (item, conditional_at) {
             (TraitItem::Type(assoc), Some(span)) => return vec![ItemPlan::Limit(Error::new(
                 span,
@@ -413,9 +423,8 @@ impl<'a> ItemWriter<'a> {
             _ => return vec![],
         };
         let marked = self
-            .methods
-            .get(&name)
-            .map(Vec::as_slice)
+            .block
+            .map(|block| block.marked(&name))
             .unwrap_or_default();
         for method in marked {
             let builds = Builds::of(&method.cfgs());
@@ -500,237 +509,6 @@ fn with_payload_bounds(
             .push(parse_quote_spanned!(span => #parameter: #trait_path));
     }
     generics
-}
-
-/// The impl's header: the partial block's when there is one, together with
-/// the items the block writes, or the subject's own.
-struct ImplHeader<'a> {
-    generics: &'a Generics,
-    self_ty: Type,
-    attrs: &'a [Attribute],
-    unsafety: Option<Token![unsafe]>,
-    /// The items the block writes, by name, and in which builds.
-    written: HashMap<String, Written>,
-    /// The methods the block marks with `#[dispatch(..)]`, by name; one
-    /// name may be marked once per `#[cfg]`.
-    methods: HashMap<String, Vec<BlockMethod>>,
-    user_items: Vec<&'a ImplItem>,
-}
-
-/// A method of a partial block marked `#[dispatch(..)]`.
-// Short-lived and few; the size difference does not matter here.
-#[allow(clippy::large_enum_variant)]
-enum BlockMethod {
-    /// `#[dispatch(default)]`: not forwarded and not written, so the
-    /// trait's default body stands, in the builds the method's own `#[cfg]`
-    /// attributes name.
-    Default { span: Span, cfgs: Vec<Attribute> },
-    /// `#[dispatch(Variant, ..)]` or `#[dispatch(*)]`: forwarded to the
-    /// named variants, with the body for the rest.
-    Forwarded(Forwarded),
-}
-
-impl BlockMethod {
-    /// Returns the `#[cfg]` attributes the method is written under. Like an
-    /// item the block writes, it is the block's where they hold, and the
-    /// trait's method is forwarded to every variant where they do not.
-    fn cfgs(&self) -> Vec<Attribute> {
-        match self {
-            BlockMethod::Default { cfgs, .. } => cfgs.clone(),
-            BlockMethod::Forwarded(forwarded) => cfg_attributes(&forwarded.attrs),
-        }
-    }
-
-    /// Returns the span a message about the method's builds carries.
-    fn span(&self) -> Span {
-        match self {
-            BlockMethod::Default { span, .. } => *span,
-            BlockMethod::Forwarded(forwarded) => forwarded.sig.ident.span(),
-        }
-    }
-}
-
-/// What a forwarded block method is written from: the user's own
-/// signature and attributes, the body for the variants not named, and the
-/// names.
-struct Forwarded {
-    attrs: Vec<Attribute>,
-    sig: Signature,
-    body: Option<Block>,
-    forwarding: ForwardingOptions,
-}
-
-impl Forwarded {
-    /// Reads a method's `#[dispatch(..)]`: `default`, or the variants and
-    /// the options an inherent method takes, of which only the names and
-    /// `via` apply to a trait method.
-    fn read(
-        attribute: Attribute,
-        mut attrs: Vec<Attribute>,
-        sig: Signature,
-        body: Option<Block>,
-    ) -> Result<BlockMethod> {
-        if let Meta::List(list) = &attribute.meta {
-            if list.tokens.to_string() == "default" {
-                if let Some(body) = &body {
-                    return Err(Error::new_spanned(
-                        body,
-                        format!("`{}` is left to the trait's default, so it takes no body; end the signature with `;`", sig.ident),
-                    ));
-                }
-                return Ok(BlockMethod::Default {
-                    span: attribute.span(),
-                    cfgs: cfg_attributes(&attrs),
-                });
-            }
-        }
-        let forwarding = one_attribute(&mut attrs, &attribute)?;
-        let inherent_only = [
-            forwarding.call.as_ref().map(|_| "`call`"),
-            forwarding.with.as_ref().map(|_| "`with`"),
-            forwarding.field.as_ref().map(|_| "`field`"),
-            forwarding.value.then_some("`value`"),
-        ];
-        if let Some(option) = inherent_only.into_iter().flatten().next() {
-            return Err(Error::new_spanned(
-                &attribute,
-                format!("{option} is an option of an inherent method; a trait method is called by its own name on every variant it names, and takes `via` only"),
-            ));
-        }
-        Ok(BlockMethod::Forwarded(Forwarded {
-            attrs,
-            sig,
-            body,
-            forwarding,
-        }))
-    }
-}
-
-/// The builds in which a partial block writes the items of one name: where
-/// any of them exists. `span` is the first such item's, for a message about
-/// them.
-struct Written {
-    builds: Builds,
-    span: Span,
-}
-
-impl Written {
-    /// Records one more item of the name, written under `attributes`.
-    fn add(&mut self, attributes: &[Attribute]) {
-        let written = std::mem::replace(&mut self.builds, Builds::Never);
-        self.builds = written.or(Builds::of(attributes));
-    }
-}
-
-impl<'a> ImplHeader<'a> {
-    fn new(
-        partial: Option<&'a ItemImpl>,
-        subject: &'a Subject,
-        remote: Option<&Path>,
-        item_trait: &ItemTrait,
-        options: &mut TraitOptions,
-    ) -> Result<Self> {
-        let Some(block) = partial else {
-            let (_, ty_generics, _) = subject.generics().split_for_impl();
-            let path = remote
-                .cloned()
-                .unwrap_or_else(|| Path::from(subject.ident().clone()));
-            let site = Site::at(subject.ident().span());
-            return Ok(Self {
-                generics: subject.generics(),
-                self_ty: parse_quote_spanned!(*site => #path #ty_generics),
-                attrs: &[],
-                // An `unsafe trait` is implemented by an `unsafe impl`.
-                unsafety: item_trait.unsafety,
-                written: HashMap::new(),
-                methods: HashMap::new(),
-                user_items: vec![],
-            });
-        };
-        let mut written: HashMap<String, Written> = HashMap::new();
-        let mut methods: HashMap<String, Vec<BlockMethod>> = HashMap::new();
-        let mut user_items = vec![];
-        for item in &block.items {
-            let (name, attrs) = match item {
-                // A method marked `#[dispatch(..)]` is the engine's to write.
-                ImplItem::Fn(function) if function.attrs.iter().any(is_dispatch_attribute) => {
-                    let mut attrs = function.attrs.clone();
-                    let position = attrs
-                        .iter()
-                        .position(is_dispatch_attribute)
-                        .expect("checked above");
-                    let attribute = attrs.remove(position);
-                    let method = Forwarded::read(
-                        attribute,
-                        attrs,
-                        function.sig.clone(),
-                        Some(function.block.clone()),
-                    )?;
-                    methods
-                        .entry(function.sig.ident.to_string())
-                        .or_default()
-                        .push(method);
-                    continue;
-                }
-                // A method without a body is verbatim to `syn`; it is only
-                // ever the engine's.
-                ImplItem::Verbatim(tokens) => {
-                    let Ok(method) = syn::parse2::<BodylessMethod>(tokens.clone()) else {
-                        user_items.push(item);
-                        continue;
-                    };
-                    let BodylessMethod {
-                        mut attrs,
-                        vis: _,
-                        sig,
-                    } = method;
-                    let Some(position) = attrs.iter().position(is_dispatch_attribute) else {
-                        return Err(Error::new_spanned(
-                            &sig,
-                            format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
-                        ));
-                    };
-                    let attribute = attrs.remove(position);
-                    let name = sig.ident.to_string();
-                    methods
-                        .entry(name)
-                        .or_default()
-                        .push(Forwarded::read(attribute, attrs, sig, None)?);
-                    continue;
-                }
-                ImplItem::Fn(function) => (&function.sig.ident, &function.attrs),
-                // An associated type written in the block is an override
-                // like the `Name = Type` option.
-                ImplItem::Type(assoc) => {
-                    options
-                        .overrides
-                        .push(Override::of_type(assoc.ident.clone(), &assoc.ty));
-                    (&assoc.ident, &assoc.attrs)
-                }
-                ImplItem::Const(constant) => (&constant.ident, &constant.attrs),
-                _ => continue,
-            };
-            match written.entry(name.to_string()) {
-                MapEntry::Occupied(entry) => entry.into_mut().add(attrs),
-                MapEntry::Vacant(entry) => {
-                    entry.insert(Written {
-                        builds: Builds::of(attrs),
-                        span: item.span(),
-                    });
-                }
-            }
-            user_items.push(item);
-        }
-        Ok(Self {
-            generics: &block.generics,
-            self_ty: (*block.self_ty).clone(),
-            attrs: &block.attrs,
-            unsafety: block.unsafety,
-            written,
-            methods,
-            user_items,
-        })
-    }
 }
 
 /// Where an associated item that is not overridden comes from: the first
@@ -1209,36 +987,4 @@ fn forward_trait_method(
         #allow_unused
         #signature #body
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use quote::quote;
-    use syn::parse_quote;
-
-    use super::*;
-
-    #[test]
-    fn the_forwarded_item_takes_the_builds_the_blocks_items_leave() {
-        let named: Vec<Attribute> = vec![
-            parse_quote!(#[cfg(feature = "named")]),
-            parse_quote!(#[cfg(not(test))]),
-        ];
-        let unix: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
-        let mut written = Written {
-            builds: Builds::of(&named),
-            span: Span::call_site(),
-        };
-        written.add(&unix);
-        let leftover = Leftover {
-            builds: written.builds.complement(),
-            span: Span::call_site(),
-        };
-        assert_eq!(
-            leftover.attribute().expect("a `cfg`").to_string(),
-            quote!(#[cfg(not(any(all(feature = "named", not(test)), unix)))]).to_string()
-        );
-        written.add(&[]);
-        assert!(written.builds.is_every());
-    }
 }

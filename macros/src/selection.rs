@@ -1,61 +1,13 @@
-//! Which targets a method's `#[dispatch(..)]` names, and the checks on a
-//! method's attribute and body that go with the choice: the engine's,
-//! shared by the trait path and the inherent path.
+//! Which targets a method's `#[dispatch(..)]` names, and the check on a
+//! method's body that goes with the choice: the engine's, shared by the
+//! trait path and the inherent path.
 use quote::quote_spanned;
-use syn::parse::{Parse, ParseStream};
-use syn::{Attribute, Block, Error, Ident, Meta, Path, Result, Signature, Token, Visibility};
+use syn::{Block, Error, Ident, Path, Result, Signature};
 
 use crate::forwarding::Arm;
-use crate::options::{is_dispatch_attribute, ForwardingOptions};
+use crate::options::ForwardingOptions;
 use crate::site::Site;
 use crate::subject::{Entries, Subject, Target};
-
-/// A method declared without a body, which `syn` leaves as verbatim tokens.
-pub(crate) struct BodylessMethod {
-    pub(crate) attrs: Vec<Attribute>,
-    pub(crate) vis: Visibility,
-    pub(crate) sig: Signature,
-}
-
-impl Parse for BodylessMethod {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let attrs = input.call(Attribute::parse_outer)?;
-        let vis = input.parse()?;
-        let sig = input.parse()?;
-        input.parse::<Token![;]>()?;
-        Ok(Self { attrs, vis, sig })
-    }
-}
-
-/// Parses the options of a method's `#[dispatch(..)]`; a bare `#[dispatch]`
-/// names no variant.
-fn forwarding_options(attribute: &Attribute) -> Result<ForwardingOptions> {
-    if matches!(attribute.meta, Meta::Path(_)) {
-        return Err(Error::new_spanned(
-            attribute,
-            "name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them",
-        ));
-    }
-    attribute.parse_args()
-}
-
-/// Parses the one `#[dispatch(..)]` of a method, `attribute`, taken off
-/// `rest`; a second one left in `rest` is reported on itself and taken off
-/// too, so that rustc does not report it as an unknown attribute on top.
-pub(crate) fn one_attribute(
-    rest: &mut Vec<Attribute>,
-    attribute: &Attribute,
-) -> Result<ForwardingOptions> {
-    let Some(position) = rest.iter().position(is_dispatch_attribute) else {
-        return forwarding_options(attribute);
-    };
-    let second = rest.remove(position);
-    rest.retain(|attribute| !is_dispatch_attribute(attribute));
-    Err(Error::new_spanned(
-        second,
-        "one `#[dispatch(..)]` per method; name every variant it forwards to in that one",
-    ))
-}
 
 /// What a method's `#[dispatch(..)]` selects: the targets, with the
 /// method's own route when it gives one; the arms for the variants `*`

@@ -2,7 +2,8 @@
 //! struct per position the attribute is written in: a subject
 //! ([`DispatchAttribute`]), a partial impl block ([`TraitOptions`]), a variant
 //! or a field ([`TargetOptions`]), a method of an inherent block
-//! ([`ForwardingOptions`]), a trait method ([`method_mismatch`]) and a trait
+//! ([`ForwardingOptions`]), a method of a partial impl block
+//! ([`TraitMark`]), a trait method ([`method_mismatch`]) and a trait
 //! ([`DispatchableOptions`]).
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
@@ -774,7 +775,44 @@ impl TargetOptions {
     }
 }
 
-/// Which variants an inherent method forwards to, and how.
+/// What `#[dispatch(..)]` on a method of a partial impl block says.
+pub(crate) enum TraitMark {
+    /// `#[dispatch(default)]`: the method is left to the trait's default.
+    Default,
+    /// `#[dispatch(Variant, ..)]` or `#[dispatch(*)]`: the method is
+    /// forwarded to the variants named, each through `via` when given.
+    Forward(ForwardingOptions),
+}
+
+impl TraitMark {
+    /// Reads the mark of a partial block's method: `default`, or the
+    /// variants and the options an inherent method takes, of which only the
+    /// names and `via` apply to a trait method.
+    pub(crate) fn read(attribute: &Attribute) -> Result<Self> {
+        let default = attribute
+            .parse_args::<Ident>()
+            .is_ok_and(|word| word == "default");
+        if default {
+            return Ok(TraitMark::Default);
+        }
+        let forwarding = ForwardingOptions::read(attribute)?;
+        let inherent_only = [
+            forwarding.call.as_ref().map(|_| "`call`"),
+            forwarding.with.as_ref().map(|_| "`with`"),
+            forwarding.field.as_ref().map(|_| "`field`"),
+            forwarding.value.then_some("`value`"),
+        ];
+        if let Some(option) = inherent_only.into_iter().flatten().next() {
+            return Err(Error::new_spanned(
+                attribute,
+                format!("{option} is an option of an inherent method; a trait method is called by its own name on every variant it names, and takes `via` only"),
+            ));
+        }
+        Ok(TraitMark::Forward(forwarding))
+    }
+}
+
+/// Which variants a method of an impl block forwards to, and how.
 pub(crate) struct ForwardingOptions {
     pub(crate) all: bool,
     pub(crate) variants: Vec<Ident>,
@@ -788,6 +826,20 @@ pub(crate) struct ForwardingOptions {
     /// `value`: the arm is the target itself, for `with` to wrap or an
     /// unsized coercion to widen.
     pub(crate) value: bool,
+}
+
+impl ForwardingOptions {
+    /// Reads the mark of an inherent method; a bare `#[dispatch]` names no
+    /// variant.
+    pub(crate) fn read(attribute: &Attribute) -> Result<Self> {
+        if matches!(attribute.meta, Meta::Path(_)) {
+            return Err(Error::new_spanned(
+                attribute,
+                "name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them",
+            ));
+        }
+        attribute.parse_args()
+    }
 }
 
 impl Parse for ForwardingOptions {
