@@ -13,6 +13,7 @@ use syn::{
 };
 
 use crate::agreement::Agreement;
+use crate::builds::Builds;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -168,7 +169,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         agreed_types: vec![],
         agreed_consts: vec![],
         deprecated_items: false,
-        plain_forwarding: PlainForwarding::Nowhere,
+        plain_forwarding: Builds::Never,
         errors: vec![],
     };
     for item in &item_trait.items {
@@ -226,13 +227,11 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // cannot be forwarded to is reported here, under its own `cfg`, in the
     // builds in which some method forwards to every variant; a block whose
     // every method names its variants leaves such a variant to the bodies.
-    let shape_errors = match (&partial, plain_forwarding) {
-        (Some(_), PlainForwarding::Everywhere) => shape_errors(&entries, None),
-        (Some(_), PlainForwarding::Under(predicates)) => {
-            let builds = quote_spanned! { site => #[cfg(any(#(#predicates),*))] };
-            shape_errors(&entries, Some(&builds))
+    let shape_errors = match &partial {
+        Some(_) if !plain_forwarding.is_never() => {
+            shape_errors(&entries, plain_forwarding.attribute(site).as_ref())
         }
-        (Some(_), PlainForwarding::Nowhere) | (None, _) => TokenStream2::new(),
+        _ => TokenStream2::new(),
     };
     Ok(quote_spanned! { site =>
         #(#impl_attrs)*
@@ -370,53 +369,18 @@ enum ItemPlan<'a> {
     Limit(Error),
 }
 
-/// The builds the block's conditional items of one name leave to the rest:
-/// a `cfg` predicate, and the span its attribute's tokens carry, the block
-/// item's.
+/// The builds the block's conditional items of one name leave to the rest,
+/// and the span the attribute naming them carries, the first such item's.
 #[derive(Clone)]
 struct Leftover {
-    predicate: TokenStream2,
+    builds: Builds,
     span: Span,
 }
 
 impl Leftover {
     /// Returns the `#[cfg]` of those builds.
-    fn attribute(&self) -> TokenStream2 {
-        let Leftover { predicate, span } = self;
-        quote_spanned!(*span => #[cfg(#predicate)])
-    }
-}
-
-/// The builds in which some method with a receiver is forwarded to every
-/// variant. A variant no method can forward to is reported in those builds
-/// and in no other: a forwarding that exists in no build, the complement of
-/// a mark under the trait method's own `cfg`, reports nothing.
-enum PlainForwarding {
-    /// In none: every method of the block names its variants, or there is
-    /// no block.
-    Nowhere,
-    /// Where any of these predicates holds, each the builds one name's
-    /// conditional items leave.
-    Under(Vec<TokenStream2>),
-    /// In every build.
-    Everywhere,
-}
-
-impl PlainForwarding {
-    /// Records a method forwarded to every variant, in every build or in
-    /// the builds `leftover` names.
-    fn add(&mut self, leftover: Option<&Leftover>) {
-        let Some(leftover) = leftover else {
-            *self = PlainForwarding::Everywhere;
-            return;
-        };
-        match self {
-            PlainForwarding::Everywhere => {}
-            PlainForwarding::Nowhere => {
-                *self = PlainForwarding::Under(vec![leftover.predicate.clone()]);
-            }
-            PlainForwarding::Under(predicates) => predicates.push(leftover.predicate.clone()),
-        }
+    fn attribute(&self) -> Option<TokenStream2> {
+        self.builds.attribute(self.span)
     }
 }
 
@@ -447,9 +411,12 @@ struct ItemWriter<'a> {
     /// name and so allow.
     deprecated_items: bool,
     /// The builds in which some method with a receiver is forwarded to
-    /// every variant, so that a variant no method can forward to is
-    /// reported there.
-    plain_forwarding: PlainForwarding,
+    /// every variant. A variant no method can forward to is reported in
+    /// those builds and in no other: a forwarding that exists in no build,
+    /// the complement of a mark under the trait method's own `cfg`, reports
+    /// nothing, and neither does a block whose every method names its
+    /// variants.
+    plain_forwarding: Builds,
     /// The items that could not be written, which withhold the impl.
     errors: Vec<Error>,
 }
@@ -493,9 +460,15 @@ impl<'a> ItemWriter<'a> {
                     complement,
                 } => {
                     if forwarded.is_none() && function.sig.receiver().is_some() {
-                        self.plain_forwarding.add(complement.as_ref());
+                        let builds = match &complement {
+                            Some(leftover) => leftover.builds.clone(),
+                            None => Builds::Every,
+                        };
+                        let forwarded =
+                            std::mem::replace(&mut self.plain_forwarding, Builds::Never);
+                        self.plain_forwarding = forwarded.or(builds);
                     }
-                    let complement = complement.as_ref().map(Leftover::attribute);
+                    let complement = complement.as_ref().and_then(Leftover::attribute);
                     expand_method(function, &self.context, &mut self.substitution, forwarded)
                         .map(|forwarded| quote_spanned! { site => #complement #forwarded })
                 }
@@ -533,10 +506,10 @@ impl<'a> ItemWriter<'a> {
         };
         let name = name.to_string();
         // The builds in which the block writes the item itself.
-        let (mut conditions, mut conditional_at) = match self.written.get(&name) {
-            Some(Written::Always) => return vec![],
-            Some(Written::Under { conditions, span }) => (conditions.clone(), Some(*span)),
-            None => (vec![], None),
+        let (mut written, mut conditional_at) = match self.written.get(&name) {
+            Some(written) if written.builds.is_every() => return vec![],
+            Some(written) => (written.builds.clone(), Some(written.span)),
+            None => (Builds::Never, None),
         };
         let function = match (item, conditional_at) {
             (TraitItem::Type(assoc), Some(span)) => return vec![ItemPlan::Limit(Error::new(
@@ -558,14 +531,17 @@ impl<'a> ItemWriter<'a> {
             .map(Vec::as_slice)
             .unwrap_or_default();
         for method in marked {
-            let cfgs = method.cfgs();
-            if !cfgs.is_empty() {
+            let builds = Builds::of(&method.cfgs());
+            if !builds.is_every() {
                 conditional_at.get_or_insert(method.span());
-                conditions.push(cfgs);
+                written = written.or(builds);
             }
         }
         // The builds the block's conditional items leave.
-        let rest = conditional_at.map(|span| not_all_of(&conditions, at(span)));
+        let rest = conditional_at.map(|span| Leftover {
+            builds: written.complement(),
+            span: at(span),
+        });
         let site = self.site;
         let mut plans = vec![];
         // Whether a mark without a `#[cfg]` takes those builds.
@@ -591,7 +567,7 @@ impl<'a> ItemWriter<'a> {
                             format!("`{}` has no default body in `{}` to be left to; give it a body, or forward it", function.sig.ident, self.trait_ident),
                         ),
                         builds: if cfgs.is_empty() {
-                            rest.as_ref().map(Leftover::attribute)
+                            rest.as_ref().and_then(Leftover::attribute)
                         } else {
                             Some(quote_spanned! { site => #(#cfgs)* })
                         },
@@ -803,58 +779,19 @@ impl Forwarded {
     }
 }
 
-/// In which builds a partial block writes an item of a given name.
-enum Written {
-    /// In every build: at least one of the block's items of the name has
-    /// no `#[cfg]`.
-    Always,
-    /// Under the `#[cfg]` attributes of each of the block's items of the
-    /// name, any of which may hold; `span` is the first such item's, for a
-    /// message about them.
-    Under {
-        conditions: Vec<Vec<Attribute>>,
-        span: Span,
-    },
+/// The builds in which a partial block writes the items of one name: where
+/// any of them exists. `span` is the first such item's, for a message about
+/// them.
+struct Written {
+    builds: Builds,
+    span: Span,
 }
 
 impl Written {
-    /// The first item of a name, written under `cfgs` at `span`.
-    fn new(cfgs: Vec<Attribute>, span: Span) -> Self {
-        if cfgs.is_empty() {
-            Written::Always
-        } else {
-            Written::Under {
-                conditions: vec![cfgs],
-                span,
-            }
-        }
-    }
-
-    /// Records one more item of the name, written under `cfgs`.
-    fn add(&mut self, cfgs: Vec<Attribute>) {
-        match self {
-            Written::Always => {}
-            Written::Under { .. } if cfgs.is_empty() => *self = Written::Always,
-            Written::Under { conditions, .. } => conditions.push(cfgs),
-        }
-    }
-}
-
-/// Returns the builds in which none of `conditions` holds: each is the
-/// `all` of one item's predicates, and the item exists under `any` of them.
-/// The predicate's own tokens, and its attribute's, carry `span`, the block
-/// item's.
-fn not_all_of(conditions: &[Vec<Attribute>], span: Span) -> Leftover {
-    let predicates = conditions.iter().map(|cfgs| {
-        let predicates = cfgs.iter().map(|attribute| match &attribute.meta {
-            syn::Meta::List(list) => list.tokens.clone(),
-            _ => TokenStream2::new(),
-        });
-        quote_spanned!(span => all(#(#predicates),*))
-    });
-    Leftover {
-        predicate: quote_spanned!(span => not(any(#(#predicates),*))),
-        span,
+    /// Records one more item of the name, written under `attributes`.
+    fn add(&mut self, attributes: &[Attribute]) {
+        let written = std::mem::replace(&mut self.builds, Builds::Never);
+        self.builds = written.or(Builds::of(attributes));
     }
 }
 
@@ -945,11 +882,13 @@ impl<'a> ImplHeader<'a> {
                 ImplItem::Const(constant) => (&constant.ident, &constant.attrs),
                 _ => continue,
             };
-            let cfgs = cfg_attributes(attrs);
             match written.entry(name.to_string()) {
-                MapEntry::Occupied(entry) => entry.into_mut().add(cfgs),
+                MapEntry::Occupied(entry) => entry.into_mut().add(attrs),
                 MapEntry::Vacant(entry) => {
-                    entry.insert(Written::new(cfgs, item.span()));
+                    entry.insert(Written {
+                        builds: Builds::of(attrs),
+                        span: item.span(),
+                    });
                 }
             }
             user_items.push(item);
@@ -1462,21 +1401,20 @@ mod tests {
             parse_quote!(#[cfg(not(test))]),
         ];
         let unix: Vec<Attribute> = vec![parse_quote!(#[cfg(unix)])];
+        let mut written = Written {
+            builds: Builds::of(&named),
+            span: Span::call_site(),
+        };
+        written.add(&unix);
+        let leftover = Leftover {
+            builds: written.builds.complement(),
+            span: Span::call_site(),
+        };
         assert_eq!(
-            not_all_of(&[named.clone(), unix.clone()], Span::call_site())
-                .attribute()
-                .to_string(),
-            quote!(#[cfg(not(any(all(feature = "named", not(test)), all(unix))))]).to_string()
+            leftover.attribute().expect("a `cfg`").to_string(),
+            quote!(#[cfg(not(any(all(feature = "named", not(test)), unix)))]).to_string()
         );
-        let mut written = Written::new(named, Span::call_site());
-        assert!(matches!(&written, Written::Under { conditions, .. } if conditions.len() == 1));
-        written.add(unix);
-        assert!(matches!(&written, Written::Under { conditions, .. } if conditions.len() == 2));
-        written.add(vec![]);
-        assert!(matches!(written, Written::Always));
-        assert!(matches!(
-            Written::new(vec![], Span::call_site()),
-            Written::Always
-        ));
+        written.add(&[]);
+        assert!(written.builds.is_every());
     }
 }

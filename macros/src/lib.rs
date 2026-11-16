@@ -41,6 +41,7 @@ pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
 
 mod agreement;
 mod block;
+mod builds;
 mod conversions;
 mod dispatch;
 mod dispatchable;
