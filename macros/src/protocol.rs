@@ -3,14 +3,14 @@
 //! side by side.
 //!
 //! ```text
-//! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <options> } [remote { <path> }] [impl { <block> }]
+//! request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <path>, <options> } [remote { <path> }] [impl { <block> }]
 //! what the carrier puts in front  @v2 trait { <signatures> } [remote { <path> }] [provided { <method>, .. }]
-//! what `implement!` reads         @v2 trait { <signatures> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <options> } [impl { <block> }]
+//! what `implement!` reads         @v2 trait { <signatures> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { <path>, <options> } [remote { <path> }] [impl { <block> }]
 //!                                 @v1 trait { <trait> } [remote { <path> }] enum { .. } .., the prefix of the carriers 0.1 to 0.6 wrote
 //!
 //! request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
 //! what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> }
-//! what `implement_block!` reads   @v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } [partial { <options> }] impl { <block> }
+//! what `implement_block!` reads   @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> } [partial { <options> }] impl { <block> }
 //! ```
 //!
 //! A carrier macro takes `@v1 <facade>` off its request and calls the
