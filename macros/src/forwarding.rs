@@ -19,7 +19,7 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
-use crate::options::TraitSpec;
+use crate::options::TraitOptions;
 use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
@@ -152,14 +152,14 @@ pub(crate) struct MethodPlan {
 
 impl MethodPlan {
     /// Reads `signature`, which must have a receiver, and binds its
-    /// arguments as `names` says. `spec` carries a trait's associated type
+    /// arguments as `names` says. `options` carries a trait's associated type
     /// overrides; an inherent method has none. `site` is what the return
     /// type's classification depends on besides the type.
     pub(crate) fn new(
         signature: &mut Signature,
         names: ArgumentNames,
         self_arguments: SelfArguments,
-        spec: Option<&TraitSpec>,
+        options: Option<&TraitOptions>,
         site: &ReturnSite,
         resolution: Option<Span>,
     ) -> Result<Self> {
@@ -223,7 +223,7 @@ impl MethodPlan {
             }
             arguments.push(binding);
         }
-        let (return_model, future) = classify_return(&signature.output, spec, site)?;
+        let (return_model, future) = classify_return(&signature.output, options, site)?;
         let awaited = signature.asyncness.is_some() || future.is_some();
         Ok(Self {
             receiver,

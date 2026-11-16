@@ -231,13 +231,13 @@ pub fn implement(input: TokenStream) -> TokenStream {
 pub fn implement_block(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as BlockInput);
     let expanded = match input.partial {
-        Some(spec) => expand_partial(
+        Some(options) => expand_partial(
             input.rejected,
             &input.facade,
             &input.dispatched,
             input.remote.as_ref(),
             input.subject,
-            spec,
+            options,
             input.item_impl,
         ),
         None => expand_inherent(

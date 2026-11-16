@@ -9,7 +9,7 @@ use crate::combined;
 use crate::conversions::conversion_impls;
 use crate::naming;
 use crate::options::{
-    is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
+    is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitOptions, TryFromForms,
 };
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
@@ -53,7 +53,7 @@ pub(crate) fn expand_subject(
     let mut attributes = vec![];
     for tokens in arguments {
         let parsed = syn::parse2::<DispatchAttribute>(tokens).and_then(|attribute| {
-            attribute.spec.check_path()?;
+            attribute.check_path()?;
             Ok(attribute)
         });
         match parsed {
@@ -97,7 +97,7 @@ pub(crate) fn expand_subject(
     };
     let dispatched: Vec<&Path> = attributes
         .iter()
-        .filter_map(|attribute| attribute.spec.path.as_ref())
+        .filter_map(|attribute| attribute.path.as_ref())
         .collect();
     // A trait a field names is one the struct's attribute dispatches; a
     // field's mark for any other is dead, and says so.
@@ -121,7 +121,7 @@ pub(crate) fn expand_subject(
     };
     let mut invocations = TokenStream2::new();
     for attribute in &attributes {
-        let Some(path) = &attribute.spec.path else {
+        let Some(path) = &attribute.path else {
             continue;
         };
         let macro_path = carrier_path(path);
@@ -130,7 +130,8 @@ pub(crate) fn expand_subject(
         let request = TraitRequest {
             facade: &facade,
             subject: &captured,
-            spec: &attribute.spec,
+            path,
+            options: &attribute.options,
             remote: remote.as_ref(),
             partial: None,
         };
@@ -314,16 +315,10 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
         Some(_) => {
             // The trait's options; the trait itself is the one the block
             // implements.
-            let spec: TraitSpec = syn::parse2(attr)?;
-            if let Some(path) = &spec.path {
-                return Err(Error::new_spanned(
-                    path,
-                    "`#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements",
-                ));
-            }
+            let options: TraitOptions = syn::parse2(attr)?;
             let request = BlockRequest {
                 facade: &facade,
-                partial: Some(&spec),
+                partial: Some(&options),
                 block: &item_impl,
             };
             Ok(quote! { #macro_path! { #request } })

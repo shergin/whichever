@@ -36,7 +36,7 @@ use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{braced, token, Error, Ident, ItemImpl, ItemTrait, Path, PathArguments, Result, Token};
 
-use crate::options::TraitSpec;
+use crate::options::{DispatchAttribute, TraitOptions};
 use crate::subject::Subject;
 
 /// The version of a request, which every carrier ever written matches.
@@ -118,12 +118,13 @@ pub(crate) fn carrier_path(path: &Path) -> Path {
 }
 
 /// What `#[dispatch]` sends to a trait's carrier macro: the subject, the
-/// trait's options, and the partial impl block when the request comes from
-/// one.
+/// trait as the subject names it with its options, and the partial impl
+/// block when the request comes from one.
 pub(crate) struct TraitRequest<'a> {
     pub(crate) facade: &'a Ident,
     pub(crate) subject: &'a Subject,
-    pub(crate) spec: &'a TraitSpec,
+    pub(crate) path: &'a Path,
+    pub(crate) options: &'a TraitOptions,
     /// The real path of a restated subject, which the impl is written for.
     pub(crate) remote: Option<&'a Path>,
     pub(crate) partial: Option<&'a ItemImpl>,
@@ -134,15 +135,19 @@ impl ToTokens for TraitRequest<'_> {
         let TraitRequest {
             facade,
             subject,
-            spec,
+            path,
+            options,
             remote,
             partial,
         } = self;
         let version = version(REQUEST_VERSION);
+        let options = options.to_token_stream();
+        let separator = (!options.is_empty()).then(|| quote!(,));
         let remote = remote.map(|path| quote!(remote { #path }));
         let partial = partial.map(|block| quote!(impl { #block }));
-        tokens
-            .extend(quote! { @#version #facade enum { #subject } spec { #spec } #remote #partial });
+        tokens.extend(quote! {
+            @#version #facade enum { #subject } spec { #path #separator #options } #remote #partial
+        });
     }
 }
 
@@ -185,7 +190,9 @@ pub(crate) struct ImplementInput {
     /// The real path of a subject restated with `remote = ..`, which the
     /// impl is written for.
     pub(crate) subject_remote: Option<Path>,
-    pub(crate) spec: TraitSpec,
+    /// The trait as the subject names it, generic arguments included.
+    pub(crate) path: Path,
+    pub(crate) options: TraitOptions,
     /// The impl block the user wrote, holding the items the subject
     /// implements itself; the rest is generated around them.
     pub(crate) partial: Option<ItemImpl>,
@@ -229,7 +236,9 @@ impl Parse for ImplementInput {
                 Ok(())
             },
         )?;
-        let spec = spec.ok_or_else(|| missing("spec"))?;
+        let DispatchAttribute { path, options, .. } = spec.ok_or_else(|| missing("spec"))?;
+        let path =
+            path.ok_or_else(|| Error::new(Span::call_site(), "the trait to implement is missing"))?;
         let partial = if input.peek(Token![impl]) {
             input.parse::<Token![impl]>()?;
             Some(parse_braced(input)?)
@@ -242,7 +251,8 @@ impl Parse for ImplementInput {
             provided,
             subject,
             subject_remote,
-            spec,
+            path,
+            options,
             partial,
         })
     }
@@ -252,7 +262,7 @@ impl Parse for ImplementInput {
 /// the block, and the trait's options when the block is a partial impl.
 pub(crate) struct BlockRequest<'a> {
     pub(crate) facade: &'a Ident,
-    pub(crate) partial: Option<&'a TraitSpec>,
+    pub(crate) partial: Option<&'a TraitOptions>,
     pub(crate) block: &'a ItemImpl,
 }
 
@@ -264,7 +274,7 @@ impl ToTokens for BlockRequest<'_> {
             block,
         } = self;
         let version = version(REQUEST_VERSION);
-        let partial = partial.map(|spec| quote!(partial { #spec }));
+        let partial = partial.map(|options| quote!(partial { #options }));
         tokens.extend(quote! { @#version #facade #partial impl { #block } });
     }
 }
@@ -315,7 +325,7 @@ pub(crate) struct BlockInput {
     pub(crate) remote: Option<Path>,
     pub(crate) subject: Subject,
     /// The trait's options when the block is a partial impl of that trait.
-    pub(crate) partial: Option<TraitSpec>,
+    pub(crate) partial: Option<TraitOptions>,
     pub(crate) item_impl: ItemImpl,
 }
 
@@ -444,7 +454,8 @@ mod tests {
     fn a_trait_request_reads_back_behind_its_carried_trait() {
         let facade: Ident = parse_quote!(whichever);
         let subject = subject();
-        let spec: TraitSpec = syn::parse_str("Trait, Error = X").unwrap();
+        let path: Path = parse_quote!(Trait);
+        let spec: TraitOptions = syn::parse_str("Error = X").unwrap();
         let block: ItemImpl = parse_quote!(
             impl Trait for Any {
                 fn make() -> Self {
@@ -456,7 +467,8 @@ mod tests {
         let request = TraitRequest {
             facade: &facade,
             subject: &subject,
-            spec: &spec,
+            path: &path,
+            options: &spec,
             remote: Some(&subject_remote),
             partial: Some(&block),
         };
@@ -483,7 +495,7 @@ mod tests {
         assert_eq!(input.subject.ident(), "Any");
         assert_eq!(input.provided, vec![parse_quote!(make)] as Vec<Ident>);
         assert!(input.subject_remote.is_some());
-        assert!(input.spec.is_overridden(&parse_quote!(Error)));
+        assert!(input.options.is_overridden(&parse_quote!(Error)));
         assert_eq!(input.partial.map(|block| block.items.len()), Some(1));
     }
 
@@ -495,7 +507,7 @@ mod tests {
                 fn plain(&self) {}
             }
         );
-        let spec: TraitSpec = syn::parse_str("Error = X").unwrap();
+        let spec: TraitOptions = syn::parse_str("Error = X").unwrap();
         let request = BlockRequest {
             facade: &facade,
             partial: Some(&spec),

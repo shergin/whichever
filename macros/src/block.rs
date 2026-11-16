@@ -11,7 +11,7 @@ use syn::{
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
-use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitSpec};
+use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitOptions};
 use crate::protocol::{carrier_path, TraitRequest};
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{place_borrow, ReturnSite};
@@ -32,7 +32,7 @@ pub(crate) fn expand_partial(
     dispatched: &[Path],
     remote: Option<&Path>,
     subject: Subject,
-    mut spec: TraitSpec,
+    options: TraitOptions,
     item_impl: ItemImpl,
 ) -> Result<TokenStream2> {
     if rejected {
@@ -49,12 +49,12 @@ pub(crate) fn expand_partial(
             format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),
         ));
     }
-    spec.path = Some(trait_path.clone());
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
         facade,
         subject: &subject,
-        spec: &spec,
+        path: trait_path,
+        options: &options,
         remote,
         partial: Some(&item_impl),
     };

@@ -8,7 +8,7 @@ use syn::{
     Result, ReturnType, Signature, Token, Type, TypeParamBound, TypePath,
 };
 
-use crate::options::TraitSpec;
+use crate::options::TraitOptions;
 
 /// Returns the identifier of a bare single-segment path type without
 /// arguments, such as a type parameter or a primitive.
@@ -270,7 +270,7 @@ pub(crate) struct ReturnSite<'a> {
 
 /// Classifies what the arms of a method must do with the payload's result,
 /// and whether the method returns a future the arms are awaited inside, in
-/// which case the classification applies to the future's `Output`. `spec`
+/// which case the classification applies to the future's `Output`. `options`
 /// carries the associated type overrides of a trait; inherent methods have
 /// none.
 ///
@@ -284,7 +284,7 @@ pub(crate) struct ReturnSite<'a> {
 /// unless its `Output` has to be converted.
 pub(crate) fn classify_return(
     output: &ReturnType,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<(Conversion, Option<FutureShape>)> {
     let ReturnType::Type(_, ty) = output else {
@@ -307,7 +307,7 @@ pub(crate) fn classify_return(
         if let Type::ImplTrait(_) = ty {
             return Ok((Conversion::Keep, None));
         }
-        let conversion = return_model(ty, spec, site)?;
+        let conversion = return_model(ty, options, site)?;
         let awaited = future.filter(|_| conversion != Conversion::Keep);
         return Ok((conversion, awaited));
     }
@@ -317,7 +317,7 @@ pub(crate) fn classify_return(
             "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
-    let conversion = return_model(ty, spec, site)?;
+    let conversion = return_model(ty, options, site)?;
     let future = match future {
         Some(FutureShape::Boxed(_)) if conversion == Conversion::Keep => None,
         other => other,
@@ -354,10 +354,10 @@ fn first_impl_trait(ty: &Type) -> Option<&Type> {
 /// type.
 pub(crate) fn return_model(
     ty: &Type,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<Conversion> {
-    let conversion = classify(ty, ty, spec, site)?;
+    let conversion = classify(ty, ty, options, site)?;
     check_expressible(&conversion, ty, site)?;
     Ok(conversion)
 }
@@ -366,14 +366,14 @@ pub(crate) fn return_model(
 fn classify(
     ty: &Type,
     whole: &Type,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<Conversion> {
     if is_self(ty) {
         return Ok(Conversion::Rewrap);
     }
     if let Some(name) = self_assoc(ty) {
-        let overridden = spec.is_some_and(|spec| spec.is_overridden(name));
+        let overridden = options.is_some_and(|options| options.is_overridden(name));
         return Ok(if overridden {
             Conversion::Into
         } else {
@@ -384,15 +384,15 @@ fn classify(
         let arguments = generic_type_args(segment);
         let wrapped = match (segment.ident.to_string().as_str(), arguments.as_slice()) {
             ("Option", [inner]) => Some(Conversion::Map(Box::new(classify(
-                inner, whole, spec, site,
+                inner, whole, options, site,
             )?))),
             // `io::Result<T>`: the alias fixes the error type.
             ("Result", [inner]) => Some(Conversion::Map(Box::new(classify(
-                inner, whole, spec, site,
+                inner, whole, options, site,
             )?))),
             ("Result", [inner, error]) => Some(Conversion::MapErr(
-                Box::new(classify(inner, whole, spec, site)?),
-                Box::new(classify(error, whole, spec, site)?),
+                Box::new(classify(inner, whole, options, site)?),
+                Box::new(classify(error, whole, options, site)?),
             )),
             _ => None,
         };
@@ -404,7 +404,7 @@ fn classify(
         let items = tuple
             .elems
             .iter()
-            .map(|item| classify(item, whole, spec, site))
+            .map(|item| classify(item, whole, options, site))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Conversion::Tuple(items).simplified());
     }
@@ -735,13 +735,13 @@ mod tests {
         Ident::new("Kind", proc_macro2::Span::call_site())
     }
 
-    fn model(ty: Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
-        return_model(&ty, spec, &site(&kind(), false))
+    fn model(ty: Type, options: Option<&TraitOptions>) -> Result<Conversion> {
+        return_model(&ty, options, &site(&kind(), false))
     }
 
-    /// A spec fixing the associated type `name` on the enum.
-    fn overriding(name: &str) -> TraitSpec {
-        syn::parse_str(&format!("Trait, {name} = Fixed")).expect("a valid spec")
+    /// A options fixing the associated type `name` on the enum.
+    fn overriding(name: &str) -> TraitOptions {
+        syn::parse_str(&format!("{name} = Fixed")).expect("valid options")
     }
 
     #[test]
@@ -765,35 +765,35 @@ mod tests {
 
     #[test]
     fn an_overridden_associated_type_converts_in_every_position() {
-        let spec = overriding("Error");
-        let spec = Some(&spec);
+        let options = overriding("Error");
+        let options = Some(&options);
         assert_eq!(
-            model(parse_quote!(Self::Error), spec).unwrap(),
+            model(parse_quote!(Self::Error), options).unwrap(),
             Conversion::Into
         );
         assert_eq!(
-            model(parse_quote!(Option<Self::Error>), spec).unwrap(),
+            model(parse_quote!(Option<Self::Error>), options).unwrap(),
             Conversion::Map(Box::new(Conversion::Into))
         );
         assert_eq!(
-            model(parse_quote!(Result<Self, Self::Error>), spec).unwrap(),
+            model(parse_quote!(Result<Self, Self::Error>), options).unwrap(),
             Conversion::MapErr(Box::new(Conversion::Rewrap), Box::new(Conversion::Into))
         );
         assert_eq!(
-            model(parse_quote!(Self::Other), spec).unwrap(),
+            model(parse_quote!(Self::Other), options).unwrap(),
             Conversion::Keep
         );
     }
 
     #[test]
     fn a_tuple_converts_element_by_element() {
-        let spec = overriding("Out");
+        let options = overriding("Out");
         assert_eq!(
             model(parse_quote!((Self, u32)), None).unwrap(),
             Conversion::Tuple(vec![Conversion::Rewrap, Conversion::Keep])
         );
         assert_eq!(
-            model(parse_quote!((Self::Out, Option<Self>)), Some(&spec)).unwrap(),
+            model(parse_quote!((Self::Out, Option<Self>)), Some(&options)).unwrap(),
             Conversion::Tuple(vec![
                 Conversion::Into,
                 Conversion::Map(Box::new(Conversion::Rewrap))
@@ -923,9 +923,9 @@ mod tests {
     #[test]
     fn a_boxed_future_is_awaited_only_to_convert_its_output() {
         let kind = kind();
-        let spec = overriding("Error");
+        let options = overriding("Error");
         let returns = |output: ReturnType| {
-            classify_return(&output, Some(&spec), &site(&kind, false)).unwrap()
+            classify_return(&output, Some(&options), &site(&kind, false)).unwrap()
         };
         let (model, future) = returns(parse_quote!(
             -> ::core::pin::Pin<Box<dyn ::core::future::Future<Output = u32> + Send + 'async_trait>>

@@ -1,6 +1,6 @@
 //! The grammars of `#[dispatch(..)]` and `#[dispatchable(..)]`, one typed
 //! struct per position the attribute is written in: a subject
-//! ([`DispatchAttribute`]), a partial impl block ([`TraitSpec`]), a variant
+//! ([`DispatchAttribute`]), a partial impl block ([`TraitOptions`]), a variant
 //! or a field ([`TargetOptions`]), a method of an inherent block
 //! ([`ForwardingOptions`]), a trait method ([`method_mismatch`]) and a trait
 //! ([`DispatchableOptions`]).
@@ -107,12 +107,10 @@ fn parse_options(
     Ok(())
 }
 
-/// A trait's options: the path written in `#[dispatch(Trait, ..)]` when
-/// there is one, the `Name = ..` overrides and the `mismatch` results. This
-/// is what travels to the implementation macro and what a partial impl
-/// block's attribute holds.
-pub(crate) struct TraitSpec {
-    pub(crate) path: Option<Path>,
+/// A trait's options: the `Name = ..` overrides, the `mismatch` results and
+/// the routes. This is what travels to the implementation macro beside the
+/// trait's path, and what a partial impl block's attribute holds.
+pub(crate) struct TraitOptions {
     pub(crate) overrides: Vec<Override>,
     pub(crate) mismatch: Vec<(Ident, Expr)>,
     /// The routes this trait takes through named variants, `via(Variant =
@@ -120,7 +118,7 @@ pub(crate) struct TraitSpec {
     pub(crate) routes: Vec<(Ident, Route)>,
 }
 
-impl TraitSpec {
+impl TraitOptions {
     pub(crate) fn override_for(&self, name: &Ident) -> Option<&Override> {
         self.overrides.iter().find(|fixed| &fixed.name == name)
     }
@@ -137,7 +135,69 @@ impl TraitSpec {
             .find(|(key, _)| key == method)
             .map(|(_, expr)| expr)
     }
+}
 
+impl Parse for TraitOptions {
+    /// The trait's options alone, as a partial impl block's attribute
+    /// holds them: a conversion switch belongs on the subject, and the
+    /// trait is the one the block implements.
+    fn parse(input: ParseStream) -> Result<Self> {
+        let DispatchAttribute {
+            path,
+            options,
+            switches,
+        } = input.parse()?;
+        if let Some(span) = switches.first_span() {
+            return Err(Error::new(
+                span,
+                "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
+            ));
+        }
+        if let Some(path) = path {
+            return Err(Error::new_spanned(
+                path,
+                "`#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements",
+            ));
+        }
+        Ok(options)
+    }
+}
+
+impl ToTokens for TraitOptions {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let mut parts: Vec<TokenStream2> = self
+            .overrides
+            .iter()
+            .map(ToTokens::to_token_stream)
+            .collect();
+        if !self.mismatch.is_empty() {
+            let pairs = self
+                .mismatch
+                .iter()
+                .map(|(method, expr)| quote!(#method = #expr));
+            parts.push(quote!(mismatch(#(#pairs),*)));
+        }
+        if !self.routes.is_empty() {
+            let pairs = self
+                .routes
+                .iter()
+                .map(|(variant, route)| quote!(#variant = #route));
+            parts.push(quote!(via(#(#pairs),*)));
+        }
+        tokens.extend(quote!(#(#parts),*));
+    }
+}
+
+/// `#[dispatch(..)]` on a subject: the trait it dispatches, when it names
+/// one, with that trait's options, and the subject's conversion switches,
+/// which only `#[dispatch]` on the subject reads.
+pub(crate) struct DispatchAttribute {
+    pub(crate) path: Option<Path>,
+    pub(crate) options: TraitOptions,
+    pub(crate) switches: Switches,
+}
+
+impl DispatchAttribute {
     /// Rejects a trait of `std`, `core` or `alloc`, which is never
     /// `#[dispatchable]`; rustc would only say that the macro of that name
     /// is missing.
@@ -158,51 +218,6 @@ impl TraitSpec {
     }
 }
 
-impl Parse for TraitSpec {
-    /// The trait's options alone; a conversion switch belongs on the
-    /// subject.
-    fn parse(input: ParseStream) -> Result<Self> {
-        let DispatchAttribute { spec, switches } = input.parse()?;
-        if let Some(span) = switches.first_span() {
-            return Err(Error::new(
-                span,
-                "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
-            ));
-        }
-        Ok(spec)
-    }
-}
-
-impl ToTokens for TraitSpec {
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
-        let mut parts: Vec<TokenStream2> =
-            self.path.iter().map(ToTokens::to_token_stream).collect();
-        parts.extend(self.overrides.iter().map(ToTokens::to_token_stream));
-        if !self.mismatch.is_empty() {
-            let pairs = self
-                .mismatch
-                .iter()
-                .map(|(method, expr)| quote!(#method = #expr));
-            parts.push(quote!(mismatch(#(#pairs),*)));
-        }
-        if !self.routes.is_empty() {
-            let pairs = self
-                .routes
-                .iter()
-                .map(|(variant, route)| quote!(#variant = #route));
-            parts.push(quote!(via(#(#pairs),*)));
-        }
-        tokens.extend(quote!(#(#parts),*));
-    }
-}
-
-/// `#[dispatch(..)]` on a subject: a trait's options, and the subject's
-/// conversion switches, which only `#[dispatch]` on the subject reads.
-pub(crate) struct DispatchAttribute {
-    pub(crate) spec: TraitSpec,
-    pub(crate) switches: Switches,
-}
-
 impl Parse for DispatchAttribute {
     fn parse(input: ParseStream) -> Result<Self> {
         let starts_with_option =
@@ -212,14 +227,13 @@ impl Parse for DispatchAttribute {
         } else {
             Some(input.parse::<Path>()?)
         };
-        let mut spec = TraitSpec {
-            path,
+        let mut options = TraitOptions {
             overrides: vec![],
             mismatch: vec![],
             routes: vec![],
         };
         let mut switches = Switches::default();
-        if let Some(path) = &spec.path {
+        if let Some(path) = &path {
             // `Item<'a> = ..` as the first thing is read as a trait path.
             if input.peek(Token![=]) {
                 if let [segment] = path.segments.iter().collect::<Vec<_>>().as_slice() {
@@ -236,10 +250,10 @@ impl Parse for DispatchAttribute {
                 parenthesized!(content in input);
                 let pairs = Punctuated::<KeyedExpr, Token![,]>::parse_terminated(&content)?;
                 for pair in pairs {
-                    if spec.mismatch_for(&pair.key).is_some() {
+                    if options.mismatch_for(&pair.key).is_some() {
                         return Err(given_twice(&pair.key));
                     }
-                    spec.mismatch.push((pair.key, pair.value));
+                    options.mismatch.push((pair.key, pair.value));
                 }
                 return Ok(());
             }
@@ -248,15 +262,19 @@ impl Parse for DispatchAttribute {
                 parenthesized!(content in input);
                 let pairs = Punctuated::<KeyedRoute, Token![,]>::parse_terminated(&content)?;
                 for pair in pairs {
-                    if spec.routes.iter().any(|(variant, _)| *variant == pair.key) {
+                    if options
+                        .routes
+                        .iter()
+                        .any(|(variant, _)| *variant == pair.key)
+                    {
                         return Err(given_twice(&pair.key));
                     }
-                    spec.routes.push((pair.key, pair.route));
+                    options.routes.push((pair.key, pair.route));
                 }
                 return Ok(());
             }
             if input.peek(Token![<]) {
-                return Err(gat_override(&key, spec.path.as_ref()));
+                return Err(gat_override(&key, path.as_ref()));
             }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
@@ -276,12 +294,16 @@ impl Parse for DispatchAttribute {
                 }),
                 "remote" if switches.remote.is_some() => return Err(given_twice(&key)),
                 "remote" => switches.remote = Some((key, input.parse()?)),
-                _ if spec.is_overridden(&key) => return Err(given_twice(&key)),
-                _ => spec.overrides.push(Override::parse(key, input)?),
+                _ if options.is_overridden(&key) => return Err(given_twice(&key)),
+                _ => options.overrides.push(Override::parse(key, input)?),
             }
             Ok(())
         })?;
-        Ok(Self { spec, switches })
+        Ok(Self {
+            path,
+            options,
+            switches,
+        })
     }
 }
 
@@ -803,9 +825,9 @@ mod tests {
         );
         let fixed = |name: &str| {
             let name: Ident = syn::parse_str(name).unwrap();
-            attribute.spec.override_for(&name).expect("an override")
+            attribute.options.override_for(&name).expect("an override")
         };
-        assert_eq!(attribute.spec.overrides.len(), 6);
+        assert_eq!(attribute.options.overrides.len(), 6);
         assert!(fixed("N").as_value().is_ok());
         assert!(fixed("N").as_type().is_err());
         assert!(fixed("S").as_value().is_ok());
@@ -825,7 +847,7 @@ mod tests {
     #[test]
     fn the_path_is_optional_and_the_switches_are_the_subjects() {
         let switches_only = attribute("from = false, try_from = true");
-        assert!(switches_only.spec.path.is_none());
+        assert!(switches_only.path.is_none());
         assert_eq!(
             switches_only.switches.from.as_ref().map(Switch::value),
             Some(false)
@@ -841,10 +863,10 @@ mod tests {
         assert!(syn::parse_str::<DispatchAttribute>("from = ref").is_err());
         assert!(syn::parse_str::<DispatchAttribute>("try_from = sometimes").is_err());
         let with_path = attribute("a::Trait<X>, mismatch(same = false, other = 1)");
-        assert!(with_path.spec.path.is_some());
-        assert_eq!(with_path.spec.mismatch.len(), 2);
+        assert!(with_path.path.is_some());
+        assert_eq!(with_path.options.mismatch.len(), 2);
         assert!(
-            syn::parse_str::<TraitSpec>("Trait, from = false").is_err(),
+            syn::parse_str::<TraitOptions>("from = false").is_err(),
             "a trait's options alone take no switch"
         );
         assert!(syn::parse_str::<DispatchAttribute>("Trait, Error = A, Error = B").is_err());
@@ -945,11 +967,11 @@ mod tests {
         assert_eq!(route.spelled(), ".base.get_ref()");
         let both: Vec<Attribute> = vec![parse_quote!(#[dispatch(deref, via = .0)])];
         assert!(TargetOptions::read(&both, true).is_err());
-        let spec: TraitSpec = syn::parse_str("Trait, via(VarChar = .1, Decimal = .2)").unwrap();
+        let spec: TraitOptions = syn::parse_str("via(VarChar = .1, Decimal = .2)").unwrap();
         assert_eq!(spec.routes.len(), 2);
         assert_eq!(
             spec.to_token_stream().to_string().replace(' ', ""),
-            "Trait,via(VarChar=.1,Decimal=.2)"
+            "via(VarChar=.1,Decimal=.2)"
         );
         let forwarding: ForwardingOptions = syn::parse_str("*, field = line_no").unwrap();
         assert!(forwarding.field.is_some() && !forwarding.value);

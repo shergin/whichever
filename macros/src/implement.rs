@@ -19,7 +19,8 @@ use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
 use crate::options::{
-    closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override, TraitSpec,
+    closest, is_dispatch_attribute, listed, method_mismatch, ForwardingOptions, Override,
+    TraitOptions,
 };
 use crate::protocol::ImplementInput;
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
@@ -38,15 +39,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         provided,
         subject,
         subject_remote,
-        mut spec,
+        path: spec_path,
+        mut options,
         partial,
     } = input;
-    let Some(spec_path) = spec.path.clone() else {
-        return Err(Error::new(
-            Span::call_site(),
-            "the trait to implement is missing",
-        ));
-    };
     // A restatement names the methods it forwards and nothing else, so a
     // method left to the default is left to the real trait's, which the
     // restatement cannot see; rustc reports one the trait does not provide.
@@ -63,7 +59,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         &subject,
         subject_remote.as_ref(),
         &item_trait,
-        &mut spec,
+        &mut options,
     )?;
     // Patterns and values name the subject by its real path when it is a
     // restatement, and by its own name otherwise.
@@ -102,7 +98,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             entries.rename(&mut renaming);
         }
     }
-    let route_errors = entries.route(&spec.routes);
+    let route_errors = entries.route(&options.routes);
     let variants = entries.targets();
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and
@@ -149,7 +145,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             subject: &subject,
             subject_path: &subject_path,
             trait_path,
-            spec: &spec,
+            options: &options,
             block_header: &block_header,
             derived: partial.is_none(),
             provided: &provided,
@@ -185,7 +181,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // that cannot be written withholds the impl.
     let mut reported = route_errors;
     reported.extend(unknown_names(
-        &spec,
+        &options,
         &item_trait,
         trait_ident,
         &subject,
@@ -248,7 +244,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
 /// turn into a type error somewhere else, so the message says what was
 /// probably meant, or what there is to mean.
 fn unknown_names(
-    spec: &TraitSpec,
+    options: &TraitOptions,
     item_trait: &ItemTrait,
     trait_ident: &Ident,
     subject: &Subject,
@@ -264,7 +260,7 @@ fn unknown_names(
             _ => None,
         })
         .collect();
-    for fixed in &spec.overrides {
+    for fixed in &options.overrides {
         let name = fixed.name.to_string();
         if associated.contains(&name) {
             continue;
@@ -285,7 +281,7 @@ fn unknown_names(
             _ => None,
         })
         .collect();
-    for (method, _) in &spec.mismatch {
+    for (method, _) in &options.mismatch {
         let name = method.to_string();
         if deciding.contains(&name) {
             continue;
@@ -413,7 +409,7 @@ impl<'a> ItemWriter<'a> {
                     .map(|rejected| quote_spanned! { *site => #builds #rejected }),
                 ItemPlan::Type(assoc) => associated_type(
                     assoc,
-                    self.context.spec,
+                    self.context.options,
                     self.supplier,
                     self.context.block_header,
                     &mut self.agreed_types,
@@ -421,7 +417,7 @@ impl<'a> ItemWriter<'a> {
                 ),
                 ItemPlan::Const(constant) => associated_const(
                     constant,
-                    self.context.spec,
+                    self.context.options,
                     self.supplier,
                     &mut self.substitution,
                     &mut self.agreed_consts,
@@ -774,7 +770,7 @@ impl<'a> ImplHeader<'a> {
         subject: &'a Subject,
         remote: Option<&Path>,
         item_trait: &ItemTrait,
-        spec: &mut TraitSpec,
+        options: &mut TraitOptions,
     ) -> Result<Self> {
         let Some(block) = partial else {
             let (_, ty_generics, _) = subject.generics().split_for_impl();
@@ -848,7 +844,8 @@ impl<'a> ImplHeader<'a> {
                 // An associated type written in the block is an override
                 // like the `Name = Type` option.
                 ImplItem::Type(assoc) => {
-                    spec.overrides
+                    options
+                        .overrides
                         .push(Override::of_type(assoc.ident.clone(), &assoc.ty));
                     (&assoc.ident, &assoc.attrs)
                 }
@@ -913,7 +910,7 @@ impl Supplier<'_> {
 /// tokens carry `site`.
 fn associated_type<'a>(
     assoc: &'a TraitItemType,
-    spec: &TraitSpec,
+    options: &TraitOptions,
     supplier: &Supplier,
     block_header: &str,
     agreed: &mut Vec<&'a Ident>,
@@ -944,7 +941,7 @@ fn associated_type<'a>(
     let cfgs = carried
         .iter()
         .filter(|attribute| attribute.path().is_ident("cfg"));
-    let ty = match spec.override_for(name) {
+    let ty = match options.override_for(name) {
         Some(fixed) => fixed.as_type()?.into_token_stream(),
         None => {
             // The agreement check cannot name an item that may be
@@ -973,7 +970,7 @@ fn associated_type<'a>(
 /// `site`.
 fn associated_const<'a>(
     constant: &'a TraitItemConst,
-    spec: &TraitSpec,
+    options: &TraitOptions,
     supplier: &Supplier,
     substitution: &mut Substitution,
     agreed: &mut Vec<(&'a Ident, Type)>,
@@ -990,7 +987,7 @@ fn associated_const<'a>(
     let mut ty = constant.ty.clone();
     substitution.visit_type_mut(&mut ty);
     substitution.check()?;
-    let value = match spec.override_for(name) {
+    let value = match options.override_for(name) {
         Some(fixed) => fixed.as_value()?.into_token_stream(),
         None => {
             if cfgs.count() == 0 {
@@ -1158,7 +1155,7 @@ struct MethodContext<'a> {
     /// the path a restatement names.
     subject_path: &'a Path,
     trait_path: &'a Path,
-    spec: &'a TraitSpec,
+    options: &'a TraitOptions,
     /// The partial impl block a message points at, spelled out.
     block_header: &'a str,
     /// Whether the impl is the enum's attribute's, `#[automatically_derived]`,
@@ -1182,7 +1179,7 @@ fn forward_trait_method(
         subject,
         subject_path,
         trait_path,
-        spec,
+        options,
         block_header,
         derived,
         provided,
@@ -1215,7 +1212,7 @@ fn forward_trait_method(
     };
     // The enum's `mismatch` wins over the trait method's, and the names the
     // fallback arm binds resolve where the chosen expression was written.
-    let (mismatch, resolution) = match spec.mismatch_for(&method) {
+    let (mismatch, resolution) = match options.mismatch_for(&method) {
         Some(expr) => (Some(expr.clone()), Some(expr.span())),
         None => (method_mismatch(function)?, None),
     };
@@ -1229,7 +1226,7 @@ fn forward_trait_method(
         &mut signature,
         names,
         SelfArguments::Dispatch,
-        Some(spec),
+        Some(options),
         &ReturnSite {
             subject: subject_ident,
             one_target: subject.has_one_target(),
