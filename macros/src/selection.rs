@@ -5,9 +5,9 @@ use quote::quote_spanned;
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Block, Error, Ident, Meta, Path, Result, Signature, Token, Visibility};
 
-use crate::at;
 use crate::forwarding::Arm;
 use crate::options::{is_dispatch_attribute, ForwardingOptions};
+use crate::site::Site;
 use crate::subject::{targets, Entry, Subject, Target, Unforwardable};
 
 /// A method declared without a body, which `syn` leaves as verbatim tokens.
@@ -91,7 +91,7 @@ pub(crate) fn select_targets(
                     prefix,
                     unforwardable,
                     quote_spanned! { method.span() => ::core::compile_error!(#message) },
-                    at(method.span()),
+                    Site::at(method.span()),
                 ));
             }
         }

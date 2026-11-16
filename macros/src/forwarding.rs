@@ -19,13 +19,13 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
 
-use crate::at;
 use crate::options::TraitSpec;
 use crate::route::Route;
 use crate::shape::{
     argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
     ArgumentKind, Conversion, FutureShape, PlaceBorrow, ReceiverKind, ReturnSite,
 };
+use crate::site::Site;
 use crate::spelling;
 use crate::subject::{Entry, Place, Target, Unforwardable};
 
@@ -34,8 +34,8 @@ use crate::subject::{Entry, Place, Target, Unforwardable};
 /// of an arm is: a binding left at the proc macro's call site would stretch
 /// the span of the expression that holds it back to the attribute, and
 /// rustc's errors with it.
-fn hygienic(name: &str, site: Span) -> Ident {
-    Ident::new(name, at(site))
+fn hygienic(name: &str, site: Site) -> Ident {
+    Ident::new(name, *site)
 }
 
 /// How the arguments after the receiver are bound in the generated
@@ -205,7 +205,7 @@ impl MethodPlan {
                     ident
                 }
                 (pattern, ArgumentNames::WrittenOrGenerated) => {
-                    let ident = hygienic(&format!("__argument{index}"), pattern.span());
+                    let ident = hygienic(&format!("__argument{index}"), Site::at(pattern.span()));
                     *pat_type.pat = plain(ident.clone());
                     ident
                 }
@@ -265,9 +265,9 @@ impl MethodPlan {
     /// has arguments. An impl the enum's own attribute writes is
     /// `#[automatically_derived]`, under which rustc does not report it,
     /// and takes none.
-    pub(crate) fn allow_unused_when_empty(&self, site: Span) -> Option<TokenStream2> {
+    pub(crate) fn allow_unused_when_empty(&self, site: Site) -> Option<TokenStream2> {
         (self.may_be_empty && !self.arguments.is_empty())
-            .then(|| quote_spanned! { site => #[allow(unused_variables)] })
+            .then(|| quote_spanned! { *site => #[allow(unused_variables)] })
     }
 
     /// Returns whether a pattern over the receiver binds references: the
@@ -301,12 +301,12 @@ impl MethodPlan {
     /// build where no other arm is left nothing else uses them, and the
     /// lint about them would stand beside that error. The arm is under its
     /// variant's `cfg`, so a build without the variant has none of this.
-    pub(crate) fn standing_in(&self, site: Span) -> TokenStream2 {
+    pub(crate) fn standing_in(&self, site: Site) -> TokenStream2 {
         let arguments = &self.arguments;
         if arguments.is_empty() {
-            return quote_spanned!(site => ::core::unreachable!());
+            return quote_spanned!(*site => ::core::unreachable!());
         }
-        quote_spanned!(site => {
+        quote_spanned!(*site => {
             let _ = (#(&#arguments,)*);
             ::core::unreachable!()
         })
@@ -328,7 +328,7 @@ impl MethodPlan {
         } = arm;
         Arm {
             cfgs,
-            pattern: quote_spanned!(site => (#pattern, ..)),
+            pattern: quote_spanned!(*site => (#pattern, ..)),
             value,
             site,
         }
@@ -357,7 +357,7 @@ impl MethodPlan {
         self.beside_arguments(Arm {
             cfgs: target.arm_attributes(site),
             pattern: target.whole(&context.prefix, site),
-            value: quote_spanned!(site => { #sentence }),
+            value: quote_spanned!(*site => { #sentence }),
             site,
         })
     }
@@ -370,10 +370,10 @@ impl MethodPlan {
 
     /// Returns the expression the `match` looks at: the receiver, with the
     /// same-variant arguments beside it in a tuple.
-    pub(crate) fn scrutinee(&self, site: Span) -> TokenStream2 {
+    pub(crate) fn scrutinee(&self, site: Site) -> TokenStream2 {
         let receiver = receiver_scrutinee(self.receiver, &self.self_token, site);
         if self.by_place {
-            return quote_spanned! { site => *#receiver };
+            return quote_spanned! { *site => *#receiver };
         }
         if self.same_variant.is_empty() {
             return receiver;
@@ -382,10 +382,10 @@ impl MethodPlan {
             .same_variant
             .iter()
             .map(|(index, _)| &self.arguments[*index]);
-        quote_spanned! { site => (#receiver, #(#arguments),*) }
+        quote_spanned! { *site => (#receiver, #(#arguments),*) }
     }
 
-    fn same_binding(index: usize, site: Span) -> Ident {
+    fn same_binding(index: usize, site: Site) -> Ident {
         hygienic(&format!("__same{index}"), site)
     }
 
@@ -394,16 +394,16 @@ impl MethodPlan {
     /// looks at the subject itself, the binding borrows the payload as the
     /// receiver borrows the subject, so it is the reference it is anywhere
     /// else.
-    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident, site: Span) -> TokenStream2 {
+    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident, site: Site) -> TokenStream2 {
         if self.by_place {
             let exclusive = matches!(
                 self.receiver,
                 ReceiverKind::Value(Access::Exclusive) | ReceiverKind::Pinned(Access::Exclusive)
             );
             let borrowed = if exclusive {
-                quote_spanned! { site => ref mut #binding }
+                quote_spanned! { *site => ref mut #binding }
             } else {
-                quote_spanned! { site => ref #binding }
+                quote_spanned! { *site => ref #binding }
             };
             return target.pattern(prefix, &borrowed, site);
         }
@@ -415,12 +415,12 @@ impl MethodPlan {
             .same_variant
             .iter()
             .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index, site), site));
-        quote_spanned! { site => (#own, #(#same),*) }
+        quote_spanned! { *site => (#own, #(#same),*) }
     }
 
     /// Returns the arguments handed to `target`'s method: each binding as it
     /// is, or the payload of a same-variant argument.
-    fn call_arguments(&self, target: &Target, site: Span) -> Vec<TokenStream2> {
+    fn call_arguments(&self, target: &Target, site: Site) -> Vec<TokenStream2> {
         self.arguments
             .iter()
             .enumerate()
@@ -432,7 +432,7 @@ impl MethodPlan {
                         &Self::same_binding(index, site),
                         site,
                     ),
-                    None => quote_spanned!(site => #ident),
+                    None => quote_spanned!(*site => #ident),
                 },
             )
             .collect()
@@ -549,7 +549,7 @@ impl MethodPlan {
             (Callee::Method { .. }, ReceiverKind::Value(access)) => {
                 route.reach_for_postfix(&inner, !matches!(access, Access::Owned), site)
             }
-            (Callee::Place { .. }, _) => quote_spanned!(site => #inner),
+            (Callee::Place { .. }, _) => quote_spanned!(*site => #inner),
             _ => receiver_expression(self.receiver, target, &inner, context)?,
         };
         let arguments = self.call_arguments(target, site);
@@ -559,22 +559,22 @@ impl MethodPlan {
         let turbofish = self
             .turbofish
             .as_ref()
-            .map(|parameters| quote_spanned!(site => ::<#(#parameters),*>));
+            .map(|parameters| quote_spanned!(*site => ::<#(#parameters),*>));
         let mut value = match callee {
             Callee::Qualified { trait_path, method } => {
                 // A field's or a method's type cannot be named; the call is
                 // then qualified by the trait alone, which still keeps an
                 // inherent method of the same name from taking over.
                 let qualified = match target.target_type() {
-                    Some(target_type) => quote_spanned! { site => <#target_type as #trait_path> },
-                    None => quote_spanned! { site => <_ as #trait_path> },
+                    Some(target_type) => quote_spanned! { *site => <#target_type as #trait_path> },
+                    None => quote_spanned! { *site => <_ as #trait_path> },
                 };
-                quote_spanned! { site =>
+                quote_spanned! { *site =>
                     #qualified::#method #turbofish (#receiver #(, #arguments)*)
                 }
             }
             Callee::Method { name } => {
-                quote_spanned! { site => #receiver.#name #turbofish (#(#arguments),*) }
+                quote_spanned! { *site => #receiver.#name #turbofish (#(#arguments),*) }
             }
             // The arm is the target itself, or a field of it: a place,
             // borrowed as the declared return type asks.
@@ -587,7 +587,7 @@ impl MethodPlan {
                 let place = match field {
                     Some(field) => {
                         let reached = route.reach_for_postfix(&inner, through_reference, site);
-                        quote_spanned! { site => #reached.#field }
+                        quote_spanned! { *site => #reached.#field }
                     }
                     None => route.reach(&inner, through_reference, site),
                 };
@@ -606,26 +606,26 @@ impl MethodPlan {
                     let read =
                         through_reference && !self.awaited && matches!(borrow, PlaceBorrow::Value);
                     if read {
-                        quote_spanned! { site => *#place }
+                        quote_spanned! { *site => *#place }
                     } else {
                         place
                     }
                 } else {
                     match borrow {
                         PlaceBorrow::Value | PlaceBorrow::Unread => place,
-                        PlaceBorrow::Reference(None) => quote_spanned! { site => &#place },
+                        PlaceBorrow::Reference(None) => quote_spanned! { *site => &#place },
                         PlaceBorrow::Reference(Some(_)) => {
-                            quote_spanned! { site => &mut #place }
+                            quote_spanned! { *site => &mut #place }
                         }
                     }
                 }
             }
         };
         if self.unsafety {
-            value = quote_spanned! { site => unsafe { #value } };
+            value = quote_spanned! { *site => unsafe { #value } };
         }
         if self.awaited {
-            value = quote_spanned! { site => #value.await };
+            value = quote_spanned! { *site => #value.await };
         }
         let rebuild_error = || {
             // A struct whose one field is named is built around a value by
@@ -642,7 +642,7 @@ impl MethodPlan {
         };
         value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
         if let Some(lift) = lift {
-            value = quote_spanned! { site => #lift(#value) };
+            value = quote_spanned! { *site => #lift(#value) };
         }
         Ok(Arm {
             cfgs: target.arm_attributes(site),
@@ -658,7 +658,7 @@ impl MethodPlan {
     /// names it, so that a `mismatch` expression may use it; one the
     /// expression does not name is left in the scrutinee, as a hand leaves
     /// it, and no unused binding is written.
-    pub(crate) fn fallback(&self, value: TokenStream2, site: Span) -> Arm {
+    pub(crate) fn fallback(&self, value: TokenStream2, site: Site) -> Arm {
         let rebinds = |(index, access): &(usize, Access)| {
             !matches!(access, Access::Shared) && names(&value, &self.arguments[*index])
         };
@@ -669,7 +669,7 @@ impl MethodPlan {
             if rebinds(same) {
                 Self::same_binding(same.0, site).into_token_stream()
             } else {
-                quote_spanned!(site => _)
+                quote_spanned!(*site => _)
             }
         });
         let rebound = self
@@ -679,12 +679,12 @@ impl MethodPlan {
             .map(|(index, _)| {
                 let name = &self.arguments[*index];
                 let binding = Self::same_binding(*index, site);
-                quote_spanned!(site => let #name = #binding;)
+                quote_spanned!(*site => let #name = #binding;)
             });
         Arm {
             cfgs: vec![],
-            pattern: quote_spanned!(site => (_, #(#positions),*)),
-            value: quote_spanned!(site => { #(#rebound)* #value }),
+            pattern: quote_spanned!(*site => (_, #(#positions),*)),
+            value: quote_spanned!(*site => { #(#rebound)* #value }),
             site,
         }
     }
@@ -718,7 +718,7 @@ pub(crate) struct ArmContext<'a> {
     /// which is then the way out of a variant it cannot be forwarded to.
     pub(crate) has_body: bool,
     /// The span the generated tokens carry.
-    pub(crate) site: Span,
+    pub(crate) site: Site,
 }
 
 impl ArmContext<'_> {
@@ -801,7 +801,7 @@ pub(crate) struct Arm {
     pub(crate) pattern: TokenStream2,
     pub(crate) value: TokenStream2,
     /// The span of the arm's own tokens, the arrow and the comma.
-    pub(crate) site: Span,
+    pub(crate) site: Site,
 }
 
 impl Arm {
@@ -811,22 +811,22 @@ impl Arm {
         prefix: &Path,
         unforwardable: &Unforwardable,
         value: TokenStream2,
-        site: Span,
+        site: Site,
     ) -> Self {
         let ident = &unforwardable.ident;
         Arm {
             cfgs: unforwardable.arm_attributes(site),
-            pattern: quote_spanned!(site => #prefix::#ident { .. }),
+            pattern: quote_spanned!(*site => #prefix::#ident { .. }),
             value,
             site,
         }
     }
 
     /// The arm for everything else, with `value` as its result.
-    pub(crate) fn rest(value: TokenStream2, site: Span) -> Self {
+    pub(crate) fn rest(value: TokenStream2, site: Site) -> Self {
         Arm {
             cfgs: vec![],
-            pattern: quote_spanned!(site => _),
+            pattern: quote_spanned!(*site => _),
             value,
             site,
         }
@@ -841,7 +841,7 @@ impl ToTokens for Arm {
             value,
             site,
         } = self;
-        tokens.extend(quote_spanned! { *site => #(#cfgs)* #pattern => #value, });
+        tokens.extend(quote_spanned! { **site => #(#cfgs)* #pattern => #value, });
     }
 }
 
@@ -864,7 +864,8 @@ impl Forwarding {
     /// is awaited where an `async fn` would await it, in braces carrying the
     /// method's own span, so that the item rustc points at as "defined here"
     /// is the method and not the attribute that generated it.
-    pub(crate) fn body(&self, span: Span) -> TokenStream2 {
+    pub(crate) fn body(&self, site: Site) -> TokenStream2 {
+        let span = *site;
         let Forwarding {
             scrutinee,
             arms,
@@ -897,7 +898,7 @@ fn convert(
     conversion: &Conversion,
     target: &Target,
     prefix: &Path,
-    site: Span,
+    site: Site,
     rebuild_error: &dyn Fn() -> Error,
 ) -> Result<TokenStream2> {
     // The path a `.map(..)` takes for a conversion of one value.
@@ -905,7 +906,7 @@ fn convert(
         Ok(match conversion {
             Conversion::Keep => None,
             Conversion::Rewrap => Some(target.constructor(prefix, site).ok_or_else(rebuild_error)?),
-            Conversion::Into => Some(quote_spanned! { site => ::core::convert::Into::into }),
+            Conversion::Into => Some(quote_spanned! { *site => ::core::convert::Into::into }),
             _ => unreachable!("a conversion under a wrapper is a path"),
         })
     };
@@ -914,18 +915,18 @@ fn convert(
         Conversion::Rewrap => target
             .rebuild(prefix, value, site)
             .ok_or_else(rebuild_error)?,
-        Conversion::Into => quote_spanned! { site => ::core::convert::Into::into(#value) },
+        Conversion::Into => quote_spanned! { *site => ::core::convert::Into::into(#value) },
         Conversion::Map(inner) => match path(inner)? {
-            Some(path) => quote_spanned! { site => #value.map(#path) },
+            Some(path) => quote_spanned! { *site => #value.map(#path) },
             None => value,
         },
         Conversion::MapErr(inner, error) => {
             let mut value = match path(inner)? {
-                Some(path) => quote_spanned! { site => #value.map(#path) },
+                Some(path) => quote_spanned! { *site => #value.map(#path) },
                 None => value,
             };
             if let Some(path) = path(error)? {
-                value = quote_spanned! { site => #value.map_err(#path) };
+                value = quote_spanned! { *site => #value.map_err(#path) };
             }
             value
         }
@@ -937,11 +938,11 @@ fn convert(
                 .iter()
                 .zip(&bindings)
                 .map(|(item, binding)| {
-                    let binding = quote_spanned!(site => #binding);
+                    let binding = quote_spanned!(*site => #binding);
                     convert(binding, item, target, prefix, site, rebuild_error)
                 })
                 .collect::<Result<Vec<_>>>()?;
-            quote_spanned! { site => {
+            quote_spanned! { *site => {
                 let (#(#bindings,)*) = #value;
                 (#(#converted,)*)
             } }
@@ -952,14 +953,14 @@ fn convert(
 /// Returns the expression the generated `match` looks at for a receiver:
 /// the value itself, the enum moved out of its box, or the pinned reference
 /// unpinned.
-fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Span) -> TokenStream2 {
+fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Site) -> TokenStream2 {
     match kind {
-        ReceiverKind::Value(_) => quote_spanned!(site => #self_token),
-        ReceiverKind::Boxed => quote_spanned!(site => *#self_token),
+        ReceiverKind::Value(_) => quote_spanned!(*site => #self_token),
+        ReceiverKind::Boxed => quote_spanned!(*site => *#self_token),
         ReceiverKind::Pinned(Access::Exclusive) => {
-            quote_spanned!(site => ::core::pin::Pin::get_mut(#self_token))
+            quote_spanned!(*site => ::core::pin::Pin::get_mut(#self_token))
         }
-        ReceiverKind::Pinned(_) => quote_spanned!(site => ::core::pin::Pin::get_ref(#self_token)),
+        ReceiverKind::Pinned(_) => quote_spanned!(*site => ::core::pin::Pin::get_ref(#self_token)),
     }
 }
 
@@ -1009,11 +1010,11 @@ fn receiver_expression(
                     format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or {}", context.way_out(ident)),
                 ));
             }
-            Ok(quote_spanned!(site => #binding))
+            Ok(quote_spanned!(*site => #binding))
         }
         ReceiverKind::Pinned(access) => {
             let payload = payload_expression(&target.route, access, binding, site);
-            Ok(quote_spanned!(site => ::core::pin::Pin::new(#payload)))
+            Ok(quote_spanned!(*site => ::core::pin::Pin::new(#payload)))
         }
     }
 }
@@ -1022,17 +1023,17 @@ fn receiver_expression(
 /// payload, to the trait method: the payload itself, or the target the
 /// route reaches, borrowed as the receiver is. A route ending in a method
 /// call yields a value, which is handed over as it is.
-fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Span) -> TokenStream2 {
+fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Site) -> TokenStream2 {
     if route.is_direct() {
-        return quote_spanned!(site => #binding);
+        return quote_spanned!(*site => #binding);
     }
     let reached = route.reach(binding, !matches!(access, Access::Owned), site);
     if route.ends_in_a_method() {
         return reached;
     }
     match access {
-        Access::Shared => quote_spanned!(site => &#reached),
-        Access::Exclusive => quote_spanned!(site => &mut #reached),
+        Access::Shared => quote_spanned!(*site => &#reached),
+        Access::Exclusive => quote_spanned!(*site => &mut #reached),
         Access::Owned => reached,
     }
 }

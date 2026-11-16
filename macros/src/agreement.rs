@@ -1,6 +1,6 @@
 //! The checks that every variant agrees with the first on the associated
 //! types and consts the impl takes from it.
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -8,8 +8,8 @@ use syn::{
     parse_quote_spanned, GenericArgument, GenericParam, Ident, Lifetime, Path, PathArguments, Type,
 };
 
-use crate::at;
 use crate::shape::bare_ident;
+use crate::site::{at, Site};
 use crate::subject::{allow_deprecated, Target};
 
 /// How two values of an associated const's type are compared at compile
@@ -53,7 +53,7 @@ pub(crate) struct Agreement<'a> {
     pub(crate) first_payload: &'a TokenStream2,
     pub(crate) generics: &'a syn::Generics,
     pub(crate) self_type: &'a Type,
-    pub(crate) site: Span,
+    pub(crate) site: Site,
     /// Whether the trait deprecates an associated item, which the checks
     /// name and so allow.
     pub(crate) deprecated: bool,
@@ -170,7 +170,7 @@ impl Agreement<'_> {
             return TokenStream2::new();
         }
         let str_eq = needs_str_eq.then(|| {
-            quote_spanned! { site =>
+            quote_spanned! { *site =>
                 const fn __whichever_str_eq(a: &str, b: &str) -> bool {
                     let (a, b) = (a.as_bytes(), b.as_bytes());
                     if a.len() != b.len() {
@@ -188,7 +188,7 @@ impl Agreement<'_> {
             }
         });
         let allowance = self.allowance();
-        quote_spanned! { site =>
+        quote_spanned! { *site =>
             #allowance
             const _: () = {
                 #str_eq
@@ -253,7 +253,7 @@ impl Agreement<'_> {
             Some(quote_spanned! { span => #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })
         });
         let allowance = self.allowance();
-        quote_spanned! { site =>
+        quote_spanned! { *site =>
             #allowance
             const _: () = {
                 #[allow(dead_code)]

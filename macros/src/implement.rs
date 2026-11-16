@@ -14,6 +14,7 @@ use syn::{
 
 use crate::agreement::Agreement;
 use crate::builds::Builds;
+use crate::combined;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -23,13 +24,13 @@ use crate::options::{
 use crate::protocol::ImplementInput;
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{takes_self_argument, ReturnSite};
+use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{
     allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
     Entry, Subject, Target,
 };
 use crate::substitution::Substitution;
-use crate::{at, combined};
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
@@ -81,16 +82,16 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     } = &header;
     // Every token written here carries the subject's span: the call site is
     // the trait's attribute, which may be in another crate.
-    let site = at(subject.ident().span());
+    let site = Site::at(subject.ident().span());
     let derived = partial
         .is_none()
-        .then(|| quote_spanned!(site => #[automatically_derived]));
+        .then(|| quote_spanned!(*site => #[automatically_derived]));
     // The partial impl block a message points at, spelled with the trait as
     // the subject names it and the subject's own generics.
     let block_header = {
         let (impl_generics, ty_generics, _) = subject.generics().split_for_impl();
         spelling::spelled(
-            &quote_spanned!(site => impl #impl_generics #spec_path for #subject_path #ty_generics),
+            &quote_spanned!(*site => impl #impl_generics #spec_path for #subject_path #ty_generics),
         )
     };
     let mut entries = subject.entries_for(Some(&spec_path))?;
@@ -221,7 +222,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         };
         let types = agreement.types(&agreed_types);
         let consts = agreement.consts(&agreed_consts);
-        quote_spanned! { site => #types #consts }
+        quote_spanned! { *site => #types #consts }
     });
     // A partial block is the only dispatch of its trait, so a variant that
     // cannot be forwarded to is reported here, under its own `cfg`, in the
@@ -229,11 +230,11 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // every method names its variants leaves such a variant to the bodies.
     let shape_errors = match &partial {
         Some(_) if !plain_forwarding.is_never() => {
-            shape_errors(&entries, plain_forwarding.attribute(site).as_ref())
+            shape_errors(&entries, plain_forwarding.attribute(*site).as_ref())
         }
         _ => TokenStream2::new(),
     };
-    Ok(quote_spanned! { site =>
+    Ok(quote_spanned! { *site =>
         #(#impl_attrs)*
         #derived
         #unsafety impl #impl_generics #trait_path for #self_ty #where_clause {
@@ -400,7 +401,7 @@ struct ItemWriter<'a> {
     restated: bool,
     substitution: Substitution,
     /// The span the items' own tokens carry.
-    site: Span,
+    site: Site,
     items: TokenStream2,
     /// The associated types taken from the first variant, for the check.
     agreed_types: Vec<&'a Ident>,
@@ -437,7 +438,7 @@ impl<'a> ItemWriter<'a> {
                     error,
                     builds,
                 } => rejected_method(function, &mut self.substitution, error)
-                    .map(|rejected| quote_spanned! { site => #builds #rejected }),
+                    .map(|rejected| quote_spanned! { *site => #builds #rejected }),
                 ItemPlan::Type(assoc) => associated_type(
                     assoc,
                     self.context.spec,
@@ -470,7 +471,7 @@ impl<'a> ItemWriter<'a> {
                     }
                     let complement = complement.as_ref().and_then(Leftover::attribute);
                     expand_method(function, &self.context, &mut self.substitution, forwarded)
-                        .map(|forwarded| quote_spanned! { site => #complement #forwarded })
+                        .map(|forwarded| quote_spanned! { *site => #complement #forwarded })
                 }
                 ItemPlan::Limit(error) => Err(error),
             };
@@ -569,7 +570,7 @@ impl<'a> ItemWriter<'a> {
                         builds: if cfgs.is_empty() {
                             rest.as_ref().and_then(Leftover::attribute)
                         } else {
-                            Some(quote_spanned! { site => #(#cfgs)* })
+                            Some(quote_spanned! { *site => #(#cfgs)* })
                         },
                     });
                 }
@@ -808,10 +809,10 @@ impl<'a> ImplHeader<'a> {
             let path = remote
                 .cloned()
                 .unwrap_or_else(|| Path::from(subject.ident().clone()));
-            let site = at(subject.ident().span());
+            let site = Site::at(subject.ident().span());
             return Ok(Self {
                 generics: subject.generics(),
-                self_ty: parse_quote_spanned!(site => #path #ty_generics),
+                self_ty: parse_quote_spanned!(*site => #path #ty_generics),
                 attrs: &[],
                 // An `unsafe trait` is implemented by an `unsafe impl`.
                 unsafety: item_trait.unsafety,
@@ -944,7 +945,7 @@ fn associated_type<'a>(
     supplier: &Supplier,
     block_header: &str,
     agreed: &mut Vec<&'a Ident>,
-    site: Span,
+    site: Site,
 ) -> Result<TokenStream2> {
     let name = &assoc.ident;
     let mut carried = carried_attributes(&assoc.attrs);
@@ -964,7 +965,7 @@ fn associated_type<'a>(
         .to_compile_error();
         let generics = &assoc.generics;
         let where_clause = &assoc.generics.where_clause;
-        return Ok(quote_spanned! { site =>
+        return Ok(quote_spanned! { *site =>
             #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
         });
     }
@@ -987,12 +988,12 @@ fn associated_type<'a>(
                 // resolve, and the sentence stands alone.
                 Err(error) => {
                     let error = error.to_compile_error();
-                    quote_spanned! { site => [(); { #error; 0 }] }
+                    quote_spanned! { *site => [(); { #error; 0 }] }
                 }
             }
         }
     };
-    Ok(quote_spanned! { site => #(#carried)* type #name = #ty; })
+    Ok(quote_spanned! { *site => #(#carried)* type #name = #ty; })
 }
 
 /// Writes `const NAME: T = ..;`: the override, or the supplier's value with
@@ -1004,7 +1005,7 @@ fn associated_const<'a>(
     supplier: &Supplier,
     substitution: &mut Substitution,
     agreed: &mut Vec<(&'a Ident, Type)>,
-    site: Span,
+    site: Site,
 ) -> Result<TokenStream2> {
     let name = &constant.ident;
     let mut carried = carried_attributes(&constant.attrs);
@@ -1029,12 +1030,12 @@ fn associated_const<'a>(
                 Ok(item) => item,
                 Err(error) => {
                     let error = error.to_compile_error();
-                    quote_spanned! { site => { #error } }
+                    quote_spanned! { *site => { #error } }
                 }
             }
         }
     };
-    Ok(quote_spanned! { site => #(#carried)* const #name: #ty = #value; })
+    Ok(quote_spanned! { *site => #(#carried)* const #name: #ty = #value; })
 }
 
 /// Writes the forwarding method for one trait method: a `match` over every
@@ -1239,7 +1240,7 @@ fn forward_trait_method(
         prefix: subject_path.clone(),
         lift: None,
         has_body: forwarded.is_some_and(|forwarded| forwarded.body.is_some()),
-        site: at(subject_ident.span()),
+        site: Site::at(subject_ident.span()),
     };
     // The enum's `mismatch` wins over the trait method's, and the names the
     // fallback arm binds resolve where the chosen expression was written.
@@ -1338,7 +1339,7 @@ fn forward_trait_method(
     }
     let site = context.site;
     let allow_unreachable =
-        allow_unreachable.then(|| quote_spanned! { site => #[allow(unreachable_patterns)] });
+        allow_unreachable.then(|| quote_spanned! { *site => #[allow(unreachable_patterns)] });
     // A body for the rest uses the arguments, or is the user's to quiet;
     // the impl the enum's attribute writes is automatically derived.
     let has_body = forwarded.is_some_and(|forwarded| forwarded.body.is_some());
@@ -1355,7 +1356,7 @@ fn forward_trait_method(
         .iter()
         .find(|attribute| attribute.path().is_ident("inline"))
         .map(ToTokens::to_token_stream)
-        .unwrap_or_else(|| quote_spanned! { site => #[inline] });
+        .unwrap_or_else(|| quote_spanned! { *site => #[inline] });
     let mut carried: Vec<Attribute> = match forwarded {
         Some(forwarded) => forwarded
             .attrs
@@ -1377,8 +1378,8 @@ fn forward_trait_method(
         fallback,
         future: plan.future.clone(),
     }
-    .body(at(method.span()));
-    Ok(quote_spanned! { site =>
+    .body(Site::at(method.span()));
+    Ok(quote_spanned! { *site =>
         #(#carried)*
         #inline
         #allow_unreachable

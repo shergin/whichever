@@ -8,7 +8,6 @@ use syn::{
     Signature, Visibility,
 };
 
-use crate::at;
 use crate::forwarding::{
     ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
 };
@@ -16,6 +15,7 @@ use crate::options::{is_dispatch_attribute, trait_key, ForwardingOptions, TraitS
 use crate::protocol::{carrier_path, TraitRequest};
 use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod};
 use crate::shape::{place_borrow, ReturnSite};
+use crate::site::Site;
 use crate::spelling;
 use crate::subject::{Entry, Subject};
 
@@ -160,8 +160,8 @@ pub(crate) fn expand_inherent(
     }
     item_impl.items = items;
     let errors = errors.into_iter().map(|error| error.to_compile_error());
-    let site = at(item_impl.impl_token.span);
-    Ok(quote_spanned! { site => #item_impl #(#errors)* })
+    let site = Site::at(item_impl.impl_token.span);
+    Ok(quote_spanned! { *site => #item_impl #(#errors)* })
 }
 
 /// Writes one forwarded inherent method: a `match` with one arm per selected
@@ -179,8 +179,8 @@ pub(crate) fn forward_method(
     let subject_ident = subject.ident();
     let noun = subject.target_noun();
     let method = &sig.ident;
-    let site = at(method.span());
-    let prefix: Path = parse_quote_spanned!(site => Self);
+    let site = Site::at(method.span());
+    let prefix: Path = parse_quote_spanned!(*site => Self);
     if sig.receiver().is_none() {
         return Err(Error::new_spanned(
             sig,
@@ -263,5 +263,5 @@ pub(crate) fn forward_method(
         future: plan.future.clone(),
     }
     .body(site);
-    Ok(quote_spanned! { site => #(#attrs)* #allow_unused #vis #signature #body })
+    Ok(quote_spanned! { *site => #(#attrs)* #allow_unused #vis #signature #body })
 }

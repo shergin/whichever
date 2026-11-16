@@ -6,6 +6,7 @@ use syn::{parse_quote, Error, GenericParam, Ident, Lifetime, Path, Type};
 
 use crate::options::{IntoTarget, TryFromForms};
 use crate::shape::bare_ident;
+use crate::site::Site;
 use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
 
 /// Writes the `From<Payload>`, `TryFrom<Enum>` and `From<Enum> for Target`
@@ -48,7 +49,7 @@ pub(crate) fn conversion_impls(
     let other = Ident::new("__other", Span::mixed_site());
     // The call site here is the subject's own attribute; its tokens are
     // spelled at the subject's name all the same.
-    let site = enum_ident.span();
+    let site = Site::at(enum_ident.span());
     let mut output = TokenStream2::new();
     for (target, conversions) in &converting {
         let Target { payload, .. } = target;

@@ -1,6 +1,6 @@
 //! The subject an impl is written for: an enum over implementors, or a struct
 //! wrapping one, and the targets its methods forward to.
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -10,10 +10,10 @@ use syn::{
     ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
-use crate::at;
 use crate::options::{is_dispatch_attribute, trait_key, TargetOptions, TryFromForms};
 use crate::route::Route;
 use crate::shape::{bare_ident, generic_type_args, is_self, last_segment};
+use crate::site::Site;
 
 /// The item an impl is written for: an enum over implementors, or a struct
 /// wrapping one.
@@ -222,7 +222,7 @@ pub(crate) struct Conversions {
 impl Target {
     /// Returns the attributes an arm or an impl naming the target carries:
     /// its `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
-    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+    pub(crate) fn arm_attributes(&self, site: Site) -> Vec<Attribute> {
         arm_attributes(&self.cfgs, self.deprecated, site)
     }
 
@@ -245,33 +245,33 @@ impl Target {
         &self,
         prefix: &Path,
         binding: &impl ToTokens,
-        site: Span,
+        site: Site,
     ) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
             Place::Variant { field: None, .. } => {
-                quote_spanned!(site => #prefix::#ident(#binding))
+                quote_spanned!(*site => #prefix::#ident(#binding))
             }
             Place::Variant {
                 field: Some(Member::Unnamed(index)),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
-                quote_spanned!(site => #prefix::#ident(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
+                quote_spanned!(*site => #prefix::#ident(#(#skipped,)* #binding, ..))
             }
             Place::Variant {
                 field: Some(member),
                 ..
-            } => quote_spanned!(site => #prefix::#ident { #member: #binding, .. }),
+            } => quote_spanned!(*site => #prefix::#ident { #member: #binding, .. }),
             Place::Field {
                 member: Member::Unnamed(index),
                 ..
             } => {
-                let skipped = (0..index.index).map(|_| quote_spanned!(site => _));
-                quote_spanned!(site => #prefix(#(#skipped,)* #binding, ..))
+                let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
+                quote_spanned!(*site => #prefix(#(#skipped,)* #binding, ..))
             }
             Place::Field { member, .. } => {
-                quote_spanned!(site => #prefix { #member: #binding, .. })
+                quote_spanned!(*site => #prefix { #member: #binding, .. })
             }
         }
     }
@@ -279,11 +279,11 @@ impl Target {
     /// Returns the pattern that matches the variant, or the struct,
     /// whatever it holds, binding nothing: the pattern of an arm that does
     /// not reach the payload.
-    pub(crate) fn whole(&self, prefix: &Path, site: Span) -> TokenStream2 {
+    pub(crate) fn whole(&self, prefix: &Path, site: Site) -> TokenStream2 {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { .. } => quote_spanned!(site => #prefix::#ident { .. }),
-            Place::Field { .. } => quote_spanned!(site => #prefix { .. }),
+            Place::Variant { .. } => quote_spanned!(*site => #prefix::#ident { .. }),
+            Place::Field { .. } => quote_spanned!(*site => #prefix { .. }),
         }
     }
 
@@ -293,22 +293,22 @@ impl Target {
         &self,
         prefix: &Path,
         value: TokenStream2,
-        site: Span,
+        site: Site,
     ) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
             Place::Variant { field: None, .. } => {
-                Some(quote_spanned!(site => #prefix::#ident(#value)))
+                Some(quote_spanned!(*site => #prefix::#ident(#value)))
             }
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote_spanned!(site => #prefix(#value))),
+            } => Some(quote_spanned!(*site => #prefix(#value))),
             Place::Field {
                 member,
                 rebuildable: true,
-            } => Some(quote_spanned!(site => #prefix { #member: #value })),
+            } => Some(quote_spanned!(*site => #prefix { #member: #value })),
             Place::Field {
                 rebuildable: false, ..
             } => None,
@@ -316,15 +316,15 @@ impl Target {
     }
 
     /// Returns a function building the subject from a payload, for `map`.
-    pub(crate) fn constructor(&self, prefix: &Path, site: Span) -> Option<TokenStream2> {
+    pub(crate) fn constructor(&self, prefix: &Path, site: Site) -> Option<TokenStream2> {
         let ident = &self.ident;
         match &self.place {
-            Place::Variant { field: None, .. } => Some(quote_spanned!(site => #prefix::#ident)),
+            Place::Variant { field: None, .. } => Some(quote_spanned!(*site => #prefix::#ident)),
             Place::Variant { .. } => None,
             Place::Field {
                 member: Member::Unnamed(_),
                 rebuildable: true,
-            } => Some(quote_spanned!(site => #prefix)),
+            } => Some(quote_spanned!(*site => #prefix)),
             // A struct with a named field is built by its braces, which a
             // closure would have to hold; the caller says so.
             Place::Field {
@@ -373,7 +373,7 @@ impl Target {
     /// the trait alone. The tokens carry the payload's span, so that an
     /// error about the type lands on the variant.
     pub(crate) fn target_type(&self) -> Option<TokenStream2> {
-        Self::routed_type(&self.payload, &self.route, at(self.payload.span()))
+        Self::routed_type(&self.payload, &self.route, Site::at(self.payload.span()))
     }
 
     /// Returns the same type for a position outside the subject's own
@@ -381,17 +381,17 @@ impl Target {
     pub(crate) fn target_type_outside(&self, self_type: &Type) -> Option<TokenStream2> {
         let mut payload = self.payload.clone();
         SelfReplacer(self_type.clone()).visit_type_mut(&mut payload);
-        Self::routed_type(&payload, &self.route, at(self.payload.span()))
+        Self::routed_type(&payload, &self.route, Site::at(self.payload.span()))
     }
 
-    fn routed_type(payload: &Type, route: &Route, site: Span) -> Option<TokenStream2> {
+    fn routed_type(payload: &Type, route: &Route, site: Site) -> Option<TokenStream2> {
         if !route.names_the_target() {
             return None;
         }
         if route.is_deref() {
-            Some(quote_spanned!(site => <#payload as ::core::ops::Deref>::Target))
+            Some(quote_spanned!(*site => <#payload as ::core::ops::Deref>::Target))
         } else {
-            Some(quote_spanned!(site => #payload))
+            Some(quote_spanned!(*site => #payload))
         }
     }
 
@@ -485,7 +485,7 @@ impl Unforwardable {
 
     /// Returns the attributes an arm naming the variant carries: its
     /// `#[cfg]`, and `#[allow(deprecated)]` when it is deprecated.
-    pub(crate) fn arm_attributes(&self, site: Span) -> Vec<Attribute> {
+    pub(crate) fn arm_attributes(&self, site: Site) -> Vec<Attribute> {
         arm_attributes(&self.cfgs, self.deprecated, site)
     }
 }
@@ -494,7 +494,7 @@ impl Unforwardable {
 /// attribute a hand writes on the arm of a deprecated variant, so that the
 /// deprecation reaches the code that names the variant and not the
 /// forwarding that has to.
-fn arm_attributes(cfgs: &[Attribute], deprecated: bool, site: Span) -> Vec<Attribute> {
+fn arm_attributes(cfgs: &[Attribute], deprecated: bool, site: Site) -> Vec<Attribute> {
     let mut attributes = cfgs.to_vec();
     if deprecated {
         attributes.push(allow_deprecated(site));
@@ -510,8 +510,8 @@ pub(crate) fn is_deprecated(attributes: &[Attribute]) -> bool {
 }
 
 /// Returns `#[allow(deprecated)]`, written at `site`.
-pub(crate) fn allow_deprecated(site: Span) -> Attribute {
-    parse_quote_spanned!(site => #[allow(deprecated)])
+pub(crate) fn allow_deprecated(site: Site) -> Attribute {
+    parse_quote_spanned!(*site => #[allow(deprecated)])
 }
 
 // Short-lived and few; the size difference does not matter here.
