@@ -595,7 +595,11 @@ fn convert(
 /// Returns the expression the generated `match` looks at for a receiver:
 /// the value itself, the enum moved out of its box, or the pinned reference
 /// unpinned.
-fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Site) -> TokenStream2 {
+pub(crate) fn receiver_scrutinee(
+    kind: ReceiverKind,
+    self_token: &Token![self],
+    site: Site,
+) -> TokenStream2 {
     match kind {
         ReceiverKind::Value(_) => quote_spanned!(*site => #self_token),
         ReceiverKind::Boxed => quote_spanned!(*site => *#self_token),

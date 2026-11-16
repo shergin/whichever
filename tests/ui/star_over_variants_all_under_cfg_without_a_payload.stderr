@@ -1,0 +1,5 @@
+error: `len` is forwarded to every variant, but `NoOrder` holds no payload; name the variants with a payload and give the method a body for the rest
+  --> tests/ui/star_over_variants_all_under_cfg_without_a_payload.rs:24:12
+   |
+24 |     pub fn len(&self) -> usize;
+   |            ^^^

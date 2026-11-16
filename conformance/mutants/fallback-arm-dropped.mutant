@@ -3,7 +3,7 @@ breaks: Two different variants of a `Self` argument give the `mismatch` expressi
 expect: killed
 
 find:
-        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
 replace:
-        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* } };
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written } };
         let _ = fallback;

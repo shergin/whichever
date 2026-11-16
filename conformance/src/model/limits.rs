@@ -56,7 +56,7 @@ pub enum Limit {
     UnsuppliedType,
     /// `#[dispatch(default)]` on a method the trait gives no default body.
     DefaultWithoutDefault,
-    /// A body on a method whose mark names every variant.
+    /// A body for the rest on a method whose mark names every variant.
     BodyNeverRuns,
     /// `#[dispatch(*)]` over a variant that holds no payload.
     StarOverUnforwardable,
@@ -89,6 +89,14 @@ pub enum Limit {
     /// block.
     GenericAssociatedType,
 }
+
+/// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
+/// no arms of its own under `*`: a trait method with a `Self` argument,
+/// matched beside `self`, and a method matched by place over an enum whose
+/// every variant is under `#[cfg]` (`docs/limits.md`), as the snapshot
+/// `star_over_variants_without_a_payload_beside_a_self_argument` spells it.
+pub const STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST: &str =
+    "name the variants with a payload and give the method a body for the rest";
 
 /// A catalogue entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,7 +285,7 @@ impl Limit {
             Limit::BodyNeverRuns => entry(
                 "body-never-runs",
                 "so its body would never run",
-                "inherent_all_with_body",
+                "inherent_list_of_every_variant_with_body",
             ),
             Limit::StarOverUnforwardable => entry(
                 "star-over-unforwardable",
@@ -379,7 +387,9 @@ impl Limit {
             Limit::MethodRouteOnMutSelf => ("route to a field", true),
             Limit::DefaultWithoutDefault => ("give it a body, or forward it", false),
             Limit::BodyNeverRuns => ("end the signature with `;` instead", false),
-            Limit::StarOverUnforwardable => ("name the variants with a payload and give the method a body for the rest", false),
+            // Where the method holds no arms of its own, its way out is
+            // `STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST` instead (`wording`).
+            Limit::StarOverUnforwardable => ("write its arm in the method's body, `match self { Self::", false),
             Limit::StructConversion => ("a struct gets no conversions", false),
             Limit::IntoOtherFields => ("or is left out with `from = false`", false),
             Limit::IntoWithoutPayload => ("holds no payload", false),
@@ -650,6 +660,19 @@ mod tests {
             assert_eq!(Limit::of_message(line), Some(*limit), "{}", entry.key);
             assert!(ui.join(format!("{}.rs", entry.case)).exists());
         }
+    }
+
+    #[test]
+    fn the_named_list_way_out_is_pinned_by_its_case() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/ui/star_over_variants_without_a_payload_beside_a_self_argument.stderr");
+        let stderr = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let line = stderr
+            .lines()
+            .find(|line| line.contains(STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST))
+            .expect("the way out is on a line of its snapshot");
+        assert_eq!(Limit::of_message(line), Some(Limit::StarOverUnforwardable));
     }
 
     #[test]

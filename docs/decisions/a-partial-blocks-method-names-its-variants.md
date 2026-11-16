@@ -5,7 +5,12 @@ what earns a shape, by composition: the inherent method's attribute,
 written on a trait method inside the partial block. Reopen if a surveyed
 project needs a body per variant rather than one body for the rest, which
 is the Swift proposal of 2016 and Zig's `inline` prongs, and a different
-shape.
+shape. That condition was met on 2026-11-15 by hickory-proto and mp4-atom,
+and the arms a method writes itself shipped, see [Under `*`, a method's
+body holds the enum's own
+arms](under-star-a-methods-body-holds-the-enums-own-arms.md); the decision
+below, that a method names its variants and its body answers for the rest,
+stands.
 
 ## Context
 

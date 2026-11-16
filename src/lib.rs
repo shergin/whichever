@@ -342,8 +342,8 @@
 //! answer. `#[dispatch]` on an inherent `impl` block of a dispatch enum
 //! forwards each method marked `#[dispatch(..)]` to the named variants'
 //! method of the same name, and the body is what every other variant
-//! returns. `*` names every variant, and the method then has no body, nor
-//! has a method that names every variant one by one:
+//! returns. `*` names every variant, and the method then has no body for
+//! the rest, nor has a method that names every variant one by one:
 //!
 //! ```
 //! #[whichever::dispatchable]
@@ -395,6 +395,49 @@
 //!     assert_eq!(square.describe(), "square 2");
 //! }
 //! ```
+//!
+//! Under `*` a body is instead one `match self` holding the arms the enum
+//! answers itself, and every variant those arms do not name is forwarded,
+//! which is the way to forward to every variant but a few, such as a unit
+//! variant beside the payloads. The generated `match` is the forwarding
+//! arms, in the enum's order, then the arms as written, with no wildcard,
+//! so a variant added later is forwarded, and one without a payload and
+//! without an arm is reported on the method:
+//!
+//! ```
+//! # pub struct Circle(pub u32);
+//! # pub struct Square(pub u32);
+//! # impl Circle { pub fn describe(&self) -> String { format!("circle {}", self.0) } }
+//! # impl Square { pub fn describe(&self) -> String { format!("square {}", self.0) } }
+//! #[whichever::dispatch]
+//! pub enum AnyShape {
+//!     Circle(Circle),
+//!     Square(Square),
+//!     Empty,
+//! }
+//!
+//! #[whichever::dispatch]
+//! impl AnyShape {
+//!     #[dispatch(*)]
+//!     pub fn describe(&self) -> String {
+//!         match self {
+//!             Self::Empty => String::from("nothing"),
+//!         }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     assert_eq!(AnyShape::Empty.describe(), "nothing");
+//!     assert_eq!(AnyShape::Square(Square(2)).describe(), "square 2");
+//! }
+//! ```
+//!
+//! An arm names its variants by path, `Self::Empty`, through a guard, an
+//! or-pattern, a reference or a binding `name @ ..`; an arm that names
+//! none, `_` or a binding, is reported. The arms are written in the
+//! declared return type, with no `with` around them, and read the fields
+//! they bind; an arm under `#[cfg]` answers where the `cfg` holds, and its
+//! variant is forwarded where it does not.
 //!
 //! Each arm calls the payload's method by method-call syntax,
 //! `inner.describe()`, so autoref, autoderef and inherent-before-trait
@@ -575,7 +618,12 @@
 //! method in the block may name the variants it forwards to, as an
 //! inherent method does, `#[dispatch(Wep, Wpa)] fn fmt(..) { .. }`, and
 //! its body is then the arm for every other variant, a unit variant or two
-//! different variants of a `Self` argument included; `#[dispatch(default)]`
+//! different variants of a `Self` argument included. Under `*` its body is
+//! instead one `match self` holding the arms the enum answers itself, as
+//! in an inherent block, `#[dispatch(*)] fn encode(..) { match self {
+//! Self::Unknown(kind, data) => .. } }`, and every other variant is
+//! forwarded; a trait method with a `Self` argument, matched beside
+//! `self`, takes no such arms. `#[dispatch(default)]`
 //! on a bodiless method leaves it to the trait's default, which over a
 //! restatement is the real trait's. A mark under `#[cfg]`, that one
 //! included, holds where the `cfg` does, as a written method does, and the

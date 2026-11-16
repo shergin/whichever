@@ -819,6 +819,7 @@ mod tests {
             way_out: WayOut {
                 on_trait: true,
                 has_body: false,
+                own_arms: false,
             },
             default: None,
         }

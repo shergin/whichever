@@ -4,7 +4,7 @@
 //! wording is the snapshots' in `tests/ui`.
 
 use super::argument::ArgumentKind;
-use super::limits::{Anchor, Expected, Limit, Tail};
+use super::limits::{Anchor, Expected, Limit, Tail, STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::receiver::Lends;
 use super::target::{Step, TargetDescriptor};
@@ -63,8 +63,16 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     let inherent = cell.path_descriptor().site == PathSite::Inherent;
     let rebuild_left_to_the_body =
         expected.limit == Limit::SelfReturnOtherFields && (body_for_the_rest || inherent);
+    // A method that holds no arms of its own under `*` keeps the named
+    // list as its way out, where another writes the variant's arm.
+    let star_by_named_list =
+        expected.limit == Limit::StarOverUnforwardable && !holds_own_arms(cell);
     let mut fragments = Vec::new();
-    if !rebuild_left_to_the_body {
+    if star_by_named_list {
+        fragments.push(Fragment::one(String::from(
+            STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST,
+        )));
+    } else if !rebuild_left_to_the_body {
         fragments.push(Fragment::one(String::from(entry.way_out)));
     }
     if entry.tail || rebuild_left_to_the_body {
@@ -74,6 +82,34 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     }
     fragments.extend(names(cell, expected.limit, slot));
     fragments
+}
+
+/// Returns whether the method under test may hold, under `*`, a body of
+/// the arms the enum answers itself, so that a variant without a payload is
+/// offered its arm there (`inherent_all_with_unforwardable`). A trait
+/// method with a `Self` argument is matched beside `self`, and a method
+/// over an enum whose every variant is under `#[cfg]` is matched as `match
+/// *self`; neither holds such arms (limits.md). An inherent method hands a
+/// `Self` argument on as it is, which `reached_argument` already says.
+///
+/// Open question: limits.md names `&self` and `&mut self` as the
+/// receivers matched by place, and what-is-generated.md says "where the
+/// receiver is a reference". A pinned reference is read as a reference, so
+/// matched by place, and `self: Box<Self>`, which is no reference, as
+/// matched by value, where the method holds arms of its own. The hand
+/// matches a `Box` by place, which no arm of its own concerns.
+fn holds_own_arms(cell: &Cell) -> bool {
+    let beside_self_argument = cell.reached_argument().kind.is_some();
+    let by_reference = match cell.recv {
+        Receiver::Shared | Receiver::Exclusive | Receiver::PinShared | Receiver::PinExclusive => {
+            true
+        }
+        Receiver::Owned | Receiver::Boxed | Receiver::Rc | Receiver::Arc | Receiver::PinBoxed => {
+            false
+        }
+    };
+    let by_place = cell.every_under_cfg() && by_reference;
+    !beside_self_argument && !by_place
 }
 
 /// Returns how a sentence names the variant of a slot, in backticks: by
@@ -232,6 +268,8 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     // A name that is any of several, which a sentence about one of several
     // variants on one anchor holds.
     let mut any: Option<Fragment> = None;
+    // The way out that names one of those variants, as `any` names it.
+    let mut arm: Option<Fragment> = None;
     let mut push = |name: Option<String>| names.extend(name.map(Fragment::one));
     match limit {
         Limit::Receiver
@@ -327,12 +365,30 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         // Each variant that holds no single payload gets a sentence of its
         // own on the one anchor (`star_over_variants_without_a_payload_
         // beside_a_self_argument`), so a sentence names any of them.
+        // Where the method may hold arms of its own, the way out is the
+        // variant's arm, its fields left to a rest pattern.
         Limit::StarOverUnforwardable => {
             push(Some(format!("{method} is forwarded to every variant")));
-            let held: Vec<String> = cell
+            let held: Vec<Slot> = cell
                 .slots()
                 .into_iter()
                 .filter(|slot| matches!(slot.variant, SlotVariant::Unit | SlotVariant::Pair))
+                .collect();
+            if holds_own_arms(cell) {
+                let arms = held
+                    .iter()
+                    .map(|slot| {
+                        let rest = match slot.variant {
+                            SlotVariant::Pair => "(..)",
+                            SlotVariant::Unit | SlotVariant::Live(_) => "",
+                        };
+                        format!("`match self {{ Self::{}{rest} => .. }}`", slot.name())
+                    })
+                    .collect();
+                arm = Some(Fragment(arms));
+            }
+            let held = held
+                .iter()
                 .map(|slot| format!("`{}`", slot.name()))
                 .collect();
             any = Some(Fragment(held));
@@ -392,5 +448,6 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         }
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));
+    names.extend(arm.filter(|fragment| !fragment.0.is_empty()));
     names
 }

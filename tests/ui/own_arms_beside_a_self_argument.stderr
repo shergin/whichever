@@ -1,0 +1,10 @@
+error: `same` takes `Self` arguments, which are matched beside `self`, and an arm of its own is written for `self` alone; name the variants in `#[dispatch(..)]` and give the method a body for the rest
+  --> tests/ui/own_arms_beside_a_self_argument.rs:25:42
+   |
+25 |       fn same(&self, other: &Self) -> bool {
+   |  __________________________________________^
+26 | |         match self {
+27 | |             Self::Nothing => matches!(other, Self::Nothing),
+28 | |         }
+29 | |     }
+   | |_____^

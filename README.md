@@ -135,8 +135,9 @@ it cannot take, dispatched with the same two attributes.
   `whichever::foreign`; any other trait is restated once, and so is an
   enum another crate defines.
 - **[Some methods written by hand](docs/partial-impl-blocks.md)**, the
-  rest forwarded: constructors, methods without a receiver, or a method
-  the enum answers differently from every payload.
+  rest forwarded: constructors, methods without a receiver, a method the
+  enum answers differently from every payload, or the arms of the few
+  variants it answers itself.
 - **[Generic traits](docs/options.md)** at a concrete instantiation, with
   type, lifetime and const parameters.
 - **[`Box<T>`, `Rc<T>` and `&T` payloads](docs/routes.md)**, dispatched

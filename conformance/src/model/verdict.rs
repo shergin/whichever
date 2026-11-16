@@ -1075,11 +1075,14 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         false => Anchor::Method,
     };
 
-    // A method has no body when its mark names every variant, `*` or "a
-    // method that names every variant one by one, since no variant is left
-    // to the body" (inherent-methods.md, `inherent_all_with_body`), and `*`
-    // names a variant that holds no payload too
-    // (`inherent_all_with_unforwardable`).
+    // A method has no body for the rest when its mark names every variant,
+    // `*` or "a method that names every variant one by one, since no
+    // variant is left to it" (inherent-methods.md,
+    // `inherent_list_of_every_variant_with_body`); the model gives a body
+    // under `*` no arms, so the sentence it reaches is the named list's.
+    // `*` names a variant that holds no payload too
+    // (`inherent_all_with_unforwardable`), whose way out depends on whether
+    // the method may hold arms of its own (`wording`).
     // "Naming every variant, the conditional one included, is exhaustive in
     // every build, so the method takes no body" (behaviour test
     // `inherent_list_naming_a_conditional_variant`): the mark names `A`,

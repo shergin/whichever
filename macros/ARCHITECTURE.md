@@ -126,7 +126,7 @@ src/
   forwarding.rs    the engine: `Origin`, `forward`, `MethodPlan` and `Forwarding`
   arm.rs           one arm: `ArmKind`, `ArmContext` and `Arm`, judged and written
   refusal.rs       `Refusal` and `WayOut`: why a target cannot take a method, and the sentence
-  selection.rs     which targets a method's mark names, with the check on its body
+  selection.rs     which targets a method's mark names, `OwnArms` under `*`, and the check on its body
   shape.rs         classifying receivers, arguments, return types and pointers
   spelling.rs      how a type, a path or a route is spelled in a sentence
   substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's
@@ -170,7 +170,7 @@ struct TraitMethod<'a> {          // what a trait brings to one of its methods
 
 struct Mark<'a> {                 // a method's `#[dispatch(..)]`
     options: &'a ForwardingOptions,
-    body: Option<&'a Block>,      // the arm for every variant the mark does not name
+    body: Option<&'a Block>,      // the arm for every variant the mark does not name, or under `*` the method's own arms
 }
 
 struct Forward<'a> {              // one method to forward
@@ -191,6 +191,35 @@ writes an arm per target with `MethodPlan::arm`, and the arm for the rest
 with `MethodPlan::fallback_for`; and renders the `Forwarding` into a
 `Generated`: the signature as bound, the lint allowances a hand writes, and
 the body.
+
+Under `*` an enum's method leaves no variant to a body for the rest, so a
+body there is the arms the method writes itself. `select_targets` takes the
+mark's body and `takes_arms`, which `forward` passes as
+`MethodPlan::matches_self_alone`: whether the `match` is `match self` over
+the receiver alone, with no `Self` argument beside it and not `by_place`.
+It reads the body with `OwnArms::read` into `Selection::own`, and
+selects every entry no arm answers for in some build: `OwnArms::written` is
+the `match` the body has to be, one `match self` and nothing else, and
+`names` collects the variants an arm's pattern names by path at its top
+level, through a guard, an or-pattern, parentheses, a reference or a
+binding `name @ ..`, a lone identifier being the variant of that name where
+the enum has one. `OwnArms::leaves` is the `Builds` in which no arm names a
+variant, the complement of its arms' `cfg`s, so a variant whose arm is
+under `#[cfg]` is forwarded where the `cfg` does not hold
+(`Selection::forwarded_where`), and an entry without a payload gets the
+arm holding its sentence only in those builds. Where `takes_arms` holds
+the sentence ends in the arm a hand writes for it, with the pattern
+`Unforwardable::rest` spells; where it does not, the method can take no
+arm, and the sentence names the list with a body for the rest. `check_body` accepts
+the body when `own` is there, and `MethodPlan::takes_own_arms` refuses a
+`Self` argument beside the receiver and a `by_place` match, neither of
+which is the `match self` the arms were written for. `forward` hands
+`fallback_for` the body as `rest` only when it holds no arms of its own,
+and the arms go into the `Forwarding` as `written`, each closed by a comma,
+after the forwarding arms and before any fallback, inside the future where
+the arms are awaited. `WayOut::own_arms` makes a refusal offer the arm of
+the variant in the body, and the method as a whole "write every variant's
+arm in the body".
 
 ```rust
 struct MethodPlan {               // read off the signature and the entries once
@@ -220,7 +249,7 @@ struct ArmContext<'a> {           // what every arm of one method shares
     subject: &'a Ident,
     prefix: Path,                 // the subject's path, or `Self`
     lift: Option<&'a Path>,       // the inherent `with = path`
-    way_out: WayOut,              // { on_trait: bool, has_body: bool }
+    way_out: WayOut,              // { on_trait: bool, has_body: bool, own_arms: bool }
     declared: Option<Declared<'a>>, // { signature, block_header }: a trait method's
     site: Site,
 }
@@ -245,6 +274,7 @@ struct Arm {
 struct Forwarding {
     scrutinee: TokenStream2,      // `self`, `*self`, `Pin::get_mut(self)`, one of them behind `*`, or a tuple with the Self arguments
     arms: Vec<Arm>,               // one per selected target, plus the unforwardable ones
+    written: TokenStream2,        // under `*`, the method's own arms as written, after the forwarding arms
     fallback: Option<Arm>,        // the mismatch arm, or the body for the rest
     future: Option<FutureShape>,  // wrap in `async move { .. }`, boxed again for a boxed future
 }
@@ -259,8 +289,10 @@ in a method call, a mutable borrow through a `Pointer::Shared`, a move out
 of a pointer that is no `Box`, `self: Box<Self>` with no box to hand over,
 and a `Self` the target cannot be rebuilt around. `Refusal::error` words it
 in `refusal.rs`, on the payload, with the way out the `WayOut` offers: an
-impl by hand on the trait path, a body on the inherent path, and the body
-itself where the method has one for the variants it does not name.
+impl by hand on the trait path, a body on the inherent path, the body
+itself where the method has one for the variants it does not name, and an
+arm of the variant in the body where the body holds the method's own
+arms.
 `MethodPlan::arm` then writes the target's arm, or the arm that holds the
 sentence: the variant whatever it holds, `Target::whole`, with the
 sentence as its result, under the variant's own attributes, so a build
@@ -271,9 +303,20 @@ tuple's shape where `Self` arguments are matched beside the receiver.
 What fails a whole method is what `forward` returns as an error: a
 signature the plan cannot read, a mark naming a variant the subject
 lacks or one without a payload, a body where none would run or none
-where one must, and a `Self` argument without a `mismatch`. The trait path writes such a method with
+where one must, a body under `*` that is no `match self` or an arm of it
+that names no variant, arms of the method's own beside a `Self` argument
+or over a `by_place` match, and a `Self` argument without a `mismatch`.
+The trait path writes such a method with
 the sentence as its body; the inherent path keeps the method as written,
-without its mark.
+without its mark, and `standing_alone` in `marked.rs` closes a body that
+holds the method's own arms with `_ => ::core::unreachable!()` under
+`#[allow(unreachable_patterns)]`, since those arms alone are not
+exhaustive and rustc's E0004 would stand beside the error that kept the
+method, and makes the kept `match` look at what the forwarding's would,
+through `receiver_scrutinee` in `arm.rs`: `*self` under `self: Box<Self>`,
+`::core::pin::Pin::get_mut(self)` or `get_ref(self)` under a pinned
+receiver; `without_method_attributes` in `dispatch.rs` does the same for a
+rejected inherent block, which is still emitted without its marks.
 `MethodPlan::read` takes the entries the `match` is over: where every one
 is under `#[cfg]`, so that some build may leave none, and the receiver is a
 reference with no `Self` argument beside it, `by_place` makes the `match`
@@ -1244,6 +1287,46 @@ pattern losing its `, ..`; goldens `per_trait_fields`, `routes`,
 beside others and did not change. The unit test of `Target::pattern` in
 `subject.rs` is updated for the three sole-field cases. No snapshot
 changed, and nothing changes at run time.
+
+### Stage 27: arms under `*`
+
+Status: landed on 2026-11-15, unreleased, on the branch `arms-under-star`
+(issues #5 and #8), the record "Under `*`, a method's body holds the enum's
+own arms". A hand's forwarding `match` with exceptions has the arms that
+forward and the arms the enum answers itself, and no wildcard; the only
+form that wrote it named every forwarded variant and made the body `_ =>
+body`, so a variant left off the list took the body silently. Under `*`, a
+body was an error. It is now one `match self` holding the method's own
+arms, read by `OwnArms` in `selection.rs` into `Selection::own`;
+`select_targets` takes the mark's body and forwards every entry no arm
+names, in the builds `OwnArms::leaves`, `check_body` accepts it,
+`MethodPlan::takes_own_arms` refuses a `Self` argument and a `by_place`
+match, `fallback_for` takes the body for the rest as `rest`, and
+`Forwarding::written` puts the arms after the forwarding ones. `WayOut`
+gained `own_arms`, so a refusal offers the arm of the variant; the
+sentence for an entry without a payload under `*` names its arm, with the
+pattern `Unforwardable::rest` spells, where `select_targets`' `takes_arms`,
+`MethodPlan::matches_self_alone`, says the method can take one, and keeps
+the named list with a body where it cannot; and `standing_alone` in
+`marked.rs` closes such a body where the method is kept as written, over
+the scrutinee `receiver_scrutinee` gives a boxed or pinned receiver. On a
+struct `*` is one field and a body is reported as before. The golden
+`own_arms_under_star`, the behaviour test `own_arms_under_star` and the
+compile-fail cases `own_arm_naming_no_variant`,
+`own_arms_leaving_a_variant_without_a_payload`,
+`own_arms_beside_a_self_argument`, `own_arms_over_variants_all_under_cfg`,
+`own_arms_over_a_variant_the_method_refuses`,
+`own_arms_over_a_variant_that_cannot_be_rebuilt`,
+`own_arms_beside_a_self_return_the_lift_cannot_wrap`,
+`inherent_all_with_body_on_a_struct`,
+`inherent_list_of_every_variant_with_body`,
+`star_over_variants_all_under_cfg_without_a_payload` and
+`impl_attribute_error_keeps_own_arms_under_a_boxed_receiver` are new; the
+snapshots `inherent_all_with_body`, `inherent_all_with_unforwardable` and
+`rejected_variant_keeps_enum` moved with the reworded sentences, and
+`star_over_variants_without_a_payload_beside_a_self_argument` did not,
+pinning the named list kept beside a `Self` argument. No build changes meaning: `*` with a body was an
+error, and a body under a named list is unchanged.
 
 ## 5. Invariants every stage keeps
 

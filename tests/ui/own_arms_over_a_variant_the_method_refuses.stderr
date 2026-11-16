@@ -1,0 +1,10 @@
+error: `grow` takes `&mut self`, and `Counted` dereferences a `Rc<Square>`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or write the arm of `Counted` in the method's body
+  --> tests/ui/own_arms_over_a_variant_the_method_refuses.rs:24:13
+   |
+24 |     Counted(Rc<Square>),
+   |             ^^^^^^^^^^
+...
+28 | #[whichever::dispatch]
+   | ---------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `Shared` which comes from the expansion of the attribute macro `whichever::dispatch` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -47,6 +47,7 @@ mod non_pub_traits_stay_in_their_module;
 mod one_variant_without_mismatch;
 mod opaque_returns_through_a_struct;
 mod overridden_results;
+mod own_arms_under_star;
 mod partial_block_methods;
 mod partial_block_over_a_foreign_trait;
 mod partial_block_renaming_the_parameters;

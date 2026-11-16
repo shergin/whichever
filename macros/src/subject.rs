@@ -402,6 +402,9 @@ pub(crate) struct Unforwardable {
     /// What the variant holds instead of one payload, as a predicate of its
     /// name: "holds no payload", "holds 2 fields, not one payload".
     pub(crate) reason: String,
+    /// What follows the variant's name in the pattern a hand writes for it
+    /// whatever it holds: nothing, `(..)` or ` { .. }`.
+    pub(crate) rest: &'static str,
     pub(crate) error: Error,
 }
 
@@ -796,6 +799,11 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
                 Fields::Unnamed(fields) if fields.unnamed.is_empty() => "",
                 _ => ", mark the field to forward to with `#[dispatch]`",
             };
+            let rest = match fields {
+                Fields::Unit => "",
+                Fields::Unnamed(_) => "(..)",
+                Fields::Named(_) => " { .. }",
+            };
             return Ok(Entry {
                 ident: ident.clone(),
                 cfgs,
@@ -806,6 +814,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
                         format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body answers for it"),
                     ),
                     reason,
+                    rest,
                 }),
             });
         }

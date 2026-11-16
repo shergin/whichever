@@ -1,0 +1,5 @@
+error: `#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method
+  --> tests/ui/impl_attribute_error_keeps_own_arms_under_a_boxed_receiver.rs:19:23
+   |
+19 | #[whichever::dispatch(Shape)]
+   |                       ^^^^^

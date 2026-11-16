@@ -16,15 +16,19 @@ use crate::subject::{Holder, Target};
 
 /// The ways out a sentence offers a method that cannot be forwarded as it
 /// is written: an impl by hand on the trait path, a body on the inherent
-/// path, and the body itself where the method has one for the variants it
-/// does not name.
+/// path, the body itself where the method has one for the variants it does
+/// not name, and an arm of the method's own where its body holds them.
 #[derive(Clone, Copy)]
 pub(crate) struct WayOut {
     /// Whether the method is a trait's, forwarded by the subject's
     /// attribute or in a partial impl block, and not an inherent block's.
     pub(crate) on_trait: bool,
-    /// Whether the method names its variants and has a body for the rest.
+    /// Whether the method has a body: the arm for the variants it does not
+    /// name, or under `*` the arms it writes itself.
     pub(crate) has_body: bool,
+    /// Whether that body holds arms of the method's own, under `*`, so
+    /// that a variant is answered by one more arm and by nothing less.
+    pub(crate) own_arms: bool,
 }
 
 impl WayOut {
@@ -32,6 +36,9 @@ impl WayOut {
     /// method names its variants and has a body for the rest, the body
     /// answers for every variant once the mark is gone.
     pub(crate) fn of_method(self) -> &'static str {
+        if self.own_arms {
+            return "drop its `#[dispatch(*)]` and write every variant's arm in the body";
+        }
         if self.has_body {
             return "drop its `#[dispatch(..)]`, and the body answers for every variant";
         }
@@ -41,6 +48,9 @@ impl WayOut {
     /// The way out a sentence about `variant` offers: the body, where the
     /// method has one for the variants it does not name.
     pub(crate) fn of_variant(self, variant: &Ident) -> String {
+        if self.own_arms {
+            return format!("write the arm of `{variant}` in the method's body");
+        }
         if self.has_body {
             return format!("leave `{variant}` to the body");
         }
@@ -50,6 +60,9 @@ impl WayOut {
     /// The way out when the value cannot be built around `variant`'s
     /// payload again.
     fn of_rebuilding(self, variant: &Ident) -> String {
+        if self.own_arms {
+            return format!("write the arm of `{variant}` in the method's body");
+        }
         if self.has_body {
             return format!("leave `{variant}` to the body");
         }
@@ -238,7 +251,11 @@ mod tests {
     use super::*;
 
     fn way_out(on_trait: bool, has_body: bool) -> WayOut {
-        WayOut { on_trait, has_body }
+        WayOut {
+            on_trait,
+            has_body,
+            own_arms: false,
+        }
     }
 
     #[test]
@@ -273,6 +290,30 @@ mod tests {
             assert_eq!(
                 with_body.of_rebuilding(&variant),
                 "leave `Circle` to the body"
+            );
+        }
+    }
+
+    #[test]
+    fn a_method_with_arms_of_its_own_is_given_one_more_on_either_path() {
+        let variant: Ident = parse_quote!(Circle);
+        for on_trait in [true, false] {
+            let own_arms = WayOut {
+                on_trait,
+                has_body: true,
+                own_arms: true,
+            };
+            assert_eq!(
+                own_arms.of_method(),
+                "drop its `#[dispatch(*)]` and write every variant's arm in the body"
+            );
+            assert_eq!(
+                own_arms.of_variant(&variant),
+                "write the arm of `Circle` in the method's body"
+            );
+            assert_eq!(
+                own_arms.of_rebuilding(&variant),
+                "write the arm of `Circle` in the method's body"
             );
         }
     }

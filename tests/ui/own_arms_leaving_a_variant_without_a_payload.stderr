@@ -1,0 +1,5 @@
+error: `len` is forwarded to every variant, but `NoOrder` holds no payload; write its arm in the method's body, `match self { Self::NoOrder => .. }`
+  --> tests/ui/own_arms_leaving_a_variant_without_a_payload.rs:23:12
+   |
+23 |     pub fn len(&self) -> usize {
+   |            ^^^
