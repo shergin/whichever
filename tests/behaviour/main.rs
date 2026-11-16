@@ -14,6 +14,7 @@ mod cfg_on_trait_items;
 mod cfg_on_variants_and_methods;
 mod combinators_left_to_the_default;
 mod conditional_methods_in_a_partial_block;
+mod conversion_options_on_repeated_attributes;
 mod conversions_by_reference_and_into;
 mod defaults_are_forwarded;
 mod deprecated_items;

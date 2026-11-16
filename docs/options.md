@@ -109,6 +109,14 @@ attribute; a supertrait is one more attribute:
 pub enum AnyShape { /* .. */ }
 ```
 
+The conversions are the enum's, not a trait's: they are written once
+however many attributes the enum carries, and a conversion option on any
+one of the attributes applies to all of them. `from = false` on any
+attribute leaves the `From` impls out, whatever another says; the widest
+`try_from` form on any of them applies; and the `into` targets of all of
+them are collected, so one target named on two attributes is the same
+`From` written twice, a conflict.
+
 A generic trait is dispatched at an instantiation named on the enum: a
 concrete one, `#[whichever::dispatch(Encoder<Json>)]`, or the enum's own
 parameters, `#[whichever::dispatch(GridTrait<T>)]` on `enum Grid<T>`; a
