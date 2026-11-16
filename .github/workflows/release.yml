@@ -1,0 +1,31 @@
+name: Release
+
+# Every tag `v<version>` gets a GitHub release named after the version, whose
+# notes are the opening paragraph of the version's changelog entry, the
+# sentence the checklist asks every entry to begin with, and a link to the
+# full entry. A tag without an entry fails here instead of becoming a release
+# with nothing to say. The job rewrites the notes of a release that already
+# exists, so a release made by hand first is not an error.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" > notes.md
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$version" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$version" --notes-file notes.md
+          fi

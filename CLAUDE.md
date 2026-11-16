@@ -85,7 +85,10 @@ any default.
   characters; a body only when the diff cannot speak for itself. No
   attribution lines, trailers or session links in commits or pull requests.
 - A release commit is `Release <version>` and touches the manifests and the
-  changelog heading; `RELEASING.md` is the checklist.
+  changelog heading; `RELEASING.md` is the checklist. Every tag `v<version>`
+  becomes a GitHub release through `.github/workflows/release.yml`, named
+  after the version, with the opening paragraph of the changelog entry as
+  its notes, which `scripts/release_notes.py` prints.
 - Run what CI runs before a commit:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,

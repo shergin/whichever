@@ -10,7 +10,7 @@ documentation = "https://docs.rs/whichever"
 keywords = ["enum", "dispatch", "delegation", "forwarding", "enum_dispatch"]
 categories = ["rust-patterns"]
 readme = "README.md"
-exclude = ["/smoke", "/benchmarks", "/conformance", "/docs", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
+exclude = ["/smoke", "/benchmarks", "/conformance", "/docs", "/scripts", "/.github", "/rust-toolchain.toml", "/notes", "/CLAUDE.md"]
 
 [features]
 default = ["renamed-dependency"]

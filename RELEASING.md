@@ -14,7 +14,8 @@ and the generated code are one interface.
   `=<version>`.
 - Rename `## Unreleased` in `CHANGELOG.md` to `## <version> - <date>` and add
   a fresh empty `## Unreleased` above it. Each entry's first sentence says
-  what the release is for.
+  what the release is for, and its opening paragraph becomes the notes of
+  the GitHub release, so it has to stand on its own.
 - Point `smoke/mixed/enums/Cargo.toml` at the minor before the one being
   released, so the two-version graph `python3 smoke/mixed/check.py` builds
   stays one step wide.
@@ -57,7 +58,8 @@ cargo package --list -p whichever
 
 The `whichever` archive carries the source, the README, the changelog, the
 acknowledgements, this checklist and the licenses; `Cargo.toml` excludes the
-smoke crates, the benchmarks, `docs/`, the workflows, the toolchain file,
+smoke crates, the benchmarks, `docs/`, the scripts, the workflows, the
+toolchain file,
 the planning notes and `CLAUDE.md`.
 
 ## 4. Publish and tag
@@ -65,7 +67,13 @@ the planning notes and `CLAUDE.md`.
 1. `cargo publish -p whichever-macros`, and wait until the new version
    resolves from the registry.
 2. `cargo publish -p whichever`.
-3. Tag the release commit `v<version>`, push the commit and the tag, and
-   check that docs.rs builds both crates.
+3. Tag the release commit `v<version>` and push the commit and the tag. The
+   tag runs the Release workflow, which creates the GitHub release named
+   `<version>`, its notes the entry's opening paragraph and a link to the
+   full entry; `scripts/release_notes.py <version>` prints the same notes,
+   and `python3 scripts/release_notes.py <version> | gh release create
+   v<version> --verify-tag --title <version> --notes-file -` makes the
+   release by hand should the workflow not run. Check that the release
+   appeared beside the tag and that docs.rs builds both crates.
 4. Leave the worktree clean. A post-release issue goes in the planning
    notes, not into a historical release entry.
