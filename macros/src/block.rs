@@ -4,18 +4,13 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, Result,
-    Signature, Visibility,
+    Attribute, Block, Error, Ident, ImplItem, ItemImpl, Path, Result, Signature, Visibility,
 };
 
-use crate::forwarding::{
-    ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
-};
+use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
 use crate::protocol::{carrier_path, TraitRequest};
-use crate::selection::{check_body, select_targets};
-use crate::shape::{place_borrow, ReturnSite};
 use crate::site::Site;
 use crate::spelling;
 use crate::subject::{Entries, Subject};
@@ -157,92 +152,31 @@ pub(crate) fn forward_method(
     entries: &Entries,
     subject: &Subject,
 ) -> Result<TokenStream2> {
-    let subject_ident = subject.ident();
-    let noun = subject.target_noun();
     let method = &sig.ident;
     let site = Site::at(method.span());
-    let prefix: Path = parse_quote_spanned!(*site => Self);
     if sig.receiver().is_none() {
+        let noun = subject.target_noun();
         return Err(Error::new_spanned(
             sig,
             format!("`{method}` has no receiver, so there is no {noun} to forward to"),
         ));
     }
-    // `field` and `value` make the arm a place instead of a call, borrowed
-    // as the declared return type asks: `&inner.f` for `-> &T`, `inner.f`
-    // for a value, and under `with = Some` or `with = Ok` as what the
-    // constructor is handed has to be, `Some(&inner.f)` for
-    // `-> Option<&T>`.
-    let borrow = place_borrow(&sig.output, forwarding.with.as_ref());
-    let callee = if forwarding.value || forwarding.field.is_some() {
-        Callee::Place {
-            field: forwarding.field.as_ref(),
-            borrow,
-        }
-    } else {
-        Callee::Method {
-            name: forwarding.call.as_ref().unwrap_or(method),
-        }
-    };
-    let context = ArmContext {
-        callee,
-        method,
-        subject: subject_ident,
-        prefix,
-        lift: forwarding.with.as_ref(),
-        has_body: body.is_some(),
-        site,
-    };
-    // In an inherent method `Self` is the subject. For an enum the argument
-    // is handed over as it is: a payload method taking the enum is a
-    // legitimate target, and matching it on the same variant would need a
-    // mismatch the method cannot declare. Two values of a struct always
-    // hold the same field, so there the argument is unwrapped to the field,
-    // as trait dispatch unwraps it.
-    let self_arguments = if subject.has_one_target() {
-        SelfArguments::Dispatch
-    } else {
-        SelfArguments::PassThrough
-    };
-    let mut signature = sig.clone();
-    let plan = MethodPlan::new(
-        &mut signature,
-        ArgumentNames::Written,
-        self_arguments,
-        None,
-        &ReturnSite {
-            subject: subject_ident,
-            one_target: subject.has_one_target(),
-            by_hand: context.whole_way_out(),
-            default: None,
+    let Generated {
+        signature,
+        allowances,
+        body,
+    } = forward(Forward {
+        signature: sig.clone(),
+        origin: Origin::Inherent {
+            mark: Mark {
+                options: &forwarding,
+                body,
+            },
         },
-        None,
-    )?
-    .over(entries);
-    let selection = select_targets(&forwarding, entries, &context.prefix, method, subject)?;
-    check_body(&selection, body, sig, noun)?;
-    let mut arms: Vec<Arm> = selection
-        .targets
-        .iter()
-        .map(|target| plan.arm_or_sentence(target, &context))
-        .collect();
-    arms.extend(
-        selection
-            .unforwardable_arms
-            .into_iter()
-            .map(|arm| plan.beside_arguments(arm)),
-    );
-    // A body for the rest uses the arguments, or is the user's to quiet.
-    let allow_unused = match body {
-        Some(_) => None,
-        None => plan.allow_unused_when_empty(site),
-    };
-    let body = Forwarding {
-        scrutinee: plan.scrutinee(context.site),
-        arms,
-        fallback: body.map(|body| Arm::rest(body.to_token_stream(), context.site)),
-        future: plan.future.clone(),
-    }
-    .body(site);
-    Ok(quote_spanned! { *site => #(#attrs)* #allow_unused #vis #signature #body })
+        entries,
+        subject,
+        site,
+        body_site: site,
+    })?;
+    Ok(quote_spanned! { *site => #(#attrs)* #allowances #vis #signature #body })
 }

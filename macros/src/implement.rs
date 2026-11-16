@@ -4,21 +4,17 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    parse_quote_spanned, Attribute, Error, Expr, Generics, Ident, Path, Result, Signature,
-    TraitItem, TraitItemConst, TraitItemFn, TraitItemType, Type,
+    parse_quote_spanned, Attribute, Error, Generics, Ident, Path, Result, Signature, TraitItem,
+    TraitItemConst, TraitItemType, Type,
 };
 
 use crate::agreement::Agreement;
 use crate::builds::Builds;
 use crate::combined;
-use crate::forwarding::{
-    ArgumentNames, Arm, ArmContext, Callee, Forwarding, MethodPlan, SelfArguments,
-};
+use crate::forwarding::{forward, Forward, Generated, Mark, Origin, TraitMethod};
 use crate::options::{Override, TraitOptions};
 use crate::partial::{BlockMethod, Forwarded, PartialBlock};
 use crate::protocol::ImplementInput;
-use crate::selection::{check_body, select_targets};
-use crate::shape::ReturnSite;
 use crate::signatures::{carried_attributes, Method, Signatures};
 use crate::site::{at, Site};
 use crate::spelling;
@@ -678,86 +674,6 @@ fn expand_method(
     }))
 }
 
-/// Returns the sentence for a method that requires `Self: Sized`
-/// forwarded to a trait object, which cannot take it; a hand leaves such a
-/// method to the trait's default, and the partial block says so with
-/// `#[dispatch(default)]`. It is that variant's arm, under its `cfg`, as any
-/// other sentence about a variant is.
-fn trait_object_refusal(
-    plan: &MethodPlan,
-    target: &Target,
-    function: &TraitItemFn,
-    block_header: &str,
-) -> Option<Error> {
-    if !plan.requires_sized() || !target.is_trait_object() {
-        return None;
-    }
-    let method = &function.sig.ident;
-    Some(Error::new_spanned(
-        &function.sig,
-        format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident()),
-    ))
-}
-
-/// The arm for everything the targets' arms leave, and whether the lint
-/// about an unreachable pattern is allowed on the `match`.
-struct Fallback {
-    arm: Option<Arm>,
-    allow_unreachable: bool,
-}
-
-/// Decides the fallback arm of a trait method. A block method's body is the
-/// arm for every variant it does not name, the mismatch of two different
-/// variants included, so it needs no `mismatch`; under `*` without a body
-/// the trait's rule applies. Two values of a struct always hold the same
-/// field, so only an enum needs the arm for two different variants, and an
-/// enum with one variant that is always compiled in has no second variant
-/// to meet: a hand writes no fallback arm there, and neither does the
-/// engine. The arm stays unreachable in some builds when a variant is under
-/// `cfg`, which is the one case the lint is allowed for.
-fn fallback_for(
-    plan: &MethodPlan,
-    entries: &Entries,
-    subject: &Subject,
-    forwarded: Option<&Forwarded>,
-    mismatch: Option<Expr>,
-    function: &TraitItemFn,
-    context: &ArmContext,
-) -> Result<Fallback> {
-    let always_present = entries
-        .iter()
-        .filter(|entry| entry.target().is_some() && !entry.is_conditional())
-        .count();
-    let conditional = entries
-        .iter()
-        .any(|entry| entry.is_conditional() || entry.unforwardable().is_some());
-    if let Some(body) = forwarded.and_then(|forwarded| forwarded.body.as_ref()) {
-        return Ok(Fallback {
-            arm: Some(Arm::rest(body.to_token_stream(), context.site)),
-            allow_unreachable: false,
-        });
-    }
-    let needs_fallback =
-        plan.has_same_variant() && subject.can_mismatch() && (always_present >= 2 || conditional);
-    if !needs_fallback {
-        return Ok(Fallback {
-            arm: None,
-            allow_unreachable: false,
-        });
-    }
-    let method = &function.sig.ident;
-    let Some(expr) = mismatch else {
-        return Err(Error::new_spanned(
-            &function.sig,
-            format!("`{method}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({method} = <expr>)` on the enum"),
-        ));
-    };
-    Ok(Fallback {
-        arm: Some(plan.fallback(expr.to_token_stream(), context.site)),
-        allow_unreachable: forwarded.is_none() && always_present < 2,
-    })
-}
-
 /// Writes a trait method that cannot be forwarded as the impl writes it:
 /// the trait's signature, substituted, with `error`'s sentence as its body.
 /// Only a signature the substitution cannot write is an error of the impl.
@@ -803,7 +719,7 @@ struct MethodContext<'a> {
 /// written, or the sentence for the shape that stops it.
 fn forward_trait_method(
     declared: Method,
-    mut signature: Signature,
+    signature: Signature,
     context: &MethodContext,
     forwarded: Option<&Forwarded>,
 ) -> Result<TokenStream2> {
@@ -817,7 +733,6 @@ fn forward_trait_method(
         derived,
     } = *context;
     let function = declared.function;
-    let subject_ident = subject.ident();
     let method = signature.ident.clone();
     // A method the trait gives a body can be left to it; a restatement
     // lists its methods without one, and they count as required.
@@ -831,123 +746,41 @@ fn forward_trait_method(
             format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
-    let context = ArmContext {
-        callee: Callee::Qualified {
-            trait_path,
-            method: &method,
-        },
-        method: &method,
-        subject: subject_ident,
-        prefix: subject_path.clone(),
-        lift: None,
-        has_body: forwarded.is_some_and(|forwarded| forwarded.body.is_some()),
-        site: Site::at(subject_ident.span()),
-    };
     // The enum's `mismatch` wins over the trait method's, and the names the
     // fallback arm binds resolve where the chosen expression was written.
     let (mismatch, resolution) = match options.mismatch_for(&method) {
         Some(expr) => (Some(expr.clone()), Some(expr.span())),
         None => (declared.mismatch()?, None),
     };
-    // A block method's parameter names are the user's; the trait's are
-    // kept where they are plain identifiers and generated otherwise.
-    let names = match forwarded {
-        Some(_) => ArgumentNames::Written,
-        None => ArgumentNames::WrittenOrGenerated,
-    };
-    let plan = MethodPlan::new(
-        &mut signature,
-        names,
-        SelfArguments::Dispatch,
-        Some(options),
-        &ReturnSite {
-            subject: subject_ident,
-            one_target: subject.has_one_target(),
-            by_hand: context.whole_way_out(),
-            default: has_default.then_some((&method, block_header)),
+    let site = Site::at(subject.ident().span());
+    let Generated {
+        signature,
+        allowances,
+        body,
+    } = forward(Forward {
+        signature,
+        origin: Origin::Trait {
+            method: TraitMethod {
+                trait_path,
+                subject_path,
+                declared: &function.sig,
+                has_default,
+                block_header,
+                options,
+                mismatch,
+                resolution,
+                derived,
+            },
+            mark: forwarded.map(|forwarded| Mark {
+                options: &forwarded.forwarding,
+                body: forwarded.body.as_ref(),
+            }),
         },
-        resolution,
-    )?
-    .over(entries);
-    // A block method selects its variants and gives the body for the rest;
-    // the trait's attribute forwards to every variant.
-    let selection = match forwarded {
-        Some(forwarded) => {
-            let selection = select_targets(
-                &forwarded.forwarding,
-                entries,
-                &context.prefix,
-                &method,
-                subject,
-            )?;
-            check_body(
-                &selection,
-                forwarded.body.as_ref(),
-                &signature,
-                subject.target_noun(),
-            )?;
-            Some(selection)
-        }
-        None => None,
-    };
-    let arm_for =
-        |target: &Target| match trait_object_refusal(&plan, target, function, block_header) {
-            Some(error) => plan.sentence_arm(target, &context, error),
-            None => plan.arm_or_sentence(target, &context),
-        };
-    let mut arms = vec![];
-    match &selection {
-        Some(selection) => {
-            for target in &selection.targets {
-                arms.push(arm_for(target));
-            }
-        }
-        None => {
-            for entry in entries.iter() {
-                match entry.target() {
-                    Some(target) => arms.push(arm_for(&target)),
-                    // The variant is reported elsewhere, under its `cfg`;
-                    // this arm only keeps the `match` exhaustive while that
-                    // error stands, which the fallback arm does when there
-                    // is one.
-                    None if !plan.has_same_variant() => {
-                        let site = context.site;
-                        arms.push(Arm::unforwardable(
-                            &context.prefix,
-                            entry,
-                            plan.standing_in(site),
-                            site,
-                        ));
-                    }
-                    None => {}
-                }
-            }
-        }
-    }
-    let Fallback {
-        arm: fallback,
-        allow_unreachable,
-    } = fallback_for(
-        &plan, entries, subject, forwarded, mismatch, function, &context,
-    )?;
-    if let Some(selection) = selection {
-        arms.extend(
-            selection
-                .unforwardable_arms
-                .into_iter()
-                .map(|arm| plan.beside_arguments(arm)),
-        );
-    }
-    let site = context.site;
-    let allow_unreachable =
-        allow_unreachable.then(|| quote_spanned! { *site => #[allow(unreachable_patterns)] });
-    // A body for the rest uses the arguments, or is the user's to quiet;
-    // the impl the enum's attribute writes is automatically derived.
-    let has_body = forwarded.is_some_and(|forwarded| forwarded.body.is_some());
-    let allow_unused = match derived || has_body {
-        true => None,
-        false => plan.allow_unused_when_empty(site),
-    };
+        entries,
+        subject,
+        site,
+        body_site: Site::at(method.span()),
+    })?;
     // The method's own `#[inline]`, the block's or the trait's, or ours.
     let own_attrs: &[Attribute] = match forwarded {
         Some(forwarded) => &forwarded.attrs,
@@ -973,18 +806,10 @@ fn forward_trait_method(
     if declared.is_deprecated() {
         carried.push(allow_deprecated(site));
     }
-    let body = Forwarding {
-        scrutinee: plan.scrutinee(context.site),
-        arms,
-        fallback,
-        future: plan.future.clone(),
-    }
-    .body(Site::at(method.span()));
     Ok(quote_spanned! { *site =>
         #(#carried)*
         #inline
-        #allow_unreachable
-        #allow_unused
+        #allowances
         #signature #body
     })
 }

@@ -5,10 +5,11 @@ use quote::ToTokens;
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
-    Result, ReturnType, Signature, Token, Type, TypeParamBound, TypePath,
+    Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
 };
 
 use crate::options::TraitOptions;
+use crate::refusal::WayOut;
 
 /// Returns the identifier of a bare single-segment path type without
 /// arguments, such as a type parameter or a primitive.
@@ -67,6 +68,37 @@ impl Conversion {
         }
     }
 
+    /// Returns what rewrapping asks of a target: whether a `Self` is
+    /// rebuilt around the payload's result as it stands, and whether one
+    /// under an `Option` or a `Result` is rebuilt by the path `.map(..)`
+    /// takes.
+    pub(crate) fn rebuilds(&self) -> Rebuilds {
+        match self {
+            Conversion::Keep | Conversion::Into => Rebuilds::default(),
+            Conversion::Rewrap => Rebuilds {
+                whole: true,
+                by_path: false,
+            },
+            Conversion::Map(inner) => Rebuilds {
+                whole: false,
+                by_path: **inner == Conversion::Rewrap,
+            },
+            Conversion::MapErr(value, error) => Rebuilds {
+                whole: false,
+                by_path: **value == Conversion::Rewrap || **error == Conversion::Rewrap,
+            },
+            Conversion::Tuple(items) => {
+                items
+                    .iter()
+                    .map(Conversion::rebuilds)
+                    .fold(Rebuilds::default(), |all, item| Rebuilds {
+                        whole: all.whole || item.whole,
+                        by_path: all.by_path || item.by_path,
+                    })
+            }
+        }
+    }
+
     /// Returns whether the conversion is a path a `.map(..)` can take:
     /// nothing, the variant's constructor, or `Into::into`.
     fn is_a_path(&self) -> bool {
@@ -91,6 +123,17 @@ impl Conversion {
             other => other,
         }
     }
+}
+
+/// What a conversion that rewraps `Self` asks of the target it rewraps
+/// into.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Rebuilds {
+    /// The subject is built around a value: by the variant's or the
+    /// struct's name, or by its braces.
+    pub(crate) whole: bool,
+    /// The subject is built by a path, which `.map(..)` takes.
+    pub(crate) by_path: bool,
 }
 
 pub(crate) fn single_segment(ty: &Type) -> Option<&PathSegment> {
@@ -259,9 +302,9 @@ pub(crate) struct ReturnSite<'a> {
     /// `match` over it has one arm and an opaque return type is the one
     /// type that arm returns.
     pub(crate) one_target: bool,
-    /// The way out a message offers: an impl by hand on the trait path, a
+    /// The ways out a message offers: an impl by hand on the trait path, a
     /// body on the inherent path.
-    pub(crate) by_hand: &'a str,
+    pub(crate) way_out: WayOut,
     /// The trait's default a provided method can be left to: the method's
     /// name and the partial impl block that says so, spelled out. A
     /// required method has none, and neither has an inherent method.
@@ -419,7 +462,7 @@ fn classify(
 #[derive(Clone, Copy)]
 pub(crate) enum PlaceBorrow {
     /// By `&` or `&mut`: what takes the place is a reference.
-    Reference(Option<Token![mut]>),
+    Reference(Borrow),
     /// By value: what takes the place is read, and is not a reference.
     Value,
     /// As it stands: what takes the place cannot be read off the return
@@ -444,7 +487,7 @@ pub(crate) enum PlaceBorrow {
 /// whether the arm is the reference or the value.
 pub(crate) fn place_borrow(output: &ReturnType, lift: Option<&Path>) -> PlaceBorrow {
     let read = |ty: &Type| match ungrouped(ty) {
-        Type::Reference(reference) => PlaceBorrow::Reference(reference.mutability),
+        Type::Reference(reference) => PlaceBorrow::Reference(Borrow::of(reference)),
         Type::Ptr(_) | Type::ImplTrait(_) => PlaceBorrow::Unread,
         _ => PlaceBorrow::Value,
     };
@@ -492,10 +535,11 @@ fn ungrouped(mut ty: &Type) -> &Type {
 fn self_limit(whole: &Type, site: &ReturnSite) -> Error {
     let ReturnSite {
         subject,
-        by_hand,
+        way_out,
         default,
         ..
     } = site;
+    let by_hand = way_out.of_method();
     let message = match default {
         Some((method, block_header)) => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; leave the method to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
         None => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
@@ -550,12 +594,52 @@ impl<'ast> Visit<'ast> for SelfFinder {
     }
 }
 
-/// How a method reaches its receiver or a `Self` argument.
+/// How a reference borrows what it points at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Borrow {
+    Shared,
+    Exclusive,
+}
+
+impl Borrow {
+    /// Reads how `reference` borrows.
+    pub(crate) fn of(reference: &syn::TypeReference) -> Self {
+        if reference.mutability.is_some() {
+            Borrow::Exclusive
+        } else {
+            Borrow::Shared
+        }
+    }
+}
+
+/// How a method takes its receiver or a `Self` argument: by one of the two
+/// borrows, or by value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Access {
     Shared,
     Exclusive,
     Owned,
+}
+
+impl Access {
+    /// Returns the borrow the value is taken by; nothing for one taken by
+    /// value.
+    pub(crate) fn borrow(self) -> Option<Borrow> {
+        match self {
+            Access::Shared => Some(Borrow::Shared),
+            Access::Exclusive => Some(Borrow::Exclusive),
+            Access::Owned => None,
+        }
+    }
+}
+
+impl From<Borrow> for Access {
+    fn from(borrow: Borrow) -> Self {
+        match borrow {
+            Borrow::Shared => Access::Shared,
+            Borrow::Exclusive => Access::Exclusive,
+        }
+    }
 }
 
 pub(crate) enum ArgumentKind {
@@ -574,14 +658,20 @@ pub(crate) enum ReceiverKind {
     Boxed,
     /// `self: Pin<&Self>` and `self: Pin<&mut Self>`: unpinned, matched, and
     /// the payload pinned again, which needs every payload to be `Unpin`.
-    Pinned(Access),
+    Pinned(Borrow),
 }
 
-pub(crate) fn reference_access(reference: &syn::TypeReference) -> Access {
-    if reference.mutability.is_some() {
-        Access::Exclusive
-    } else {
-        Access::Shared
+impl ReceiverKind {
+    /// Returns the borrow the receiver takes the subject by, plain or
+    /// pinned, so that a pattern over it binds references; nothing for
+    /// `self` and `self: Box<Self>`, which are matched by value and bind
+    /// the payload itself.
+    pub(crate) fn borrow(self) -> Option<Borrow> {
+        match self {
+            ReceiverKind::Value(access) => access.borrow(),
+            ReceiverKind::Boxed => None,
+            ReceiverKind::Pinned(borrow) => Some(borrow),
+        }
     }
 }
 
@@ -617,7 +707,7 @@ fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
     }
     if let Type::Reference(reference) = ty {
         if is_self(&reference.elem) {
-            return Some(ReceiverKind::Value(reference_access(reference)));
+            return Some(ReceiverKind::Value(Borrow::of(reference).into()));
         }
     }
     let segment = last_segment(ty)?;
@@ -631,7 +721,7 @@ fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
     if segment.ident == "Pin" {
         if let Type::Reference(reference) = argument {
             if is_self(&reference.elem) {
-                return Some(ReceiverKind::Pinned(reference_access(reference)));
+                return Some(ReceiverKind::Pinned(Borrow::of(reference)));
             }
         }
     }
@@ -726,7 +816,10 @@ mod tests {
         ReturnSite {
             subject,
             one_target,
-            by_hand: "implement the method by hand",
+            way_out: WayOut {
+                on_trait: true,
+                has_body: false,
+            },
             default: None,
         }
     }
@@ -869,11 +962,11 @@ mod tests {
         ));
         assert!(matches!(
             receiver(parse_quote!(self: Pin<&mut Self>)),
-            Ok(ReceiverKind::Pinned(Access::Exclusive))
+            Ok(ReceiverKind::Pinned(Borrow::Exclusive))
         ));
         assert!(matches!(
             receiver(parse_quote!(self: Pin<&Self>)),
-            Ok(ReceiverKind::Pinned(Access::Shared))
+            Ok(ReceiverKind::Pinned(Borrow::Shared))
         ));
         assert!(receiver(parse_quote!(self: Rc<Self>)).is_err());
         assert!(receiver(parse_quote!(self: Arc<Self>)).is_err());
@@ -1016,8 +1109,8 @@ mod tests {
     /// `"by value"` or `"unread"`.
     fn borrow(output: ReturnType, lift: Option<&Path>) -> &'static str {
         match place_borrow(&output, lift) {
-            PlaceBorrow::Reference(None) => "&",
-            PlaceBorrow::Reference(Some(_)) => "&mut",
+            PlaceBorrow::Reference(Borrow::Shared) => "&",
+            PlaceBorrow::Reference(Borrow::Exclusive) => "&mut",
             PlaceBorrow::Value => "by value",
             PlaceBorrow::Unread => "unread",
         }

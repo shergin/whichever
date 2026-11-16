@@ -31,6 +31,7 @@ pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
 }
 
 mod agreement;
+mod arm;
 mod block;
 mod builds;
 mod conversions;
@@ -45,6 +46,7 @@ mod naming;
 mod options;
 mod partial;
 mod protocol;
+mod refusal;
 mod route;
 mod selection;
 mod shape;

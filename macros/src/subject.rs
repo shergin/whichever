@@ -607,6 +607,18 @@ impl<'a> Target<'a> {
         }
     }
 
+    /// Returns whether the subject can be built around a payload: no
+    /// other field would be missing.
+    pub(crate) fn is_rebuilt(&self) -> bool {
+        !matches!(self.place.field, PayloadField::Beside(_))
+    }
+
+    /// Returns whether a path builds the subject from a payload, as
+    /// `.map(..)` needs: the variant's name or the tuple struct's.
+    pub(crate) fn is_built_by_a_path(&self) -> bool {
+        matches!(self.place.field, PayloadField::Only)
+    }
+
     /// Returns a function building the subject from a payload, for `map`.
     /// A named field is built by its braces, which a closure would have to
     /// hold; the caller says so.

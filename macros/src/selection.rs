@@ -4,7 +4,7 @@
 use quote::quote_spanned;
 use syn::{Block, Error, Ident, Path, Result, Signature};
 
-use crate::forwarding::Arm;
+use crate::arm::Arm;
 use crate::options::ForwardingOptions;
 use crate::site::Site;
 use crate::subject::{Entries, Subject, Target};

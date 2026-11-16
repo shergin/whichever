@@ -5,43 +5,317 @@
 //! which targets take part and in what the remaining arms do, and agree on
 //! the rest: how the receiver is reached, how the arguments are bound, what
 //! an arm does with the payload's result, and how the `match` becomes a
-//! body. The agreeing parts live here as data, a [`MethodPlan`] read off the
-//! signature, an [`Arm`] per target and the [`Forwarding`] that renders
-//! them; `implement.rs` and `block.rs` fill the data in.
+//! body. What differs is the method's [`Origin`], which `implement.rs` and
+//! `block.rs` name; everything else follows from it in [`forward`]: a
+//! [`MethodPlan`] read off the signature, an arm per target, written in
+//! `arm.rs`, and the [`Forwarding`] that renders them.
 //!
-//! Tokens the engine writes carry the context's `site`, the subject's or the
-//! method's own span: a proc macro's call site, inside the carrier's
-//! expansion, is the trait's attribute, which may be in another crate. No
-//! module that writes generated code uses a bare `quote!`; a unit test of
-//! the crate reads the sources and says so.
+//! Tokens the engine writes carry a `Site`, the subject's or the method's
+//! own span: a proc macro's call site, inside the carrier's expansion, is
+//! the trait's attribute, which may be in another crate. No module that
+//! writes generated code uses a bare `quote!`; a unit test of the crate
+//! reads the sources and says so.
 use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{Attribute, Error, FnArg, Ident, Member, Pat, PatIdent, Path, Result, Signature, Token};
+use syn::{
+    parse_quote_spanned, Block, Error, Expr, FnArg, Ident, Pat, PatIdent, Path, Result, Signature,
+    Token,
+};
 
-use crate::options::TraitOptions;
-use crate::route::Route;
+use crate::arm::{hygienic, Arm, ArmContext, ArmKind, Declared};
+use crate::options::{ForwardingOptions, TraitOptions};
+use crate::refusal::WayOut;
+use crate::selection::{check_body, select_targets};
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, is_self, last_segment, turbofish, Access,
-    ArgumentKind, Conversion, FutureShape, PlaceBorrow, ReceiverKind, ReturnSite,
+    argument_kind, classify_receiver, classify_return, is_self, place_borrow, turbofish, Access,
+    ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
 };
 use crate::site::Site;
-use crate::spelling;
-use crate::subject::{Entries, Entry, Holder, Target};
+use crate::subject::{Entries, Subject};
 
-/// Returns an identifier with `macro_rules`-style hygiene, which can never
-/// collide with one the user wrote, located at `site` as every other token
-/// of an arm is: a binding left at the proc macro's call site would stretch
-/// the span of the expression that holds it back to the attribute, and
-/// rustc's errors with it.
-fn hygienic(name: &str, site: Site) -> Ident {
-    Ident::new(name, *site)
+/// Where a method to forward comes from, with what each of the two paths
+/// brings: a trait's, or an inherent block's.
+// One per method, and short-lived; the size difference does not matter here.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum Origin<'a> {
+    /// A method of a trait. Without a mark it is forwarded to every
+    /// variant; a partial impl block's mark names the variants and gives
+    /// the body for the rest.
+    Trait {
+        method: TraitMethod<'a>,
+        mark: Option<Mark<'a>>,
+    },
+    /// A method of an inherent block, which always names its variants.
+    Inherent { mark: Mark<'a> },
+}
+
+impl<'a> Origin<'a> {
+    fn mark(&self) -> Option<Mark<'a>> {
+        match self {
+            Origin::Trait { mark, .. } => *mark,
+            Origin::Inherent { mark } => Some(*mark),
+        }
+    }
+}
+
+/// What a trait brings to one of its methods.
+pub(crate) struct TraitMethod<'a> {
+    /// The trait as the impl names it, which every arm's call is
+    /// qualified by.
+    pub(crate) trait_path: &'a Path,
+    /// The subject's real path, which patterns and values are written on:
+    /// its own name, or the path a restatement names.
+    pub(crate) subject_path: &'a Path,
+    /// The method's signature as the trait declares it, which a sentence
+    /// about the method points at.
+    pub(crate) declared: &'a Signature,
+    /// Whether the trait gives the method a default body, which a method
+    /// that cannot be forwarded can be left to.
+    pub(crate) has_default: bool,
+    /// The partial impl block a sentence points at, spelled out.
+    pub(crate) block_header: &'a str,
+    /// The trait's options: its overrides decide what a `Self::X` in the
+    /// return type converts to.
+    pub(crate) options: &'a TraitOptions,
+    /// The result for two different variants: the enum's `mismatch` over
+    /// the trait method's.
+    pub(crate) mismatch: Option<Expr>,
+    /// Where the names a `mismatch` on the enum uses resolve.
+    pub(crate) resolution: Option<Span>,
+    /// Whether the impl is the subject's attribute's,
+    /// `#[automatically_derived]`, rather than a partial impl block's,
+    /// which is the user's.
+    pub(crate) derived: bool,
+}
+
+/// A method's `#[dispatch(..)]`: the variants it names, with how each is
+/// forwarded to, and the body for the variants it does not name.
+#[derive(Clone, Copy)]
+pub(crate) struct Mark<'a> {
+    pub(crate) options: &'a ForwardingOptions,
+    pub(crate) body: Option<&'a Block>,
+}
+
+/// One method to forward.
+pub(crate) struct Forward<'a> {
+    /// The signature the generated method has.
+    pub(crate) signature: Signature,
+    pub(crate) origin: Origin<'a>,
+    pub(crate) entries: &'a Entries<'a>,
+    pub(crate) subject: &'a Subject,
+    /// The span the arms and the attributes carry.
+    pub(crate) site: Site,
+    /// The span the body's braces carry: the method's own, so that the
+    /// item rustc points at as "defined here" is the method.
+    pub(crate) body_site: Site,
+}
+
+/// A forwarded method, for its path to put its attributes around.
+pub(crate) struct Generated {
+    /// The signature, with its parameters bound as the body names them.
+    pub(crate) signature: Signature,
+    /// The lint allowances a hand writes on the method.
+    pub(crate) allowances: TokenStream2,
+    pub(crate) body: TokenStream2,
+}
+
+/// Forwards one method, which has a receiver: reads its signature, selects
+/// its targets, writes an arm for each and the arm for the rest, and
+/// renders the `match`.
+pub(crate) fn forward(request: Forward) -> Result<Generated> {
+    let Forward {
+        mut signature,
+        origin,
+        entries,
+        subject,
+        site,
+        body_site,
+    } = request;
+    let method = signature.ident.clone();
+    let mark = origin.mark();
+    let way_out = WayOut {
+        on_trait: matches!(origin, Origin::Trait { .. }),
+        has_body: mark.is_some_and(|mark| mark.body.is_some()),
+    };
+    let (kind, prefix, lift, declared) = match &origin {
+        Origin::Trait {
+            method: of_trait, ..
+        } => (
+            ArmKind::QualifiedCall {
+                trait_path: of_trait.trait_path,
+                method: &method,
+            },
+            of_trait.subject_path.clone(),
+            None,
+            Some(Declared {
+                signature: of_trait.declared,
+                block_header: of_trait.block_header,
+            }),
+        ),
+        Origin::Inherent { mark } => {
+            let options = mark.options;
+            // `field` and `value` make the arm a place instead of a call,
+            // borrowed as the declared return type asks: `&inner.f` for
+            // `-> &T`, `inner.f` for a value, and under `with = Some` or
+            // `with = Ok` as what the constructor is handed has to be,
+            // `Some(&inner.f)` for `-> Option<&T>`.
+            let kind = if options.value || options.field.is_some() {
+                ArmKind::Place {
+                    field: options.field.as_ref(),
+                    borrow: place_borrow(&signature.output, options.with.as_ref()),
+                }
+            } else {
+                ArmKind::MethodCall {
+                    name: options.call.as_ref().unwrap_or(&method),
+                }
+            };
+            (
+                kind,
+                parse_quote_spanned!(*site => Self),
+                options.with.as_ref(),
+                None,
+            )
+        }
+    };
+    let context = ArmContext {
+        kind,
+        method: &method,
+        subject: subject.ident(),
+        prefix,
+        lift,
+        way_out,
+        declared,
+        site,
+    };
+    let (names, self_arguments, options, default, resolution) = match &origin {
+        // A block method's parameter names are the user's; the trait's are
+        // kept where they are plain identifiers and generated otherwise.
+        Origin::Trait {
+            method: of_trait,
+            mark,
+        } => (
+            match mark {
+                Some(_) => ArgumentNames::Written,
+                None => ArgumentNames::WrittenOrGenerated,
+            },
+            SelfArguments::Dispatch,
+            Some(of_trait.options),
+            of_trait
+                .has_default
+                .then_some((&method, of_trait.block_header)),
+            of_trait.resolution,
+        ),
+        // In an inherent method `Self` is the subject. For an enum the
+        // argument is handed over as it is: a payload method taking the
+        // enum is a legitimate target, and matching it on the same variant
+        // would need a mismatch the method cannot declare. Two values of a
+        // struct always hold the same field, so there the argument is
+        // unwrapped to the field, as trait dispatch unwraps it.
+        Origin::Inherent { .. } => (
+            ArgumentNames::Written,
+            if subject.has_one_target() {
+                SelfArguments::Dispatch
+            } else {
+                SelfArguments::PassThrough
+            },
+            None,
+            None,
+            None,
+        ),
+    };
+    let plan = MethodPlan::read(
+        &mut signature,
+        names,
+        self_arguments,
+        options,
+        &ReturnSite {
+            subject: subject.ident(),
+            one_target: subject.has_one_target(),
+            way_out,
+            default,
+        },
+        resolution,
+        entries,
+    )?;
+    // A marked method selects its variants and gives the body for the
+    // rest; the trait's attribute forwards to every variant.
+    let selection = match mark {
+        Some(mark) => {
+            let selection =
+                select_targets(mark.options, entries, &context.prefix, &method, subject)?;
+            check_body(&selection, mark.body, &signature, subject.target_noun())?;
+            Some(selection)
+        }
+        None => None,
+    };
+    let mut arms = vec![];
+    match &selection {
+        Some(selection) => {
+            for target in &selection.targets {
+                arms.push(plan.arm(target, &context));
+            }
+        }
+        None => {
+            for entry in entries.iter() {
+                match entry.target() {
+                    Some(target) => arms.push(plan.arm(&target, &context)),
+                    // The variant is reported elsewhere, under its `cfg`;
+                    // this arm only keeps the `match` exhaustive while that
+                    // error stands, which the fallback arm does when there
+                    // is one.
+                    None if !plan.has_same_variant() => {
+                        arms.push(Arm::unforwardable(
+                            &context.prefix,
+                            entry,
+                            plan.standing_in(site),
+                            site,
+                        ));
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    let Fallback {
+        arm: fallback,
+        allow_unreachable,
+    } = plan.fallback_for(entries, subject, &origin, &context)?;
+    if let Some(selection) = selection {
+        arms.extend(
+            selection
+                .unforwardable_arms
+                .into_iter()
+                .map(|arm| plan.beside_arguments(arm)),
+        );
+    }
+    let allow_unreachable =
+        allow_unreachable.then(|| quote_spanned! { *site => #[allow(unreachable_patterns)] });
+    // A body for the rest uses the arguments, or is the user's to quiet;
+    // the impl the enum's attribute writes is automatically derived.
+    let derived = matches!(&origin, Origin::Trait { method, .. } if method.derived);
+    let allow_unused = match derived || way_out.has_body {
+        true => None,
+        false => plan.allow_unused_when_empty(site),
+    };
+    let body = Forwarding {
+        scrutinee: plan.scrutinee(site),
+        arms,
+        fallback,
+        future: plan.future.clone(),
+    }
+    .body(body_site);
+    Ok(Generated {
+        signature,
+        allowances: quote_spanned! { *site => #allow_unreachable #allow_unused },
+        body,
+    })
 }
 
 /// How the arguments after the receiver are bound in the generated
 /// signature.
 #[derive(Clone, Copy)]
-pub(crate) enum ArgumentNames {
+enum ArgumentNames {
     /// The identifiers written, so that the generated signature reads like
     /// the trait's; a pattern that is not a plain identifier, which a trait
     /// method with a default body may have, gets a fresh hygienic
@@ -50,6 +324,21 @@ pub(crate) enum ArgumentNames {
     /// The identifiers written, and an error for any other pattern: an
     /// inherent method's parameters are the user's to rename.
     Written,
+}
+
+/// What an argument typed `Self`, `&Self` or `&mut Self` means.
+#[derive(Clone, Copy)]
+enum SelfArguments {
+    /// The argument holds the same kind of target as the receiver: it is
+    /// matched beside the receiver, on the same variant, and two different
+    /// variants take the fallback arm. This is every trait method, where
+    /// `Self` is the implementor, and an inherent method of a struct, whose
+    /// two values always hold the same field.
+    Dispatch,
+    /// `Self` is the enum itself, in an inherent method of one: the
+    /// argument is handed over as it is, and a payload method taking the
+    /// enum is a legitimate target.
+    PassThrough,
 }
 
 /// Returns whether the signature's `where` clause has `Self: Sized`, the
@@ -78,23 +367,6 @@ fn requires_sized(signature: &Signature) -> bool {
     })
 }
 
-/// Returns whether `payload` is a `Box`, by the name its path ends in,
-/// which is the one pointer a value is moved out of by dereferencing.
-fn holds_a_box(payload: &syn::Type) -> bool {
-    last_segment(payload).is_some_and(|segment| segment.ident == "Box")
-}
-
-/// Returns whether `payload` is a pointer that lends what it points at
-/// shared and never exclusively: an `Rc` or an `Arc`, by the name its path
-/// ends in, or a `&T`.
-fn lends_only_shared(payload: &syn::Type) -> bool {
-    match payload {
-        syn::Type::Reference(reference) => reference.mutability.is_none(),
-        other => last_segment(other)
-            .is_some_and(|segment| segment.ident == "Rc" || segment.ident == "Arc"),
-    }
-}
-
 /// Returns the pattern that binds `ident` and nothing else.
 fn plain(ident: Ident) -> Pat {
     Pat::Ident(PatIdent {
@@ -106,45 +378,32 @@ fn plain(ident: Ident) -> Pat {
     })
 }
 
-/// What an argument typed `Self`, `&Self` or `&mut Self` means.
-#[derive(Clone, Copy)]
-pub(crate) enum SelfArguments {
-    /// The argument holds the same kind of target as the receiver: it is
-    /// matched beside the receiver, on the same variant, and two different
-    /// variants take the fallback arm. This is every trait method, where
-    /// `Self` is the implementor, and an inherent method of a struct, whose
-    /// two values always hold the same field.
-    Dispatch,
-    /// `Self` is the enum itself, in an inherent method of one: the
-    /// argument is handed over as it is, and a payload method taking the
-    /// enum is a legitimate target.
-    PassThrough,
-}
-
-/// What is known about a method before any target is looked at.
+/// What is known about a method before any target is looked at: what its
+/// signature says, and what the entries its `match` is over say.
 pub(crate) struct MethodPlan {
-    receiver: ReceiverKind,
+    pub(crate) receiver: ReceiverKind,
     /// `self` resolves like a local variable, so the generated `match` uses
     /// the receiver's own token to share its hygiene.
-    self_token: Token![self],
+    pub(crate) self_token: Token![self],
     /// The binding of every argument after the receiver, in order.
-    arguments: Vec<Ident>,
+    pub(crate) arguments: Vec<Ident>,
     /// The arguments matched on the same variant as the receiver, by index.
-    same_variant: Vec<(usize, Access)>,
+    pub(crate) same_variant: Vec<(usize, Access)>,
     /// The generic arguments a call spells out, when inference could not.
-    turbofish: Option<Vec<Ident>>,
-    return_model: Conversion,
+    pub(crate) turbofish: Option<Vec<Ident>>,
+    /// What an arm does with the payload's result.
+    pub(crate) conversion: Conversion,
     /// The future the method returns, when the `match` sits in one `async
     /// move` block and every arm is awaited inside it.
     pub(crate) future: Option<FutureShape>,
-    awaited: bool,
-    unsafety: bool,
+    pub(crate) awaited: bool,
+    pub(crate) unsafety: bool,
     /// Whether the method's `where` clause requires `Self: Sized`, which a
     /// trait object payload cannot satisfy.
-    requires_sized: bool,
+    pub(crate) requires_sized: bool,
     /// Whether the `match` looks at the subject itself where the receiver
     /// is a reference, `match *self` with `ref` bindings.
-    by_place: bool,
+    pub(crate) by_place: bool,
     /// Whether every entry the `match` is over is under `#[cfg]`, so that
     /// some build leaves no arm to use the arguments.
     may_be_empty: bool,
@@ -152,16 +411,26 @@ pub(crate) struct MethodPlan {
 
 impl MethodPlan {
     /// Reads `signature`, which must have a receiver, and binds its
-    /// arguments as `names` says. `options` carries a trait's associated type
-    /// overrides; an inherent method has none. `site` is what the return
-    /// type's classification depends on besides the type.
-    pub(crate) fn new(
+    /// arguments as `names` says. `options` carries a trait's associated
+    /// type overrides; an inherent method has none. `site` is what the
+    /// return type's classification depends on besides the type, and
+    /// `entries` are what the `match` is over.
+    ///
+    /// An enum whose every variant is under `#[cfg]` holds no variant at
+    /// all in some build, and a reference to it still counts as inhabited
+    /// there, so `match self {}` is not exhaustive while `match *self {}`
+    /// is. A hand writes the second over such an enum, `match *self {
+    /// Variant(ref inner) => .. }`, and so does the engine, for a reference
+    /// receiver. A `Self` argument is matched beside the receiver in a
+    /// tuple, which has the fallback arm in every build and stays as it is.
+    fn read(
         signature: &mut Signature,
         names: ArgumentNames,
         self_arguments: SelfArguments,
         options: Option<&TraitOptions>,
         site: &ReturnSite,
         resolution: Option<Span>,
+        entries: &Entries,
     ) -> Result<Self> {
         let (receiver, mut self_token) = match signature.receiver() {
             Some(receiver) => (classify_receiver(receiver)?, receiver.self_token),
@@ -223,37 +492,23 @@ impl MethodPlan {
             }
             arguments.push(binding);
         }
-        let (return_model, future) = classify_return(&signature.output, options, site)?;
+        let (conversion, future) = classify_return(&signature.output, options, site)?;
         let awaited = signature.asyncness.is_some() || future.is_some();
+        let always_present = entries.iter().any(|entry| !entry.is_conditional());
         Ok(Self {
+            by_place: receiver.borrow().is_some() && same_variant.is_empty() && !always_present,
+            may_be_empty: !always_present,
             receiver,
             self_token,
             arguments,
             same_variant,
             turbofish: turbofish(signature),
-            return_model,
+            conversion,
             future,
             awaited,
             unsafety: matches!(signature.safety, syn::Safety::Unsafe(_)),
             requires_sized: requires_sized(signature),
-            by_place: false,
-            may_be_empty: false,
         })
-    }
-
-    /// Says which entries the `match` is over. An enum whose every variant
-    /// is under `#[cfg]` holds no variant at all in some build, and a
-    /// reference to it still counts as inhabited there, so `match self {}`
-    /// is not exhaustive while `match *self {}` is. A hand writes the
-    /// second over such an enum, `match *self { Variant(ref inner) => .. }`,
-    /// and so does the engine, for a reference receiver. A `Self` argument
-    /// is matched beside the receiver in a tuple, which has the fallback
-    /// arm in every build and stays as it is.
-    pub(crate) fn over(mut self, entries: &Entries) -> Self {
-        let always_present = entries.iter().any(|entry| !entry.is_conditional());
-        self.by_place = self.binds_references() && self.same_variant.is_empty() && !always_present;
-        self.may_be_empty = !always_present;
-        self
     }
 
     /// Returns the attribute a hand writes on a method over an enum that
@@ -262,7 +517,7 @@ impl MethodPlan {
     /// has arguments. An impl the enum's own attribute writes is
     /// `#[automatically_derived]`, under which rustc does not report it,
     /// and takes none.
-    pub(crate) fn allow_unused_when_empty(&self, site: Site) -> Option<TokenStream2> {
+    fn allow_unused_when_empty(&self, site: Site) -> Option<TokenStream2> {
         (self.may_be_empty && !self.arguments.is_empty())
             .then(|| quote_spanned! { *site => #[allow(unused_variables)] })
     }
@@ -270,17 +525,14 @@ impl MethodPlan {
     /// Returns whether a pattern over the receiver binds references: the
     /// receiver is one, plain or pinned, where `self` and `self: Box<Self>`
     /// are matched by value and bind the payload itself.
-    fn binds_references(&self) -> bool {
-        matches!(
-            self.receiver,
-            ReceiverKind::Value(Access::Shared | Access::Exclusive) | ReceiverKind::Pinned(_)
-        )
+    pub(crate) fn binds_references(&self) -> bool {
+        self.receiver.borrow().is_some()
     }
 
     /// Returns the first `Self` argument matched beside the receiver that
     /// the method takes as `access` says, for a sentence that names what
     /// the method takes.
-    fn taken(&self, access: Access) -> Option<&Ident> {
+    pub(crate) fn taken(&self, access: Access) -> Option<&Ident> {
         self.same_variant
             .iter()
             .find(|(_, taken)| *taken == access)
@@ -293,552 +545,70 @@ impl MethodPlan {
         !self.same_variant.is_empty()
     }
 
-    /// Returns the result of an arm that only keeps the `match` exhaustive
-    /// beside a variant's own error. It reads the arguments first: in a
-    /// build where no other arm is left nothing else uses them, and the
-    /// lint about them would stand beside that error. The arm is under its
-    /// variant's `cfg`, so a build without the variant has none of this.
-    pub(crate) fn standing_in(&self, site: Site) -> TokenStream2 {
-        let arguments = &self.arguments;
-        if arguments.is_empty() {
-            return quote_spanned!(*site => ::core::unreachable!());
-        }
-        quote_spanned!(*site => {
-            let _ = (#(&#arguments,)*);
-            ::core::unreachable!()
-        })
-    }
-
-    /// Returns `arm`, whose pattern matches the receiver alone, as an arm
-    /// of this method's `match`: where `Self` arguments are matched beside
-    /// the receiver the scrutinee is a tuple, and the pattern is the
-    /// receiver's beside whatever the arguments hold.
-    pub(crate) fn beside_arguments(&self, arm: Arm) -> Arm {
-        if self.same_variant.is_empty() {
-            return arm;
-        }
-        let Arm {
-            cfgs,
-            pattern,
-            value,
-            site,
-        } = arm;
-        Arm {
-            cfgs,
-            pattern: quote_spanned!(*site => (#pattern, ..)),
-            value,
-            site,
-        }
-    }
-
-    /// Writes the arm for `target`, or, where the method cannot be
-    /// forwarded to it, the arm that says so: the variant whatever it
-    /// holds, with the sentence as its result, under the variant's own
-    /// attributes. A hand's arm sits under its variant's `cfg`, so a build
-    /// that compiles the variant out has neither the arm nor the sentence
-    /// and forwards the rest; and each variant the method cannot reach is
-    /// named, not the first alone.
-    pub(crate) fn arm_or_sentence(&self, target: &Target, context: &ArmContext) -> Arm {
-        match self.arm(target, context) {
-            Ok(arm) => arm,
-            Err(error) => self.sentence_arm(target, context, error),
-        }
-    }
-
-    /// Returns the arm that says `error` about `target`: the variant
-    /// whatever it holds, with the sentence as its result, under the
-    /// variant's own attributes.
-    pub(crate) fn sentence_arm(&self, target: &Target, context: &ArmContext, error: Error) -> Arm {
-        let site = context.site;
-        let sentence = error.to_compile_error();
-        self.beside_arguments(Arm {
-            cfgs: target.arm_attributes(site),
-            pattern: target.whole(&context.prefix, site),
-            value: quote_spanned!(*site => { #sentence }),
-            site,
-        })
-    }
-
-    /// Returns whether the method requires `Self: Sized`, so that a trait
-    /// object payload cannot take it.
-    pub(crate) fn requires_sized(&self) -> bool {
-        self.requires_sized
-    }
-
-    /// Returns the expression the `match` looks at: the receiver, with the
-    /// same-variant arguments beside it in a tuple.
-    pub(crate) fn scrutinee(&self, site: Site) -> TokenStream2 {
-        let receiver = receiver_scrutinee(self.receiver, &self.self_token, site);
-        if self.by_place {
-            return quote_spanned! { *site => *#receiver };
-        }
-        if self.same_variant.is_empty() {
-            return receiver;
-        }
-        let arguments = self
-            .same_variant
-            .iter()
-            .map(|(index, _)| &self.arguments[*index]);
-        quote_spanned! { *site => (#receiver, #(#arguments),*) }
-    }
-
-    fn same_binding(index: usize, site: Site) -> Ident {
-        hygienic(&format!("__same{index}"), site)
-    }
-
-    /// Returns the pattern binding `target`'s payload to `binding`, with the
-    /// same-variant arguments' payloads bound beside it. Where the `match`
-    /// looks at the subject itself, the binding borrows the payload as the
-    /// receiver borrows the subject, so it is the reference it is anywhere
-    /// else.
-    fn pattern(&self, target: &Target, prefix: &Path, binding: &Ident, site: Site) -> TokenStream2 {
-        if self.by_place {
-            let exclusive = matches!(
-                self.receiver,
-                ReceiverKind::Value(Access::Exclusive) | ReceiverKind::Pinned(Access::Exclusive)
-            );
-            let borrowed = if exclusive {
-                quote_spanned! { *site => ref mut #binding }
-            } else {
-                quote_spanned! { *site => ref #binding }
-            };
-            return target.pattern(prefix, &borrowed, site);
-        }
-        let own = target.pattern(prefix, binding, site);
-        if self.same_variant.is_empty() {
-            return own;
-        }
-        let same = self
-            .same_variant
-            .iter()
-            .map(|(index, _)| target.pattern(prefix, &Self::same_binding(*index, site), site));
-        quote_spanned! { *site => (#own, #(#same),*) }
-    }
-
-    /// Returns the arguments handed to `target`'s method: each binding as it
-    /// is, or the payload of a same-variant argument.
-    fn call_arguments(&self, target: &Target, site: Site) -> Vec<TokenStream2> {
-        self.arguments
-            .iter()
-            .enumerate()
-            .map(
-                |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
-                    Some((_, access)) => payload_expression(
-                        target.route,
-                        *access,
-                        &Self::same_binding(index, site),
-                        site,
-                    ),
-                    None => quote_spanned!(*site => #ident),
-                },
-            )
-            .collect()
-    }
-
-    /// Writes the arm for `target`: its pattern, the call, and what the arm
-    /// does with the call's result.
-    pub(crate) fn arm(&self, target: &Target, context: &ArmContext) -> Result<Arm> {
-        let ArmContext {
-            callee,
-            method,
-            subject,
-            prefix,
-            lift,
-            has_body: _,
-            site,
-        } = context;
-        let site = *site;
-        let Target { payload, route, .. } = *target;
-        let target_ident = target.spoken(subject);
-        // Under a lift the payload returns the plain value and the lift
-        // wraps the rebuilt variant into the declared `Option` or `Result`.
-        let conversion = if lift.is_some() {
-            self.return_model.clone().unwrapped()
-        } else {
-            self.return_model.clone()
+    /// Decides the arm for everything the targets' arms leave. A marked
+    /// method's body is the arm for every variant it does not name, the
+    /// mismatch of two different variants included, so it needs no
+    /// `mismatch`; under `*` without a body the trait's rule applies. Two
+    /// values of a struct always hold the same field, so only an enum
+    /// needs the arm for two different variants, and an enum with one
+    /// variant that is always compiled in has no second variant to meet: a
+    /// hand writes no fallback arm there, and neither does the engine. The
+    /// arm stays unreachable in some builds when a variant is under `cfg`,
+    /// which is the one case the lint is allowed for.
+    fn fallback_for(
+        &self,
+        entries: &Entries,
+        subject: &Subject,
+        origin: &Origin,
+        context: &ArmContext,
+    ) -> Result<Fallback> {
+        let none = Fallback {
+            arm: None,
+            allow_unreachable: false,
         };
-        if !route.is_direct() && conversion.rewraps() {
-            let message = if route.is_deref() {
-                format!("`{method}` returns `Self`, which cannot be wrapped back into the dereferenced payload of `{target_ident}`; drop `deref` on it or {}", context.way_out(target_ident))
-            } else {
-                format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{target_ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), context.way_out(target_ident))
-            };
-            return Err(Error::new_spanned(payload, message));
-        }
-        // What a method returns is a value, which `&mut self` cannot borrow
-        // through; a field is a place, which it can.
-        let exclusive = match self.receiver {
-            ReceiverKind::Value(Access::Exclusive) => Some(String::from("`&mut self`")),
-            ReceiverKind::Pinned(Access::Exclusive) => Some(String::from("`self: Pin<&mut Self>`")),
-            ReceiverKind::Value(Access::Shared | Access::Owned)
-            | ReceiverKind::Pinned(Access::Shared | Access::Owned)
-            | ReceiverKind::Boxed => self
-                .taken(Access::Exclusive)
-                .map(|argument| format!("`{argument}: &mut Self`")),
-        };
-        if let Some(taken) = exclusive.as_ref().filter(|_| route.ends_in_a_method()) {
-            return Err(Error::new_spanned(
-                payload,
-                format!("`{method}` takes {taken}, and the route `{}` of `{target_ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), context.way_out(target_ident)),
-            ));
-        }
-        // An `Rc`, an `Arc` and a `&T` lend what they point at shared and
-        // never exclusively. A call borrows its target as the method takes
-        // it; an arm that is a place borrows it as the return type asks.
-        // Any other pointer is rustc's to judge.
-        let borrows_mutably = match callee {
-            Callee::Place { borrow, .. } => matches!(borrow, PlaceBorrow::Reference(Some(_)))
-                .then(|| String::from("returns a `&mut`")),
-            Callee::Qualified { .. } | Callee::Method { .. } => {
-                exclusive.map(|taken| format!("takes {taken}"))
-            }
-        };
-        if let Some(does) =
-            borrows_mutably.filter(|_| route.starts_with_deref() && lends_only_shared(payload))
-        {
-            let spelled = spelling::spelled(payload);
-            return Err(Error::new_spanned(
-                payload,
-                format!("`{method}` {does}, and `{target_ident}` dereferences a `{spelled}`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or {}", context.way_out(target_ident)),
-            ));
-        }
-        // A value is moved out of a `Box` by dereferencing it, and out of
-        // nothing else: a reference or a shared pointer keeps what it points
-        // at. Under `self: Box<Self>` the enum is matched by value as well:
-        // an arm that is a call hands the payload's own box over, which the
-        // receiver's expression checks, and an arm that is a place moves
-        // its target out unless the return type borrows it.
-        // By value as well, an arm that is a place moves its target out
-        // unless the return type borrows it: `&*inner` on a `&'a T` payload
-        // is the reference the variant holds, and moves nothing.
-        let moves_the_place = !matches!(
-            callee,
-            Callee::Place {
-                borrow: PlaceBorrow::Reference(_),
-                ..
-            }
-        );
-        let moved = match self.receiver {
-            ReceiverKind::Boxed if matches!(callee, Callee::Place { .. }) && moves_the_place => {
-                Some(String::from("`self: Box<Self>`"))
-            }
-            ReceiverKind::Value(Access::Owned) if moves_the_place => {
-                Some(String::from("`self` by value"))
-            }
-            ReceiverKind::Value(_) | ReceiverKind::Pinned(_) | ReceiverKind::Boxed => self
-                .taken(Access::Owned)
-                .map(|argument| format!("`{argument}` by value")),
-        };
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && !holds_a_box(payload)) {
-            let spelled = spelling::spelled(payload);
-            return Err(Error::new_spanned(
-                payload,
-                format!("`{method}` takes {taken}, and `{target_ident}` dereferences a `{spelled}`, which a value cannot be moved out of; hold a `Box`, or {}", context.way_out(target_ident)),
-            ));
-        }
-        let inner = hygienic("__inner", site);
-        let receiver = match (callee, self.receiver) {
-            // The route is followed through the binding's reference, as for
-            // a qualified call, so that `deref` calls the method on what the
-            // payload points at and never on the pointer, whose own method
-            // of the same name would otherwise win; method-call syntax then
-            // borrows the target as the method's receiver asks.
-            (Callee::Method { .. }, ReceiverKind::Value(access)) => {
-                route.reach_for_postfix(&inner, !matches!(access, Access::Owned), site)
-            }
-            (Callee::Place { .. }, _) => quote_spanned!(*site => #inner),
-            _ => receiver_expression(self.receiver, target, &inner, context)?,
-        };
-        let arguments = self.call_arguments(target, site);
-        // The angle brackets are the arm's own tokens: written where the
-        // trait's method is, they would stretch the call's span from there
-        // to the subject, across every attribute between.
-        let turbofish = self
-            .turbofish
-            .as_ref()
-            .map(|parameters| quote_spanned!(*site => ::<#(#parameters),*>));
-        let mut value = match callee {
-            Callee::Qualified { trait_path, method } => {
-                // A field's or a method's type cannot be named; the call is
-                // then qualified by the trait alone, which still keeps an
-                // inherent method of the same name from taking over.
-                let qualified = match target.target_type() {
-                    Some(target_type) => quote_spanned! { *site => <#target_type as #trait_path> },
-                    None => quote_spanned! { *site => <_ as #trait_path> },
-                };
-                quote_spanned! { *site =>
-                    #qualified::#method #turbofish (#receiver #(, #arguments)*)
-                }
-            }
-            Callee::Method { name } => {
-                quote_spanned! { *site => #receiver.#name #turbofish (#(#arguments),*) }
-            }
-            // The arm is the target itself, or a field of it: a place,
-            // borrowed as the declared return type asks.
-            Callee::Place { field, borrow } => {
-                // The route starts at the binding, which is a reference to
-                // the payload only where the pattern binds one: `self` and
-                // `self: Box<Self>` are matched by value, and the route
-                // starts at the payload itself.
-                let through_reference = self.binds_references();
-                let place = match field {
-                    Some(field) => {
-                        let reached = route.reach_for_postfix(&inner, through_reference, site);
-                        quote_spanned! { *site => #reached.#field }
-                    }
-                    None => route.reach(&inner, through_reference, site),
-                };
-                // A place reached through a field or a route is borrowed as
-                // the return type asks, so `via = .name, value` and `field
-                // = name` are one arm. The target the pattern binds, a
-                // payload, a marked field or a struct's field, is asked
-                // the same way: under a reference receiver its binding is
-                // a reference to it, which is the arm where the return
-                // type asks for one and is read through, `*inner`, where
-                // it asks for a value. A lift whose parameter is unread
-                // takes the binding as it stands, and an awaited arm
-                // awaits it, since the return type then speaks of the
-                // future's output.
-                if field.is_none() && route.is_direct() {
-                    let read =
-                        through_reference && !self.awaited && matches!(borrow, PlaceBorrow::Value);
-                    if read {
-                        quote_spanned! { *site => *#place }
-                    } else {
-                        place
-                    }
-                } else {
-                    match borrow {
-                        PlaceBorrow::Value | PlaceBorrow::Unread => place,
-                        PlaceBorrow::Reference(None) => quote_spanned! { *site => &#place },
-                        PlaceBorrow::Reference(Some(_)) => {
-                            quote_spanned! { *site => &mut #place }
-                        }
-                    }
-                }
-            }
-        };
-        if self.unsafety {
-            value = quote_spanned! { *site => unsafe { #value } };
-        }
-        if self.awaited {
-            value = quote_spanned! { *site => #value.await };
-        }
-        let rebuild_error = || {
-            // A struct whose one field is named is built around a value by
-            // its braces and by no path, and a `Self` under an `Option` or
-            // a `Result` is mapped with a path: the closure a hand writes
-            // there is what the attribute does not.
-            let message = if target.is_built_by_no_path() {
-                let spelled = spelling::spelled(payload);
-                format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{subject}` has a named field, which no path builds; make it a tuple struct, `struct {subject}({spelled});`, or {}", context.rebuild_hint(target_ident))
-            } else {
-                format!("`{method}` returns `Self`, which cannot be built around the other fields of `{target_ident}`; {}", context.rebuild_hint(target_ident))
-            };
-            Error::new_spanned(payload, message)
-        };
-        value = convert(value, &conversion, target, prefix, site, &rebuild_error)?;
-        if let Some(lift) = lift {
-            value = quote_spanned! { *site => #lift(#value) };
-        }
-        Ok(Arm {
-            cfgs: target.arm_attributes(site),
-            pattern: self.pattern(target, prefix, &inner, site),
-            value,
-            site,
-        })
-    }
-
-    /// Returns the arm for every pair of different variants, with `value`
-    /// as its result. A same-variant argument the scrutinee moved, an owned
-    /// or `&mut Self`, is bound again under its own name where `value`
-    /// names it, so that a `mismatch` expression may use it; one the
-    /// expression does not name is left in the scrutinee, as a hand leaves
-    /// it, and no unused binding is written.
-    pub(crate) fn fallback(&self, value: TokenStream2, site: Site) -> Arm {
-        let rebinds = |(index, access): &(usize, Access)| {
-            !matches!(access, Access::Shared) && names(&value, &self.arguments[*index])
-        };
-        if !self.same_variant.iter().any(rebinds) {
-            return Arm::rest(value, site);
-        }
-        let positions = self.same_variant.iter().map(|same| {
-            if rebinds(same) {
-                Self::same_binding(same.0, site).into_token_stream()
-            } else {
-                quote_spanned!(*site => _)
-            }
-        });
-        let rebound = self
-            .same_variant
-            .iter()
-            .filter(|same| rebinds(same))
-            .map(|(index, _)| {
-                let name = &self.arguments[*index];
-                let binding = Self::same_binding(*index, site);
-                quote_spanned!(*site => let #name = #binding;)
+        if let Some(body) = origin.mark().and_then(|mark| mark.body) {
+            return Ok(Fallback {
+                arm: Some(Arm::rest(body.to_token_stream(), context.site)),
+                allow_unreachable: false,
             });
-        Arm {
-            cfgs: vec![],
-            pattern: quote_spanned!(*site => (_, #(#positions),*)),
-            value: quote_spanned!(*site => { #(#rebound)* #value }),
-            site,
         }
+        let always_present = entries
+            .iter()
+            .filter(|entry| entry.target().is_some() && !entry.is_conditional())
+            .count();
+        let conditional = entries
+            .iter()
+            .any(|entry| entry.is_conditional() || entry.unforwardable().is_some());
+        let needs_fallback = self.has_same_variant()
+            && subject.can_mismatch()
+            && (always_present >= 2 || conditional);
+        // An inherent method of an enum hands a `Self` argument over as it
+        // is, so only a trait's method has two variants to meet.
+        let Origin::Trait { method, mark } = origin else {
+            return Ok(none);
+        };
+        if !needs_fallback {
+            return Ok(none);
+        }
+        let Some(mismatch) = &method.mismatch else {
+            let name = context.method;
+            return Err(Error::new_spanned(
+                method.declared,
+                format!("`{name}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({name} = <expr>)` on the enum"),
+            ));
+        };
+        Ok(Fallback {
+            arm: Some(self.fallback(mismatch.to_token_stream(), context.site)),
+            allow_unreachable: mark.is_none() && always_present < 2,
+        })
     }
 }
 
-/// Returns whether `tokens` name `ident`: as an identifier at any depth,
-/// or inside a literal, where a format string captures it.
-fn names(tokens: &TokenStream2, ident: &Ident) -> bool {
-    let name = ident.to_string();
-    tokens.clone().into_iter().any(|tree| match tree {
-        TokenTree::Ident(found) => found == name,
-        TokenTree::Group(group) => names(&group.stream(), ident),
-        TokenTree::Literal(literal) => literal.to_string().contains(&name),
-        TokenTree::Punct(_) => false,
-    })
-}
-
-/// What every arm of one method shares.
-pub(crate) struct ArmContext<'a> {
-    pub(crate) callee: Callee<'a>,
-    /// The generated method's name, for messages.
-    pub(crate) method: &'a Ident,
-    /// The subject's name, for messages.
-    pub(crate) subject: &'a Ident,
-    /// What patterns are written on: the subject's name, or `Self`.
-    pub(crate) prefix: Path,
-    /// A function every arm's result is wrapped in, the inherent
-    /// `with = path`.
-    pub(crate) lift: Option<&'a Path>,
-    /// Whether the method names its variants and has a body for the rest,
-    /// which is then the way out of a variant it cannot be forwarded to.
-    pub(crate) has_body: bool,
-    /// The span the generated tokens carry.
-    pub(crate) site: Site,
-}
-
-impl ArmContext<'_> {
-    /// The way out a sentence about the whole method offers: where the
-    /// method names its variants and has a body for the rest, the body
-    /// answers for every variant once the mark is gone; otherwise what the
-    /// callee's path offers a method that cannot be forwarded.
-    pub(crate) fn whole_way_out(&self) -> &'static str {
-        if self.has_body {
-            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
-        }
-        self.callee.by_hand()
-    }
-
-    /// The way out a sentence about `variant` offers: the body, where the
-    /// method has one for the variants it does not name, and otherwise
-    /// what the callee's path offers a method that cannot be forwarded.
-    pub(crate) fn way_out(&self, variant: &Ident) -> String {
-        if self.has_body {
-            return format!("leave `{variant}` to the body");
-        }
-        String::from(self.callee.by_hand())
-    }
-
-    /// The way out when the value cannot be built around `variant`'s
-    /// payload again.
-    fn rebuild_hint(&self, variant: &Ident) -> String {
-        if self.has_body {
-            return format!("leave `{variant}` to the body");
-        }
-        String::from(self.callee.rebuild_hint())
-    }
-}
-
-/// How an arm calls the payload's method, which is also which of the two
-/// paths the method is on: a trait's, or an inherent block's.
-pub(crate) enum Callee<'a> {
-    /// `<Target as Trait>::method(receiver, arguments..)`, so that an
-    /// inherent method of the payload with the same name never takes over.
-    Qualified {
-        trait_path: &'a Path,
-        method: &'a Ident,
-    },
-    /// `receiver.name(arguments..)`, for a method the payload has under
-    /// that name.
-    Method { name: &'a Ident },
-    /// No call: the arm is the target itself, or with `field` a field of
-    /// it, handed over as `borrow` says: by `&` or `&mut`, by value, or as
-    /// it stands where what takes it is unread.
-    Place {
-        field: Option<&'a Member>,
-        borrow: PlaceBorrow,
-    },
-}
-
-impl Callee<'_> {
-    /// The way out a message offers when a method cannot be forwarded as
-    /// written: the trait path points at an impl by hand, the inherent path
-    /// at the method's body.
-    pub(crate) fn by_hand(&self) -> &'static str {
-        match self {
-            Callee::Qualified { .. } => "implement the method by hand",
-            Callee::Method { .. } | Callee::Place { .. } => "give it a body",
-        }
-    }
-
-    /// The way out when a method returning `Self` cannot be rebuilt around
-    /// the target.
-    fn rebuild_hint(&self) -> &'static str {
-        match self {
-            Callee::Qualified { .. } => "write the method in a `#[whichever::dispatch] impl` block",
-            Callee::Method { .. } | Callee::Place { .. } => "give it a body instead",
-        }
-    }
-}
-
-/// One arm of the generated `match`.
-pub(crate) struct Arm {
-    pub(crate) cfgs: Vec<Attribute>,
-    pub(crate) pattern: TokenStream2,
-    pub(crate) value: TokenStream2,
-    /// The span of the arm's own tokens, the arrow and the comma.
-    pub(crate) site: Site,
-}
-
-impl Arm {
-    /// The arm for a variant no method can forward to, with `value` as its
-    /// result; it carries the variant's `cfg` like any other arm.
-    pub(crate) fn unforwardable(
-        prefix: &Path,
-        entry: &Entry,
-        value: TokenStream2,
-        site: Site,
-    ) -> Self {
-        Arm {
-            cfgs: entry.arm_attributes(site),
-            pattern: entry.whole(prefix, site),
-            value,
-            site,
-        }
-    }
-
-    /// The arm for everything else, with `value` as its result.
-    pub(crate) fn rest(value: TokenStream2, site: Site) -> Self {
-        Arm {
-            cfgs: vec![],
-            pattern: quote_spanned!(*site => _),
-            value,
-            site,
-        }
-    }
-}
-
-impl ToTokens for Arm {
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
-        let Arm {
-            cfgs,
-            pattern,
-            value,
-            site,
-        } = self;
-        tokens.extend(quote_spanned! { **site => #(#cfgs)* #pattern => #value, });
-    }
+/// The arm for everything the targets' arms leave, and whether the lint
+/// about an unreachable pattern is allowed on the `match`.
+struct Fallback {
+    arm: Option<Arm>,
+    allow_unreachable: bool,
 }
 
 /// One generated method body: a `match` over the subject.
@@ -881,155 +651,5 @@ impl Forwarding {
         let mut group = Group::new(Delimiter::Brace, body);
         group.set_span(span);
         TokenTree::Group(group).into()
-    }
-}
-
-/// Applies `conversion` to `value`, the payload's result, as a hand writes
-/// it: the variant's constructor around a `Self`, `Into::into` around an
-/// overridden associated type, each as the path a `.map(..)` or a
-/// `.map_err(..)` takes, and a tuple taken apart and built again around
-/// its converted elements.
-fn convert(
-    value: TokenStream2,
-    conversion: &Conversion,
-    target: &Target,
-    prefix: &Path,
-    site: Site,
-    rebuild_error: &dyn Fn() -> Error,
-) -> Result<TokenStream2> {
-    // The path a `.map(..)` takes for a conversion of one value.
-    let path = |conversion: &Conversion| -> Result<Option<TokenStream2>> {
-        Ok(match conversion {
-            Conversion::Keep => None,
-            Conversion::Rewrap => Some(target.constructor(prefix, site).ok_or_else(rebuild_error)?),
-            Conversion::Into => Some(quote_spanned! { *site => ::core::convert::Into::into }),
-            _ => unreachable!("a conversion under a wrapper is a path"),
-        })
-    };
-    Ok(match conversion {
-        Conversion::Keep => value,
-        Conversion::Rewrap => target
-            .rebuild(prefix, value, site)
-            .ok_or_else(rebuild_error)?,
-        Conversion::Into => quote_spanned! { *site => ::core::convert::Into::into(#value) },
-        Conversion::Map(inner) => match path(inner)? {
-            Some(path) => quote_spanned! { *site => #value.map(#path) },
-            None => value,
-        },
-        Conversion::MapErr(inner, error) => {
-            let mut value = match path(inner)? {
-                Some(path) => quote_spanned! { *site => #value.map(#path) },
-                None => value,
-            };
-            if let Some(path) = path(error)? {
-                value = quote_spanned! { *site => #value.map_err(#path) };
-            }
-            value
-        }
-        Conversion::Tuple(items) => {
-            let bindings: Vec<Ident> = (0..items.len())
-                .map(|index| hygienic(&format!("__element{index}"), site))
-                .collect();
-            let converted = items
-                .iter()
-                .zip(&bindings)
-                .map(|(item, binding)| {
-                    let binding = quote_spanned!(*site => #binding);
-                    convert(binding, item, target, prefix, site, rebuild_error)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            quote_spanned! { *site => {
-                let (#(#bindings,)*) = #value;
-                (#(#converted,)*)
-            } }
-        }
-    })
-}
-
-/// Returns the expression the generated `match` looks at for a receiver:
-/// the value itself, the enum moved out of its box, or the pinned reference
-/// unpinned.
-fn receiver_scrutinee(kind: ReceiverKind, self_token: &Token![self], site: Site) -> TokenStream2 {
-    match kind {
-        ReceiverKind::Value(_) => quote_spanned!(*site => #self_token),
-        ReceiverKind::Boxed => quote_spanned!(*site => *#self_token),
-        ReceiverKind::Pinned(Access::Exclusive) => {
-            quote_spanned!(*site => ::core::pin::Pin::get_mut(#self_token))
-        }
-        ReceiverKind::Pinned(_) => quote_spanned!(*site => ::core::pin::Pin::get_ref(#self_token)),
-    }
-}
-
-/// Returns the expression handing the payload bound to `binding` to the
-/// method as its receiver, or the error for a payload the receiver cannot
-/// reach.
-fn receiver_expression(
-    kind: ReceiverKind,
-    target: &Target,
-    binding: &Ident,
-    context: &ArmContext,
-) -> Result<TokenStream2> {
-    let ArmContext { method, site, .. } = context;
-    let site = *site;
-    match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(target.route, access, binding, site)),
-        ReceiverKind::Boxed => {
-            if !target.holds_box() {
-                let ident = target.spoken(context.subject);
-                let noun = target.noun();
-                let payload = &target.payload;
-                let spelled = spelling::spelled(payload);
-                // A `deref` variant over another pointer has no box to hand
-                // over, and boxing the pointer would not make one of what
-                // it points at.
-                if target.route.starts_with_deref() {
-                    return Err(Error::new_spanned(
-                        payload,
-                        format!("`{method}` takes `self: Box<Self>`, and `{ident}` dereferences a `{spelled}`, which is no `Box` to hand over; hold a `Box`, or {}", context.way_out(ident)),
-                    ));
-                }
-                // A payload that already is a `Box` only lacks `deref`.
-                let advice = if last_segment(payload).is_some_and(|segment| segment.ident == "Box")
-                {
-                    // The variant by its name; a struct's one field is
-                    // what the span points at.
-                    let to = match target.place.holder {
-                        Holder::Variant(_) => format!("`{ident}`"),
-                        Holder::Struct => String::from("the field"),
-                    };
-                    format!("add `#[dispatch(deref)]` to {to}")
-                } else {
-                    format!("hold `Box<{spelled}>` in a `#[dispatch(deref)]` {noun}")
-                };
-                return Err(Error::new_spanned(
-                    payload,
-                    format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or {}", context.way_out(ident)),
-                ));
-            }
-            Ok(quote_spanned!(*site => #binding))
-        }
-        ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(target.route, access, binding, site);
-            Ok(quote_spanned!(*site => ::core::pin::Pin::new(#payload)))
-        }
-    }
-}
-
-/// Returns the expression that hands `binding`, bound to a variant's
-/// payload, to the trait method: the payload itself, or the target the
-/// route reaches, borrowed as the receiver is. A route ending in a method
-/// call yields a value, which is handed over as it is.
-fn payload_expression(route: &Route, access: Access, binding: &Ident, site: Site) -> TokenStream2 {
-    if route.is_direct() {
-        return quote_spanned!(*site => #binding);
-    }
-    let reached = route.reach(binding, !matches!(access, Access::Owned), site);
-    if route.ends_in_a_method() {
-        return reached;
-    }
-    match access {
-        Access::Shared => quote_spanned!(*site => &#reached),
-        Access::Exclusive => quote_spanned!(*site => &mut #reached),
-        Access::Owned => reached,
     }
 }
