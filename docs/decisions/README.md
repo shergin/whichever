@@ -39,5 +39,6 @@ the planning notes, the note holds the long form and the record names it.
 - [A place is handed over as the return type asks](a-place-is-handed-over-as-the-return-type-asks.md)
 - [Combinations are checked by a generated matrix](combinations-are-checked-by-a-generated-matrix.md)
 - [A named field is not rebuilt under a wrapper](a-named-field-is-not-rebuilt-under-a-wrapper.md)
+- [A variant's one named field is rebuilt by its braces](a-variants-one-named-field-is-rebuilt-by-its-braces.md)
 - [An option names an item of every build](an-option-names-an-item-of-every-build.md)
 - [A borrow a shared pointer cannot lend is a sentence](a-borrow-a-shared-pointer-cannot-lend-is-a-sentence.md)

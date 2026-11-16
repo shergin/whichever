@@ -1,9 +1,9 @@
 //! Procedural macros of `whichever`.
 //!
 //! `#[dispatchable]` on a trait re-emits the trait and exports its carrier
-//! macro, a hidden `macro_rules!` that carries the trait's tokens; the macro
-//! is re-exported under the trait's own name, so importing the trait imports
-//! the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
+//! macro, a hidden `macro_rules!` that carries the trait's signatures; the
+//! macro is re-exported under the trait's own name, so importing the trait
+//! imports the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
 //! forwards the trait tokens, the enum tokens and the options into the
 //! implementation macro, `implement!`, which writes `impl Trait for Enum`
 //! with one `match` per method. No state is shared between expansions, so
@@ -114,7 +114,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// On an enum, each attribute names one trait, with its generic arguments
 /// when it has any, followed by options; several attributes dispatch several
 /// traits, and a bare `#[dispatch]` only registers the enum. Every variant
-/// must hold exactly one unnamed field whose type implements the trait. The
+/// holds exactly one unnamed field, or marks the field to forward to, whose
+/// type implements the trait. The
 /// enum also gets a `From<Payload>` impl for every payload type that appears
 /// in exactly one variant.
 ///
@@ -144,7 +145,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// `&mut T` payloads; such a variant cannot take part in a method that
 /// returns `Self`. `#[dispatch(from = false)]` leaves the variant out of the
 /// conversions, and `#[dispatch(try_from = true)]` adds the `TryFrom` impl
-/// for that payload alone.
+/// for that payload alone. A variant with several fields, or with one named
+/// field, marks the field to forward to with `#[dispatch]`, which takes
+/// `deref` and `via = route` and nothing else.
 ///
 /// On a struct, the trait is forwarded to its one field, or to the field
 /// marked `#[dispatch]`, with `#[dispatch(deref)]` for a field behind a
@@ -177,7 +180,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// On a trait impl block of a dispatch enum, in the same crate, the block
 /// holds the items the enum implements itself, a generic associated type
-/// among them, and the rest of the trait is forwarded around them. The enum
+/// among them, and the rest of the trait is forwarded around them; a macro
+/// invocation in the block is reported, since its items cannot be told from
+/// the ones to forward. The enum
 /// then does not name that trait in its own attribute; the trait's options
 /// go on the block's attribute:
 ///

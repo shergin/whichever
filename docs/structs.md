@@ -61,7 +61,9 @@ block, which works on a struct like on an enum. `Option<Self>` and
 `Result<Self, E>` are mapped with a path, `.map(Wrapper)`, which a tuple
 struct has and a struct with a named field does not, so on `struct Named {
 shape: Square }` they are an error too, which the tuple form
-`struct Named(Square);` avoids; `-> Self` there is rebuilt by the braces. A struct's `match` has one
+`struct Named(Square);` avoids; `-> Self` there is rebuilt by the braces,
+as it is for a variant whose one field is named and marked. A struct's
+`match` has one
 arm, so it forwards a return-position `impl Trait` as it is, which an enum
 cannot. A struct gets no `From` impls. `Self` arguments need no `mismatch`:
 two values of the struct always hold the same field, and the argument is

@@ -3,7 +3,7 @@
 Status: landed. Written 2026-11-02 as a plan against 0.4.0 and carried out
 the same day, stage by stage; a second round followed from two independent
 reviews of the result. Sections 1 and 3 describe the crate as it is,
-section 2 records what the shape was before, and each stage in section 4
+rewritten after the review of 2026-11-15 (stage 25), section 2 records what the shape was before, and each stage in section 4
 carries the status line written when it landed.
 
 The words are the README's and those of [`docs/vision.md`](../docs/vision.md):
@@ -31,23 +31,31 @@ as tokens through `macro_rules!` carriers. Four proc macros take part.
 | Step | Where | What happens |
 | --- | --- | --- |
 | `#[dispatchable]` on a trait | the trait's crate | The trait is re-emitted. A carrier macro holding the trait's signatures, with the attributes the generated items carry and the names of the methods that have a default, is emitted next to it and re-exported under the trait's own name, in the macro namespace; a trait with items under `#[cfg]` gets one definition of the carrier per combination of its distinct predicates, each under that combination's `cfg` and holding the items that exist under it with their `cfg` attributes taken off, so that the predicate is decided in this crate. `crate::` paths in the tokens become `$crate::`. With `remote = path`, only the carrier is emitted. |
-| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is re-emitted without its `#[dispatch]` attributes, unless it restates another crate's enum with `remote = path`, in which case nothing is emitted for it. The conversions are written. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { options } [remote { path }] }` is emitted. |
-| The trait's carrier | expands in the subject's crate | Prepends `trait { tokens } [remote { path }]` and calls `::facade::__private::implement!`. |
-| `implement!` | | Parses the trait, the subject, the options and an optional partial impl block; writes the forwarding impl, the agreement checks and the shape errors. |
+| `#[dispatch(Trait, ..)]` on an enum or struct | the subject's crate | The subject is read into its entries and re-emitted without its `#[dispatch]` attributes, unless it restates another crate's enum with `remote = path`, in which case nothing is emitted for it. The conversions are written, and the shape errors of the entries no trait method can forward to. A crate-local carrier holding the subject's tokens is emitted and re-exported under the subject's name. For every trait named, `Trait! { @v1 facade enum { subject } spec { path, options } [remote { path }] }` is emitted. |
+| The trait's carrier | expands in the subject's crate | Prepends `@v2 trait { signatures } [remote { path }] [provided { methods }]` and calls `::facade::__private::implement!`. |
+| `implement!` | | Reads the carried trait into `Signatures`, the subject into its `Entries`, the trait's path and its `TraitOptions` apart, and an optional partial impl block into a `PartialBlock`; writes the forwarding impl, the agreement checks and the shape errors. |
 | `#[dispatch]` on an impl block | the subject's crate | Emits `Subject! { @v1 facade [partial { options }] impl { block } }`. |
-| The subject's carrier | | Prepends `[rejected] enum { subject tokens }` and calls `implement_block!`. |
-| `implement_block!` | | An inherent block: rewrites every marked method into a forwarding method with the body as the fallback. A trait impl block: re-emits `Trait! { .. impl { block } }`, so the trait's carrier and `implement!` finish the job. |
+| The subject's carrier | | Prepends `@v1 [rejected] facade { facade } [traits { paths }] [remote { path }] enum { subject }` and calls `implement_block!`. |
+| `implement_block!` | | An inherent block: reads its items once (`BlockItem`) and rewrites every marked method into a forwarding method with the body as the fallback. A trait impl block: re-emits `Trait! { .. impl { block } }`, so the trait's carrier and `implement!` finish the job. |
 
-Inside `implement!`, the subject yields entries: a target per forwardable
-variant or the one field of a struct, and an unforwardable entry per variant
-of another shape, kept so that errors carry its `#[cfg]`. Each trait method
-is classified by receiver, by arguments and by return shape, the trait's
-generics are substituted with the arguments the subject named, and one
-`match` is written with a fully qualified call per arm. Associated types and
-consts are taken from the first target and checked against the rest in a
-`const _` block; the type check's helpers are associated functions of a
-wrapper struct of the subject declared in that block, so that the subject's
-parameters belong to their impl and the bounds its fields imply hold there.
+Inside `implement!`, `Subject::read` yields the entries: an `Entry` per
+variant, or per field of a struct, holding a payload or another shape, the
+second kept so that errors carry its `#[cfg]`. The reading has three more
+steps, each done once before any target is taken: `Entries::for_trait`
+keeps the one field of a struct the trait goes to, `Entries::rename` spells
+the payloads with the names a partial block's header gives the subject's
+parameters, and `Entries::route` gives the variants the trait's own routes.
+`Impl` then holds what every item of the trait's impl is written against,
+and `ItemWriter` plans each item of the trait and writes it. A method's
+signature, with the trait's generics substituted by the arguments the
+subject named, goes to `forward` with its `Origin`, which classifies the
+method by receiver, by arguments and by return shape, judges each target,
+and writes one `match` with a fully qualified call per arm. Associated
+types and consts are taken from the first target and checked against the
+rest in a `const _` block; the type check's helpers are associated
+functions of a wrapper struct of the subject declared in that block, so
+that the subject's parameters belong to their impl and the bounds its
+fields imply hold there.
 
 ## 2. What was wrong with the shape of 0.4.0
 
@@ -99,87 +107,186 @@ what became of each point.
 
 ```
 src/
-  lib.rs           crate docs; the four proc-macro entry points; `mod` lines
+  lib.rs           crate docs; the four proc-macro entry points; `combined`; `mod` lines
   dispatchable.rs  `#[dispatchable]`: the trait's carrier, its method attributes checked
-  dispatch.rs      `#[dispatch]` on a subject or an impl block: what is emitted
-  naming.rs        how the carrier macros are named: a fixed hash of text and token positions
-  subject.rs       Subject, Target, Place, Entry; reading variants and fields
-  route.rs         the route: how an arm reaches its target from the payload
+  dispatch.rs      `#[dispatch]` on a subject or an impl block: what is emitted at the attribute
+  naming.rs        how the carrier macros are named: a fixed hash of the item's text and, for a trait, its token positions
+  protocol.rs      the messages: one struct each, `ToTokens` and `Parse`, and the carrier builder
   options.rs       every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar, one struct per position
-  protocol.rs      the `@v1` messages: one struct each, `ToTokens` and `Parse`, and the carrier builder
-  implement.rs     `implement!`: the forwarding impl for one trait
-  block.rs         `implement_block!`: inherent blocks and partial impl blocks
-  forwarding.rs    the engine: a plan per method, arms per target, one renderer
-  selection.rs     the engine's choice of targets: which a method's attribute names, with the checks on the attribute and the body
-  shape.rs         classifying receivers, arguments, return types and generics
+  signatures.rs    `Signatures` and `Method`: the carried trait, read under either prefix
+  subject.rs       `Subject`, `Entries`, `Entry`, `Place`, `Target`: the subject read into its entries
+  route.rs         `Route`: how an arm reaches its target from the payload
+  builds.rs        `Builds` and `Predicate`: the builds an item exists in
+  site.rs          `Site` and `at`: where a generated token is written
+  implement.rs     `implement!`: the forwarding impl of one trait, and `Impl`, its one context
+  items.rs         `ItemWriter`: each item of the trait planned, then written against the `Impl`
+  partial.rs       `PartialBlock`: a partial impl block as read
+  marked.rs        `BlockItem` and `Marked`: an impl block's items read once for both paths
+  block.rs         `implement_block!`: inherent blocks, and partial impl blocks handed to the trait's carrier
+  forwarding.rs    the engine: `Origin`, `forward`, `MethodPlan` and `Forwarding`
+  arm.rs           one arm: `ArmKind`, `ArmContext` and `Arm`, judged and written
+  refusal.rs       `Refusal` and `WayOut`: why a target cannot take a method, and the sentence
+  selection.rs     which targets a method's mark names, with the check on its body
+  shape.rs         classifying receivers, arguments, return types and pointers
   spelling.rs      how a type, a path or a route is spelled in a sentence
-  substitution.rs  the trait's generics replaced by the subject's arguments
+  substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's
   agreement.rs     the associated type and const checks
-  conversions.rs   `From` and `TryFrom`
+  conversions.rs   `From`, `TryFrom` and `into = Target`
+  limits.rs        a test: every sentence the macros write is pinned by a `tests/ui` snapshot
+  spans.rs         a test: no module that writes generated code writes at the call site
 ```
 
 Stage 1 created the files by moving code; later stages changed what is in
-them. `shape.rs`, `options.rs` and `protocol.rs` have unit tests through
-`parse_quote!`, which the monolith made impractical; `substitution.rs` can
-follow the same pattern.
+them, and the review of 2026-11-15 added `builds.rs`, `site.rs`,
+`signatures.rs`, `marked.rs`, `partial.rs`, `refusal.rs`, `arm.rs` and
+`items.rs`, each holding a concept that had lived as booleans, strings or
+token streams in the modules around it. `shape.rs`, `options.rs`,
+`protocol.rs`, `substitution.rs`, `route.rs`, `spelling.rs`, `naming.rs`,
+`dispatchable.rs`, `builds.rs`, `subject.rs`, `signatures.rs`,
+`marked.rs`, `partial.rs`, `forwarding.rs` and `refusal.rs` have unit
+tests through `parse_quote!`, which the monolith made impractical.
 
 ### 3.2 The forwarding engine
 
-One method body is one value:
+A method comes to the engine from one of two paths, which say so:
 
 ```rust
-struct MethodPlan {              // read off the signature once
-    receiver: ReceiverKind,      // Value(access) | Boxed | Pinned(access)
-    self_token: Token![self],    // reused, so the `match` shares its hygiene
-    arguments: Vec<Ident>,       // the bindings after the receiver
-    same_variant: Vec<(usize, Access)>, // the `Self` arguments, matched beside the receiver
-    turbofish: Option<Vec<Ident>>,      // the generics a call spells out when inference could not
-    return_model: ReturnModel,
-    future: bool, awaited: bool, unsafety: bool,
-    by_place: bool,              // `match *self` with `ref` bindings, over an enum that may be empty
+enum Origin<'a> {                 // what a path hands to `forward`
+    Trait { method: TraitMethod<'a>, mark: Option<Mark<'a>> },
+    Inherent { mark: Mark<'a> },
 }
 
-struct ArmContext<'a> {          // what every arm of one method shares
-    callee: Callee<'a>,          // Qualified { trait_path, method } | Method { name }
-    method: &'a Ident, subject: &'a Ident,
-    prefix: Path,                // the subject's name, or `Self`
-    lift: Option<&'a Path>,      // the inherent `with = path`
-    has_body: bool,              // a body for the variants a mark leaves, the way out a sentence offers
-    site: Span,                  // the span every written token carries
+struct TraitMethod<'a> {          // what a trait brings to one of its methods
+    trait_path: &'a Path,         // every arm's call is qualified by it
+    subject_path: &'a Path,       // the subject's name, or the path a restatement names
+    declared: &'a Signature,      // the trait's, which a sentence about the method points at
+    has_default: bool,
+    block_header: &'a str,        // the partial impl block a sentence points at, spelled out
+    options: &'a TraitOptions,
+    mismatch: Option<Expr>,       // the enum's over the trait method's
+    resolution: Option<Span>,     // where the names an enum-side `mismatch` uses resolve
+    derived: bool,                // the subject attribute's impl, `#[automatically_derived]`
 }
 
-struct Arm { cfgs: Vec<Attribute>, pattern: TokenStream, value: TokenStream, site: Span }
+struct Mark<'a> {                 // a method's `#[dispatch(..)]`
+    options: &'a ForwardingOptions,
+    body: Option<&'a Block>,      // the arm for every variant the mark does not name
+}
 
-struct Forwarding {
-    scrutinee: TokenStream,      // `self`, `*self`, `Pin::get_mut(self)`, one of them behind `*`, or a tuple with the Self arguments
-    arms: Vec<Arm>,              // one per selected target, plus the unforwardable ones
-    fallback: Option<Arm>,       // the mismatch arm, or the inherent fallback body
-    future: bool,                // wrap in `async move { .. }`
+struct Forward<'a> {              // one method to forward
+    signature: Signature,
+    origin: Origin<'a>,
+    entries: &'a Entries<'a>,
+    subject: &'a Subject,
+    site: Site,                   // the span the arms and the attributes carry
+    body_site: Site,              // the method's own, on the body's braces
 }
 ```
 
-Both entry points do the same three things: read the signature into a
-`MethodPlan`, build an `Arm` per selected target with
-`MethodPlan::arm_or_sentence` and the shared `ArmContext`, and hand the
-`Forwarding` to the one renderer. Where `MethodPlan::arm` cannot write a
-target's arm, `arm_or_sentence` writes the arm that says so: the variant
-whatever it holds, `Target::whole`, with the sentence as its result,
-under the variant's own attributes, so a build without the variant
-forwards the rest and every variant the method cannot reach is named.
-`MethodPlan::beside_arguments` gives that arm, and the unforwardable ones
-the selection writes, the tuple's shape where `Self` arguments are matched
-beside the receiver.
-Between the first two, `MethodPlan::over` reads the entries the `match` is
-over: where every one is under `#[cfg]`, so that some build may leave none,
-and the receiver is a reference with no `Self` argument beside it,
-`by_place` makes the `match` look at the subject itself, `match *self`
-with `ref` or `ref mut` bindings, which a reference to an empty enum needs
-to be exhaustive; every other method keeps `match self` with default
-binding modes.
-What differs between a trait method and an inherent method becomes data:
-the `Callee`, which also tells the two paths apart and so supplies the way
-out each error message offers, which targets are selected, the fallback,
-the `with = path` lift, and two policies that are deliberate once named.
+`forward` derives everything else from the origin and runs one sequence
+for both paths. It names the `ArmKind`, the pattern prefix, the lift and
+the `WayOut`; reads the signature into a `MethodPlan`; selects the targets
+a mark names (`select_targets`, with `check_body`), or takes every entry;
+writes an arm per target with `MethodPlan::arm`, and the arm for the rest
+with `MethodPlan::fallback_for`; and renders the `Forwarding` into a
+`Generated`: the signature as bound, the lint allowances a hand writes, and
+the body.
+
+```rust
+struct MethodPlan {               // read off the signature and the entries once
+    receiver: ReceiverKind,       // Value(Access) | Boxed | Pinned(Borrow)
+    self_token: Token![self],     // reused, so the `match` shares its hygiene
+    arguments: Vec<Ident>,        // the bindings after the receiver
+    same_variant: Vec<(usize, Access)>, // the `Self` arguments, matched beside the receiver
+    turbofish: Option<Vec<Ident>>,      // the generics a call spells out when inference could not
+    conversion: Conversion,
+    future: Option<FutureShape>,  // Opaque | Boxed(path): the `async move` block the arms sit in
+    awaited: bool,
+    unsafety: bool,
+    requires_sized: bool,         // `where Self: Sized`, which a trait object payload cannot meet
+    by_place: bool,               // `match *self` with `ref` bindings, over an enum that may be empty
+    may_be_empty: bool,           // every entry under `#[cfg]`, so some build leaves no arm
+}
+
+enum ArmKind<'a> {                // what an arm does with its target
+    QualifiedCall { trait_path: &'a Path, method: &'a Ident },
+    MethodCall { name: &'a Ident },
+    Place { field: Option<&'a Member>, borrow: PlaceBorrow },
+}
+
+struct ArmContext<'a> {           // what every arm of one method shares
+    kind: ArmKind<'a>,
+    method: &'a Ident,
+    subject: &'a Ident,
+    prefix: Path,                 // the subject's path, or `Self`
+    lift: Option<&'a Path>,       // the inherent `with = path`
+    way_out: WayOut,              // { on_trait: bool, has_body: bool }
+    declared: Option<Declared<'a>>, // { signature, block_header }: a trait method's
+    site: Site,
+}
+
+enum Refusal<'a> {                // why one target cannot take one method
+    TraitObject { declared: &'a Signature, block_header: &'a str },
+    RewrapThroughRoute,
+    MethodRouteBorrowedMutably(Taken<'a>),
+    SharedPointerBorrowedMutably(MutableBorrow<'a>),
+    MovedOutOfPointer(Taken<'a>),
+    NoBoxToHandOver,
+    NotRebuilt,
+}
+
+struct Arm {
+    attributes: Vec<Attribute>,   // the variant's `#[cfg]`, and `#[allow(deprecated)]`
+    pattern: TokenStream2,
+    value: TokenStream2,
+    site: Site,
+}
+
+struct Forwarding {
+    scrutinee: TokenStream2,      // `self`, `*self`, `Pin::get_mut(self)`, one of them behind `*`, or a tuple with the Self arguments
+    arms: Vec<Arm>,               // one per selected target, plus the unforwardable ones
+    fallback: Option<Arm>,        // the mismatch arm, or the body for the rest
+    future: Option<FutureShape>,  // wrap in `async move { .. }`, boxed again for a boxed future
+}
+```
+
+The engine judges before it writes. `MethodPlan::refusal` returns the first
+`Refusal` that holds for a target, a value that names what the method
+takes and the target cannot give, as the signature has it (`Taken`,
+`MutableBorrow`), in this order: a trait object beside `Self: Sized`, a
+`Self` rewrapped through a route, a mutable borrow through a route ending
+in a method call, a mutable borrow through a `Pointer::Shared`, a move out
+of a pointer that is no `Box`, `self: Box<Self>` with no box to hand over,
+and a `Self` the target cannot be rebuilt around. `Refusal::error` words it
+in `refusal.rs`, on the payload, with the way out the `WayOut` offers: an
+impl by hand on the trait path, a body on the inherent path, and the body
+itself where the method has one for the variants it does not name.
+`MethodPlan::arm` then writes the target's arm, or the arm that holds the
+sentence: the variant whatever it holds, `Target::whole`, with the
+sentence as its result, under the variant's own attributes, so a build
+without the variant forwards the rest and every variant the method cannot
+reach is named. Writing an arm cannot fail. `MethodPlan::beside_arguments`
+gives that arm, and the unforwardable ones the selection writes, the
+tuple's shape where `Self` arguments are matched beside the receiver.
+What fails a whole method is what `forward` returns as an error: a
+signature the plan cannot read, a mark naming a variant the subject
+lacks or one without a payload, a body where none would run or none
+where one must, and a `Self` argument without a `mismatch`. The trait path writes such a method with
+the sentence as its body; the inherent path keeps the method as written,
+without its mark.
+`MethodPlan::read` takes the entries the `match` is over: where every one
+is under `#[cfg]`, so that some build may leave none, and the receiver is a
+reference with no `Self` argument beside it, `by_place` makes the `match`
+look at the subject itself, `match *self` with `ref` or `ref mut`
+bindings, which a reference to an empty enum needs to be exhaustive; every
+other method keeps `match self` with default binding modes, and
+`may_be_empty` gives a block's method over such an enum the
+`#[allow(unused_variables)]` a hand writes, where the impl is not
+`#[automatically_derived]` and the method has no body for the rest.
+What differs between a trait method and an inherent method is data on the
+`Origin`: the `ArmKind`, which targets are selected, the fallback, the
+`with = path` lift, the way out a sentence offers, and two policies that
+are deliberate once named.
 `MethodPlan::fallback` writes the arm for two different variants and binds
 again a same-variant argument the scrutinee moved where the `mismatch`
 expression names it, an identifier at any depth or a name inside a literal,
@@ -187,7 +294,7 @@ which a format string captures (`names`); one it does not name stays in the
 scrutinee, as a hand leaves it. `MethodPlan::standing_in` is the result of
 an arm that only keeps the `match` exhaustive beside a variant's own error,
 and reads the arguments, so that no lint about them stands beside that
-error. Every token the engine writes carries the context's `site`, the
+error. Every token the engine writes carries the context's `Site`, the
 subject's or the method's own span, the generated bindings and a
 turbofish's angle brackets included: a proc macro's call site inside a
 carrier's expansion is the trait's attribute, which may be in another
@@ -196,34 +303,39 @@ crate. In a trait method
 variant and needs a mismatch; in an inherent method `Self` is the enum
 itself, so a `&Self` argument is handed to the payload's method as it is,
 and a payload method taking the enum is a legitimate target. A trait
-method's parameter names come from a trait the enum's crate may not own,
-and are generated; an inherent method's are the user's, and are kept. The
-one difference that is not deliberate, the trait path renaming parameters
-that could keep their names, goes in stage 6.
+method's parameter names come from a trait the enum's crate may not own:
+each is kept where it is a plain identifier and generated otherwise; an
+inherent method's are the user's, and a pattern that is not a plain
+identifier is an error there.
 
-Above the engine, `implement.rs` plans before it writes: an item of the
-trait has zero or more `ItemPlan`s, none when the block writes it in every
-build or leaves it to the trait's default, and one per way it is written
-when the block writes or marks a method under `#[cfg]`. A plan is a method
-rejected with its sentence as its body, an associated type or const from
-the override or the first variant, a method forwarded to every variant or
-as a mark names, or a limit; the plain forwarding, or a mark without a
-`#[cfg]`, takes the builds the block's conditional items leave, under the
-complement of their `cfg`s, a `Leftover`. `ItemWriter` renders the plans
-while keeping what the agreement checks and the shape errors need
-afterwards: `PlainForwarding` records the builds in which some method with
-a receiver is forwarded to every variant, every build, none, or the union
-of the leftovers, and `shape_errors` reports a variant no method can
+Above the engine, `expand_implement` in `implement.rs` reads as the
+sequence it is: the partial block, the header, the entries with the
+header's names and the trait's routes, the bounds, the `Impl`, the items,
+the checks. `Impl` is the one context of the trait's impl: the subject and
+its path, the trait's path and name, the `Signatures`, the `TraitOptions`,
+the entries, the `PartialBlock`, the block header spelled out, the
+`supplier` of the associated items that are not overridden, and the site.
+`ItemWriter` in `items.rs` plans each item of the trait before it writes
+it: an item has zero or more `ItemPlan`s, none when the block writes it in
+every build or leaves it to the trait's default, and one per way it is
+written when the block writes or marks a method under `#[cfg]`. A plan is
+a method rejected with its sentence as its body, an associated type or
+const from the override or the supplier, a method forwarded to every
+variant or as a mark names, or a limit; the plain forwarding, or a mark
+without a `#[cfg]`, takes the builds the block's conditional items leave,
+under the complement of their `cfg`s, a `Leftover`: a `Builds` and the
+span its attribute carries. `Builds`, in `builds.rs`, is never, under a
+`Predicate`, or every; a predicate is a `cfg` condition as written or
+composed with `all`, `any` and `not`, and a composition of one predicate
+is that predicate, as a hand writes it. `ItemWriter::plain_forwarding` is
+the `Builds` in which some method with a receiver is forwarded to every
+variant, and `Entries::shape_errors` reports a variant no method can
 forward to under that `cfg` beside the variant's own, so a mark under the
 trait method's own `cfg`, whose leftover holds in no build that has the
-method, reports nothing.
-`forward_trait_method` asks `fallback_for` for the arm the targets' arms
-leave and whether the lint about an unreachable pattern is allowed, and
-`check_trait_objects` for the one shape a target refuses. The routes a
-trait keys by variant and the options naming nothing in the trait are
-applied and checked by `apply_routes` and `unknown_names`, so that
-`expand_implement` reads as the sequence it is: the header, the entries,
-the bounds, the supplier, the items, the checks.
+method, reports nothing. The routes a trait keys by variant are applied by
+`Entries::route`, which returns the error of each route through no
+variant, and `TraitOptions::unknown_names` returns the errors of the
+options naming nothing in the trait.
 
 ### 3.3 The return model
 
@@ -246,7 +358,10 @@ b) = call; (Variant(a), b) }`. The rule that keeps rule 1 is the
 classifier's: a conversion under a wrapper has to be a path, since
 `.map(|x| ..)` is a closure the vision forbids, so a tuple under an
 `Option` is a limit with the one sentence, while a tuple holding a
-wrapper is fine. The recognition rules stay syntactic: `Option` and
+wrapper is fine. `Conversion::rebuilds` says whether a value is built
+around the payload's result, `whole`, and whether a path has to build it,
+`by_path`, which the refusal checks against `Target::is_rebuilt` and
+`Target::is_built_by_a_path`. The recognition rules stay syntactic: `Option` and
 `Result` by the name a path ends in, `Self::X` as a two-segment path,
 `impl Future` by its `Output` binding, a boxed future, `Pin<Box<dyn
 Future<Output = T> + ..>>`, by the same binding under `Pin` and `Box`
@@ -262,30 +377,66 @@ rewraps and converts (golden `overridden_results`); `(Self, u32)` and
 ### 3.4 The subject
 
 `Subject` keeps its two cases and answers the questions the generators ask
-instead of being asked what it is: the entries, the pattern prefix, whether
-two values of it can hold different targets (an enum can, so a `Self`
-argument needs a mismatch arm), whether it has conversions, and the shape
-errors of its unforwardable entries. `from` and `try_from` move from
-`Target` into `Place::Variant`, since only a variant has them. The subject's
-carrier is named `__whichever_dispatch_..` for both cases, after the
-attribute that writes it. Since 2026-11-05 a `Target` carries a `Route`,
-the steps from the bound payload to the value the trait is called on,
-where it carried a `deref` flag: `deref` is the route `*`, a field or a
-method is a step, and `Place::Variant` holds the marked field of a variant
-with several. `Target::target_type` is `None` where the route leaves the
-type unnameable, and the engine then qualifies the call by the trait
-alone, `<_ as Trait>::method`. The inherent path's `Callee::Place` is the
-arm that calls nothing: the target itself, or a field of it, handed over
-as `place_borrow` reads the return type, inside the `Option` or the
-`Result` under `with = Some` or `with = Ok`. Its `PlaceBorrow` is
-`Reference`, borrowed by `&` or `&mut`; `Value`, taken by value; or
-`Unread`, left as it stands, for any other lift, for one of the two over
-a return type that shows no first type argument, for a raw pointer
-(`Type::Ptr`, to which a reference coerces) and for an opaque return
-(`Type::ImplTrait`, which the reference may implement); `ungrouped` looks
-through `Type::Group` and `Type::Paren` first. Every target the pattern
-binds, a payload, a marked field or a struct's field, is already a
-reference where the receiver binds references
+instead of being asked what it is: whether two values of it can hold
+different targets (an enum can, so a `Self` argument needs a mismatch
+arm), whether it has conversions, whether it has one target, and what its
+targets are called in a sentence. The subject's carrier is named
+`__whichever_dispatch_..` for both cases, after the attribute that writes
+it.
+
+`Subject::read` reads the subject once into `Entries`. An `Entry` is a
+variant of the enum or a field of the struct, with its name, its `cfgs`
+and whether it is deprecated whatever it holds, and what it holds:
+`Holds::Payload { place, ty, route }`, or `Holds::Other(Unforwardable)`
+for a variant of another shape, which carries the reason and the sentence.
+A struct's field options are parsed once there, and what each field is
+marked with stays beside the entries until `Entries::for_trait` keeps the
+field a trait goes to, or `Entries::star` names the field `*` means. The
+other steps of the reading edit the entries before any target is taken: a
+partial block's header names the subject's parameters, `Entries::rename`,
+and a trait's routes, `via(Variant = ..)`, win over the variants' own,
+`Entries::route`.
+
+A `Place` is what holds the payload and where the payload sits in it.
+`holder` is a `Holder::Variant`, with the variant's `Conversions`, or
+`Holder::Struct`; `field` is a `PayloadField`: `Only`, the one field,
+unnamed, which the name builds as a path; `OnlyNamed`, the one field,
+named, which the braces build and no path does; or `Beside`, one field
+beside others, around which no value is built. A struct with one named
+field and a variant whose one field is named and marked are both
+`OnlyNamed`, so `-> Self` is rebuilt by the braces for each, and a `Self`
+under an `Option` or a `Result` is refused with the tuple form as the way
+around (`Target::is_built_by_no_path`). Only a variant's `Only` field takes
+part in the conversions (`Target::conversions`).
+
+A `Target` is a `Copy` view of an entry that holds a payload, `entry`,
+`place`, `payload` and `route`, with the route this method takes: the
+method's own through `Target::through`, or else the entry's, which is the
+trait's for the variant or the variant's or field's own. No layer edits a
+target. Since 2026-11-05 the route is a `Route`, the steps from the bound
+payload to the value the trait is called on, where it was a `deref` flag:
+`deref` is the route `*`, a field or a method is a step, and
+`PayloadField::Beside` holds the marked field of a variant with several.
+`Target::target_type` is `None` where the route leaves the type
+unnameable, and the engine then qualifies the call by the trait alone,
+`<_ as Trait>::method`. `Target::spoken` and `Target::noun` name the
+target in a sentence: the variant, or on a struct the struct, whose field
+the error's span points at. `Pointer` and `pointee` in `shape.rs` read a
+payload's pointer kind and what it points at in one place: a `Box`, the one
+pointer a value is moved out of; a shared pointer, an `Rc`, an `Arc` or a
+`&T`, which lends what it points at shared only; or any other.
+
+The inherent path's `ArmKind::Place` is the arm that calls nothing: the
+target itself, or a field of it, handed over as `place_borrow` reads the
+return type, inside the `Option` or the `Result` under `with = Some` or
+`with = Ok`. Its `PlaceBorrow` is `Reference`, borrowed by `&` or `&mut`;
+`Value`, taken by value; or `Unread`, left as it stands, for any other
+lift, for one of the two over a return type that shows no first type
+argument, for a raw pointer (`Type::Ptr`, to which a reference coerces)
+and for an opaque return (`Type::ImplTrait`, which the reference may
+implement); `ungrouped` looks through `Type::Group` and `Type::Paren`
+first. Every target the pattern binds, a payload, a marked field or a
+struct's field, is already a reference where the receiver binds references
 (`MethodPlan::binds_references`), so it is read through the binding,
 `*inner`, on a `Value` answer in an arm that is not awaited, and is the
 binding on the other two.
@@ -297,50 +448,71 @@ sender and `Parse` for the receiver, the one builder both carrier macros
 are written by, and the grammar in one place:
 
 ```
-@v1 <facade> enum { <subject> } spec { <options> } [impl { <block> }]       sent by #[dispatch] to a trait's carrier
-@v1 trait { <trait> } [remote { <path> }] [provided { <method>, .. }] <the rest of the message above>   what the carrier hands implement!
-@v1 <facade> [partial { <options> }] impl { <block> }                        sent by #[dispatch] to a subject's carrier
-@v1 [rejected] facade { <facade> } [traits { <paths> }] enum { <subject> } <the rest above>   what the carrier hands implement_block!
+request to a trait's carrier    @v1 <facade> enum { <subject> } spec { <path>, <options> } [remote { <path> }] [impl { <block> }]
+what the carrier puts in front  @v2 trait { <signatures> } [remote { <path> }] [provided { <method>, .. }]
+what `implement!` reads         @v2 trait { <signatures> } [remote { <path> }] [provided { .. }] enum { <subject> } spec { .. } [remote { .. }] [impl { <block> }]
+                                @v1 trait { <trait> } [remote { <path> }] enum { .. } .., the prefix of the carriers 0.1 to 0.6 wrote
+
+request to a subject's carrier  @v1 <facade> [partial { <options> }] impl { <block> }
+what the carrier puts in front  @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> }
+what `implement_block!` reads   @v1 [rejected] facade { <facade> } [traits { <paths> }] [remote { <path> }] enum { <subject> } [partial { <options> }] impl { <block> }
 ```
 
-The options travel typed: a `TraitRequest` carries a `TraitSpec`, a
-`BlockRequest` the partial block's options, parsed and checked at the
-attribute. The trait's carrier is compiled into the trait's crate and read
-by whatever version of this crate the subject's crate builds with, so the
-first two lines are a compatibility surface frozen into every published
-trait crate. Between two keywords a message is a run of segments, `tag` or
-`tag { .. }`; a segment is only ever added, and the readers skip a tag they
-do not know, so an older reader accepts a newer prefix of the same version,
-which a unit test and a behaviour test with carriers of the 0.4.0 and 0.6.0
-shapes pin. The version changes when a segment changes meaning or order:
-the carried trait's prefix is `v2` since 2026-11-06, when the carrier came
-to hold signatures only, and `implement!` reads `v1` and `v2`; the request
-stays `v1`, which every carrier ever written matches, and every carrier's
-last rule reports any other request as newer than the carrier. A reader
-too old for a prefix says so in one sentence, which `smoke/mixed` holds
-against the last published version.
+The options travel typed: a `TraitRequest` carries the trait's path and
+its `TraitOptions` apart, a `BlockRequest` the partial block's options,
+parsed and checked at the attribute. `ImplementInput` hands `implement!`
+the `Signatures`, the subject, the subject's real path, the trait's path,
+the options and the partial block, and `BlockInput` hands
+`implement_block!` the carried subject and the request whole. The trait's
+carrier is compiled into the trait's crate and read by whatever version of
+this crate the subject's crate builds with, so the request to a trait's
+carrier and the prefix it puts in front are a compatibility surface frozen
+into every published trait crate. Between two keywords a message is a run
+of segments, `tag` or `tag { .. }`; a segment is only ever added, and the
+readers skip a tag they do not know, so an older reader accepts a newer
+prefix of the same version, which a unit test and a behaviour test with
+carriers of the 0.4.0 and 0.6.0 shapes pin. The version changes when a
+segment changes meaning or order: the carried trait's prefix is `v2` since
+2026-11-06, when the carrier came to hold signatures only, and `implement!`
+reads `v1` and `v2`; the request stays `v1`, which every carrier ever
+written matches, and every carrier's last rule reports any other request as
+newer than the carrier. A reader too old for a prefix says so in one
+sentence, which `smoke/mixed` holds against the last published version.
 The subject's carrier never leaves its crate and forwards the facade's
 name, so a partial impl needs no second lookup, and the traits the subject's
 own attributes dispatch, so a partial block of one of them is reported as
 the second impl it would be. The facade pins the macros
 crate exactly: `__private` and the generated code are one interface.
-`implement_inherent!` is renamed `implement_block!`; the name `implement!`
-cannot change.
+`implement_block!` was `implement_inherent!` before stage 4; the name
+`implement!` cannot change.
 
 ### 3.6 Options
 
 `options.rs` owns every `#[dispatch(..)]` and `#[dispatchable(..)]` grammar,
 one typed struct per position. On a subject the attribute is a
-`DispatchAttribute`: a `TraitSpec`, the trait's path and options, which is
-what travels to `implement!` and what a partial block's attribute holds,
-beside the `Switches`, the subject's `from` and `try_from`, each with the
-span it was written at, read where the subject is expanded and never sent.
+`DispatchAttribute`: the trait's path, when it names one, the trait's
+`TraitOptions`, and the `SubjectOptions`. `TraitOptions` holds the
+`overrides`, the `mismatch` results and the `routes`; it is what travels to
+`implement!` beside the trait's path, which the request carries itself,
+and what a partial block's attribute holds, whose grammar refuses a trait
+path and a subject's option. `SubjectOptions` holds the subject's `from`,
+`try_from`, `into` and `remote`, each with the span it was written at, read
+where the subject is expanded and never sent. `TargetOptions::read` reads
+a variant's or a field's attributes at a `Position`: on a variant a route
+and the variant's say on the conversions, on a variant's field a route
+alone, `deref` or `via`, and on a struct's field a route and the traits the
+field is the target of. A method's mark is a `ForwardingOptions` in an
+inherent block and a `TraitMark` in a partial block: `default`, or the
+variants and `via`, with the inherent options `call`, `with`, `field` and
+`value` refused. `method_mismatch` reads a trait method's `mismatch = ..`
+and `DispatchableOptions` a trait's `remote` and `name`.
 The right-hand side of `Name = ..` stays a `TokenStream` until `implement!`
 knows whether `Name` is an associated type or const, and is parsed as a
 `Type` or an `Expr` then. The grammar rejects an option or a variant given
-twice; `implement!` rejects an override or a `mismatch` naming nothing in
-the trait; `#[dispatchable]` rejects a method attribute that is not one
-`mismatch = ..` on a method with a `Self` argument.
+twice; `TraitOptions::unknown_names` checks the options against the
+trait, beside their grammar, and rejects an override or a `mismatch`
+naming nothing in it; `#[dispatchable]` rejects a method attribute that is
+not one `mismatch = ..` on a method with a `Self` argument.
 
 ### 3.7 Carrier naming
 
@@ -360,12 +532,30 @@ sentence stands alone. A method that cannot be forwarded to one variant
 keeps its other arms and has the sentence as that variant's arm, under the
 variant's own `cfg`, as a variant of another shape is reported under its
 own: a build that compiles the variant out has neither, and each such
-variant gets its sentence; only a signature the substitution could not write,
-a projection it could not qualify, withholds the impl, since it has no body
-to hold an error. An associated item no variant can supply holds its
-sentence as what it is: a const its value, `{ compile_error!(..) }`, and a
-type an array whose length is the error, `[(); { compile_error!(..); 0 }]`,
-which rustc takes as an erroneous type and checks nothing against. A
+variant gets its sentence. An associated item no variant can supply holds
+its sentence as what it is: a const its value, `{ compile_error!(..) }`,
+and a type an array whose length is the error, `[(); { compile_error!(..);
+0 }]`, which rustc takes as an erroneous type and checks nothing against.
+What withholds the impl is what leaves no impl to write, and it is this
+list. In `expand_implement`: a struct whose fields choose no one field
+for the trait, or two (`Entries::for_trait`); an enum with no variant;
+an enum whose every variant is rejected, each with its own sentence, which
+an impl with nothing to forward to would only add rustc's errors to, so
+that a partial block's impl is then the shape errors alone; and a trait
+path whose generic arguments do not fit the trait's parameters, or bind an
+associated item inside the path (`Substitution::of_trait`). In
+`PartialBlock::read`: a method of the block without a body and without a
+mark, a macro invocation, whose items cannot be told from the ones to
+forward, a mark that does not parse or names an inherent method's option,
+a second mark on one method, and `#[dispatch(default)]` on a method with a
+body. In `ItemWriter::write`: a macro invocation inside the trait, an
+associated type or const the block writes under `#[cfg]`, an override that
+does not read as a type or as a value, and a signature or a const's type
+the substitution could not write, a projection it could not qualify, which
+leaves no signature to hold an error. An `ItemWriter` error is reported
+with the errors that would have stood beside the impl, an option naming
+nothing in the trait and a route through no variant, so that none waits
+for the next build; the ones before it return alone. A
 method over an enum whose every variant is under `#[cfg]`, in an impl that
 is not `#[automatically_derived]`, a partial block's or an inherent
 block's, allows its arguments to go unused, as a hand's does, since a
@@ -374,7 +564,8 @@ body for the rest has that body as the arm, and its lint is the user's. An optio
 variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could
-forward, for the same reason. At the subject the unit of rejection is the
+forward, for the same reason, and a method it cannot forward stays as
+written, without its mark, or is dropped when it has no body. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors
@@ -395,17 +586,20 @@ token and the written argument bindings at the chosen expression's span
 with `Span::resolved_at` (stable since 1.45); the arms use that same `self`
 token. A rustc error inside generated code is accepted only where a
 hand-written impl gets the same error on the same user token, a variant's
-payload or a trait method; one on an attribute is a defect. So no module
-that writes generated code uses a bare `quote!` or `parse_quote!`: every
-token carries the subject's, the method's or the payload's span. A
-generated binding, `__inner`, `__same<n>`, `__argument<n>` or
-`__element<n>`, is built at `at(site)`, the hygiene of `Span::mixed_site()`
-located where the arm is: one located at the call site would join the span
-of the expression that holds it to the attribute, and rustc's error with
-it. The unit test in `spans.rs` reads those modules and names a token
-written at the call site, which inside `implement!` is the trait's
-attribute, and an identifier or a lifetime built at `Span::mixed_site()`
-or `Span::call_site()` without a location.
+payload or a trait method; one on an attribute is a defect. So every token
+that a module writing generated code writes carries the subject's, the
+method's or the payload's span, through a `Site`: a function that writes
+generated code takes one, and only `Site::at` in `site.rs` makes one, the
+hygiene of `Span::mixed_site()` located at a token the user wrote, so a
+span that was never located cannot reach it. A generated binding,
+`__inner`, `__same<n>`, `__argument<n>` or `__element<n>`, is built by
+`hygienic` at the arm's `Site`: one located at the call site would join
+the span of the expression that holds it to the attribute, and rustc's
+error with it. The type holds the rule where a function takes a `Site`;
+the unit test in `spans.rs` holds the rest: it reads those modules and
+names a bare `quote!` or `parse_quote!`, which writes at the call site,
+inside `implement!` the trait's attribute, and an identifier or a lifetime
+built at `Span::mixed_site()` or `Span::call_site()` without a location.
 
 ## 4. Plan
 
@@ -960,18 +1154,91 @@ Snapshots `associated_const_disagreement` and
 golden `associated_consts` shows the check as an item; no other golden or
 snapshot changed. Each has its mutant.
 
+### Stage 25: the review of 2026-11-15
+
+Status: landed on 2026-11-15, unreleased, on the branch
+`claude/library-implementation-quality-c12a43`, one commit per item. A
+design review found that the vocabulary had types for half of its
+concepts, and that the other half, the builds an item exists in, a
+sentence and its way out, where a method comes from, the pointer kind of a
+payload, lived as booleans, strings and token streams. Twelve commits gave
+each a type and changed no expansion; five changed what is reported, each
+in a commit of its own.
+
+`spelling::spelled` spells the block header, where `implement.rs` had a
+copy of its own (`9c29db9`). `Builds`, never, under a `Predicate` or
+every, holds the builds a block's items are written in, the builds they
+leave and the builds some method forwards to every variant in, which were
+`Written`'s variants, `Leftover`'s predicate tokens and `PlainForwarding`,
+with two copies of the `cfg` extraction; a composition of one predicate is
+that predicate (`2d187d1`). `Site`, made only by `Site::at`, is what a
+function writing generated code takes, and `at` moved from `lib.rs` into
+`site.rs` (`cbc89ab`). `Subject::read` returns `Entries`, an `Entry` has
+its name, `cfg` and deprecation whatever it `Holds`, a `Place` is a
+`Holder` and a `PayloadField`, a `Target` is a `Copy` view with the route a
+method takes, a trait's routes and a header's names are steps of the
+reading, and a struct's field options are parsed once (`67a4fd7`); `shape.rs`
+gained `Pointer` and `pointee`. `TraitOptions` is apart from the trait's
+path, which `TraitRequest` and `ImplementInput` carry themselves
+(`f00343d`). `Signatures` reads the carried trait under either prefix, and a
+`Method` answers `has_default` and `may_be_left_to_default` through
+`DefaultBody` (`83666ca`). `TraitOptions::unknown_names` checks the options
+beside their grammar (`90699a1`). `BlockItem::read` reads an impl block's
+items once for both paths, `PartialBlock` is the partial block as read,
+where `ImplHeader` was, and `TraitMark` is the grammar of a partial block
+method's mark beside the others (`d980324`). `MethodPlan::refusal` judges a
+target and returns a `Refusal`, `Refusal::error` words it with the
+`WayOut`, `MethodPlan::arm` writes the arm or the sentence's and cannot
+fail, `ArmKind` is what `Callee` was, `Origin` is what the two paths hand
+to `forward`, which runs the one sequence, `MethodPlan::read` takes the
+entries where `MethodPlan::over` read them, and `ReceiverKind::Pinned`
+holds a `Borrow` (`e168e81`). `Impl` is the one context of a trait's impl
+and `ItemWriter`, in `items.rs`, plans and writes the items against it
+(`9f4fb1a`). `expand_partial` and `expand_inherent` take the `BlockInput`
+whole (`d3d5d1d`). The module doc of `naming.rs` says how a subject's
+carrier is named (`a6719fc`), and `SubjectOptions` is what `Switches` was
+(`26c358a`).
+
+The five that change what is reported: an item that withholds the impl is
+reported with the options naming nothing in the trait and the routes
+through no variant, which waited for the next build (`fb6b0ab`); a second
+`#[dispatch(..)]` beside `#[dispatch(default)]` on a partial block's method
+is reported, where it was ignored (`d980324`); a trait named on a variant's
+field is one sentence, `Position::VariantField` having a grammar of its
+own, where it was accepted and ignored (`7297e45`); a variant whose one
+field is named and marked is `PayloadField::OnlyNamed`, rebuilt by its
+braces for `-> Self` as a struct with one named field is, and under
+`Option<Self>` or `Result<Self, E>` its sentence names the tuple variant,
+where it was a field beside others and refused with a sentence about other
+fields (`8002106`, the record "A variant's one named field is rebuilt by
+its braces"); and a macro invocation in a partial impl block is one
+sentence, where it was dropped and the forwarding stood in its place
+(`554eb64`). Compile-fail cases `withheld_impl_keeps_the_errors_beside_it`,
+`block_default_marked_twice`, `trait_named_on_a_variants_field`,
+`self_in_an_option_over_a_variants_named_field` and
+`macro_in_a_partial_block` are new; golden `named_field_variant` and the
+behaviour test `rebuilt_named_field_variants` are new; `builds.rs`,
+`subject.rs`, `forwarding.rs`, `refusal.rs`, `marked.rs`, `partial.rs`,
+`signatures.rs`, `options.rs` and `shape.rs` gained unit tests, and
+`spans.rs` reads the new engine modules. No existing golden or snapshot
+changed. The conformance matrix agrees on every cell, and no line of
+`conformance/known.tsv` was added or deleted; the mutants are retargeted
+at the moved code, none added or deleted.
+
 ## 5. Invariants every stage keeps
 
 - The generated impl is the one a careful hand writes: a `match`, one fully
   qualified call per arm, `#[inline]`, no conversion unless an option asks
   for one. `benchmarks/scripts/codegen.py` keeps checking this.
 - Generated bindings have the hygiene of `Span::mixed_site()`, located at
-  the arm's site through `at`; the receiver uses the trait
-  method's own `self` token; a variant's `#[cfg]` is carried onto its arm,
-  a trait item's is decided by which carrier the trait's crate compiled.
+  the arm's `Site`, which only `Site::at` in `site.rs` makes; the receiver
+  uses the trait method's own `self` token; a variant's `#[cfg]` is
+  carried onto its arm, a trait item's is decided by which carrier the
+  trait's crate compiled.
 - Every token the engine writes carries a user span, never the call site:
-  `spans.rs` reads the engine's modules and names a bare `quote!`, and an
-  identifier or a lifetime built at the call site.
+  a function that writes generated code takes a `Site`, and `spans.rs`
+  reads the engine's modules and names a bare `quote!`, and an identifier
+  or a lifetime built at the call site.
 - Nothing is kept between expansions.
 - `implement!` keeps its name and reads every prefix a 0.x carrier wrote,
   `v1` and `v2`; the request stays `v1`; a carrier's last rule reports any
