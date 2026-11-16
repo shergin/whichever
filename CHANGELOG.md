@@ -43,6 +43,12 @@ changes are expected and listed without apology.
 - The macro crate's modules were reorganised around the concepts they
   hold; `macros/ARCHITECTURE.md` describes the new shape. No expansion
   changed.
+- `docs/options.md` and the crate docs say what the conversion options
+  mean on an enum that repeats the attribute: the conversions are the
+  enum's and written once, `from = false` on any attribute leaves the
+  `From` impls out, the widest `try_from` form applies, and the `into`
+  targets of every attribute are collected. The behaviour test
+  `conversion_options_on_repeated_attributes` is new.
 
 ## 0.8.0 - 2026-11-15
 
