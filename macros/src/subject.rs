@@ -648,12 +648,9 @@ impl<'a> Target<'a> {
     }
 
     /// Returns whether the subject can be built around a payload and yet no
-    /// path builds it: a struct whose one field is named.
+    /// path builds it: a struct, or a variant, whose one field is named.
     pub(crate) fn is_built_by_no_path(&self) -> bool {
-        matches!(
-            (&self.place.holder, &self.place.field),
-            (Holder::Struct, PayloadField::OnlyNamed(_))
-        )
+        matches!(self.place.field, PayloadField::OnlyNamed(_))
     }
 
     /// Returns the type the trait is called on, when the route lets it be
@@ -766,13 +763,19 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
         .filter(|(_, field)| field.attrs.iter().any(is_dispatch_attribute))
         .map(|(index, field)| (member_of(field, index), field))
         .collect();
-    let (member, field) = match (&variant.fields, marked.as_slice()) {
-        (Fields::Unnamed(fields), []) if fields.unnamed.len() == 1 => (None, &fields.unnamed[0]),
-        (Fields::Unnamed(fields), [(member, field)]) if fields.unnamed.len() == 1 => {
-            let _ = member;
-            (None, *field)
+    let (payload_field, field) = match (&variant.fields, marked.as_slice()) {
+        (Fields::Unnamed(fields), []) if fields.unnamed.len() == 1 => {
+            (PayloadField::Only, &fields.unnamed[0])
         }
-        (_, [(member, field)]) => (Some(member.clone()), *field),
+        (Fields::Unnamed(fields), [(_, field)]) if fields.unnamed.len() == 1 => {
+            (PayloadField::Only, *field)
+        }
+        // The one field, named: the braces build the variant around it,
+        // as they build a struct around its one named field.
+        (Fields::Named(fields), [(Member::Named(name), field)]) if fields.named.len() == 1 => {
+            (PayloadField::OnlyNamed(name.clone()), *field)
+        }
+        (_, [(member, field)]) => (PayloadField::Beside(member.clone()), *field),
         (_, [_, (_, second), ..]) => {
             return Err(Error::new_spanned(
                 second,
@@ -826,10 +829,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
         holds: Holds::Payload {
             place: Place {
                 holder: Holder::Variant(Conversions { from, try_from }),
-                field: match member {
-                    Some(member) => PayloadField::Beside(member),
-                    None => PayloadField::Only,
-                },
+                field: payload_field,
             },
             ty: field.ty.clone(),
             route,

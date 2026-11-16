@@ -211,13 +211,18 @@ impl Refusal<'_> {
                 };
                 format!("`{method}` takes `self: Box<Self>`, and `{ident}` holds a plain `{spelled}`; {advice}, or {}", way_out.of_variant(ident))
             }
-            // A struct whose one field is named is built around a value by
-            // its braces and by no path, and a `Self` under an `Option` or
-            // a `Result` is mapped with a path: the closure a hand writes
-            // there is what the attribute does not.
-            Refusal::NotRebuilt if target.is_built_by_no_path() => {
-                format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{subject}` has a named field, which no path builds; make it a tuple struct, `struct {subject}({spelled});`, or {}", way_out.of_rebuilding(ident))
-            }
+            // A struct or a variant whose one field is named is built
+            // around a value by its braces and by no path, and a `Self`
+            // under an `Option` or a `Result` is mapped with a path: the
+            // closure a hand writes there is what the attribute does not.
+            Refusal::NotRebuilt if target.is_built_by_no_path() => match target.place.holder {
+                Holder::Struct => {
+                    format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{subject}` has a named field, which no path builds; make it a tuple struct, `struct {subject}({spelled});`, or {}", way_out.of_rebuilding(ident))
+                }
+                Holder::Variant(_) => {
+                    format!("`{method}` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `{ident}` holds its payload in a named field, which no path builds; write the variant as `{ident}({spelled})`, or {}", way_out.of_rebuilding(ident))
+                }
+            },
             Refusal::NotRebuilt => {
                 format!("`{method}` returns `Self`, which cannot be built around the other fields of `{ident}`; {}", way_out.of_rebuilding(ident))
             }
