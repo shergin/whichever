@@ -43,7 +43,7 @@ where
     #[inline]
     fn weight(&self) -> u32 {
         match self {
-            Wrapper(__inner, ..) => <T as Weigh>::weight(__inner),
+            Wrapper(__inner) => <T as Weigh>::weight(__inner),
         }
     }
 }

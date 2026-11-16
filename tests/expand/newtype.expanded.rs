@@ -80,7 +80,7 @@ impl Shape for Wrapped {
     #[inline]
     fn area(&self) -> u32 {
         match self {
-            Wrapped(__inner, ..) => <AnyShape as Shape>::area(__inner),
+            Wrapped(__inner) => <AnyShape as Shape>::area(__inner),
         }
     }
     #[inline]
@@ -89,7 +89,7 @@ impl Shape for Wrapped {
         Self: Sized,
     {
         match self {
-            Wrapped(__inner, ..) => Wrapped(<AnyShape as Shape>::grown(__inner)),
+            Wrapped(__inner) => Wrapped(<AnyShape as Shape>::grown(__inner)),
         }
     }
 }

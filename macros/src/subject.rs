@@ -562,21 +562,19 @@ impl<'a> Target<'a> {
         site: Site,
     ) -> TokenStream2 {
         let holder = self.holder(prefix, site);
-        match (&self.place.holder, &self.place.field) {
-            (Holder::Variant(_), PayloadField::Only) => {
-                quote_spanned!(*site => #holder(#binding))
+        // A field that has others beside it is matched with a rest pattern
+        // for them; the one field of a variant or a struct has nothing to
+        // skip, and a hand writes no `..` there.
+        match &self.place.field {
+            PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
+            PayloadField::OnlyNamed(name) => {
+                quote_spanned!(*site => #holder { #name: #binding })
             }
-            (Holder::Struct, PayloadField::Only) => {
-                quote_spanned!(*site => #holder(#binding, ..))
-            }
-            (_, PayloadField::OnlyNamed(name)) => {
-                quote_spanned!(*site => #holder { #name: #binding, .. })
-            }
-            (_, PayloadField::Beside(Member::Unnamed(index))) => {
+            PayloadField::Beside(Member::Unnamed(index)) => {
                 let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
                 quote_spanned!(*site => #holder(#(#skipped,)* #binding, ..))
             }
-            (_, PayloadField::Beside(member)) => {
+            PayloadField::Beside(member) => {
                 quote_spanned!(*site => #holder { #member: #binding, .. })
             }
         }
@@ -1236,7 +1234,7 @@ mod tests {
         );
         assert_eq!(
             pattern("Named"),
-            quote!(Any::Named { inner: __inner, .. }).to_string()
+            quote!(Any::Named { inner: __inner }).to_string()
         );
         assert_eq!(
             pattern("Labelled"),
@@ -1273,7 +1271,7 @@ mod tests {
         let one_named = &braces.targets()[0];
         assert_eq!(
             only.pattern(&prefix, &binding, site()).to_string(),
-            quote!(Wrapped(__inner, ..)).to_string()
+            quote!(Wrapped(__inner)).to_string()
         );
         assert_eq!(
             spelled(only.rebuild(&prefix, value(), site())),
@@ -1285,7 +1283,7 @@ mod tests {
         );
         assert_eq!(
             one_named.pattern(&prefix, &binding, site()).to_string(),
-            quote!(Wrapped { inner: __inner, .. }).to_string()
+            quote!(Wrapped { inner: __inner }).to_string()
         );
         assert_eq!(
             spelled(one_named.rebuild(&prefix, value(), site())),
