@@ -3,18 +3,18 @@
 # `run --bless` rewrites it.
 
 suite shapes
-  pass 512
-  limit 1638
+  pass 629
+  limit 1883
   rejected 11
   malformed 17
-  never 295 non-canonical
+  never 347 non-canonical
   never 11 unmodelled: a limit beside a rejection the limit does not replace
-  never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 126 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite pairs
-  pass 677
-  limit 1382
-  rejected 70
+  pass 816
+  limit 1589
+  rejected 84
   malformed 0
   never 31 unmodelled: a limit beside a rejection the limit does not replace
 
@@ -72,10 +72,10 @@ suite value-method-route
 
 suite paths
   pass 1103
-  limit 1321
+  limit 1324
   rejected 0
   malformed 7
-  never 971 non-canonical
+  never 1544 non-canonical
   never 192 unmodelled: a block body for a future return
   never 48 unmodelled: a block body for a return type that needs a payload to make
   never 84 unmodelled: a default answering `Self` left to the default, whose twin is no enum
@@ -86,22 +86,22 @@ suite paths
 
 suite path-arguments
   pass 822
-  limit 618
+  limit 621
   rejected 0
   malformed 0
-  never 144 non-canonical
+  never 357 non-canonical
   never 108 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 36 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent
-  pass 835
-  limit 2300
+  pass 967
+  limit 2582
   rejected 0
   malformed 0
-  never 1512 non-canonical
+  never 2160 non-canonical
   never 126 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 123 unmodelled: an `async fn` that returns a future
-  never 612 unmodelled: an inherent body for a return type that needs a payload to make
+  never 141 unmodelled: an `async fn` that returns a future
+  never 684 unmodelled: an inherent body for a return type that needs a payload to make
   never 144 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
   never 288 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
   never 72 unmodelled: an inherent method through a route whose method yields its target
@@ -156,11 +156,11 @@ suite inherent-into
   never 96 unmodelled: an inherent body for a return type that needs a payload to make
 
 suite inherent-shared
-  pass 409
-  limit 39
+  pass 487
+  limit 41
   rejected 8
   malformed 0
-  never 96 non-canonical
+  never 112 non-canonical
   never 24 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
 
 suite structs
@@ -192,6 +192,28 @@ suite struct-paths
   never 15 unmodelled: a default answering `Self` left to the default, whose twin is no enum
   never 126 unmodelled: a default body that would need a payload to make its answer
   never 30 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+
+suite named-variants
+  pass 48
+  limit 74
+  rejected 0
+  malformed 0
+  never 4 unmodelled: a block body for a future return
+  never 6 unmodelled: an inherent body for a return type that needs a payload to make
+  never 12 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
+
+suite field-options
+  pass 0
+  limit 40
+  rejected 0
+  malformed 0
+
+suite block-invocations
+  pass 0
+  limit 14
+  rejected 0
+  malformed 0
+  never 4 non-canonical
 
 suite cfg
   pass 1446
@@ -232,7 +254,7 @@ suite homes
   limit 148
   rejected 0
   malformed 0
-  never 384 non-canonical
+  never 564 non-canonical
   never 48 unmodelled: a block body for a future return
   never 24 unmodelled: a block body for a return type that needs a payload to make
   never 136 unmodelled: a default body that would need a payload to make its answer
@@ -272,10 +294,10 @@ suite parameter-conversions
 
 suite items
   pass 542
-  limit 508
+  limit 511
   rejected 0
   malformed 0
-  never 342 non-canonical
+  never 528 non-canonical
   never 108 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 12 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
@@ -297,10 +319,10 @@ suite returned-types
 
 suite agreement-paths
   pass 522
-  limit 261
+  limit 262
   rejected 0
   malformed 0
-  never 378 non-canonical
+  never 566 non-canonical
   never 75 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 276 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
@@ -309,7 +331,7 @@ suite stacks
   limit 204
   rejected 42
   malformed 0
-  never 96 non-canonical
+  never 168 non-canonical
   never 36 unmodelled: a limit beside a rejection the limit does not replace
   never 12 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 36 unmodelled: an inherent method through a route whose method yields its target
@@ -325,7 +347,7 @@ suite deprecations
   limit 47
   rejected 0
   malformed 0
-  never 536 non-canonical
+  never 632 non-canonical
   never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 82 unmodelled: a mismatch or a body of the user's naming the deprecated variant
 
@@ -360,10 +382,10 @@ suite route-pairs
 
 suite route-paths
   pass 208
-  limit 100
+  limit 104
   rejected 40
   malformed 0
-  never 24 non-canonical
+  never 68 non-canonical
   never 12 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
 suite trait-shapes
@@ -437,10 +459,10 @@ suite thirds
 
 suite third-paths
   pass 286
-  limit 290
+  limit 298
   rejected 0
   malformed 0
-  never 64 non-canonical
+  never 136 non-canonical
 
 suite third-items
   pass 169
@@ -496,37 +518,37 @@ suite third-stacks
   malformed 0
 
 suite pinned
-  pass 92
-  limit 25
+  pass 93
+  limit 28
   rejected 5
   malformed 0
 
 suite array
-  pass 7863
+  pass 8732
   limit 0
   rejected 0
   malformed 0
-  rows 7863
-  covered 84374
-  unreached 38857
+  rows 8732
+  covered 89322
+  unreached 50026
 
 suite array-limits
   pass 0
-  limit 539
+  limit 496
   rejected 0
   malformed 0
-  rows 539
-  covered 10628
-  unreached 1785
+  rows 496
+  covered 10778
+  unreached 2367
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 814
+  rejected 844
   malformed 0
-  rows 814
-  covered 10277
-  unreached 2136
+  rows 844
+  covered 10509
+  unreached 2636
 
 suite known
   pass 0

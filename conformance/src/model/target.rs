@@ -73,6 +73,9 @@ pub enum Form {
     StructMarked,
     /// `pub struct E { held: P0 }`, one named field.
     StructNamed,
+    /// The one field of a struct variant, named and marked, `A {
+    /// #[dispatch] held: storage }`.
+    MarkedNamed,
 }
 
 /// One step of a route from the stored value to the target.
@@ -102,6 +105,10 @@ pub struct TargetDescriptor {
     /// The option written in `#[dispatch(..)]` on the variant, or on the
     /// marked field: `deref`, `via = .payload`.
     pub option: Option<&'static str>,
+    /// Whether the option is one a variant's field does not take, a
+    /// trait's name or a conversion option, which is the subject's one
+    /// sentence (limits.md).
+    pub refused: bool,
 }
 
 impl TargetDescriptor {
@@ -114,7 +121,7 @@ impl TargetDescriptor {
     /// Returns whether the variant has fields beside the one forwarded to.
     pub fn has_other_fields(&self) -> bool {
         match self.form {
-            Form::Single | Form::Struct | Form::StructNamed => false,
+            Form::Single | Form::Struct | Form::StructNamed | Form::MarkedNamed => false,
             Form::MarkedTuple | Form::MarkedStruct | Form::StructMarked => true,
         }
     }
@@ -212,6 +219,7 @@ impl Target {
             form: Form::Single,
             route,
             option,
+            refused: false,
         };
         let deref = |pointer| single(Storage::Pointer(pointer), DEREF, Some("deref"));
         match self {
@@ -230,36 +238,42 @@ impl Target {
                 form: Form::MarkedTuple,
                 route: &[],
                 option: None,
+                refused: false,
             },
             Target::MarkedStruct => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::MarkedStruct,
                 route: &[],
                 option: None,
+                refused: false,
             },
             Target::Struct => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::Struct,
                 route: &[],
                 option: None,
+                refused: false,
             },
             Target::StructNamed => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::StructNamed,
                 route: &[],
                 option: None,
+                refused: false,
             },
             Target::StructMarked => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::StructMarked,
                 route: &[],
                 option: None,
+                refused: false,
             },
             Target::MarkedVia => TargetDescriptor {
                 storage: Storage::Wrapper,
                 form: Form::MarkedStruct,
                 route: FIELD,
                 option: Some("via = .payload"),
+                refused: false,
             },
             Target::DerefBoxField => single(
                 Storage::WrapperBehind(Pointer::Box),
@@ -280,6 +294,34 @@ impl Target {
                 single(Storage::Wrapper, METHOD_FIELD, Some("via = .get().payload"))
             }
             Target::DerefObject => single(Storage::Object, DEREF, Some("deref")),
+            Target::MarkedNamed => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::MarkedNamed,
+                route: &[],
+                option: None,
+                refused: false,
+            },
+            Target::MarkedDeref => TargetDescriptor {
+                storage: Storage::Pointer(Pointer::Box),
+                form: Form::MarkedStruct,
+                route: DEREF,
+                option: Some("deref"),
+                refused: false,
+            },
+            Target::MarkedTrait => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::MarkedStruct,
+                route: &[],
+                option: Some("Probe"),
+                refused: true,
+            },
+            Target::MarkedConversion => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::MarkedStruct,
+                route: &[],
+                option: Some("from = false"),
+                refused: true,
+            },
         }
     }
 }

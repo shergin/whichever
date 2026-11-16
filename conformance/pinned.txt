@@ -300,3 +300,17 @@ path=block generic=instance
 # variant's payload (`instantiated_variant_keeps_its_sentence`).
 s1=deref-box recv=box path=block-some generic=instance
 recv=box path=block generic=instance
+
+# A variant whose one field is named and marked was read as a field beside
+# others, so `-> Self` was refused with a sentence about other fields it
+# does not have (golden `named_field_variant`); under `Option<Self>` the
+# sentence names the tuple variant
+# (`self_in_an_option_over_a_variants_named_field`).
+s0=marked-named recv=value ret=self
+s0=marked-named ret=option-self
+
+# A trait named on a variant's field was accepted and ignored
+# (`trait_named_on_a_variants_field`), and a macro invocation in a partial
+# block was dropped without a word (`macro_in_a_partial_block`).
+s0=marked-trait
+path=block-macro

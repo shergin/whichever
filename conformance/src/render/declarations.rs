@@ -270,6 +270,17 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
 
 /// Writes the partial impl block a block path holds.
 fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
+    // The macro the block invokes writes nothing, so what the block says is
+    // the same whether or not the invocation is read; the invocation alone
+    // is the sentence (limits.md).
+    let invocation = context.path.invocation;
+    if invocation {
+        writer.line("#[allow(unused_macros)]");
+        writer.line("macro_rules! written {");
+        writer.line("    () => {};");
+        writer.line("}");
+        writer.blank();
+    }
     writer.anchor(Anchor::BlockAttribute.name());
     match options.is_empty() {
         true => writer.line("#[whichever::dispatch]"),
@@ -287,6 +298,10 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
     // `gat_in_a_partial_block`).
     if context.cell.declares_gat() {
         writer.line(Associated::Item.definition(super::context::VIEW));
+    }
+    if invocation {
+        writer.anchor(Anchor::BlockInvocation.name());
+        writer.line("written!();");
     }
     if !context.cell.base_reaches_all() && !context.foreign() {
         let named: Vec<&str> = context

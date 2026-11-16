@@ -40,6 +40,8 @@ const TARGETS: &[&str] = &[
     "marked-tuple",
     "marked-struct",
     "marked-via",
+    "marked-named",
+    "marked-deref",
 ];
 
 /// The target kinds `arguments` and `qualifiers` cross: the payload, a
@@ -273,6 +275,31 @@ pub const ZONES: &[Zone] = &[
             ("qual", &["plain", "provided"]),
         ],
         fixed: &[("s1", "none")],
+    },
+    Zone {
+        name: "named-variants",
+        summary: "a variant whose one field is named and marked through every path, rebuilt by its braces or refused under a wrapper",
+        vary: &[
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written", "inherent", "inherent-some"]),
+            ("ret", &["u64", "self", "option-self", "result-self", "tuple-self", "result-self-error", "fallible-self", "future-self", "vec-self"]),
+            ("s1", &["plain", "none"]),
+        ],
+        fixed: &[("s0", "marked-named")],
+    },
+    Zone {
+        name: "field-options",
+        summary: "an option a variant's marked field does not take, a trait's name or a conversion option, beside every second variant",
+        vary: &[("s0", &["marked-trait", "marked-from"]), ("s1", &[])],
+        fixed: &[],
+    },
+    Zone {
+        name: "block-invocations",
+        summary: "a macro invocation in a partial impl block, over a few subjects",
+        vary: &[
+            ("s0", &["plain", "deref-box", "marked-struct", "marked-named", "struct", "struct-named"]),
+            ("s1", &["plain", "none", "unit"]),
+        ],
+        fixed: &[("path", "block-macro")],
     },
     Zone {
         name: "cfg",
