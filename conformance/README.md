@@ -115,6 +115,20 @@ has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
 
+Four values of `s0` mark a struct variant's field. Under `marked-named`
+the field is the variant's one field, `A { #[dispatch] held: P0 }`, which
+the hand rebuilds by its braces, as a struct with one named field is, and
+binds with no rest pattern; under an `Option` or a `Result` it is the
+sentence that names the tuple variant, `A(P0)`, as the way around, and it
+gets no `From` or `TryFrom`. Under `marked-deref` the field beside a
+label takes `deref`, `A { label: u64, #[dispatch(deref)] held: Box<P0> }`,
+as `marked-via` takes a route. Under `marked-trait` and `marked-from` it
+takes what a variant's field does not, a trait's name or `from = false`:
+the subject is not read, so its one sentence on the variant is the whole
+of what the attribute reports, and no impl is written beside it, whatever
+the method. Only the second and third variants depart from the neutral
+cell there.
+
 Four values of `s0` and `s1` reach their target by a route of several
 steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
 behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
@@ -184,7 +198,11 @@ subject's attribute, a partial impl block (silent about `m`, `*`, naming
 the first variant with a body for the rest, `default`, or writing `m`
 itself), or an inherent block forwarding to the payloads' own `m`. The law
 expects, per variant, what a twin of the payload answers, the body the
-block writes, or what the trait's default answers.
+block writes, or what the trait's default answers. Under `block-macro` the
+block, silent about `m`, also invokes a macro of the cell that writes
+nothing; the block is not read, so the invocation's sentence is all it
+reports and no impl is written, whatever the method, and only the variants
+depart from the neutral cell.
 
 A provided method's default body knows no payload. It answers a number
 made from the control method, a place it leaks for that number where the

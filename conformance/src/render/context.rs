@@ -913,6 +913,7 @@ impl Context {
             Form::Single => format!("{path}::A({stored})"),
             Form::MarkedTuple => format!("{path}::A({stored}, {LABEL})"),
             Form::MarkedStruct => format!("{path}::A {{ label: {LABEL}, held: {stored} }}"),
+            Form::MarkedNamed => format!("{path}::A {{ held: {stored} }}"),
             Form::Struct => format!("{path}({stored})"),
             Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
             Form::StructNamed => format!("{path} {{ held: {stored} }}"),
@@ -1073,6 +1074,7 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             None,
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
+        Form::MarkedNamed => (None, format!("{name} {{ {field_option}held: {stored} }},")),
         Form::Struct | Form::StructMarked | Form::StructNamed => {
             unreachable!("a struct subject is written by `write_struct`")
         }
@@ -1128,7 +1130,7 @@ pub fn write_struct(
             writer.line(format!("pub held: {stored},"));
             writer.close("}");
         }
-        Form::Single | Form::MarkedTuple | Form::MarkedStruct => {
+        Form::Single | Form::MarkedTuple | Form::MarkedStruct | Form::MarkedNamed => {
             unreachable!("an enum subject is written variant by variant")
         }
     }
@@ -1142,6 +1144,7 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::Single => format!("{path}::{name}({binding})"),
         Form::MarkedTuple => format!("{path}::{name}({binding}, ..)"),
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
+        Form::MarkedNamed => format!("{path}::{name} {{ held: {binding} }}"),
         Form::Struct => format!("{path}({binding}, ..)"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
         Form::StructNamed => format!("{path} {{ held: {binding} }}"),
@@ -1149,12 +1152,14 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
 }
 
 /// Returns the constructor a rewrap calls: the variant's path, the
-/// struct's name, or for a struct with a named field its braces, with
+/// struct's name, or for a struct or a variant whose one field is named
+/// its braces, with
 /// [`HOLE`] where the value goes, since no path builds it.
 pub fn constructor(path: &str, slot: &Slot) -> String {
     let form = slot.target().map(|(_, target)| target.form);
     match form {
         Some(Form::StructNamed) => format!("{path} {{ held: {HOLE} }}"),
+        Some(Form::MarkedNamed) => format!("{path}::{} {{ held: {HOLE} }}", slot.name()),
         Some(Form::Struct | Form::StructMarked) => String::from(path),
         Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct) | None => {
             format!("{path}::{}", slot.name())

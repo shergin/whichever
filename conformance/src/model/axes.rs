@@ -65,6 +65,20 @@ axis! {
         /// trait object, the open set an enum holds beside its sized
         /// payloads (routes.md).
         DerefObject = "deref-dyn",
+        /// `A { #[dispatch] held: P0 }`, a struct variant whose one field is
+        /// named and marked, rebuilt by its braces (limits.md, routes.md).
+        MarkedNamed = "marked-named",
+        /// `A { label: u64, #[dispatch(deref)] held: Box<P0> }`, `deref` on
+        /// a variant's marked field.
+        MarkedDeref = "marked-deref",
+        /// `A { label: u64, #[dispatch(Probe)] held: P0 }`, a trait named on
+        /// a variant's marked field, which only a struct's field may name
+        /// (limits.md).
+        MarkedTrait = "marked-trait",
+        /// `A { label: u64, #[dispatch(from = false)] held: P0 }`, a
+        /// conversion option on a variant's marked field, which goes on the
+        /// variant (limits.md).
+        MarkedConversion = "marked-from",
     }
 }
 
@@ -267,6 +281,9 @@ axis! {
         Inherent = "inherent",
         /// An inherent `#[dispatch(A)] pub fn m(..) { .. }`.
         InherentSome = "inherent-some",
+        /// A partial impl block that says nothing about `m` and holds a
+        /// macro invocation, which is not read (limits.md).
+        BlockMacro = "block-macro",
     }
 }
 

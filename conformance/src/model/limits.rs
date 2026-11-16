@@ -29,6 +29,14 @@ pub enum Limit {
     /// `Self` inside an `Option` or a `Result` through a struct with one
     /// named field, which no path builds.
     NamedFieldUnderWrapper,
+    /// `Self` inside an `Option` or a `Result` through a variant whose one
+    /// field is named and marked, which no path builds.
+    NamedVariantUnderWrapper,
+    /// An option on a variant's marked field other than `deref` and `via =
+    /// route`: a trait's name, or a conversion option.
+    VariantFieldOption,
+    /// A macro invocation in a partial impl block, which is not read.
+    MacroInBlock,
     /// `self: Box<Self>` on a `deref` variant over a pointer that is no
     /// `Box`.
     BoxSelfOnSharedPointer,
@@ -120,6 +128,9 @@ impl Limit {
         Limit::SelfReturnOtherFields,
         Limit::BoxSelfPlain,
         Limit::NamedFieldUnderWrapper,
+        Limit::NamedVariantUnderWrapper,
+        Limit::VariantFieldOption,
+        Limit::MacroInBlock,
         Limit::BoxSelfOnSharedPointer,
         Limit::MovesThroughSharedPointer,
         Limit::MutableBorrowThroughSharedPointer,
@@ -208,6 +219,31 @@ impl Limit {
                 "has a named field, which no path builds",
                 "named_field_under_a_wrapper",
             ),
+            Limit::NamedVariantUnderWrapper => entry(
+                "named-variant-under-wrapper",
+                "holds its payload in a named field, which no path builds",
+                "self_in_an_option_over_a_variants_named_field",
+            ),
+            // The subject is not read, so no impl is written beside the
+            // sentence; the enum is emitted as it is.
+            Limit::VariantFieldOption => Entry {
+                keeps_impl: false,
+                ..entry(
+                    "variant-field-option",
+                    "the options of a variant's field are `deref` and `via = route`",
+                    "trait_named_on_a_variants_field",
+                )
+            },
+            // The block is not read, so the impl it would hold is not
+            // written.
+            Limit::MacroInBlock => Entry {
+                keeps_impl: false,
+                ..entry(
+                    "macro-in-block",
+                    "a macro invocation in a partial impl block is not read",
+                    "macro_in_a_partial_block",
+                )
+            },
             Limit::BoxSelfOnSharedPointer => entry(
                 "box-self-on-shared-pointer",
                 "which is no `Box` to hand over",
@@ -330,6 +366,12 @@ impl Limit {
             // The noun is the variant's or, on a struct, the field's.
             Limit::BoxSelfPlain => ("in a `#[dispatch(deref)]`", true),
             Limit::NamedFieldUnderWrapper => ("make it a tuple struct", false),
+            Limit::NamedVariantUnderWrapper => ("write the variant as", false),
+            Limit::VariantFieldOption => (
+                "a trait takes its own route through the variant on the enum, `via(Variant = route)`",
+                false,
+            ),
+            Limit::MacroInBlock => ("write the items out in the block", false),
             Limit::BoxSelfOnSharedPointer => ("which is no `Box` to hand over; hold a `Box`", true),
             Limit::MovesThroughSharedPointer => ("which a value cannot be moved out of; hold a `Box`", true),
             Limit::MutableBorrowThroughSharedPointer => ("hold a `Box` or a `&mut`", true),
@@ -385,7 +427,9 @@ impl Limit {
             | Limit::TryFromTypeParameter
             | Limit::ArmsDisagree
             | Limit::MismatchForAbsentMethod
-            | Limit::GenericAssociatedType => false,
+            | Limit::GenericAssociatedType
+            | Limit::VariantFieldOption
+            | Limit::MacroInBlock => false,
             Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
@@ -396,6 +440,7 @@ impl Limit {
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
             | Limit::NamedFieldUnderWrapper
+            | Limit::NamedVariantUnderWrapper
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MethodRouteOnMutSelf
@@ -433,6 +478,9 @@ impl Limit {
             | Limit::SelfReturnOtherFields
             | Limit::BoxSelfPlain
             | Limit::NamedFieldUnderWrapper
+            | Limit::NamedVariantUnderWrapper
+            | Limit::VariantFieldOption
+            | Limit::MacroInBlock
             | Limit::BoxSelfOnSharedPointer
             | Limit::MovesThroughSharedPointer
             | Limit::MutableBorrowThroughSharedPointer
@@ -518,6 +566,8 @@ pub enum Anchor {
     BlockSignature,
     /// The `#[whichever::dispatch(..)]` on a partial impl block.
     BlockAttribute,
+    /// The macro invocation in a partial impl block.
+    BlockInvocation,
     /// The declaration of the trait's generic associated type, in the
     /// trait or in its restatement.
     Associated,
@@ -536,6 +586,7 @@ impl Anchor {
             Anchor::BlockMethod => String::from("block-method"),
             Anchor::BlockSignature => String::from("block-signature"),
             Anchor::BlockAttribute => String::from("block-attribute"),
+            Anchor::BlockInvocation => String::from("block-invocation"),
             Anchor::Associated => String::from("associated"),
             Anchor::Anywhere => String::from("anywhere"),
         }

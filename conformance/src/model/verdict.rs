@@ -116,6 +116,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
+    if let Some(verdict) = unread(cell) {
+        return verdict;
+    }
     if let Some(verdict) = declared(cell) {
         return verdict;
     }
@@ -276,6 +279,43 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
         && cell.s2 == Third::Absent
         && cell.decl == Declaration::Dispatchable
         && cell.owner == Owner::Local
+}
+
+/// The subjects and blocks the macro cannot read, or `None` where the
+/// cell is judged as any other. "The marked field of a variant takes
+/// `deref` and `via = route` only: `from` and `try_from` go on the
+/// variant, and a trait named on the field [..] is reported", and "a macro
+/// invocation in a partial impl block is not read [..]. It is reported"
+/// (limits.md). Either is one sentence whatever the method, so only the
+/// axes that make it so and the variants beside it depart from the
+/// neutral cell; a cell with both is non-canonical.
+///
+/// Open question: the documents do not say whether a sentence about the
+/// other variants' shapes, a unit variant say, is reported beside one that
+/// stops the subject or the block from being read; the macro's `tests/ui`
+/// cases hold the sentence alone, and so does the model.
+fn unread(cell: &Cell) -> Option<Verdict> {
+    let refused = cell.s0.descriptor().refused;
+    let invocation = cell.path.descriptor().invocation;
+    if !refused && !invocation {
+        return None;
+    }
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: cell.s1,
+        s2: cell.s2,
+        path: cell.path,
+        ..Cell::neutral()
+    };
+    let path_departs = cell.path != super::Path::Attribute && !invocation;
+    if *cell != neutral || (refused && invocation) || path_departs {
+        return Some(Verdict::NonCanonical);
+    }
+    let (limit, anchor) = match refused {
+        true => (Limit::VariantFieldOption, Anchor::Variant(0)),
+        false => (Limit::MacroInBlock, Anchor::BlockInvocation),
+    };
+    Some(Verdict::Limit(vec![Expected { limit, anchor }]))
 }
 
 /// The shapes a restated enum takes (restatements.md, "Enums from other
@@ -1186,15 +1226,24 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // through a path, is reported on the field; `-> Self` is rebuilt by
     // the braces (docs/decisions/a-named-field-is-not-rebuilt-under-a-
     // wrapper.md).
-    let named = cell.s0.descriptor().form == Form::StructNamed;
-    if named
-        && rewraps
+    //
+    // "The same holds for a variant whose one field is named and marked,
+    // `Named { #[dispatch] shape: Square }`: write it as a tuple variant"
+    // (limits.md); its sentence names the variant and the tuple variant.
+    let mapped = rewraps
         && forwarded
         && node
             .conversion()
-            .is_some_and(|conversion| maps(&conversion))
-    {
+            .is_some_and(|conversion| maps(&conversion));
+    if mapped && cell.s0.descriptor().form == Form::StructNamed {
         expect(Limit::NamedFieldUnderWrapper, Anchor::Variant(0));
+    }
+    if mapped {
+        for (slot, _, target) in &method_live {
+            if target.form == Form::MarkedNamed {
+                expect(Limit::NamedVariantUnderWrapper, Anchor::Variant(slot.index));
+            }
+        }
     }
 
     // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain

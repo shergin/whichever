@@ -44,6 +44,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::BlockInvocation
         | Anchor::Associated
         | Anchor::Anywhere => None,
     };
@@ -161,6 +162,9 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::SelfReturnOtherFields
         | Limit::BoxSelfPlain
         | Limit::NamedFieldUnderWrapper
+        | Limit::NamedVariantUnderWrapper
+        | Limit::VariantFieldOption
+        | Limit::MacroInBlock
         | Limit::UnsuppliedType
         | Limit::DefaultWithoutDefault
         | Limit::BodyNeverRuns
@@ -273,6 +277,29 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             push(Some(format!("{method} returns `Self` inside")));
             push(Some(String::from("`E` has a named field")));
         }
+        // The variant, and the tuple variant a path builds, over the type
+        // its field holds as written.
+        Limit::NamedVariantUnderWrapper => {
+            push(Some(format!("{method} returns `Self` inside")));
+            push(variant.map(|variant| format!("{variant} holds its payload in a named field")));
+            push(
+                slot.zip(stored).map(|(slot, stored)| {
+                    format!("write the variant as `{}({stored})`", slot.name())
+                }),
+            );
+        }
+        // The option as the field's attribute spells it, by its key.
+        Limit::VariantFieldOption => {
+            let key = target.and_then(|(_, target)| target.option).map(|option| {
+                option
+                    .split(|character: char| !character.is_alphanumeric() && character != '_')
+                    .next()
+                    .unwrap_or(option)
+                    .to_owned()
+            });
+            push(key.map(|key| format!("unknown option `{key}`")));
+        }
+        Limit::MacroInBlock => {}
         Limit::BoxSelfOnSharedPointer
         | Limit::MovesThroughSharedPointer
         | Limit::MutableBorrowThroughSharedPointer => {

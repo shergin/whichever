@@ -41,6 +41,9 @@ pub struct PathDescriptor {
     pub mark: Option<&'static str>,
     /// Whether the block holds the method under test.
     pub in_block: bool,
+    /// Whether the block holds a macro invocation, which the block's
+    /// reader cannot see into and reports (limits.md).
+    pub invocation: bool,
 }
 
 impl Path {
@@ -51,6 +54,7 @@ impl Path {
             form,
             mark,
             in_block,
+            invocation: false,
         };
         match self {
             Path::Attribute => with(Site::Attribute, Form::Forwarded, None, false),
@@ -61,6 +65,10 @@ impl Path {
             Path::BlockWritten => with(Site::Block, Form::Written, None, true),
             Path::Inherent => with(Site::Inherent, Form::Forwarded, Some("*"), true),
             Path::InherentSome => with(Site::Inherent, Form::First, Some("A"), true),
+            Path::BlockMacro => PathDescriptor {
+                invocation: true,
+                ..with(Site::Block, Form::Forwarded, None, false)
+            },
         }
     }
 }
