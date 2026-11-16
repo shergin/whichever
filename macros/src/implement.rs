@@ -27,8 +27,7 @@ use crate::shape::{takes_self_argument, ReturnSite};
 use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{
-    allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, shape_errors, targets,
-    Entry, Subject, Target,
+    allow_deprecated, carried_attributes, cfg_attributes, is_deprecated, Entries, Subject, Target,
 };
 use crate::substitution::Substitution;
 
@@ -94,21 +93,17 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             &quote_spanned!(*site => impl #impl_generics #spec_path for #subject_path #ty_generics),
         )
     };
-    let mut entries = subject.entries_for(Some(&spec_path))?;
+    let mut entries = subject.read()?.for_trait(&spec_path)?;
     // A partial block's header may name the subject's parameters as it
     // likes, `impl<U> Trait for Kind<U>` over `enum Kind<T>`; the payloads
     // are spelled with the names the subject declared, and follow.
     if let Some(block) = &partial {
         if let Some(mut renaming) = Substitution::of_subject(subject.generics(), &block.self_ty) {
-            for entry in &mut entries {
-                if let Entry::Target(target) = entry {
-                    renaming.visit_type_mut(&mut target.payload);
-                }
-            }
+            entries.rename(&mut renaming);
         }
     }
-    let route_errors = apply_routes(&spec, &mut entries, &subject);
-    let variants = targets(&entries);
+    let route_errors = entries.route(&spec.routes);
+    let variants = entries.targets();
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and
     // nothing else supplies. A partial block's header is the user's and is
@@ -129,7 +124,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         // Every variant was rejected, each with its own sentence; an impl
         // with nothing to forward to would only add rustc's errors to them.
         return Ok(match &partial {
-            Some(_) => shape_errors(&entries, None),
+            Some(_) => entries.shape_errors(None),
             None => TokenStream2::new(),
         });
     }
@@ -139,7 +134,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // a method has no type to project from.
     let first = variants
         .iter()
-        .find(|target| target.cfgs.is_empty() && target.target_type().is_some())
+        .find(|target| !target.entry.is_conditional() && target.target_type().is_some())
         .copied();
     let supplier = Supplier {
         first,
@@ -230,7 +225,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // every method names its variants leaves such a variant to the bodies.
     let shape_errors = match &partial {
         Some(_) if !plain_forwarding.is_never() => {
-            shape_errors(&entries, plain_forwarding.attribute(*site).as_ref())
+            entries.shape_errors(plain_forwarding.attribute(*site).as_ref())
         }
         _ => TokenStream2::new(),
     };
@@ -245,29 +240,6 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         #shape_errors
         #reported
     })
-}
-
-/// Applies the trait's own routes, `via(Variant = ..)`, to the entries they
-/// name, and returns the error for each that names no variant.
-fn apply_routes(spec: &TraitSpec, entries: &mut [Entry], subject: &Subject) -> Vec<Error> {
-    let mut errors = vec![];
-    for (variant, route) in &spec.routes {
-        let target = entries.iter_mut().find_map(|entry| match entry {
-            Entry::Target(target) if target.ident == *variant => Some(target),
-            _ => None,
-        });
-        match target {
-            Some(target) => target.route = route.clone(),
-            None => errors.push(Error::new(
-                variant.span(),
-                format!(
-                    "`{}` has no variant `{variant}` to route through",
-                    subject.ident()
-                ),
-            )),
-        }
-    }
-    errors
 }
 
 /// Returns the errors for the options naming nothing in the trait: an
@@ -638,7 +610,7 @@ fn unknown_override_hint(
 /// payload is the type parameter `Param` of `declared`, each bound once.
 fn with_payload_bounds(
     generics: &Generics,
-    variants: &[&Target],
+    variants: &[Target],
     declared: &Generics,
     trait_path: &Path,
 ) -> Generics {
@@ -909,7 +881,7 @@ impl<'a> ImplHeader<'a> {
 /// Where an associated item that is not overridden comes from: the first
 /// variant that is always compiled in, when there is one.
 struct Supplier<'a> {
-    first: Option<&'a Target>,
+    first: Option<Target<'a>>,
     subject: &'a Ident,
     trait_path: &'a Path,
 }
@@ -1090,7 +1062,7 @@ fn trait_object_refusal(
     let method = &function.sig.ident;
     Some(Error::new_spanned(
         &function.sig,
-        format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident),
+        format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident()),
     ))
 }
 
@@ -1112,7 +1084,7 @@ struct Fallback {
 /// `cfg`, which is the one case the lint is allowed for.
 fn fallback_for(
     plan: &MethodPlan,
-    entries: &[Entry],
+    entries: &Entries,
     subject: &Subject,
     forwarded: Option<&Forwarded>,
     mismatch: Option<Expr>,
@@ -1121,12 +1093,11 @@ fn fallback_for(
 ) -> Result<Fallback> {
     let always_present = entries
         .iter()
-        .filter(|entry| matches!(entry, Entry::Target(target) if target.cfgs.is_empty()))
+        .filter(|entry| entry.target().is_some() && !entry.is_conditional())
         .count();
-    let conditional = entries.iter().any(|entry| match entry {
-        Entry::Target(target) => !target.cfgs.is_empty(),
-        Entry::Unforwardable(_) => true,
-    });
+    let conditional = entries
+        .iter()
+        .any(|entry| entry.is_conditional() || entry.unforwardable().is_some());
     if let Some(body) = forwarded.and_then(|forwarded| forwarded.body.as_ref()) {
         return Ok(Fallback {
             arm: Some(Arm::rest(body.to_token_stream(), context.site)),
@@ -1181,7 +1152,7 @@ fn error_body(signature: &Signature, carried: Vec<Attribute>, error: Error) -> T
 
 /// What every method of one trait's impl is written against.
 struct MethodContext<'a> {
-    entries: &'a [Entry],
+    entries: &'a Entries<'a>,
     subject: &'a Subject,
     /// The subject's real path, for patterns and values: its own name, or
     /// the path a restatement names.
@@ -1294,7 +1265,7 @@ fn forward_trait_method(
             Some(error) => plan.sentence_arm(target, &context, error),
             None => plan.arm_or_sentence(target, &context),
         };
-    let mut arms = Vec::with_capacity(entries.len());
+    let mut arms = vec![];
     match &selection {
         Some(selection) => {
             for target in &selection.targets {
@@ -1302,23 +1273,23 @@ fn forward_trait_method(
             }
         }
         None => {
-            for entry in entries {
-                match entry {
-                    Entry::Target(target) => arms.push(arm_for(target)),
+            for entry in entries.iter() {
+                match entry.target() {
+                    Some(target) => arms.push(arm_for(&target)),
                     // The variant is reported elsewhere, under its `cfg`;
                     // this arm only keeps the `match` exhaustive while that
                     // error stands, which the fallback arm does when there
                     // is one.
-                    Entry::Unforwardable(unforwardable) if !plan.has_same_variant() => {
+                    None if !plan.has_same_variant() => {
                         let site = context.site;
                         arms.push(Arm::unforwardable(
                             &context.prefix,
-                            unforwardable,
+                            entry,
                             plan.standing_in(site),
                             site,
                         ));
                     }
-                    Entry::Unforwardable(_) => {}
+                    None => {}
                 }
             }
         }

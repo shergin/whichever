@@ -8,7 +8,7 @@ use syn::{Attribute, Block, Error, Ident, Meta, Path, Result, Signature, Token, 
 use crate::forwarding::Arm;
 use crate::options::{is_dispatch_attribute, ForwardingOptions};
 use crate::site::Site;
-use crate::subject::{targets, Entry, Subject, Target, Unforwardable};
+use crate::subject::{Entries, Subject, Target};
 
 /// A method declared without a body, which `syn` leaves as verbatim tokens.
 pub(crate) struct BodylessMethod {
@@ -61,8 +61,8 @@ pub(crate) fn one_attribute(
 /// method's own route when it gives one; the arms for the variants `*`
 /// cannot reach; and whether every variant is covered, so that a body
 /// would never run.
-pub(crate) struct Selection {
-    pub(crate) targets: Vec<Target>,
+pub(crate) struct Selection<'a> {
+    pub(crate) targets: Vec<Target<'a>>,
     pub(crate) unforwardable_arms: Vec<Arm>,
     pub(crate) covers_all: bool,
 }
@@ -71,57 +71,43 @@ pub(crate) struct Selection {
 /// under `*`. Under `*`, a variant that holds no payload cannot be
 /// forwarded to and the method has no body to fall back on, so the arm for
 /// it is an error, which fires only when the variant is compiled in.
-pub(crate) fn select_targets(
-    forwarding: &ForwardingOptions,
-    entries: &[Entry],
+pub(crate) fn select_targets<'a>(
+    forwarding: &'a ForwardingOptions,
+    entries: &'a Entries,
     prefix: &Path,
     method: &Ident,
     subject: &Subject,
-) -> Result<Selection> {
+) -> Result<Selection<'a>> {
     let subject_ident = subject.ident();
     let noun = subject.target_noun();
-    let variants = targets(entries);
     let mut unforwardable_arms = vec![];
     let selected: Vec<Target> = if forwarding.all {
-        for entry in entries {
-            if let Entry::Unforwardable(unforwardable) = entry {
-                let Unforwardable { ident, reason, .. } = unforwardable;
+        for entry in entries.iter() {
+            if let Some(unforwardable) = entry.unforwardable() {
+                let (ident, reason) = (&entry.ident, &unforwardable.reason);
                 let message = format!("`{method}` is forwarded to every variant, but `{ident}` {reason}; name the variants with a payload and give the method a body for the rest");
                 unforwardable_arms.push(Arm::unforwardable(
                     prefix,
-                    unforwardable,
+                    entry,
                     quote_spanned! { method.span() => ::core::compile_error!(#message) },
                     Site::at(method.span()),
                 ));
             }
         }
-        // On a struct `*` is the field marked bare, or the one field; on an
-        // enum, every variant. The struct's field is taken from the entries
-        // where they hold it, since a partial block's header renames the
-        // payloads there and not in the struct the target is read from.
-        match subject.star_target()? {
-            Some(star) => vec![variants
-                .iter()
-                .find(|target| target.ident == star.ident)
-                .map(|target| (*target).clone())
-                .unwrap_or(star)],
-            None => variants.iter().map(|target| (*target).clone()).collect(),
-        }
+        // On an enum `*` is every variant; on a struct, the field the trait
+        // is forwarded to, or in an inherent block the field marked bare or
+        // the one field.
+        entries.star()?
     } else {
         forwarding
             .variants
             .iter()
             .map(|name| {
-                if let Some(target) = variants.iter().find(|target| &target.ident == name) {
-                    return Ok((*target).clone());
+                let entry = entries.iter().find(|entry| entry.ident == *name);
+                if let Some(target) = entry.and_then(|entry| entry.target()) {
+                    return Ok(target);
                 }
-                let unforwardable = entries.iter().find_map(|entry| match entry {
-                    Entry::Unforwardable(unforwardable) if &unforwardable.ident == name => {
-                        Some(unforwardable)
-                    }
-                    _ => None,
-                });
-                let message = match unforwardable {
+                let message = match entry.and_then(|entry| entry.unforwardable()) {
                     Some(unforwardable) => format!(
                         "`{name}` {}, so nothing can be forwarded to it",
                         unforwardable.reason
@@ -135,18 +121,15 @@ pub(crate) fn select_targets(
     // A struct always holds every field it names, so one field covers it.
     let covers_all = forwarding.all
         || subject.has_one_target()
-        || entries.iter().all(|entry| match entry {
-            Entry::Target(target) => forwarding.variants.contains(&target.ident),
-            Entry::Unforwardable(_) => false,
-        });
+        || entries
+            .iter()
+            .all(|entry| entry.target().is_some() && forwarding.variants.contains(&entry.ident));
     // The method's own route, when it gives one, over the variants'.
     let targets = selected
         .into_iter()
-        .map(|mut target| {
-            if let Some(route) = &forwarding.via {
-                target.route = route.clone();
-            }
-            target
+        .map(|target| match &forwarding.via {
+            Some(route) => target.through(route),
+            None => target,
         })
         .collect();
     Ok(Selection {

@@ -27,7 +27,7 @@ use crate::shape::{
 };
 use crate::site::Site;
 use crate::spelling;
-use crate::subject::{Entry, Place, Target, Unforwardable};
+use crate::subject::{Entries, Entry, Holder, Target};
 
 /// Returns an identifier with `macro_rules`-style hygiene, which can never
 /// collide with one the user wrote, located at `site` as every other token
@@ -249,11 +249,8 @@ impl MethodPlan {
     /// and so does the engine, for a reference receiver. A `Self` argument
     /// is matched beside the receiver in a tuple, which has the fallback
     /// arm in every build and stays as it is.
-    pub(crate) fn over(mut self, entries: &[Entry]) -> Self {
-        let always_present = entries.iter().any(|entry| match entry {
-            Entry::Target(target) => target.cfgs.is_empty(),
-            Entry::Unforwardable(unforwardable) => unforwardable.cfgs.is_empty(),
-        });
+    pub(crate) fn over(mut self, entries: &Entries) -> Self {
+        let always_present = entries.iter().any(|entry| !entry.is_conditional());
         self.by_place = self.binds_references() && self.same_variant.is_empty() && !always_present;
         self.may_be_empty = !always_present;
         self
@@ -427,7 +424,7 @@ impl MethodPlan {
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
                     Some((_, access)) => payload_expression(
-                        &target.route,
+                        target.route,
                         *access,
                         &Self::same_binding(index, site),
                         site,
@@ -451,7 +448,7 @@ impl MethodPlan {
             site,
         } = context;
         let site = *site;
-        let Target { payload, route, .. } = target;
+        let Target { payload, route, .. } = *target;
         let target_ident = target.spoken(subject);
         // Under a lift the payload returns the plain value and the lift
         // wraps the rebuilt variant into the declared `Option` or `Result`.
@@ -809,14 +806,13 @@ impl Arm {
     /// result; it carries the variant's `cfg` like any other arm.
     pub(crate) fn unforwardable(
         prefix: &Path,
-        unforwardable: &Unforwardable,
+        entry: &Entry,
         value: TokenStream2,
         site: Site,
     ) -> Self {
-        let ident = &unforwardable.ident;
         Arm {
-            cfgs: unforwardable.arm_attributes(site),
-            pattern: quote_spanned!(*site => #prefix::#ident { .. }),
+            cfgs: entry.arm_attributes(site),
+            pattern: entry.whole(prefix, site),
             value,
             site,
         }
@@ -976,7 +972,7 @@ fn receiver_expression(
     let ArmContext { method, site, .. } = context;
     let site = *site;
     match kind {
-        ReceiverKind::Value(access) => Ok(payload_expression(&target.route, access, binding, site)),
+        ReceiverKind::Value(access) => Ok(payload_expression(target.route, access, binding, site)),
         ReceiverKind::Boxed => {
             if !target.holds_box() {
                 let ident = target.spoken(context.subject);
@@ -997,9 +993,9 @@ fn receiver_expression(
                 {
                     // The variant by its name; a struct's one field is
                     // what the span points at.
-                    let to = match target.place {
-                        Place::Variant { .. } => format!("`{ident}`"),
-                        Place::Field { .. } => String::from("the field"),
+                    let to = match target.place.holder {
+                        Holder::Variant(_) => format!("`{ident}`"),
+                        Holder::Struct => String::from("the field"),
                     };
                     format!("add `#[dispatch(deref)]` to {to}")
                 } else {
@@ -1013,7 +1009,7 @@ fn receiver_expression(
             Ok(quote_spanned!(*site => #binding))
         }
         ReceiverKind::Pinned(access) => {
-            let payload = payload_expression(&target.route, access, binding, site);
+            let payload = payload_expression(target.route, access, binding, site);
             Ok(quote_spanned!(*site => ::core::pin::Pin::new(#payload)))
         }
     }

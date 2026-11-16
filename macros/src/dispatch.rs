@@ -14,7 +14,7 @@ use crate::options::{
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
-use crate::subject::{shape_errors, Entry, Subject};
+use crate::subject::{Entries, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
 /// resolved through `proc-macro-crate`.
@@ -39,7 +39,7 @@ pub(crate) fn expand_subject(
     let captured = subject;
     let mut emitted = Some(captured.clone().without_inner_attributes());
     let readable = captured
-        .entries()
+        .read()
         .and_then(|entries| Ok((entries, facade_ident()?)));
     let (entries, facade) = match readable {
         Ok(readable) => readable,
@@ -101,13 +101,13 @@ pub(crate) fn expand_subject(
         .collect();
     // A trait a field names is one the struct's attribute dispatches; a
     // field's mark for any other is dead, and says so.
-    for (field, path) in captured.field_traits() {
-        let spelled = trait_key(&path);
+    for (field, path) in entries.field_traits() {
+        let spelled = trait_key(path);
         if dispatched.iter().any(|known| trait_key(known) == spelled) {
             continue;
         }
         errors.push(Error::new_spanned(
-            &path,
+            path,
             format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
         ));
     }
@@ -117,7 +117,7 @@ pub(crate) fn expand_subject(
     let shape_errors = if dispatched.is_empty() {
         TokenStream2::new()
     } else {
-        shape_errors(&entries, None)
+        entries.shape_errors(None)
     };
     let mut invocations = TokenStream2::new();
     for attribute in &attributes {
@@ -191,7 +191,7 @@ fn take_dispatch_attributes(
 /// none, and a switch on one is an error.
 fn conversions(
     subject: &Subject,
-    entries: &[Entry],
+    entries: &Entries,
     attributes: &[DispatchAttribute],
     errors: &mut Vec<Error>,
 ) -> TokenStream2 {

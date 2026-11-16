@@ -7,7 +7,7 @@ use syn::{parse_quote, Error, GenericParam, Ident, Lifetime, Path, Type};
 use crate::options::{IntoTarget, TryFromForms};
 use crate::shape::bare_ident;
 use crate::site::Site;
-use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target};
+use crate::subject::{Conversions, Entries, SelfReplacer, Subject, Target};
 
 /// Writes the `From<Payload>`, `TryFrom<Enum>` and `From<Enum> for Target`
 /// impls that were asked for. A payload whose impl cannot be written is
@@ -16,7 +16,7 @@ use crate::subject::{targets, Conversions, Entry, SelfReplacer, Subject, Target}
 /// stands alone.
 pub(crate) fn conversion_impls(
     subject: &Subject,
-    entries: &[Entry],
+    entries: &Entries,
     from: bool,
     try_from: TryFromForms,
     into: &[&IntoTarget],
@@ -27,7 +27,8 @@ pub(crate) fn conversion_impls(
     let prefix = Path::from(enum_ident.clone());
     let self_path: Path = parse_quote!(Self);
     let self_type: Type = parse_quote!(#enum_ident #ty_generics);
-    let converting: Vec<(&Target, Conversions)> = targets(entries)
+    let converting: Vec<(Target, Conversions)> = entries
+        .targets()
         .into_iter()
         .filter_map(|target| Some((target, target.conversions()?)))
         .filter(|(_, conversions)| conversions.from)
@@ -52,7 +53,7 @@ pub(crate) fn conversion_impls(
     let site = Site::at(enum_ident.span());
     let mut output = TokenStream2::new();
     for (target, conversions) in &converting {
-        let Target { payload, .. } = target;
+        let Target { payload, .. } = *target;
         if payload_counts[&payload.to_token_stream().to_string()] > 1 {
             continue;
         }
@@ -153,29 +154,33 @@ pub(crate) fn conversion_impls(
     for IntoTarget { key, target } in into {
         let mut arms = vec![];
         let mut whole = true;
-        for entry in entries {
-            match entry {
-                Entry::Target(variant) if variant.conversions().is_some() => {
+        for entry in entries.iter() {
+            match entry.target() {
+                Some(variant) if variant.conversions().is_some() => {
                     let pattern = variant.pattern(&prefix, &value, site);
                     let cfgs = variant.arm_attributes(site);
                     arms.push(
                         quote! { #(#cfgs)* #pattern => ::core::convert::Into::into(#value), },
                     );
                 }
-                Entry::Target(variant) => {
+                Some(variant) => {
                     whole = false;
                     errors.push(Error::new(
                         key.span(),
-                        format!("`into` converts every variant's payload, and `{}` has other fields beside its payload, or is left out with `from = false`", variant.ident),
+                        format!("`into` converts every variant's payload, and `{}` has other fields beside its payload, or is left out with `from = false`", variant.ident()),
                     ));
                 }
-                Entry::Unforwardable(unforwardable) => {
+                None => {
                     whole = false;
+                    let reason = entry
+                        .unforwardable()
+                        .map(|unforwardable| unforwardable.reason.as_str())
+                        .unwrap_or_default();
                     errors.push(Error::new(
                         key.span(),
                         format!(
                             "`into` converts every variant's payload, and `{}` {}",
-                            unforwardable.ident, unforwardable.reason
+                            entry.ident, reason
                         ),
                     ));
                 }
@@ -201,8 +206,8 @@ pub(crate) fn conversion_impls(
 
 /// Returns the payload of `target` when it is a bare type parameter of the
 /// subject.
-fn type_parameter<'t>(subject: &Subject, target: &'t Target) -> Option<&'t Ident> {
-    bare_ident(&target.payload).filter(|ident| {
+fn type_parameter<'t>(subject: &Subject, target: &Target<'t>) -> Option<&'t Ident> {
+    bare_ident(target.payload).filter(|ident| {
         subject
             .generics()
             .params

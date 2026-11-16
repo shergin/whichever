@@ -144,6 +144,46 @@ pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
     }
 }
 
+/// What a payload that points at its target is, by the name its path ends
+/// in or by being a reference.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pointer {
+    /// A `Box`, the one pointer a value is moved out of by dereferencing.
+    Box,
+    /// An `Rc`, an `Arc` or a `&T`, which lend what they point at shared
+    /// and never exclusively.
+    Shared,
+    /// Anything else, a `&mut T` included, which is rustc's to judge.
+    Other,
+}
+
+impl Pointer {
+    /// Reads what kind of pointer `payload` is.
+    pub(crate) fn of(payload: &Type) -> Self {
+        match payload {
+            Type::Reference(reference) if reference.mutability.is_none() => Pointer::Shared,
+            Type::Reference(_) => Pointer::Other,
+            other => match last_segment(other) {
+                Some(segment) if segment.ident == "Box" => Pointer::Box,
+                Some(segment) if segment.ident == "Rc" || segment.ident == "Arc" => Pointer::Shared,
+                _ => Pointer::Other,
+            },
+        }
+    }
+}
+
+/// Returns what a pointer type points at: the referent of a reference, or
+/// the one type argument of a path, `T` of `Box<T>` or `Rc<T>`.
+pub(crate) fn pointee(payload: &Type) -> Option<&Type> {
+    match payload {
+        Type::Reference(reference) => Some(&*reference.elem),
+        other => match last_segment(other).map(generic_type_args) {
+            Some(arguments) if arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        },
+    }
+}
+
 /// How a method spells the future it returns.
 #[derive(Clone)]
 pub(crate) enum FutureShape {

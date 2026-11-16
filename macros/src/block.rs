@@ -17,7 +17,7 @@ use crate::selection::{check_body, one_attribute, select_targets, BodylessMethod
 use crate::shape::{place_borrow, ReturnSite};
 use crate::site::Site;
 use crate::spelling;
-use crate::subject::{Entry, Subject};
+use crate::subject::{Entries, Subject};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
@@ -87,7 +87,7 @@ pub(crate) fn expand_inherent(
     let variants = if rejected {
         None
     } else {
-        Some(subject.entries()?)
+        Some(subject.read()?)
     };
     let mut items = Vec::with_capacity(item_impl.items.len());
     let mut errors: Vec<Error> = vec![];
@@ -173,7 +173,7 @@ pub(crate) fn forward_method(
     sig: &Signature,
     body: Option<&Block>,
     forwarding: ForwardingOptions,
-    entries: &[Entry],
+    entries: &Entries,
     subject: &Subject,
 ) -> Result<TokenStream2> {
     let subject_ident = subject.ident();
