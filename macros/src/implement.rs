@@ -194,8 +194,12 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         &subject,
         partial.is_none(),
     ));
-    if let Some(error) = combined(errors) {
-        return Err(error);
+    // An item that withholds the impl is reported with the errors that
+    // would have stood beside it, so that none waits for the next build.
+    if !errors.is_empty() {
+        let mut errors = errors;
+        errors.extend(reported);
+        return Err(combined(errors).expect("at least one error"));
     }
     let reported = combined(reported).map(|error| error.to_compile_error());
     // The checks live outside the impl, where a `Self` in a payload type
