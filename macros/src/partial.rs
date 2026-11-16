@@ -72,8 +72,14 @@ impl PartialBlock {
                     Some((&assoc.ident, &assoc.attrs))
                 }
                 ImplItem::Const(constant) => Some((&constant.ident, &constant.attrs)),
-                // An item of another kind, a macro invocation say, names
-                // nothing the trait's items can be told from.
+                // What a macro writes is not seen here, so an item it
+                // writes would be forwarded as well and defined twice.
+                ImplItem::Macro(invocation) => {
+                    return Err(Error::new_spanned(
+                        invocation,
+                        "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
+                    ));
+                }
                 _ => None,
             };
             if let Some((name, attrs)) = named {
