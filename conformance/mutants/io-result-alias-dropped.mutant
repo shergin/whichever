@@ -5,6 +5,6 @@ expect: killed
 find:
             // `io::Result<T>`: the alias fixes the error type.
             ("Result", [inner]) => Some(Conversion::Map(Box::new(classify(
-                inner, whole, spec, site,
+                inner, whole, options, site,
             )?))),
 replace:

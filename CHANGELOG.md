@@ -5,6 +5,45 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a variant whose one field is named and marked, `Named {
+  #[dispatch] shape: Square }`, was read as a field beside others, so a
+  method returning `Self` was refused with "cannot be built around the
+  other fields of `Named`", fields the variant does not have. It is now
+  rebuilt by its braces, `Named { shape: value }`, as a struct with one
+  named field is. Under `Option<Self>` or `Result<Self, E>`, which a path
+  rebuilds and no path builds such a variant, the sentence names the tuple
+  variant as the way around: "write the variant as `Named(Square)`". The
+  variant still gets no `From` or `TryFrom`. The `tests/ui` case
+  `self_in_an_option_over_a_variants_named_field`, the golden
+  `named_field_variant` and the behaviour test
+  `rebuilt_named_field_variants` are new; no other snapshot and no golden
+  changed.
+- Before, a trait named on a variant's field, `Node { #[dispatch(Shape)]
+  data: Data, id: u32 }`, was accepted and ignored, since a variant's field
+  was read with a struct field's grammar. It is now one sentence: the
+  options of a variant's field are `deref` and `via = route`, and a trait
+  takes its own route through the variant on the enum, `via(Variant =
+  route)`. `from` and `try_from` on a variant's field are reported the same
+  way. The `tests/ui` case `trait_named_on_a_variants_field` is new.
+- Before, a macro invocation in a partial impl block was dropped without a
+  word, and the forwarding stood in place of the items it would have
+  written. It is now one sentence on the invocation; write the items out
+  in the block. The `tests/ui` case `macro_in_a_partial_block` is new.
+- Before, a second `#[dispatch(..)]` after `#[dispatch(default)]` on a
+  method of a partial impl block was ignored. It is now reported, "one
+  `#[dispatch(..)]` per method", as a second mark in any other order
+  already was. The `tests/ui` case `block_default_marked_twice` is new.
+- Before, when an item withheld the impl, such as an associated type the
+  block declares under `#[cfg]`, its error was reported alone, and an
+  option naming nothing in the trait or a route through no variant showed
+  only in the next build. They are now reported together. An error that
+  stops the partial block from being read, such as the macro invocation
+  above, is still reported alone. The `tests/ui` case
+  `withheld_impl_keeps_the_errors_beside_it` is new.
+- The macro crate's modules were reorganised around the concepts they
+  hold; `macros/ARCHITECTURE.md` describes the new shape. No expansion
+  changed.
+
 ## 0.8.0 - 2026-11-15
 
 The fixes of the surveys of acadrust 0.6.8 and mp4-atom 0.17.1, and the

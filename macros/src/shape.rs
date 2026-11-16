@@ -5,10 +5,11 @@ use quote::ToTokens;
 use syn::visit::Visit;
 use syn::{
     Error, FnArg, GenericArgument, GenericParam, Ident, Path, PathArguments, PathSegment, Receiver,
-    Result, ReturnType, Signature, Token, Type, TypeParamBound, TypePath,
+    Result, ReturnType, Signature, Type, TypeParamBound, TypePath,
 };
 
-use crate::options::TraitSpec;
+use crate::options::TraitOptions;
+use crate::refusal::WayOut;
 
 /// Returns the identifier of a bare single-segment path type without
 /// arguments, such as a type parameter or a primitive.
@@ -67,6 +68,37 @@ impl Conversion {
         }
     }
 
+    /// Returns what rewrapping asks of a target: whether a `Self` is
+    /// rebuilt around the payload's result as it stands, and whether one
+    /// under an `Option` or a `Result` is rebuilt by the path `.map(..)`
+    /// takes.
+    pub(crate) fn rebuilds(&self) -> Rebuilds {
+        match self {
+            Conversion::Keep | Conversion::Into => Rebuilds::default(),
+            Conversion::Rewrap => Rebuilds {
+                whole: true,
+                by_path: false,
+            },
+            Conversion::Map(inner) => Rebuilds {
+                whole: false,
+                by_path: **inner == Conversion::Rewrap,
+            },
+            Conversion::MapErr(value, error) => Rebuilds {
+                whole: false,
+                by_path: **value == Conversion::Rewrap || **error == Conversion::Rewrap,
+            },
+            Conversion::Tuple(items) => {
+                items
+                    .iter()
+                    .map(Conversion::rebuilds)
+                    .fold(Rebuilds::default(), |all, item| Rebuilds {
+                        whole: all.whole || item.whole,
+                        by_path: all.by_path || item.by_path,
+                    })
+            }
+        }
+    }
+
     /// Returns whether the conversion is a path a `.map(..)` can take:
     /// nothing, the variant's constructor, or `Into::into`.
     fn is_a_path(&self) -> bool {
@@ -91,6 +123,17 @@ impl Conversion {
             other => other,
         }
     }
+}
+
+/// What a conversion that rewraps `Self` asks of the target it rewraps
+/// into.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Rebuilds {
+    /// The subject is built around a value: by the variant's or the
+    /// struct's name, or by its braces.
+    pub(crate) whole: bool,
+    /// The subject is built by a path, which `.map(..)` takes.
+    pub(crate) by_path: bool,
 }
 
 pub(crate) fn single_segment(ty: &Type) -> Option<&PathSegment> {
@@ -141,6 +184,46 @@ pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
             qself: None, path, ..
         }) => path.segments.last(),
         _ => None,
+    }
+}
+
+/// What a payload that points at its target is, by the name its path ends
+/// in or by being a reference.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pointer {
+    /// A `Box`, the one pointer a value is moved out of by dereferencing.
+    Box,
+    /// An `Rc`, an `Arc` or a `&T`, which lend what they point at shared
+    /// and never exclusively.
+    Shared,
+    /// Anything else, a `&mut T` included, which is rustc's to judge.
+    Other,
+}
+
+impl Pointer {
+    /// Reads what kind of pointer `payload` is.
+    pub(crate) fn of(payload: &Type) -> Self {
+        match payload {
+            Type::Reference(reference) if reference.mutability.is_none() => Pointer::Shared,
+            Type::Reference(_) => Pointer::Other,
+            other => match last_segment(other) {
+                Some(segment) if segment.ident == "Box" => Pointer::Box,
+                Some(segment) if segment.ident == "Rc" || segment.ident == "Arc" => Pointer::Shared,
+                _ => Pointer::Other,
+            },
+        }
+    }
+}
+
+/// Returns what a pointer type points at: the referent of a reference, or
+/// the one type argument of a path, `T` of `Box<T>` or `Rc<T>`.
+pub(crate) fn pointee(payload: &Type) -> Option<&Type> {
+    match payload {
+        Type::Reference(reference) => Some(&*reference.elem),
+        other => match last_segment(other).map(generic_type_args) {
+            Some(arguments) if arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        },
     }
 }
 
@@ -219,9 +302,9 @@ pub(crate) struct ReturnSite<'a> {
     /// `match` over it has one arm and an opaque return type is the one
     /// type that arm returns.
     pub(crate) one_target: bool,
-    /// The way out a message offers: an impl by hand on the trait path, a
+    /// The ways out a message offers: an impl by hand on the trait path, a
     /// body on the inherent path.
-    pub(crate) by_hand: &'a str,
+    pub(crate) way_out: WayOut,
     /// The trait's default a provided method can be left to: the method's
     /// name and the partial impl block that says so, spelled out. A
     /// required method has none, and neither has an inherent method.
@@ -230,7 +313,7 @@ pub(crate) struct ReturnSite<'a> {
 
 /// Classifies what the arms of a method must do with the payload's result,
 /// and whether the method returns a future the arms are awaited inside, in
-/// which case the classification applies to the future's `Output`. `spec`
+/// which case the classification applies to the future's `Output`. `options`
 /// carries the associated type overrides of a trait; inherent methods have
 /// none.
 ///
@@ -244,7 +327,7 @@ pub(crate) struct ReturnSite<'a> {
 /// unless its `Output` has to be converted.
 pub(crate) fn classify_return(
     output: &ReturnType,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<(Conversion, Option<FutureShape>)> {
     let ReturnType::Type(_, ty) = output else {
@@ -267,7 +350,7 @@ pub(crate) fn classify_return(
         if let Type::ImplTrait(_) = ty {
             return Ok((Conversion::Keep, None));
         }
-        let conversion = return_model(ty, spec, site)?;
+        let conversion = return_model(ty, options, site)?;
         let awaited = future.filter(|_| conversion != Conversion::Keep);
         return Ok((conversion, awaited));
     }
@@ -277,7 +360,7 @@ pub(crate) fn classify_return(
             "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
         ));
     }
-    let conversion = return_model(ty, spec, site)?;
+    let conversion = return_model(ty, options, site)?;
     let future = match future {
         Some(FutureShape::Boxed(_)) if conversion == Conversion::Keep => None,
         other => other,
@@ -314,10 +397,10 @@ fn first_impl_trait(ty: &Type) -> Option<&Type> {
 /// type.
 pub(crate) fn return_model(
     ty: &Type,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<Conversion> {
-    let conversion = classify(ty, ty, spec, site)?;
+    let conversion = classify(ty, ty, options, site)?;
     check_expressible(&conversion, ty, site)?;
     Ok(conversion)
 }
@@ -326,14 +409,14 @@ pub(crate) fn return_model(
 fn classify(
     ty: &Type,
     whole: &Type,
-    spec: Option<&TraitSpec>,
+    options: Option<&TraitOptions>,
     site: &ReturnSite,
 ) -> Result<Conversion> {
     if is_self(ty) {
         return Ok(Conversion::Rewrap);
     }
     if let Some(name) = self_assoc(ty) {
-        let overridden = spec.is_some_and(|spec| spec.is_overridden(name));
+        let overridden = options.is_some_and(|options| options.is_overridden(name));
         return Ok(if overridden {
             Conversion::Into
         } else {
@@ -344,15 +427,15 @@ fn classify(
         let arguments = generic_type_args(segment);
         let wrapped = match (segment.ident.to_string().as_str(), arguments.as_slice()) {
             ("Option", [inner]) => Some(Conversion::Map(Box::new(classify(
-                inner, whole, spec, site,
+                inner, whole, options, site,
             )?))),
             // `io::Result<T>`: the alias fixes the error type.
             ("Result", [inner]) => Some(Conversion::Map(Box::new(classify(
-                inner, whole, spec, site,
+                inner, whole, options, site,
             )?))),
             ("Result", [inner, error]) => Some(Conversion::MapErr(
-                Box::new(classify(inner, whole, spec, site)?),
-                Box::new(classify(error, whole, spec, site)?),
+                Box::new(classify(inner, whole, options, site)?),
+                Box::new(classify(error, whole, options, site)?),
             )),
             _ => None,
         };
@@ -364,7 +447,7 @@ fn classify(
         let items = tuple
             .elems
             .iter()
-            .map(|item| classify(item, whole, spec, site))
+            .map(|item| classify(item, whole, options, site))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Conversion::Tuple(items).simplified());
     }
@@ -379,7 +462,7 @@ fn classify(
 #[derive(Clone, Copy)]
 pub(crate) enum PlaceBorrow {
     /// By `&` or `&mut`: what takes the place is a reference.
-    Reference(Option<Token![mut]>),
+    Reference(Borrow),
     /// By value: what takes the place is read, and is not a reference.
     Value,
     /// As it stands: what takes the place cannot be read off the return
@@ -404,7 +487,7 @@ pub(crate) enum PlaceBorrow {
 /// whether the arm is the reference or the value.
 pub(crate) fn place_borrow(output: &ReturnType, lift: Option<&Path>) -> PlaceBorrow {
     let read = |ty: &Type| match ungrouped(ty) {
-        Type::Reference(reference) => PlaceBorrow::Reference(reference.mutability),
+        Type::Reference(reference) => PlaceBorrow::Reference(Borrow::of(reference)),
         Type::Ptr(_) | Type::ImplTrait(_) => PlaceBorrow::Unread,
         _ => PlaceBorrow::Value,
     };
@@ -452,10 +535,11 @@ fn ungrouped(mut ty: &Type) -> &Type {
 fn self_limit(whole: &Type, site: &ReturnSite) -> Error {
     let ReturnSite {
         subject,
-        by_hand,
+        way_out,
         default,
         ..
     } = site;
+    let by_hand = way_out.of_method();
     let message = match default {
         Some((method, block_header)) => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; leave the method to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
         None => format!("this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `{subject}`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or {by_hand}"),
@@ -510,12 +594,52 @@ impl<'ast> Visit<'ast> for SelfFinder {
     }
 }
 
-/// How a method reaches its receiver or a `Self` argument.
+/// How a reference borrows what it points at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Borrow {
+    Shared,
+    Exclusive,
+}
+
+impl Borrow {
+    /// Reads how `reference` borrows.
+    pub(crate) fn of(reference: &syn::TypeReference) -> Self {
+        if reference.mutability.is_some() {
+            Borrow::Exclusive
+        } else {
+            Borrow::Shared
+        }
+    }
+}
+
+/// How a method takes its receiver or a `Self` argument: by one of the two
+/// borrows, or by value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Access {
     Shared,
     Exclusive,
     Owned,
+}
+
+impl Access {
+    /// Returns the borrow the value is taken by; nothing for one taken by
+    /// value.
+    pub(crate) fn borrow(self) -> Option<Borrow> {
+        match self {
+            Access::Shared => Some(Borrow::Shared),
+            Access::Exclusive => Some(Borrow::Exclusive),
+            Access::Owned => None,
+        }
+    }
+}
+
+impl From<Borrow> for Access {
+    fn from(borrow: Borrow) -> Self {
+        match borrow {
+            Borrow::Shared => Access::Shared,
+            Borrow::Exclusive => Access::Exclusive,
+        }
+    }
 }
 
 pub(crate) enum ArgumentKind {
@@ -534,14 +658,20 @@ pub(crate) enum ReceiverKind {
     Boxed,
     /// `self: Pin<&Self>` and `self: Pin<&mut Self>`: unpinned, matched, and
     /// the payload pinned again, which needs every payload to be `Unpin`.
-    Pinned(Access),
+    Pinned(Borrow),
 }
 
-pub(crate) fn reference_access(reference: &syn::TypeReference) -> Access {
-    if reference.mutability.is_some() {
-        Access::Exclusive
-    } else {
-        Access::Shared
+impl ReceiverKind {
+    /// Returns the borrow the receiver takes the subject by, plain or
+    /// pinned, so that a pattern over it binds references; nothing for
+    /// `self` and `self: Box<Self>`, which are matched by value and bind
+    /// the payload itself.
+    pub(crate) fn borrow(self) -> Option<Borrow> {
+        match self {
+            ReceiverKind::Value(access) => access.borrow(),
+            ReceiverKind::Boxed => None,
+            ReceiverKind::Pinned(borrow) => Some(borrow),
+        }
     }
 }
 
@@ -577,7 +707,7 @@ fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
     }
     if let Type::Reference(reference) = ty {
         if is_self(&reference.elem) {
-            return Some(ReceiverKind::Value(reference_access(reference)));
+            return Some(ReceiverKind::Value(Borrow::of(reference).into()));
         }
     }
     let segment = last_segment(ty)?;
@@ -591,7 +721,7 @@ fn typed_receiver(ty: &Type) -> Option<ReceiverKind> {
     if segment.ident == "Pin" {
         if let Type::Reference(reference) = argument {
             if is_self(&reference.elem) {
-                return Some(ReceiverKind::Pinned(reference_access(reference)));
+                return Some(ReceiverKind::Pinned(Borrow::of(reference)));
             }
         }
     }
@@ -686,7 +816,10 @@ mod tests {
         ReturnSite {
             subject,
             one_target,
-            by_hand: "implement the method by hand",
+            way_out: WayOut {
+                on_trait: true,
+                has_body: false,
+            },
             default: None,
         }
     }
@@ -695,13 +828,13 @@ mod tests {
         Ident::new("Kind", proc_macro2::Span::call_site())
     }
 
-    fn model(ty: Type, spec: Option<&TraitSpec>) -> Result<Conversion> {
-        return_model(&ty, spec, &site(&kind(), false))
+    fn model(ty: Type, options: Option<&TraitOptions>) -> Result<Conversion> {
+        return_model(&ty, options, &site(&kind(), false))
     }
 
-    /// A spec fixing the associated type `name` on the enum.
-    fn overriding(name: &str) -> TraitSpec {
-        syn::parse_str(&format!("Trait, {name} = Fixed")).expect("a valid spec")
+    /// A options fixing the associated type `name` on the enum.
+    fn overriding(name: &str) -> TraitOptions {
+        syn::parse_str(&format!("{name} = Fixed")).expect("valid options")
     }
 
     #[test]
@@ -725,35 +858,35 @@ mod tests {
 
     #[test]
     fn an_overridden_associated_type_converts_in_every_position() {
-        let spec = overriding("Error");
-        let spec = Some(&spec);
+        let options = overriding("Error");
+        let options = Some(&options);
         assert_eq!(
-            model(parse_quote!(Self::Error), spec).unwrap(),
+            model(parse_quote!(Self::Error), options).unwrap(),
             Conversion::Into
         );
         assert_eq!(
-            model(parse_quote!(Option<Self::Error>), spec).unwrap(),
+            model(parse_quote!(Option<Self::Error>), options).unwrap(),
             Conversion::Map(Box::new(Conversion::Into))
         );
         assert_eq!(
-            model(parse_quote!(Result<Self, Self::Error>), spec).unwrap(),
+            model(parse_quote!(Result<Self, Self::Error>), options).unwrap(),
             Conversion::MapErr(Box::new(Conversion::Rewrap), Box::new(Conversion::Into))
         );
         assert_eq!(
-            model(parse_quote!(Self::Other), spec).unwrap(),
+            model(parse_quote!(Self::Other), options).unwrap(),
             Conversion::Keep
         );
     }
 
     #[test]
     fn a_tuple_converts_element_by_element() {
-        let spec = overriding("Out");
+        let options = overriding("Out");
         assert_eq!(
             model(parse_quote!((Self, u32)), None).unwrap(),
             Conversion::Tuple(vec![Conversion::Rewrap, Conversion::Keep])
         );
         assert_eq!(
-            model(parse_quote!((Self::Out, Option<Self>)), Some(&spec)).unwrap(),
+            model(parse_quote!((Self::Out, Option<Self>)), Some(&options)).unwrap(),
             Conversion::Tuple(vec![
                 Conversion::Into,
                 Conversion::Map(Box::new(Conversion::Rewrap))
@@ -829,11 +962,11 @@ mod tests {
         ));
         assert!(matches!(
             receiver(parse_quote!(self: Pin<&mut Self>)),
-            Ok(ReceiverKind::Pinned(Access::Exclusive))
+            Ok(ReceiverKind::Pinned(Borrow::Exclusive))
         ));
         assert!(matches!(
             receiver(parse_quote!(self: Pin<&Self>)),
-            Ok(ReceiverKind::Pinned(Access::Shared))
+            Ok(ReceiverKind::Pinned(Borrow::Shared))
         ));
         assert!(receiver(parse_quote!(self: Rc<Self>)).is_err());
         assert!(receiver(parse_quote!(self: Arc<Self>)).is_err());
@@ -883,9 +1016,9 @@ mod tests {
     #[test]
     fn a_boxed_future_is_awaited_only_to_convert_its_output() {
         let kind = kind();
-        let spec = overriding("Error");
+        let options = overriding("Error");
         let returns = |output: ReturnType| {
-            classify_return(&output, Some(&spec), &site(&kind, false)).unwrap()
+            classify_return(&output, Some(&options), &site(&kind, false)).unwrap()
         };
         let (model, future) = returns(parse_quote!(
             -> ::core::pin::Pin<Box<dyn ::core::future::Future<Output = u32> + Send + 'async_trait>>
@@ -976,8 +1109,8 @@ mod tests {
     /// `"by value"` or `"unread"`.
     fn borrow(output: ReturnType, lift: Option<&Path>) -> &'static str {
         match place_borrow(&output, lift) {
-            PlaceBorrow::Reference(None) => "&",
-            PlaceBorrow::Reference(Some(_)) => "&mut",
+            PlaceBorrow::Reference(Borrow::Shared) => "&",
+            PlaceBorrow::Reference(Borrow::Exclusive) => "&mut",
             PlaceBorrow::Value => "by value",
             PlaceBorrow::Unread => "unread",
         }
@@ -1196,5 +1329,86 @@ mod tests {
             spelled(parse_quote!(fn both<T, U>(&self, t: T) -> U)),
             Some(quote!(::<T, U>).to_string())
         );
+    }
+
+    #[test]
+    fn a_pointer_is_read_by_the_name_its_path_ends_in_or_by_being_a_reference() {
+        let of = |ty: Type| Pointer::of(&ty);
+        assert!(of(parse_quote!(Box<Circle>)) == Pointer::Box);
+        assert!(of(parse_quote!(std::boxed::Box<dyn Shape>)) == Pointer::Box);
+        assert!(of(parse_quote!(Rc<Circle>)) == Pointer::Shared);
+        assert!(of(parse_quote!(std::sync::Arc<Circle>)) == Pointer::Shared);
+        assert!(of(parse_quote!(&'a Circle)) == Pointer::Shared);
+        assert!(
+            of(parse_quote!(&'a mut Circle)) == Pointer::Other,
+            "a `&mut` is rustc's to judge"
+        );
+        assert!(of(parse_quote!(Circle)) == Pointer::Other);
+    }
+
+    #[test]
+    fn a_pointer_points_at_its_referent_or_its_one_type_argument() {
+        let pointee_of = |ty: Type| pointee(&ty).map(|ty| ty.to_token_stream().to_string());
+        let spelled = |ty: Type| Some(ty.to_token_stream().to_string());
+        assert_eq!(
+            pointee_of(parse_quote!(&'a Circle)),
+            spelled(parse_quote!(Circle))
+        );
+        assert_eq!(
+            pointee_of(parse_quote!(Box<dyn Shape>)),
+            spelled(parse_quote!(dyn Shape))
+        );
+        assert_eq!(
+            pointee_of(parse_quote!(Rc<'a, Circle>)),
+            spelled(parse_quote!(Circle)),
+            "a lifetime is no type argument"
+        );
+        assert_eq!(pointee_of(parse_quote!(Circle)), None);
+        assert_eq!(pointee_of(parse_quote!(HashMap<K, V>)), None);
+    }
+
+    #[test]
+    fn a_rewrap_is_rebuilt_whole_or_by_the_path_a_map_takes() {
+        let rebuilds = |conversion: Conversion| {
+            let rebuilds = conversion.rebuilds();
+            (rebuilds.whole, rebuilds.by_path)
+        };
+        let rewrap = || Box::new(Conversion::Rewrap);
+        assert_eq!(rebuilds(Conversion::Keep), (false, false));
+        assert_eq!(rebuilds(Conversion::Into), (false, false));
+        assert_eq!(rebuilds(Conversion::Rewrap), (true, false));
+        assert_eq!(rebuilds(Conversion::Map(rewrap())), (false, true));
+        assert_eq!(
+            rebuilds(Conversion::Map(Box::new(Conversion::Into))),
+            (false, false)
+        );
+        assert_eq!(
+            rebuilds(Conversion::MapErr(Box::new(Conversion::Keep), rewrap())),
+            (false, true),
+            "a `Self` in the error is mapped with a path too"
+        );
+        assert_eq!(
+            rebuilds(Conversion::Tuple(vec![
+                Conversion::Rewrap,
+                Conversion::Map(rewrap())
+            ])),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn a_receiver_borrows_as_it_is_written_plain_or_pinned() {
+        assert!(Access::Shared.borrow() == Some(Borrow::Shared));
+        assert!(Access::Exclusive.borrow() == Some(Borrow::Exclusive));
+        assert!(Access::Owned.borrow().is_none());
+        assert!(ReceiverKind::Value(Access::Shared).borrow() == Some(Borrow::Shared));
+        assert!(ReceiverKind::Value(Access::Exclusive).borrow() == Some(Borrow::Exclusive));
+        assert!(ReceiverKind::Value(Access::Owned).borrow().is_none());
+        assert!(
+            ReceiverKind::Boxed.borrow().is_none(),
+            "`self: Box<Self>` is matched by value"
+        );
+        assert!(ReceiverKind::Pinned(Borrow::Shared).borrow() == Some(Borrow::Shared));
+        assert!(ReceiverKind::Pinned(Borrow::Exclusive).borrow() == Some(Borrow::Exclusive));
     }
 }

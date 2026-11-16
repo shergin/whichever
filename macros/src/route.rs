@@ -4,11 +4,12 @@
 //! names the steps from the payload to the value the trait is called on:
 //! `*` for what the payload dereferences to, `.field` or `.0` for a field,
 //! `.method()` for what a method returns. `deref` is the route `*`.
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, Index, LitFloat, LitInt, Member, Result, Token};
 
+use crate::site::Site;
 use crate::spelling;
 
 /// One step of a route.
@@ -83,35 +84,35 @@ impl Route {
         &self,
         binding: &Ident,
         through_reference: bool,
-        site: Span,
+        site: Site,
     ) -> TokenStream2 {
-        let mut expression = quote_spanned!(site => #binding);
+        let mut expression = quote_spanned!(*site => #binding);
         let mut derefs = 0usize;
         for (index, step) in self.steps.iter().enumerate() {
             match step {
                 Step::Deref => {
                     if index == 0 && through_reference {
                         // The reference first, then the payload.
-                        expression = quote_spanned!(site => **#expression);
+                        expression = quote_spanned!(*site => **#expression);
                         derefs = 2;
                     } else {
-                        expression = quote_spanned!(site => *#expression);
+                        expression = quote_spanned!(*site => *#expression);
                         derefs += 1;
                     }
                 }
                 Step::Field(member) => {
                     if derefs > 0 {
-                        expression = quote_spanned!(site => (#expression).#member);
+                        expression = quote_spanned!(*site => (#expression).#member);
                     } else {
-                        expression = quote_spanned!(site => #expression.#member);
+                        expression = quote_spanned!(*site => #expression.#member);
                     }
                     derefs = 0;
                 }
                 Step::Method(method) => {
                     if derefs > 0 {
-                        expression = quote_spanned!(site => (#expression).#method());
+                        expression = quote_spanned!(*site => (#expression).#method());
                     } else {
-                        expression = quote_spanned!(site => #expression.#method());
+                        expression = quote_spanned!(*site => #expression.#method());
                     }
                     derefs = 0;
                 }
@@ -129,11 +130,11 @@ impl Route {
         &self,
         binding: &Ident,
         through_reference: bool,
-        site: Span,
+        site: Site,
     ) -> TokenStream2 {
         let expression = self.reach(binding, through_reference, site);
         if self.ends_in_a_deref() {
-            return quote_spanned!(site => (#expression));
+            return quote_spanned!(*site => (#expression));
         }
         expression
     }
@@ -223,6 +224,8 @@ impl ToTokens for Route {
 
 #[cfg(test)]
 mod tests {
+    use proc_macro2::Span;
+
     use super::*;
 
     fn route(tokens: &str) -> Route {
@@ -259,7 +262,7 @@ mod tests {
     fn the_target_is_reached_through_the_reference_or_from_the_payload() {
         let binding = Ident::new("inner", Span::call_site());
         let reach = |text: &str, through_reference: bool| {
-            spelled(route(text).reach(&binding, through_reference, Span::call_site()))
+            spelled(route(text).reach(&binding, through_reference, Site::at(Span::call_site())))
         };
         assert_eq!(reach("*", true), "**inner");
         assert_eq!(reach("*", false), "*inner");
@@ -287,7 +290,11 @@ mod tests {
     fn a_route_ending_in_a_deref_is_parenthesised_for_a_postfix() {
         let binding = Ident::new("inner", Span::call_site());
         let reach = |text: &str, through_reference: bool| {
-            spelled(route(text).reach_for_postfix(&binding, through_reference, Span::call_site()))
+            spelled(route(text).reach_for_postfix(
+                &binding,
+                through_reference,
+                Site::at(Span::call_site()),
+            ))
         };
         assert_eq!(reach("*", true), "(**inner)");
         assert_eq!(reach("*", false), "(*inner)");

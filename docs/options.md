@@ -97,8 +97,10 @@ pub enum AnyShape<'a> {
 
 A trait's own route through a variant, `via(Variant = route, ..)` after
 the trait path, wins over the variant's for that trait; a variant with
-several fields marks the one to forward to with `#[dispatch]` and is
-otherwise reported. Several traits are dispatched by repeating the
+several fields, or with one named field, marks the one to forward to with
+`#[dispatch]` and is otherwise reported. The marked field takes `deref`
+and `via = route`, and nothing else: the conversions are the variant's to
+say, and a variant is the target of every trait its enum dispatches. Several traits are dispatched by repeating the
 attribute; a supertrait is one more attribute:
 
 ```rust

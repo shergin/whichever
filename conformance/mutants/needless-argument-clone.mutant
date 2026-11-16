@@ -1,8 +1,8 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: The forwarding hands each argument over as it is, with no operation a careful hand would not write, as the rules of `CLAUDE.md` say.
 expect: killed
 
 find:
-                    None => quote_spanned!(site => #ident),
+                    None => quote_spanned!(*site => #ident),
 replace:
-                    None => quote_spanned!(site => #ident.clone()),
+                    None => quote_spanned!(*site => #ident.clone()),

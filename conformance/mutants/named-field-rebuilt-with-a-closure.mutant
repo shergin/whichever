@@ -3,21 +3,30 @@ breaks: The generated code holds no closure, as `docs/vision.md` and `docs/what-
 expect: killed
 
 find:
-            Place::Field {
-                member: Member::Named(_),
-                ..
-            }
-            | Place::Field {
-                rebuildable: false, ..
-            } => None,
+        matches!(self.place.field, PayloadField::Only)
+    }
+
+    /// Returns a function building the subject from a payload, for `map`.
+    /// A named field is built by its braces, which a closure would have to
+    /// hold; the caller says so.
+    pub(crate) fn constructor(&self, prefix: &Path, site: Site) -> Option<TokenStream2> {
+        match &self.place.field {
+            PayloadField::Only => Some(self.holder(prefix, site)),
 replace:
-            Place::Field {
-                member,
-                rebuildable: true,
-            } => {
-                let value = syn::Ident::new("__value", at(site));
-                Some(quote_spanned!(site => |#value| #prefix { #member: #value }))
+        matches!(self.place.field, PayloadField::Only)
+            || matches!(
+                (&self.place.holder, &self.place.field),
+                (Holder::Struct, PayloadField::OnlyNamed(_))
+            )
+    }
+
+    /// Returns a function building the subject from a payload, for `map`.
+    /// A named field is built by its braces, which a closure would have to
+    /// hold; the caller says so.
+    pub(crate) fn constructor(&self, prefix: &Path, site: Site) -> Option<TokenStream2> {
+        match &self.place.field {
+            PayloadField::Only => Some(self.holder(prefix, site)),
+            PayloadField::OnlyNamed(name) if matches!(self.place.holder, Holder::Struct) => {
+                let value = Ident::new("__value", *site);
+                Some(quote_spanned!(*site => |#value| #prefix { #name: #value }))
             }
-            Place::Field {
-                rebuildable: false, ..
-            } => None,

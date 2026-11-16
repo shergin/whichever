@@ -1,15 +1,14 @@
 //! Procedural macros of `whichever`.
 //!
 //! `#[dispatchable]` on a trait re-emits the trait and exports its carrier
-//! macro, a hidden `macro_rules!` that carries the trait's tokens; the macro
-//! is re-exported under the trait's own name, so importing the trait imports
-//! the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
+//! macro, a hidden `macro_rules!` that carries the trait's signatures; the
+//! macro is re-exported under the trait's own name, so importing the trait
+//! imports the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
 //! forwards the trait tokens, the enum tokens and the options into the
 //! implementation macro, `implement!`, which writes `impl Trait for Enum`
 //! with one `match` per method. No state is shared between expansions, so
 //! the trait and the enum may live in different crates.
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
 
@@ -20,14 +19,6 @@ use crate::implement::expand_implement;
 use crate::options::DispatchableOptions;
 use crate::protocol::{BlockInput, ImplementInput};
 use crate::subject::Subject;
-
-/// Returns the span a generated token carries: located at `span`, a token
-/// the user wrote, so that an error rustc finds in the generated code lands
-/// there, and resolved at the expansion's own site, so that lints treat the
-/// token as the expansion's and not as the user's.
-pub(crate) fn at(span: Span) -> Span {
-    Span::mixed_site().located_at(span)
-}
 
 /// Folds `errors` into the first, so that all of them are reported at once.
 pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
@@ -40,20 +31,28 @@ pub(crate) fn combined(errors: Vec<Error>) -> Option<Error> {
 }
 
 mod agreement;
+mod arm;
 mod block;
+mod builds;
 mod conversions;
 mod dispatch;
 mod dispatchable;
 mod forwarding;
 mod implement;
+mod items;
 #[cfg(test)]
 mod limits;
+mod marked;
 mod naming;
 mod options;
+mod partial;
 mod protocol;
+mod refusal;
 mod route;
 mod selection;
 mod shape;
+mod signatures;
+mod site;
 #[cfg(test)]
 mod spans;
 mod spelling;
@@ -115,7 +114,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// On an enum, each attribute names one trait, with its generic arguments
 /// when it has any, followed by options; several attributes dispatch several
 /// traits, and a bare `#[dispatch]` only registers the enum. Every variant
-/// must hold exactly one unnamed field whose type implements the trait. The
+/// holds exactly one unnamed field, or marks the field to forward to, whose
+/// type implements the trait. The
 /// enum also gets a `From<Payload>` impl for every payload type that appears
 /// in exactly one variant.
 ///
@@ -145,7 +145,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// `&mut T` payloads; such a variant cannot take part in a method that
 /// returns `Self`. `#[dispatch(from = false)]` leaves the variant out of the
 /// conversions, and `#[dispatch(try_from = true)]` adds the `TryFrom` impl
-/// for that payload alone.
+/// for that payload alone. A variant with several fields, or with one named
+/// field, marks the field to forward to with `#[dispatch]`, which takes
+/// `deref` and `via = route` and nothing else.
 ///
 /// On a struct, the trait is forwarded to its one field, or to the field
 /// marked `#[dispatch]`, with `#[dispatch(deref)]` for a field behind a
@@ -178,7 +180,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// On a trait impl block of a dispatch enum, in the same crate, the block
 /// holds the items the enum implements itself, a generic associated type
-/// among them, and the rest of the trait is forwarded around them. The enum
+/// among them, and the rest of the trait is forwarded around them; a macro
+/// invocation in the block is reported, since its items cannot be told from
+/// the ones to forward. The enum
 /// then does not name that trait in its own attribute; the trait's options
 /// go on the block's attribute:
 ///
@@ -236,23 +240,10 @@ pub fn implement(input: TokenStream) -> TokenStream {
 #[doc(hidden)]
 #[proc_macro]
 pub fn implement_block(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as BlockInput);
-    let expanded = match input.partial {
-        Some(spec) => expand_partial(
-            input.rejected,
-            &input.facade,
-            &input.dispatched,
-            input.remote.as_ref(),
-            input.subject,
-            spec,
-            input.item_impl,
-        ),
-        None => expand_inherent(
-            input.rejected,
-            input.remote.as_ref(),
-            input.subject,
-            input.item_impl,
-        ),
+    let mut input = parse_macro_input!(input as BlockInput);
+    let expanded = match input.partial.take() {
+        Some(options) => expand_partial(input, options),
+        None => expand_inherent(input),
     };
     expanded
         .unwrap_or_else(|error| error.to_compile_error())

@@ -9,12 +9,12 @@ use crate::combined;
 use crate::conversions::conversion_impls;
 use crate::naming;
 use crate::options::{
-    is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitSpec, TryFromForms,
+    is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitOptions, TryFromForms,
 };
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
-use crate::subject::{shape_errors, Entry, Subject};
+use crate::subject::{Entries, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
 /// resolved through `proc-macro-crate`.
@@ -39,7 +39,7 @@ pub(crate) fn expand_subject(
     let captured = subject;
     let mut emitted = Some(captured.clone().without_inner_attributes());
     let readable = captured
-        .entries()
+        .read()
         .and_then(|entries| Ok((entries, facade_ident()?)));
     let (entries, facade) = match readable {
         Ok(readable) => readable,
@@ -53,7 +53,7 @@ pub(crate) fn expand_subject(
     let mut attributes = vec![];
     for tokens in arguments {
         let parsed = syn::parse2::<DispatchAttribute>(tokens).and_then(|attribute| {
-            attribute.spec.check_path()?;
+            attribute.check_path()?;
             Ok(attribute)
         });
         match parsed {
@@ -67,7 +67,7 @@ pub(crate) fn expand_subject(
     // type.
     let mut remotes = attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.remote.as_ref());
+        .filter_map(|attribute| attribute.subject.remote.as_ref());
     let remote = remotes.next().map(|(_, path)| path.clone());
     if let Some((second, _)) = remotes.next() {
         errors.push(Error::new(second.span(), "`remote` is given twice"));
@@ -75,13 +75,13 @@ pub(crate) fn expand_subject(
     if remote.is_some() {
         emitted = None;
         let conversion = attributes.iter().find_map(|attribute| {
-            let switches = &attribute.switches;
-            switches
+            let options = &attribute.subject;
+            options
                 .from
                 .as_ref()
                 .map(|switch| switch.span())
-                .or(switches.try_from.as_ref().map(|switch| switch.span()))
-                .or(switches.into.first().map(|into| into.key.span()))
+                .or(options.try_from.as_ref().map(|switch| switch.span()))
+                .or(options.into.first().map(|into| into.key.span()))
         });
         if let Some(span) = conversion {
             errors.push(Error::new(
@@ -97,17 +97,17 @@ pub(crate) fn expand_subject(
     };
     let dispatched: Vec<&Path> = attributes
         .iter()
-        .filter_map(|attribute| attribute.spec.path.as_ref())
+        .filter_map(|attribute| attribute.path.as_ref())
         .collect();
     // A trait a field names is one the struct's attribute dispatches; a
     // field's mark for any other is dead, and says so.
-    for (field, path) in captured.field_traits() {
-        let spelled = trait_key(&path);
+    for (field, path) in entries.field_traits() {
+        let spelled = trait_key(path);
         if dispatched.iter().any(|known| trait_key(known) == spelled) {
             continue;
         }
         errors.push(Error::new_spanned(
-            &path,
+            path,
             format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
         ));
     }
@@ -117,11 +117,11 @@ pub(crate) fn expand_subject(
     let shape_errors = if dispatched.is_empty() {
         TokenStream2::new()
     } else {
-        shape_errors(&entries, None)
+        entries.shape_errors(None)
     };
     let mut invocations = TokenStream2::new();
     for attribute in &attributes {
-        let Some(path) = &attribute.spec.path else {
+        let Some(path) = &attribute.path else {
             continue;
         };
         let macro_path = carrier_path(path);
@@ -130,7 +130,8 @@ pub(crate) fn expand_subject(
         let request = TraitRequest {
             facade: &facade,
             subject: &captured,
-            spec: &attribute.spec,
+            path,
+            options: &attribute.options,
             remote: remote.as_ref(),
             partial: None,
         };
@@ -191,14 +192,14 @@ fn take_dispatch_attributes(
 /// none, and a switch on one is an error.
 fn conversions(
     subject: &Subject,
-    entries: &[Entry],
+    entries: &Entries,
     attributes: &[DispatchAttribute],
     errors: &mut Vec<Error>,
 ) -> TokenStream2 {
     if !subject.has_conversions() {
         if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.switches.first_span())
+            .find_map(|attribute| attribute.subject.first_span())
         {
             errors.push(Error::new(
                 span,
@@ -209,15 +210,15 @@ fn conversions(
     }
     let from = !attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.from.as_ref())
+        .filter_map(|attribute| attribute.subject.from.as_ref())
         .any(|switch| !switch.value());
     let try_from = attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.try_from.as_ref())
+        .filter_map(|attribute| attribute.subject.try_from.as_ref())
         .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
     let into: Vec<&IntoTarget> = attributes
         .iter()
-        .flat_map(|attribute| attribute.switches.into.iter())
+        .flat_map(|attribute| attribute.subject.into.iter())
         .collect();
     conversion_impls(subject, entries, from, try_from, &into, errors)
 }
@@ -314,16 +315,10 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
         Some(_) => {
             // The trait's options; the trait itself is the one the block
             // implements.
-            let spec: TraitSpec = syn::parse2(attr)?;
-            if let Some(path) = &spec.path {
-                return Err(Error::new_spanned(
-                    path,
-                    "`#[dispatch]` on an impl block takes the trait's options only; the trait is the one the block implements",
-                ));
-            }
+            let options: TraitOptions = syn::parse2(attr)?;
             let request = BlockRequest {
                 facade: &facade,
-                partial: Some(&spec),
+                partial: Some(&options),
                 block: &item_impl,
             };
             Ok(quote! { #macro_path! { #request } })

@@ -1,9 +1,9 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: A method returning `Result<_, Self::Name>` with `Name` overridden converts the error with `map_err(Into::into)`, as `docs/options.md` says.
 expect: killed
 
 find:
-                value = quote_spanned! { site => #value.map_err(#path) };
+                value = quote_spanned! { *site => #value.map_err(#path) };
 replace:
-                value = quote_spanned! { site => #value };
+                value = quote_spanned! { *site => #value };
                 let _ = path;

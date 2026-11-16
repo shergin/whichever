@@ -3,6 +3,6 @@ breaks: The impl is marked `#[automatically_derived]`, as `docs/what-is-generate
 expect: killed
 
 find:
-        .then(|| quote_spanned!(site => #[automatically_derived]));
+        .then(|| quote_spanned!(*site => #[automatically_derived]));
 replace:
         .then(TokenStream2::new);

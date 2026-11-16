@@ -1,14 +1,15 @@
 //! `#[dispatchable]`: the carrier macro a trait leaves next to itself.
-use proc_macro2::{Group, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
+use proc_macro2::{Group, Punct, Spacing, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, ToTokens};
 use syn::{Error, Ident, ItemTrait, Result, TraitItem, TraitItemFn, Visibility};
 
+use crate::builds::{Builds, Predicate};
 use crate::combined;
 use crate::naming;
 use crate::options::{is_dispatch_attribute, method_mismatch, DispatchableOptions};
 use crate::protocol::{carrier_macro, CarriedTrait, Implementation};
 use crate::shape::takes_self_argument;
-use crate::subject::{carried_attributes, cfg_attributes};
+use crate::signatures::carried_attributes;
 
 /// The most distinct `#[cfg]` predicates a trait's items may carry: each
 /// doubles the carriers, since one is emitted per combination.
@@ -89,14 +90,13 @@ pub(crate) fn expand_dispatchable(
         let holds = |index: usize| combination & (1 << index) != 0;
         let condition = (!predicates.is_empty()).then(|| {
             let terms = predicates.iter().enumerate().map(|(index, predicate)| {
-                let predicate = &predicate.tokens;
                 if holds(index) {
-                    quote!(#predicate)
+                    predicate.clone()
                 } else {
-                    quote!(not(#predicate))
+                    predicate.clone().not()
                 }
             });
-            quote!(#[cfg(all(#(#terms),*))])
+            Builds::Under(Predicate::all(terms.collect())).attribute(Span::call_site())
         });
         let mut selected = captured.clone();
         selected
@@ -258,24 +258,17 @@ fn kept_attributes(attrs: &[syn::Attribute], on_method: bool) -> Vec<syn::Attrib
     kept
 }
 
-/// One distinct `#[cfg]` predicate among a trait's items; several `cfg`
-/// attributes on one item are `all` of their predicates.
-struct Predicate {
-    key: String,
-    tokens: TokenStream2,
-}
-
 /// Returns the distinct predicates of the trait's items, in order of first
 /// appearance, or the error for a trait with more than the carriers can
 /// reasonably double for.
 fn predicates(item_trait: &ItemTrait) -> Result<Vec<Predicate>> {
     let mut predicates: Vec<Predicate> = vec![];
     for item in &item_trait.items {
-        let Some(tokens) = item_predicate(item) else {
+        let Some(predicate) = item_predicate(item) else {
             continue;
         };
-        let key = tokens.to_string();
-        if predicates.iter().any(|predicate| predicate.key == key) {
+        let key = predicate.key();
+        if predicates.iter().any(|known| known.key() == key) {
             continue;
         }
         if predicates.len() == MOST_PREDICATES {
@@ -284,35 +277,23 @@ fn predicates(item_trait: &ItemTrait) -> Result<Vec<Predicate>> {
                 format!("this is the {}th distinct `#[cfg]` predicate among the trait's items, and the trait's carrier macro is written once per combination of them; combine the predicates, or move the items under this one to a trait of their own", MOST_PREDICATES + 1),
             ));
         }
-        predicates.push(Predicate { key, tokens });
+        predicates.push(predicate);
     }
     Ok(predicates)
 }
 
 /// Returns the index of the predicate `item` is under, when it is under one.
 fn predicate_of(item: &TraitItem, predicates: &[Predicate]) -> Option<usize> {
-    let key = item_predicate(item)?.to_string();
-    predicates.iter().position(|predicate| predicate.key == key)
+    let key = item_predicate(item)?.key();
+    predicates
+        .iter()
+        .position(|predicate| predicate.key() == key)
 }
 
-/// Returns the one predicate `item`'s `cfg` attributes amount to.
-fn item_predicate(item: &TraitItem) -> Option<TokenStream2> {
-    let attrs = item_attrs(item)?;
-    let cfgs = cfg_attributes(attrs);
-    if cfgs.is_empty() {
-        return None;
-    }
-    let inner: Vec<TokenStream2> = cfgs
-        .iter()
-        .map(|attribute| match &attribute.meta {
-            syn::Meta::List(list) => list.tokens.clone(),
-            _ => TokenStream2::new(),
-        })
-        .collect();
-    Some(match inner.as_slice() {
-        [one] => one.clone(),
-        many => quote!(all(#(#many),*)),
-    })
+/// Returns the one predicate `item`'s `cfg` attributes amount to; several
+/// on one item are `all` of their predicates.
+fn item_predicate(item: &TraitItem) -> Option<Predicate> {
+    Predicate::of(item_attrs(item)?)
 }
 
 fn item_attrs(item: &TraitItem) -> Option<&Vec<syn::Attribute>> {

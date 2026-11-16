@@ -1,6 +1,6 @@
 //! The checks that every variant agrees with the first on the associated
 //! types and consts the impl takes from it.
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
@@ -8,8 +8,8 @@ use syn::{
     parse_quote_spanned, GenericArgument, GenericParam, Ident, Lifetime, Path, PathArguments, Type,
 };
 
-use crate::at;
 use crate::shape::bare_ident;
+use crate::site::{at, Site};
 use crate::subject::{allow_deprecated, Target};
 
 /// How two values of an associated const's type are compared at compile
@@ -45,15 +45,15 @@ pub(crate) fn const_comparison(ty: &Type) -> Option<ConstComparison> {
 /// type is spelled as `self_type` there, and the blocks' own tokens carry
 /// `site`, the subject's span.
 pub(crate) struct Agreement<'a> {
-    pub(crate) variants: &'a [&'a Target],
-    pub(crate) first: &'a Target,
+    pub(crate) variants: &'a [Target<'a>],
+    pub(crate) first: Target<'a>,
     pub(crate) trait_path: &'a Path,
     /// The first variant's target type, spelled for a position outside
     /// the impl.
     pub(crate) first_payload: &'a TokenStream2,
     pub(crate) generics: &'a syn::Generics,
     pub(crate) self_type: &'a Type,
-    pub(crate) site: Span,
+    pub(crate) site: Site,
     /// Whether the trait deprecates an associated item, which the checks
     /// name and so allow.
     pub(crate) deprecated: bool,
@@ -87,11 +87,11 @@ impl Agreement<'_> {
     }
     /// Returns every variant but the first, the one the items were taken
     /// from.
-    fn others(&self) -> impl Iterator<Item = &&Target> {
+    fn others(&self) -> impl Iterator<Item = &Target<'_>> {
         let first = self.first;
         self.variants
             .iter()
-            .filter(move |variant| !std::ptr::eq(**variant, first))
+            .filter(move |variant| !std::ptr::eq(variant.entry, first.entry))
     }
 
     /// Checks at compile time that every variant's associated consts of a
@@ -141,10 +141,10 @@ impl Agreement<'_> {
                 else {
                     continue;
                 };
-                let cfgs = &variant.cfgs;
+                let cfgs = &variant.entry.cfgs;
                 let message = format!(
                     "`{name}` of variant `{}` differs from the first variant's; set it on the enum with `{name} = value`",
-                    variant.ident
+                    variant.ident()
                 );
                 let span = at(variant.payload.span());
                 let equal = match comparison {
@@ -170,7 +170,7 @@ impl Agreement<'_> {
             return TokenStream2::new();
         }
         let str_eq = needs_str_eq.then(|| {
-            quote_spanned! { site =>
+            quote_spanned! { *site =>
                 const fn __whichever_str_eq(a: &str, b: &str) -> bool {
                     let (a, b) = (a.as_bytes(), b.as_bytes());
                     if a.len() != b.len() {
@@ -188,7 +188,7 @@ impl Agreement<'_> {
             }
         });
         let allowance = self.allowance();
-        quote_spanned! { site =>
+        quote_spanned! { *site =>
             #allowance
             const _: () = {
                 #str_eq
@@ -225,7 +225,7 @@ impl Agreement<'_> {
             return TokenStream2::new();
         }
         let first_span = at(first.payload.span());
-        let first_cfgs = &first.cfgs;
+        let first_cfgs = &first.entry.cfgs;
         let bindings: Vec<GenericArgument> = names
             .iter()
             .map(|name| {
@@ -248,12 +248,12 @@ impl Agreement<'_> {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let checks = self.others().filter_map(|variant| {
             let payload = variant.target_type_outside(self_type)?;
-            let cfgs = &variant.cfgs;
+            let cfgs = &variant.entry.cfgs;
             let span = at(variant.payload.span());
             Some(quote_spanned! { span => #(#cfgs)* Self::__same_as_first_variant::<#payload>(); })
         });
         let allowance = self.allowance();
-        quote_spanned! { site =>
+        quote_spanned! { *site =>
             #allowance
             const _: () = {
                 #[allow(dead_code)]

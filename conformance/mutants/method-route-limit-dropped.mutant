@@ -1,11 +1,10 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: A route ending in a method call cannot serve a `&mut self` method and says so in one sentence, as `docs/limits.md` says.
 expect: killed
 
 find:
-        if let Some(taken) = exclusive.as_ref().filter(|_| route.ends_in_a_method()) {
+        if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {
 replace:
         if let Some(taken) = exclusive
-            .as_ref()
-            .filter(|taken| route.ends_in_a_method() && !taken.starts_with("`&mut self"))
+            .filter(|taken| route.ends_in_a_method() && !matches!(taken, Taken::MutSelf))
         {

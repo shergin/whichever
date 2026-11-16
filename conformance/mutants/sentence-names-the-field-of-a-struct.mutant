@@ -3,8 +3,8 @@ breaks: A sentence about the way a method reaches its target names the variant, 
 expect: killed
 
 find:
-            Place::Variant { .. } => &self.ident,
-            Place::Field { .. } => subject,
+            Holder::Variant(_) => &self.entry.ident,
+            Holder::Struct => subject,
 replace:
-            Place::Variant { .. } => subject,
-            Place::Field { .. } => &self.ident,
+            Holder::Variant(_) => subject,
+            Holder::Struct => &self.entry.ident,

@@ -34,7 +34,14 @@
   }`, cannot forward a method returning `Option<Self>` or `Result<Self, E>`:
   the value is rebuilt with a path, and no path builds such a struct. Make
   it a tuple struct, `struct Named(Square);`; `-> Self` is rebuilt by the
-  braces either way.
+  braces either way. The same holds for a variant whose one field is named
+  and marked, `Named { #[dispatch] shape: Square }`: write it as a tuple
+  variant, `Named(Square)`.
+- The marked field of a variant takes `deref` and `via = route` only:
+  `from` and `try_from` go on the variant, and a trait named on the field,
+  as a struct's field may name one, is reported, since the variant is the
+  target of every trait its enum dispatches. A trait's own route through
+  the variant goes on the enum, `via(Variant = route)`.
 - A generic associated type is declared by the enum, in a partial impl
   block; it cannot come from the first variant.
 - A projection through a trait parameter with several bounds, `F::Value`
@@ -50,6 +57,9 @@
   is an error: the forwarded methods convert into the type in every build.
   Put the whole block under the `cfg`, with a second block for the other
   builds.
+- A macro invocation in a partial impl block is not read, so the items it
+  writes could not be told from the ones to forward. It is reported; write
+  the items out in the block.
 - A lint attribute on the enum does not reach the impls written next to it,
   as it would not reach a hand-written one; `#[allow]` goes on the trait
   method, on a partial impl block, or on the module.

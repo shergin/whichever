@@ -1,18 +1,19 @@
-file: macros/src/implement.rs
+file: macros/src/forwarding.rs
 breaks: A sentence about one variant, the trait object's under a method that requires `Self: Sized` included, is reported under that variant's `#[cfg]` and beside the other variants' own, as `docs/limits.md` says in its last paragraph.
 expect: killed
 
 find:
-    let arm_for =
-        |target: &Target| match trait_object_refusal(&plan, target, function, block_header) {
-            Some(error) => plan.sentence_arm(target, &context, error),
-            None => plan.arm_or_sentence(target, &context),
-        };
+    let mut arms = vec![];
+    match &selection {
 replace:
-    if let Some(target) = targets(entries)
-        .into_iter()
-        .find(|target| trait_object_refusal(&plan, target, function, block_header).is_some())
-    {
-        return Err(trait_object_refusal(&plan, target, function, block_header).unwrap());
+    if let Some(target) = entries.targets().into_iter().find(|target| {
+        matches!(
+            plan.refusal(target, &context),
+            Some(crate::refusal::Refusal::TraitObject { .. })
+        )
+    }) {
+        let refusal = plan.refusal(&target, &context).unwrap();
+        return Err(refusal.error(&method, &target, subject.ident(), way_out));
     }
-    let arm_for = |target: &Target| plan.arm_or_sentence(target, &context);
+    let mut arms = vec![];
+    match &selection {

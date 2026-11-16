@@ -159,7 +159,7 @@
 //! | `unsafe fn` | Each call is wrapped in `unsafe { }`. |
 //! | `unsafe trait` | An `unsafe impl`. |
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`; different variants give the `mismatch` expression. |
-//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, a tuple under an `Option` or a `Result`, or an `Option<Self>` or `Result<Self, E>` on a struct whose one field is named, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
+//! | return `Self` | Wrapped back into the same variant; `Option<Self>` and `Result<Self, E>` are mapped, under any path, `io::Result<Self>` included; a tuple holding `Self`, or an overridden associated type, is taken apart and built again around its converted elements. `Self` anywhere else in a return type, a tuple under an `Option` or a `Result`, or an `Option<Self>` or `Result<Self, E>` on a struct or a marked variant whose one field is named, is an error; a provided method of that kind is left to the trait's default with `#[dispatch(default)]`. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`; inside `Option` or `Result` with `map(Into::into)`, and `Result<_, Self::X>` with `map_err(Into::into)`. |
 //! | method without a receiver | Left to the trait's default body, or written in a `#[dispatch] impl Trait for Enum` block; an error when it has neither. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate: the carrier macro is written once per combination of the trait's distinct predicates, each under its own `cfg`, so the generated item exists exactly when the trait's does, in a build of the trait's crate. |
@@ -265,7 +265,8 @@
 //! field, `.method()` for what a method returns, in any sequence. It is
 //! written on a variant or a struct field for every trait, `#[dispatch(via
 //! = .base)]`; as the marker on one field of a variant with several,
-//! `Node { id: u32, #[dispatch] data: Data }`; on the trait, keyed by
+//! `Node { id: u32, #[dispatch] data: Data }`, where the marked field takes
+//! `deref` or `via` and nothing else; on the trait, keyed by
 //! variant, when the route differs per trait, `#[dispatch(Trait,
 //! via(VarChar = .0))]`; or on an inherent method, for that method alone.
 //! Where the route names the target's type, the call is `<Square as
@@ -273,8 +274,10 @@
 //! named, and the call is `<_ as Shape>::area(&inner.base)`, qualified by
 //! the trait alone. A route ending in a method call serves `&self` and
 //! `self` methods, not `&mut self`; a method returning `Self` is reported
-//! on a routed variant, `deref` included; a variant with other fields
-//! beside the payload gets no `From` or `TryFrom`, and a target without a
+//! on a routed variant, `deref` included, and beside other fields, while a
+//! variant whose one field is named and marked is rebuilt by its braces; a
+//! variant with other fields beside the payload, or with its payload in a
+//! named field, gets no `From` or `TryFrom`, and a target without a
 //! nameable type takes no part in the agreement checks. A `deref` variant
 //! holding a trait object, `Box<dyn Trait>` or `&dyn Trait`, is how an enum
 //! holds an open set beside its sized payloads; a method the trait declares
@@ -582,7 +585,9 @@
 //! on the block are carried onto the impl: `#[typetag::serde(name = "..")]`
 //! goes there, with `#[whichever::dispatchable]` above `#[typetag::serde]`
 //! on the trait, so that typetag's own methods are the block's and never
-//! forwarded. A method written in the block that still needs the payloads'
+//! forwarded. A macro invocation in the block is reported, since the items
+//! it writes cannot be told from the ones to forward. A method written in
+//! the block that still needs the payloads'
 //! answer calls an inherent `#[dispatch(*, call = name)]` method beside it.
 //! Like inherent blocks, it has to be in the enum's crate.
 //!
@@ -647,7 +652,8 @@
 //! a struct as on an enum. `Option<Self>` and `Result<Self, E>` are mapped
 //! with a path, which a struct with a named field has not, so there they
 //! are an error and the tuple form, `struct Named(Square);`, is the way
-//! around it. A struct's `match` has one arm, so it forwards a
+//! around it; `-> Self` is rebuilt by the braces, on such a struct and on
+//! a variant whose one field is named and marked. A struct's `match` has one arm, so it forwards a
 //! return-position `impl Trait` as it is, which an enum cannot. A struct
 //! gets no `From` impls, and its `Self` arguments need no `mismatch`: two
 //! values of it always hold the same field, and the argument is unwrapped
@@ -708,7 +714,13 @@
 //! - A dispatch struct whose one field is named cannot forward a method
 //!   returning `Option<Self>` or `Result<Self, E>`: the value is rebuilt
 //!   with a path, and no path builds such a struct. Make it a tuple struct;
-//!   `-> Self` is rebuilt by the braces either way.
+//!   `-> Self` is rebuilt by the braces either way. The same holds for a
+//!   variant whose one field is named and marked; write it as a tuple
+//!   variant.
+//! - The marked field of a variant takes `deref` and `via = route` only;
+//!   `from` and `try_from` go on the variant, and a trait named on the
+//!   field is reported, since the variant is the target of every trait its
+//!   enum dispatches.
 //! - A generic associated type is declared by the enum, in a partial impl
 //!   block; it cannot come from the first variant.
 //! - A projection through a trait parameter with several bounds,
@@ -718,6 +730,9 @@
 //!   `#[cfg]` is an error: the forwarded methods convert into the type in
 //!   every build. Put the whole block under the `cfg`, with a second block
 //!   for the other builds.
+//! - A macro invocation in a partial impl block is not read, so the items
+//!   it writes could not be told from the ones to forward. It is reported;
+//!   write the items out in the block.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

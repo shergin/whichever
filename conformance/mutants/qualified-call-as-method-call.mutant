@@ -1,13 +1,13 @@
-file: macros/src/forwarding.rs
+file: macros/src/arm.rs
 breaks: Each arm of a trait method is a fully qualified call, so that an inherent method of the same name never takes over, as `docs/what-is-generated.md` says.
 expect: killed
 
 find:
-                quote_spanned! { site =>
+                quote_spanned! { *site =>
                     #qualified::#method #turbofish (#receiver #(, #arguments)*)
                 }
 replace:
                 let _ = qualified;
-                quote_spanned! { site =>
+                quote_spanned! { *site =>
                     #receiver.#method #turbofish (#(#arguments),*)
                 }

@@ -1,0 +1,17 @@
+error: `Item` is an associated type; give it a type
+  --> tests/ui/withheld_impl_keeps_the_errors_beside_it.rs:19:48
+   |
+19 | #[whichever::dispatch(Store, Nope = u8, Item = 1 + 2, via(Wide = .0))]
+   |                                                ^^^^^
+
+error: `Kind` has no variant `Wide` to route through
+  --> tests/ui/withheld_impl_keeps_the_errors_beside_it.rs:19:59
+   |
+19 | #[whichever::dispatch(Store, Nope = u8, Item = 1 + 2, via(Wide = .0))]
+   |                                                           ^^^^
+
+error: `Store` has no associated type or const `Nope`; its associated items are `Item`, and the other options are `mismatch(method = expr)`, `from = false` and `try_from = true`
+  --> tests/ui/withheld_impl_keeps_the_errors_beside_it.rs:19:30
+   |
+19 | #[whichever::dispatch(Store, Nope = u8, Item = 1 + 2, via(Wide = .0))]
+   |                              ^^^^

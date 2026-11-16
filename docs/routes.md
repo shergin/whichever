@@ -10,7 +10,9 @@ written in four places, which are the places a hand writes it:
   .base_account)]`, `#[dispatch(via = .1)]` on `VarChar((&[&str], &[S]))`;
 - as the marker a struct already uses, on one field of a variant with
   several: `ConOut(#[dispatch] LineWriter<File>, u32)` or `Node { id: u32,
-  #[dispatch] data: Data }`; the other fields ride along in the pattern;
+  #[dispatch] data: Data }`; the other fields ride along in the pattern,
+  and the marked field takes `deref` or `via = route` for its own route
+  and nothing else;
 - on the trait, keyed by variant, when the route differs per trait:
   `#[dispatch(ProvableResultColumn, via(VarChar = .0))]` beside
   `#[dispatch(MultilinearExtension, via(VarChar = .1))]`;
@@ -32,8 +34,12 @@ a `&T` cannot be borrowed mutably either: a method taking `&mut self`,
 returned as `&mut`, are reported on the payload, and a shared borrow, `->
 &Name` under `&mut self`, still forwards. A method returning `Self` is
 reported on a routed variant, `deref` included, since the rest of the
-payload is gone. A variant with other fields beside the payload gets no
-`From` or `TryFrom`, and a variant whose target has no nameable type takes
+payload is gone, and on a variant with other fields beside the payload; a
+variant whose one field is named and marked, `Named { #[dispatch] shape:
+Square }`, is rebuilt by its braces, and under `Option<Self>` or
+`Result<Self, E>`, which a path rebuilds, is reported with the tuple
+variant as the way around. A variant with other fields beside the
+payload, or with its payload in a named field, gets no `From` or `TryFrom`, and a variant whose target has no nameable type takes
 no part in the agreement checks: a type that disagrees shows in the arm
 of a method that returns it, and a const that disagrees shows nowhere,
 since the enum takes the first variant's.

@@ -4,9 +4,9 @@ expect: killed
 
 find:
                     } else {
-                        expression = quote_spanned!(site => #expression.#member);
+                        expression = quote_spanned!(*site => #expression.#member);
                     }
 replace:
                     } else {
-                        expression = quote_spanned!(site => #expression);
+                        expression = quote_spanned!(*site => #expression);
                     }

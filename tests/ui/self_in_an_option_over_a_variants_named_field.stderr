@@ -1,0 +1,5 @@
+error: `grown` returns `Self` inside an `Option` or a `Result`, where a path rebuilds the value, and `Named` holds its payload in a named field, which no path builds; write the variant as `Named(Circle)`, or write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/self_in_an_option_over_a_variants_named_field.rs:23:16
+   |
+23 |         inner: Circle,
+   |                ^^^^^^
