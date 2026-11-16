@@ -35,15 +35,15 @@ an enum, for a value whose type is only known at runtime.
 Take the method's body out of the picture, by making every payload method a
 real call that cannot be inlined, and an enum is no faster than a trait
 object. Over 64 Ki elements of 8 random variants, one `&self` call costs
-8.37 ns per element through the `match` and 6.68 ns through the vtable: the
+8.50 ns per element through the `match` and 6.62 ns through the vtable: the
 `match` is a chain of compares, which a random variant can send the wrong
 way more than once per element, and the vtable call is one indirect branch.
 At 16 and 32 variants the compiler turns the `match` into a jump table, an
 indirect branch like the vtable call, and the two cost nearly the same over
-a random collection (7.83 ns against 7.04 ns at 16 variants); over a
+a random collection (7.74 ns against 6.92 ns at 16 variants); over a
 uniform one, where every branch is predicted, the jump table is the slower:
-1.25 ns against 0.94 ns. The `match` wins only over two variants in random
-order: 3.63 ns against 4.44 ns.
+1.25 ns against 0.95 ns. The `match` wins only over two variants in random
+order: 3.70 ns against 4.71 ns.
 
 So "enum dispatch is faster than dynamic dispatch" is, for the dispatch
 alone, false. Two things that come with the enum are not.
@@ -55,16 +55,16 @@ longer a call site but a piece of straight-line code the surrounding loop is
 compiled with, and the vtable call is still a call. With up to 8 small arms,
 the compiler goes further and computes every arm and keeps one, so there is
 no branch left to predict wrong. The same 8-variant random collection:
-1.69 ns against 6.75 ns for a method returning a value, 0.38 ns against
-6.76 ns for a `&mut self` method whose body is one multiply-add, and 0.34 ns
-against 5.21 ns for a method the trait gives a default body. Over two random
-variants it is 0.40 ns against 4.55 ns.
+1.66 ns against 6.60 ns for a method returning a value, 0.37 ns against
+6.58 ns for a `&mut self` method whose body is one multiply-add, and 0.33 ns
+against 5.10 ns for a method the trait gives a default body. Over two random
+variants it is 0.41 ns against 4.62 ns.
 
 This is where `enum_dispatch`'s "up to 10x" comes from, and it is real, for
 methods small enough to inline over a handful of variants. At 16 and 32
 variants the compiler builds a jump table instead, which a random collection
 sends the wrong way as often as it does a vtable call, and the gain is gone:
-7.08 ns against 7.12 ns at 16 variants. A method that does real work gains
+7.16 ns against 7.20 ns at 16 variants. A method that does real work gains
 little from inlining, and for it the previous section applies.
 
 ### Memory is the other win
@@ -73,28 +73,28 @@ An enum carries its payload with it; a `Box<dyn Trait>` points at a heap
 object. While the heap objects fit in the cache, where they are costs
 nothing: over a collection of one variant, scattered after being built as in
 a program that has been running for a while, a call through the box costs
-0.95 ns per element at 1 Ki elements and 0.98 ns at 256 Ki. Past the cache,
-the box pays for memory on every element: 6.51 ns at 4 Mi, where the enum,
-walked in order, costs 1.74 ns, as it does at every size. Building the
-collection is the same story from the other side, 2.25 ns against 30.62 ns
+0.94 ns per element at 1 Ki elements and 0.95 ns at 256 Ki. Past the cache,
+the box pays for memory on every element: 5.54 ns at 4 Mi, where the enum,
+walked in order, costs 1.71 ns, as it does at every size. Building the
+collection is the same story from the other side, 2.15 ns against 28.84 ns
 per element, because the enum allocates nothing.
 
 ### Layout and the branch predictor
 
 Both kinds of dispatch depend on the branch predictor, and the matrix in
 `RESULTS.md` is laid out to show how much. In a uniform collection every
-element takes the same branch and a vtable call costs 0.94 to 0.97 ns at
+element takes the same branch and a vtable call costs 0.94 to 0.96 ns at
 any variant count. In a cyclic one, the predictor learns the period and the
-`match` keeps up with the uniform case while the vtable call does not (1.75
-to 2.55 ns).
+`match` keeps up with the uniform case while the vtable call does not (1.81
+to 2.58 ns).
 In a random one both pay, and the gap between them is what the previous two
 sections describe; from 16 variants, where the `match` is a jump table, they
 pay the same. Random means random to the predictor: a loop that replays the
 same thousand random variants teaches it the sequence, which is why the
 suite measures over 64 Ki elements. A collection grouped by variant is a
 uniform one for most of its length, and that helps both by more than the
-choice between them: at 32 variants, 0.64 ns against 7.31 ns for the
-`match` and 0.96 ns against 7.11 ns for the vtable.
+choice between them: at 32 variants, 0.64 ns against 7.32 ns for the
+`match` and 0.96 ns against 7.43 ns for the vtable.
 
 ### The crate boundary
 
@@ -102,7 +102,7 @@ A trait method on an enum generated in one crate and called from another is
 inlined into the caller only when the generated method is generic, carries
 `#[inline]`, or is small and free of calls, and a `match` of calls is never
 the last. A strategy that omits `#[inline]` therefore leaves every call out
-of line without LTO: `enum_delegate` pays up to 3.5x for it in the
+of line without LTO: `enum_delegate` pays up to 3x for it in the
 benchmarks, and `delegation`, which also walks a chain of `Either`s instead
 of a `match`, more than 5x. `whichever` emits `#[inline]` on every
 generated method, and the generated-code table in `RESULTS.md` shows its

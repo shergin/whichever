@@ -167,11 +167,11 @@ From the last run, on an Apple M1 Pro
 ([full tables](benchmarks/RESULTS.md)):
 
 - Over a random 8-variant collection, one `&self` call costs 1.7 ns per
-  element against 6.8 ns through a `Box<dyn Trait>` when the method
-  bodies can be inlined, and 8.4 ns against 6.7 ns when they cannot. The
+  element against 6.7 ns through a `Box<dyn Trait>` when the method
+  bodies can be inlined, and 8.5 ns against 6.6 ns when they cannot. The
   enum's advantage is what the optimiser gets to see, not the dispatch.
 - Where the payload's place matters, the gap is wide: 1.7 ns against
-  6.5 ns per element over 4 Mi scattered elements, and a collection is
+  5.5 ns per element over 4 Mi scattered elements, and a collection is
   built 13x faster without a box per element.
 - A generated impl without `#[inline]` (`enum_delegate`, `delegation`)
   pays an extra out-of-line call across the crate boundary, up to 5x

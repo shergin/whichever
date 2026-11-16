@@ -5,6 +5,24 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.8.0 - 2026-11-15
+
+The fixes of the surveys of acadrust 0.6.8 and mp4-atom 0.17.1, and the
+first fixes the conformance matrix found. The matrix is new in the
+workspace, under `conformance/`: a model of what the attributes support,
+one small program per selected combination of features, each judged
+against a hand-written twin, run by CI together with the mutants that
+measure it. The minor rises because three things that compiled are read
+differently, each listed below with its way around: `value` on a plain
+payload or a struct's field whose method hides a reference behind a type
+alias is read by value; a dispatch struct with one named field no longer
+forwards a method returning `Option<Self>` or `Result<Self, E>`; and the
+associated consts of an enum with lifetime parameters alone are checked to
+agree. The benchmark suite was rerun for this release; the numbers the README
+and the guide quote are from that run, and the generated code of the
+benchmarked shapes compiles to the hand-written impl's instructions, as
+before.
+
 Three fixes and a sentence from the survey of 2026-11-13 of acadrust
 0.6.8: the first fix found by the survey, the second, the sentence and the
 third while probing the first.

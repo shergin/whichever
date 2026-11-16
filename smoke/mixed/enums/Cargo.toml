@@ -8,5 +8,5 @@ publish = false
 # The minor before the one this checkout is, on purpose, moved up at each
 # release; `check.py` expects its reader to read the carrier or to report it
 # as newer, and never to misread it.
-whichever = "=0.6.0"
+whichever = "=0.7.3"
 mixed-traits = { path = "../traits" }
