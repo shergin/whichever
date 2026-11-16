@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, the one field of a tuple struct was matched `Wrapped(inner, ..)`,
+  and the one named field of a struct or a variant `Named { field: inner,
+  .. }`, a rest pattern with nothing to skip. They are now matched as a
+  hand writes them, `Wrapped(inner)` and `Named { field: inner }`; a field
+  beside others keeps its `..`. This is what `cargo expand` shows and
+  changes nothing at run time. The goldens `generic_payloads`,
+  `named_field_variant`, `newtype` and `opaque_through_a_struct` moved; no
+  snapshot changed.
 - Before, a variant whose one field is named and marked, `Named {
   #[dispatch] shape: Square }`, was read as a field beside others, so a
   method returning `Self` was refused with "cannot be built around the

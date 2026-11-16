@@ -37,14 +37,14 @@ impl Shape for Any {
     #[inline]
     fn radius(&self) -> u32 {
         match self {
-            Any::Named { inner: __inner, .. } => <Circle as Shape>::radius(__inner),
+            Any::Named { inner: __inner } => <Circle as Shape>::radius(__inner),
             Any::Plain(__inner) => <Circle as Shape>::radius(__inner),
         }
     }
     #[inline]
     fn doubled(self) -> Self {
         match self {
-            Any::Named { inner: __inner, .. } => {
+            Any::Named { inner: __inner } => {
                 Any::Named {
                     inner: <Circle as Shape>::doubled(__inner),
                 }

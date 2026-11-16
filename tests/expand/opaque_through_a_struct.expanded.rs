@@ -34,13 +34,13 @@ impl Source for Wrapped {
     #[inline]
     fn items(&self) -> impl Iterator<Item = u32> + '_ {
         match self {
-            Wrapped(__inner, ..) => <Few as Source>::items(__inner),
+            Wrapped(__inner) => <Few as Source>::items(__inner),
         }
     }
     #[inline]
     fn load(&self) -> impl Future<Output = u32> + Send {
         match self {
-            Wrapped(__inner, ..) => <Few as Source>::load(__inner),
+            Wrapped(__inner) => <Few as Source>::load(__inner),
         }
     }
     #[inline]
@@ -50,7 +50,7 @@ impl Source for Wrapped {
     {
         async move {
             match self {
-                Wrapped(__inner, ..) => Wrapped(<Few as Source>::reloaded(__inner).await),
+                Wrapped(__inner) => Wrapped(<Few as Source>::reloaded(__inner).await),
             }
         }
     }

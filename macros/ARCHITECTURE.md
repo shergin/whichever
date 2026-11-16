@@ -407,7 +407,11 @@ field and a variant whose one field is named and marked are both
 `OnlyNamed`, so `-> Self` is rebuilt by the braces for each, and a `Self`
 under an `Option` or a `Result` is refused with the tuple form as the way
 around (`Target::is_built_by_no_path`). Only a variant's `Only` field takes
-part in the conversions (`Target::conversions`).
+part in the conversions (`Target::conversions`). `Target::pattern` writes a
+rest pattern only for a `Beside` field, `Tagged(_, inner, ..)` or `Row {
+cell: inner, .. }`; an `Only` field is matched `Wrapped(inner)` and an
+`OnlyNamed` one `Named { field: inner }`, on a variant and on a struct
+alike, as a hand writes them.
 
 A `Target` is a `Copy` view of an entry that holds a payload, `entry`,
 `place`, `payload` and `route`, with the route this method takes: the
@@ -1224,6 +1228,22 @@ behaviour test `rebuilt_named_field_variants` are new; `builds.rs`,
 changed. The conformance matrix agrees on every cell, and no line of
 `conformance/known.tsv` was added or deleted; the mutants are retargeted
 at the moved code, none added or deleted.
+
+### Stage 26: a sole field is matched without a rest pattern
+
+Status: landed on 2026-11-15, unreleased, on the branch
+`sole-field-pattern` (issue #11). `Target::pattern` matched a struct's one unnamed field as `Wrapped(inner,
+..)` and the one named field of a struct or a variant as `Named { field:
+inner, .. }`, a rest pattern with nothing to skip that no hand writes. It
+now writes `Wrapped(inner)` and `Named { field: inner }`, and asks only the
+`PayloadField`, since the holder no longer changes the pattern; a `Beside`
+field keeps its `..`. Goldens `generic_payloads`, `named_field_variant`,
+`newtype` and `opaque_through_a_struct` moved, each line a sole field's
+pattern losing its `, ..`; goldens `per_trait_fields`, `routes`,
+`marked_field_by_value` and `payload_and_field_by_value` match only fields
+beside others and did not change. The unit test of `Target::pattern` in
+`subject.rs` is updated for the three sole-field cases. No snapshot
+changed, and nothing changes at run time.
 
 ## 5. Invariants every stage keeps
 
