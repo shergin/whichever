@@ -67,7 +67,7 @@ pub(crate) fn expand_subject(
     // type.
     let mut remotes = attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.remote.as_ref());
+        .filter_map(|attribute| attribute.subject.remote.as_ref());
     let remote = remotes.next().map(|(_, path)| path.clone());
     if let Some((second, _)) = remotes.next() {
         errors.push(Error::new(second.span(), "`remote` is given twice"));
@@ -75,13 +75,13 @@ pub(crate) fn expand_subject(
     if remote.is_some() {
         emitted = None;
         let conversion = attributes.iter().find_map(|attribute| {
-            let switches = &attribute.switches;
-            switches
+            let options = &attribute.subject;
+            options
                 .from
                 .as_ref()
                 .map(|switch| switch.span())
-                .or(switches.try_from.as_ref().map(|switch| switch.span()))
-                .or(switches.into.first().map(|into| into.key.span()))
+                .or(options.try_from.as_ref().map(|switch| switch.span()))
+                .or(options.into.first().map(|into| into.key.span()))
         });
         if let Some(span) = conversion {
             errors.push(Error::new(
@@ -199,7 +199,7 @@ fn conversions(
     if !subject.has_conversions() {
         if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.switches.first_span())
+            .find_map(|attribute| attribute.subject.first_span())
         {
             errors.push(Error::new(
                 span,
@@ -210,15 +210,15 @@ fn conversions(
     }
     let from = !attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.from.as_ref())
+        .filter_map(|attribute| attribute.subject.from.as_ref())
         .any(|switch| !switch.value());
     let try_from = attributes
         .iter()
-        .filter_map(|attribute| attribute.switches.try_from.as_ref())
+        .filter_map(|attribute| attribute.subject.try_from.as_ref())
         .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
     let into: Vec<&IntoTarget> = attributes
         .iter()
-        .flat_map(|attribute| attribute.switches.into.iter())
+        .flat_map(|attribute| attribute.subject.into.iter())
         .collect();
     conversion_impls(subject, entries, from, try_from, &into, errors)
 }

@@ -259,9 +259,9 @@ impl Parse for TraitOptions {
         let DispatchAttribute {
             path,
             options,
-            switches,
+            subject,
         } = input.parse()?;
-        if let Some(span) = switches.first_span() {
+        if let Some(span) = subject.first_span() {
             return Err(Error::new(
                 span,
                 "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
@@ -303,12 +303,12 @@ impl ToTokens for TraitOptions {
 }
 
 /// `#[dispatch(..)]` on a subject: the trait it dispatches, when it names
-/// one, with that trait's options, and the subject's conversion switches,
-/// which only `#[dispatch]` on the subject reads.
+/// one, with that trait's options, and the subject's own options, which
+/// only `#[dispatch]` on the subject reads.
 pub(crate) struct DispatchAttribute {
     pub(crate) path: Option<Path>,
     pub(crate) options: TraitOptions,
-    pub(crate) switches: Switches,
+    pub(crate) subject: SubjectOptions,
 }
 
 impl DispatchAttribute {
@@ -346,7 +346,7 @@ impl Parse for DispatchAttribute {
             mismatch: vec![],
             routes: vec![],
         };
-        let mut switches = Switches::default();
+        let mut subject = SubjectOptions::default();
         if let Some(path) = &path {
             // `Item<'a> = ..` as the first thing is read as a trait path.
             if input.peek(Token![=]) {
@@ -398,16 +398,16 @@ impl Parse for DispatchAttribute {
             }
             input.parse::<Token![=]>()?;
             match key.to_string().as_str() {
-                "from" if switches.from.is_some() => return Err(given_twice(&key)),
-                "try_from" if switches.try_from.is_some() => return Err(given_twice(&key)),
-                "from" => switches.from = Some(Switch::parse(key, input)?),
-                "try_from" => switches.try_from = Some(Switch::parse(key, input)?),
-                "into" => switches.into.push(IntoTarget {
+                "from" if subject.from.is_some() => return Err(given_twice(&key)),
+                "try_from" if subject.try_from.is_some() => return Err(given_twice(&key)),
+                "from" => subject.from = Some(Switch::parse(key, input)?),
+                "try_from" => subject.try_from = Some(Switch::parse(key, input)?),
+                "into" => subject.into.push(IntoTarget {
                     key,
                     target: input.parse()?,
                 }),
-                "remote" if switches.remote.is_some() => return Err(given_twice(&key)),
-                "remote" => switches.remote = Some((key, input.parse()?)),
+                "remote" if subject.remote.is_some() => return Err(given_twice(&key)),
+                "remote" => subject.remote = Some((key, input.parse()?)),
                 _ if options.is_overridden(&key) => return Err(given_twice(&key)),
                 _ => options.overrides.push(Override::parse(key, input)?),
             }
@@ -416,7 +416,7 @@ impl Parse for DispatchAttribute {
         Ok(Self {
             path,
             options,
-            switches,
+            subject,
         })
     }
 }
@@ -437,9 +437,10 @@ fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
     )
 }
 
-/// The subject's say on its conversions.
+/// The subject's own options: its say on its conversions, and its real
+/// path when it restates another crate's enum.
 #[derive(Default)]
-pub(crate) struct Switches {
+pub(crate) struct SubjectOptions {
     pub(crate) from: Option<Switch>,
     pub(crate) try_from: Option<Switch>,
     /// The types the enum converts into, `into = Target`, each through
@@ -450,9 +451,9 @@ pub(crate) struct Switches {
     pub(crate) remote: Option<(Ident, Path)>,
 }
 
-impl Switches {
-    /// Returns where the first switch was written, for a message about any
-    /// of them.
+impl SubjectOptions {
+    /// Returns where the first of them was written, for a message about
+    /// any of them.
     pub(crate) fn first_span(&self) -> Option<Span> {
         self.from
             .as_ref()
@@ -1014,17 +1015,17 @@ mod tests {
         let switches_only = attribute("from = false, try_from = true");
         assert!(switches_only.path.is_none());
         assert_eq!(
-            switches_only.switches.from.as_ref().map(Switch::value),
+            switches_only.subject.from.as_ref().map(Switch::value),
             Some(false)
         );
         assert_eq!(
-            switches_only.switches.try_from.as_ref().map(Switch::value),
+            switches_only.subject.try_from.as_ref().map(Switch::value),
             Some(true)
         );
         let by_ref = attribute("try_from = ref, into = Target<A, B>, into = Other");
-        let forms = by_ref.switches.try_from.as_ref().unwrap().forms();
+        let forms = by_ref.subject.try_from.as_ref().unwrap().forms();
         assert!(forms.owned && forms.by_ref && !forms.by_mut);
-        assert_eq!(by_ref.switches.into.len(), 2);
+        assert_eq!(by_ref.subject.into.len(), 2);
         assert!(syn::parse_str::<DispatchAttribute>("from = ref").is_err());
         assert!(syn::parse_str::<DispatchAttribute>("try_from = sometimes").is_err());
         let with_path = attribute("a::Trait<X>, mismatch(same = false, other = 1)");
