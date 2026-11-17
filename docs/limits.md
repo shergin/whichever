@@ -467,6 +467,20 @@ once, whatever attributes it has. See [options.md](options.md).
   the error on the fifth. Combine the predicates, or move the items under
   the fifth to a trait of their own.
 
+- **A mark cannot go under `cfg_attr`.** That covers
+  `#[cfg_attr(feature = "x", dispatch)]` on a struct's field, a variant, a
+  variant's field or a method of a block. An attribute macro is handed its
+  item before a `cfg_attr` inside the item is decided, and a macro cannot
+  decide a predicate itself, so such a mark would be read in no build. You
+  get an error on the mark, and the item is read as if the mark were
+  plain, so nothing else follows. Instead:
+  - a struct marks its field in every build, with a bare
+    `#[whichever::dispatch]` beside the trait's attribute under
+    `cfg_attr` (see [structs.md](structs.md#a-trait-in-some-builds-only));
+  - a variant or a method whose mark differs between builds is written
+    twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]`
+    without it.
+
 An associated type or const under `#[cfg]` in a partial impl block is
 under [Associated types and consts](#associated-types-and-consts).
 

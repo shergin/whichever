@@ -158,6 +158,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if let Some(verdict) = field_trait(cell) {
         return verdict;
     }
+    if let Some(verdict) = under_cfg_attr(cell) {
+        return verdict;
+    }
     if let Some(verdict) = unread(cell) {
         return verdict;
     }
@@ -426,6 +429,24 @@ fn unread(cell: &Cell) -> Option<Verdict> {
         (false, true) => (Limit::BodilessInBlock, Anchor::BlockMethod),
     };
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
+}
+
+/// A mark under `cfg_attr`, or `None` where the subject has none. "A mark
+/// cannot go under `cfg_attr`. [..] You get an error on the mark, and the
+/// item is read as if the mark were plain, so nothing else follows"
+/// (limits.md): the impl is written beside it, and the subject is judged as any other, the
+/// sentence added in `limits`. Only the axes that make it so and the
+/// variants beside it depart from the neutral cell.
+fn under_cfg_attr(cell: &Cell) -> Option<Verdict> {
+    if !cell.s0.descriptor().under_cfg_attr {
+        return None;
+    }
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: cell.s1,
+        ..Cell::neutral()
+    };
+    (*cell != neutral).then_some(Verdict::NonCanonical)
 }
 
 /// A method that names two fields of a struct, or `None` where the path
@@ -1432,6 +1453,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
                 expect(Limit::SizedOnObject, Anchor::Method);
             }
         }
+    }
+
+    // A mark under `cfg_attr` is one sentence on the mark, which is on the
+    // line of the field it marks (`under_cfg_attr`).
+    if cell.s0.descriptor().under_cfg_attr {
+        expect(Limit::MarkUnderCfgAttr, Anchor::Variant(0));
     }
 
     // "Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` [..],

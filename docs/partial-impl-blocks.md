@@ -226,6 +226,12 @@ method's own `#[cfg]` gives no error: in every build that has the
 method, the mark is on, and the method is never forwarded to every
 variant.
 
+A mark under `cfg_attr`, `#[cfg_attr(feature = "fancy", dispatch(Circle))]`,
+is an error. The attribute is handed the block before rustc decides a
+`cfg_attr` inside it, so the mark would be read in no build. Write the
+method twice instead, under `#[cfg(..)]` with the mark and under
+`#[cfg(not(..))]` without it.
+
 ## Attributes on the methods
 
 A method you write or mark in the block is yours, and so are its

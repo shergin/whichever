@@ -224,7 +224,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::TwoFieldsNamed
         | Limit::BodilessInBlock
         | Limit::FromContradicted
-        | Limit::IntoRepeated => String::new(),
+        | Limit::IntoRepeated
+        | Limit::MarkUnderCfgAttr => String::new(),
     }
 }
 
@@ -453,6 +454,15 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             any = Some(Fragment(held));
         }
         Limit::IntoOtherFields | Limit::RestatedConversions => {}
+        // The way around a variant's mark, and a struct's field's, as the
+        // snapshots `mark_under_cfg_attr_on_a_variant` and
+        // `mark_under_cfg_attr_on_a_struct_field` spell them.
+        Limit::MarkUnderCfgAttr => push(Some(String::from(
+            match cell.s0.descriptor().is_struct() {
+                true => "mark the field in every build, with a bare `#[whichever::dispatch]` on the struct",
+                false => "write the variant twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it",
+            },
+        ))),
         // Open question: whether `into` reports each variant that holds no
         // payload or the first alone is not pinned; a sentence is read as
         // naming any of them.

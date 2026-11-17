@@ -113,6 +113,8 @@ pub enum Limit {
     FromContradicted,
     /// An `into` target given a second time.
     IntoRepeated,
+    /// A `dispatch` mark under `cfg_attr`.
+    MarkUnderCfgAttr,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -205,6 +207,7 @@ impl Limit {
         Limit::BodilessInBlock,
         Limit::FromContradicted,
         Limit::IntoRepeated,
+        Limit::MarkUnderCfgAttr,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -461,6 +464,13 @@ impl Limit {
                 "but this trait is forwarded to",
                 "block_method_naming_another_field",
             ),
+            // The item is read as if the mark were plain, and the impl is
+            // written beside the sentence.
+            Limit::MarkUnderCfgAttr => entry(
+                "mark-under-cfg-attr",
+                "a `dispatch` under `cfg_attr` is not read",
+                "mark_under_cfg_attr_on_a_variant",
+            ),
             Limit::ArmsMatchedByPlace => entry(
                 "arms-matched-by-place",
                 "with `ref` bindings, which arms written for `match self` are not",
@@ -531,6 +541,12 @@ impl Limit {
             Limit::TwoFieldsNamed => ("name one, and write a method that needs both by hand", false),
             Limit::FromContradicted => ("so give `from` one value", false),
             Limit::IntoRepeated => ("so name a target once", false),
+            // The way around is the variant's, the method's or the field's,
+            // which `wording` names.
+            Limit::MarkUnderCfgAttr => (
+                "since an attribute macro is handed its item before a `cfg_attr` inside it is decided",
+                false,
+            ),
             Limit::BodilessInBlock => (
                 "or leave it to the trait's default with `#[dispatch(default)]`",
                 false,
@@ -568,7 +584,8 @@ impl Limit {
             | Limit::BlockTraitSpelt
             | Limit::BodilessInBlock
             | Limit::FromContradicted
-            | Limit::IntoRepeated => false,
+            | Limit::IntoRepeated
+            | Limit::MarkUnderCfgAttr => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -646,7 +663,8 @@ impl Limit {
             | Limit::BlockTraitSpelt
             | Limit::BodilessInBlock
             | Limit::FromContradicted
-            | Limit::IntoRepeated => false,
+            | Limit::IntoRepeated
+            | Limit::MarkUnderCfgAttr => false,
         }
     }
 

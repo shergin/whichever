@@ -114,6 +114,11 @@ pub struct TargetDescriptor {
     /// trait's name or a conversion option, which is the subject's one
     /// sentence (limits.md).
     pub refused: bool,
+    /// Whether the mark is written under `cfg_attr`, `#[cfg_attr(all(),
+    /// dispatch)]`: "A mark cannot go under `cfg_attr`. [..] You get an
+    /// error on the mark, and the item is read as if the mark were plain,
+    /// so nothing else follows" (limits.md).
+    pub under_cfg_attr: bool,
 }
 
 impl TargetDescriptor {
@@ -268,6 +273,7 @@ impl Target {
             route,
             option,
             refused: false,
+            under_cfg_attr: false,
         };
         let deref = |pointer| single(Storage::Pointer(pointer), DEREF, Some("deref"));
         match self {
@@ -287,6 +293,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::MarkedStruct => TargetDescriptor {
                 storage: Storage::Payload,
@@ -294,6 +301,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::Struct => TargetDescriptor {
                 storage: Storage::Payload,
@@ -301,6 +309,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::StructNamed => TargetDescriptor {
                 storage: Storage::Payload,
@@ -308,6 +317,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::StructMarked => TargetDescriptor {
                 storage: Storage::Payload,
@@ -315,6 +325,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::MarkedVia => TargetDescriptor {
                 storage: Storage::Wrapper,
@@ -322,6 +333,7 @@ impl Target {
                 route: FIELD,
                 option: Some("via = .payload"),
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::DerefBoxField => single(
                 Storage::WrapperBehind(Pointer::Box),
@@ -348,6 +360,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::MarkedDeref => TargetDescriptor {
                 storage: Storage::Pointer(Pointer::Box),
@@ -355,6 +368,7 @@ impl Target {
                 route: DEREF,
                 option: Some("deref"),
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::MarkedTrait => TargetDescriptor {
                 storage: Storage::Payload,
@@ -362,6 +376,7 @@ impl Target {
                 route: &[],
                 option: Some("Probe"),
                 refused: true,
+                under_cfg_attr: false,
             },
             Target::MarkedConversion => TargetDescriptor {
                 storage: Storage::Payload,
@@ -369,6 +384,7 @@ impl Target {
                 route: &[],
                 option: Some("from = false"),
                 refused: true,
+                under_cfg_attr: false,
             },
             Target::MarkedLast => TargetDescriptor {
                 storage: Storage::Payload,
@@ -376,6 +392,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::StructMarkedLast => TargetDescriptor {
                 storage: Storage::Payload,
@@ -383,6 +400,7 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::StructTrait => TargetDescriptor {
                 storage: Storage::Payload,
@@ -390,6 +408,7 @@ impl Target {
                 route: &[],
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
             },
             Target::StructTraitSpelt => TargetDescriptor {
                 storage: Storage::Payload,
@@ -397,6 +416,15 @@ impl Target {
                 route: &[],
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
+            },
+            Target::MarkedCfgAttr => TargetDescriptor {
+                under_cfg_attr: true,
+                ..Target::MarkedTuple.descriptor()
+            },
+            Target::StructMarkedCfgAttr => TargetDescriptor {
+                under_cfg_attr: true,
+                ..Target::StructMarked.descriptor()
             },
             Target::StructTraitSelf => TargetDescriptor {
                 storage: Storage::Payload,
@@ -404,6 +432,7 @@ impl Target {
                 route: &[],
                 option: Some(ROOTED_TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
             },
         }
     }

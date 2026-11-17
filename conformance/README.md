@@ -196,6 +196,16 @@ of what the attribute reports, and no impl is written beside it, whatever
 the method. Only the second and third variants depart from the neutral
 cell there.
 
+Two more values of `s0` write the mark under `cfg_attr`, which an
+attribute macro is handed undecided: `marked-cfg-attr` on a tuple
+variant's field, `A(#[cfg_attr(all(), dispatch)] P0, u64)`, and
+`struct-marked-cfg-attr` on a struct's field beside a label. The mark is
+one sentence on its line, naming the variant's way around or the field's,
+and the item is read as if the mark were plain, so the impl stands beside
+it, and the second variant's own sentences with it (`docs/limits.md`).
+Only the second variant departs from the neutral cell there; a mark under
+`cfg_attr` on a variant or a method is `tests/ui`'s.
+
 Four values of `s0` and `s1` reach their target by a route of several
 steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
 behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple

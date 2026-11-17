@@ -5,6 +5,27 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a mark written under `cfg_attr`, `#[cfg_attr(feature = "x",
+  dispatch)]` on a struct's field, a variant, a variant's field or a
+  method of a block, was read in no build, since an attribute macro is
+  handed its item before a `cfg_attr` inside it is decided: the struct was
+  told to mark the field it had marked, and rustc then reported "cannot
+  find attribute `dispatch`". It is now one sentence on the mark, naming
+  the way around for its place: "a `dispatch` under `cfg_attr` is not
+  read, since an attribute macro is handed its item before a `cfg_attr`
+  inside it is decided; mark the field in every build, with a bare
+  `#[whichever::dispatch]` on the struct where its own attributes are
+  under `cfg_attr`", or "write the variant twice" or "write the method
+  twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]`
+  without it". The item is read as if the mark were plain, and the
+  `cfg_attr` is kept without it, so the sentence stands alone.
+  `docs/structs.md` shows a struct whose trait is forwarded in some builds
+  only, and `docs/limits.md`, `docs/troubleshooting.md`,
+  `docs/partial-impl-blocks.md`, `docs/inherent-methods.md` and the crate
+  docs say so; the snapshots
+  `mark_under_cfg_attr_on_a_struct_field`,
+  `mark_under_cfg_attr_on_a_variant` and `mark_under_cfg_attr_on_a_method`
+  and the behaviour test `marks_in_some_builds` are new.
 - Before, `remote = path` on a struct's attribute restated another crate's
   struct, as it restates an enum, and nothing said so; three sentences it
   can reach called it an enum, and a restatement that left out a field of

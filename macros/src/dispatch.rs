@@ -7,7 +7,7 @@ use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
 
 use crate::combined;
 use crate::conversions::conversion_impls;
-use crate::marked::standing_alone;
+use crate::marked::{recover_conditional_marks, standing_alone};
 use crate::naming;
 use crate::options::{
     is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitOptions, TryFromForms,
@@ -36,6 +36,7 @@ pub(crate) fn expand_subject(
     column: usize,
 ) -> TokenStream2 {
     let (arguments, mut errors) = take_dispatch_attributes(&mut subject, attr);
+    errors.extend(subject.recover_conditional_marks());
     // The subject as the carriers hold it, variant and field options
     // included, and as it is emitted, without them.
     let captured = subject;
@@ -335,15 +336,18 @@ fn subject_carrier(
 /// that the methods it declares resolve and the one real error stands
 /// alone. A rejected trait impl block is incomplete without the forwarding,
 /// which rustc would report on top, so it is dropped.
-pub(crate) fn expand_block(attr: TokenStream2, item_impl: ItemImpl) -> TokenStream2 {
+pub(crate) fn expand_block(attr: TokenStream2, mut item_impl: ItemImpl) -> TokenStream2 {
+    let conditional =
+        combined(recover_conditional_marks(&mut item_impl)).map(|error| error.to_compile_error());
     let kept = item_impl
         .trait_
         .is_none()
         .then(|| without_method_attributes(item_impl.clone()));
-    expand_impl_invocation(attr, item_impl).unwrap_or_else(|error| {
+    let expanded = expand_impl_invocation(attr, item_impl).unwrap_or_else(|error| {
         let error = error.to_compile_error();
         quote! { #kept #error }
-    })
+    });
+    quote! { #expanded #conditional }
 }
 
 /// Returns the block without `#[dispatch]` on its methods, and without the

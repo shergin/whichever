@@ -1213,6 +1213,7 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
     let stored = storage(slot, &target);
     let field_option = match (attributes, target.option) {
         (false, _) => String::new(),
+        (true, _) if target.under_cfg_attr => String::from("#[cfg_attr(all(), dispatch)] "),
         (true, Some(option)) => format!("#[dispatch({option})] "),
         (true, None) => String::from("#[dispatch] "),
     };
@@ -1269,6 +1270,9 @@ pub fn write_struct(
             // field every other trait goes to.
             let (label, mark) = match (attributes, target.trait_on_field()) {
                 (false, _) => ("", String::new()),
+                (true, _) if target.under_cfg_attr => {
+                    ("", String::from("#[cfg_attr(all(), dispatch)] "))
+                }
                 (true, Some(named)) => ("#[dispatch] ", format!("#[dispatch({named})] ")),
                 (true, None) => ("", String::from("#[dispatch] ")),
             };

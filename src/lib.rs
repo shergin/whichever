@@ -1676,6 +1676,12 @@
 //!
 //! ### Names, lints and the carrier macro
 //!
+//! - **A mark cannot go under `cfg_attr`.** An attribute macro is handed its
+//!   item before a `cfg_attr` inside it is decided, so the mark would be
+//!   read in no build, and you get an error on it. A struct marks its field
+//!   in every build, with a bare `#[whichever::dispatch]` beside the
+//!   trait's attribute under `cfg_attr`. A variant or a method whose mark
+//!   differs between builds is written twice under `#[cfg(..)]`.
 //! - **A lint attribute on the enum does not reach the impls written next
 //!   to it**, as it would not reach a hand-written one. Put `#[allow]` on
 //!   the trait method, on a partial impl block, or on the module.

@@ -358,6 +358,10 @@ If `Int::base` takes `&self`, the arm borrows the `Int`. If it takes
 - A method that cannot be forwarded gives its error under the method's
   own `#[cfg]`. A build that compiles the method out gives no error,
   since it would have no hand-written method there either.
+- A mark under `cfg_attr` is an error: the attribute is handed the block
+  before rustc decides the `cfg_attr`, so the mark would be read in no
+  build. Write the method twice, under `#[cfg(..)]` with the mark and
+  under `#[cfg(not(..))]` without it.
 
 ## Where the block goes
 

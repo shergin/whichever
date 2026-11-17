@@ -274,6 +274,45 @@ method by hand.
   every method is forwarded to the box, with no partial impl block. See
   [`Self: Sized` and boxed iterators][restatements-boxed-iterators].
 
+### "a `dispatch` under `cfg_attr` is not read"
+
+```text
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; mark the field in every build, with a bare `#[whichever::dispatch]` on the struct where its own attributes are under `cfg_attr`
+```
+
+On a variant, a variant's field or a method of a block, the end of the
+error reads:
+
+```text
+write the variant twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+```
+
+```text
+write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+```
+
+**What it means.** You wrote a mark under `cfg_attr`, such as
+`#[cfg_attr(feature = "x", dispatch)]`. The attribute is handed its item
+before rustc decides the `cfg_attr` inside it, and it cannot decide the
+predicate itself, so the mark would be read in no build. The item is
+read as if the mark were plain, so this is the only error.
+
+**The fix.** As the error says. For a struct, mark the field plainly
+and add a bare attribute beside the trait's, as in
+[A trait in some builds only][structs-some-builds].
+For a variant or a method, write it twice:
+
+```rust
+#[whichever::dispatch(Shape)]
+pub enum Any {
+    #[cfg(feature = "x")]
+    #[dispatch(deref)]
+    Boxed(Box<Square>),
+    #[cfg(not(feature = "x"))]
+    Boxed(Square),
+}
+```
+
 ## On a trait method
 
 ### "takes `Self` arguments": a missing `mismatch`
@@ -688,4 +727,5 @@ reproduces the error helps most.
 [restatements-enums]: restatements.md#enums-from-other-crates
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
+[structs-some-builds]: structs.md#a-trait-in-some-builds-only
 [what-is-generated]: what-is-generated.md

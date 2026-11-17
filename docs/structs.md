@@ -164,6 +164,36 @@ A field's mark that no home claims is not an error. It forwards nothing,
 and nothing says so, because the struct does not see its blocks. The
 first use of the trait then tells you that the impl is missing.
 
+## A trait in some builds only
+
+A wrapper may implement a trait on some targets only, or with some
+features only. Put the trait's attribute under `cfg_attr`, mark the field
+in every build, and add a bare `#[whichever::dispatch]` beside it:
+
+```rust
+#[whichever::dispatch]
+#[cfg_attr(feature = "metrics", whichever::dispatch(Shape))]
+pub struct Labelled {
+    #[dispatch]
+    shape: Square,
+    pub label: String,
+}
+```
+
+With the feature on, the struct forwards `Shape` to `shape`. With it off,
+there is no impl, and the bare attribute still takes the mark off the
+field, so the `#[dispatch]` there is no unknown attribute.
+
+Why not put the mark under `cfg_attr` too? An attribute macro is handed
+its item before any `cfg_attr` inside the item is decided, so a mark
+under `cfg_attr` would be read in no build. You get an error on such a
+mark, saying what to write instead.
+
+The other way is a [partial impl block](partial-impl-blocks.md) under
+`#[cfg(..)]`, with the struct registered by a bare attribute:
+`#[cfg(feature = "metrics")] #[whichever::dispatch] impl Shape for
+Labelled {}`.
+
 ## What is different from an enum
 
 - **`#[dispatch(deref)]` on the field** reaches through a `Box` or another

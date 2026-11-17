@@ -10,6 +10,7 @@ use quote::{quote, ToTokens};
 use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::{
     parenthesized, Attribute, Error, Expr, Ident, ItemTrait, LitBool, LitInt, Member, Meta, Path,
     Result, Token, TraitItem, TraitItemFn, Type,
@@ -91,6 +92,122 @@ pub(crate) fn is_dispatch_attribute(attribute: &Attribute) -> bool {
         .segments
         .last()
         .is_some_and(|segment| segment.ident == "dispatch")
+}
+
+/// What carries a mark, for the sentence about a mark under `cfg_attr`.
+#[derive(Clone, Copy)]
+pub(crate) enum Carries {
+    /// A struct's field.
+    Field,
+    /// A variant, or a variant's field.
+    Variant,
+    /// A method of an impl block.
+    Method,
+}
+
+/// Takes every `dispatch` out of the `cfg_attr` attributes among
+/// `attributes` and writes it back plainly, returning the sentence for
+/// each. An attribute macro is handed its item with the `cfg_attr`
+/// attributes inside it as they are written, before rustc decides them,
+/// and cannot decide one itself: a mark under one would be read in no
+/// build, and left for rustc to report as an attribute it does not know in
+/// the builds where the predicate holds. Read as it was meant, the item is
+/// forwarded as in those builds, so the sentence stands alone.
+pub(crate) fn recover_conditional_marks(
+    attributes: &mut Vec<Attribute>,
+    carries: Carries,
+) -> Vec<Error> {
+    let mut errors = vec![];
+    let mut recovered = vec![];
+    for attribute in std::mem::take(attributes) {
+        let Some((kept, marks)) = without_conditional_marks(&attribute.meta) else {
+            recovered.push(attribute);
+            continue;
+        };
+        if marks.is_empty() {
+            recovered.push(attribute);
+            continue;
+        }
+        let way = match carries {
+            Carries::Field => "mark the field in every build, with a bare `#[whichever::dispatch]` on the struct where its own attributes are under `cfg_attr`",
+            Carries::Variant => "write the variant twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it",
+            Carries::Method => "write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it",
+        };
+        if let Some(kept) = kept {
+            recovered.push(Attribute {
+                meta: kept,
+                ..attribute.clone()
+            });
+        }
+        for mark in marks {
+            errors.push(Error::new_spanned(
+                &mark,
+                format!("a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; {way}"),
+            ));
+            recovered.push(Attribute {
+                meta: mark,
+                ..attribute.clone()
+            });
+        }
+    }
+    *attributes = recovered;
+    errors
+}
+
+/// Returns `meta`, a `cfg_attr(predicate, attribute, ..)`, without the
+/// `dispatch` attributes it lists, at any depth of `cfg_attr`, and those
+/// attributes; nothing is left of one that listed no other. Any other
+/// attribute, or a `cfg_attr` that does not read as a predicate and a list
+/// of attributes, is nothing to look into.
+fn without_conditional_marks(meta: &Meta) -> Option<(Option<Meta>, Vec<Meta>)> {
+    let Meta::List(list) = meta else {
+        return None;
+    };
+    if !list.path.is_ident("cfg_attr") {
+        return None;
+    }
+    // The predicate is kept as the tokens written: it need not be a
+    // `Meta`, as `true` is not.
+    let mut parts: Vec<TokenStream2> = vec![TokenStream2::new()];
+    for tree in list.tokens.clone() {
+        match &tree {
+            proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',' => {
+                parts.push(TokenStream2::new());
+            }
+            _ => parts
+                .last_mut()
+                .expect("starts with one part")
+                .extend([tree]),
+        }
+    }
+    let mut parts = parts.into_iter();
+    let predicate = parts.next()?;
+    let mut kept = vec![];
+    let mut marks = vec![];
+    for part in parts.filter(|part| !part.is_empty()) {
+        let listed: Meta = syn::parse2(part).ok()?;
+        if listed
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "dispatch")
+        {
+            marks.push(listed);
+            continue;
+        }
+        match without_conditional_marks(&listed) {
+            Some((inner, inner_marks)) => {
+                kept.extend(inner);
+                marks.extend(inner_marks);
+            }
+            None => kept.push(listed),
+        }
+    }
+    let kept = (!kept.is_empty()).then(|| {
+        let path = &list.path;
+        syn::parse_quote_spanned!(list.path.span() => #path(#predicate, #(#kept),*))
+    });
+    Some((kept, marks))
 }
 
 /// Parses options separated by commas, a trailing comma allowed, handing

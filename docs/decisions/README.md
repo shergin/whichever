@@ -40,6 +40,7 @@ the planning notes, the note holds the long form and the record names it.
   completing the one above
 - [A boxed future is rewrapped by boxing](a-boxed-future-is-rewrapped-by-boxing.md)
 - [An enum that may be empty is matched by place](an-enum-that-may-be-empty-is-matched-by-place.md)
+- [A mark under `cfg_attr` is a sentence](a-mark-under-cfg-attr-is-a-sentence.md)
 - [The macro crate parses with `syn` 3](the-macro-crate-parses-with-syn-3.md)
 - [A place is handed over as the return type asks](a-place-is-handed-over-as-the-return-type-asks.md)
 - [Combinations are checked by a generated matrix](combinations-are-checked-by-a-generated-matrix.md)

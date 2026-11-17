@@ -11,7 +11,10 @@ use syn::{
     ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
-use crate::options::{is_dispatch_attribute, trait_key, Position, TargetOptions, TryFromForms};
+use crate::options::{
+    is_dispatch_attribute, recover_conditional_marks, trait_key, Carries, Position, TargetOptions,
+    TryFromForms,
+};
 use crate::route::Route;
 use crate::shape::{bare_ident, is_self, pointee, Pointer};
 use crate::site::Site;
@@ -103,6 +106,35 @@ impl Subject {
             }
         }
         subject
+    }
+
+    /// Reads the marks written under `cfg_attr` on the variants, their
+    /// fields, or the struct's fields as they were meant, and returns the
+    /// sentence for each.
+    pub(crate) fn recover_conditional_marks(&mut self) -> Vec<Error> {
+        let mut errors = vec![];
+        match self {
+            Subject::Enum(item) => {
+                for variant in &mut item.variants {
+                    errors.extend(recover_conditional_marks(
+                        &mut variant.attrs,
+                        Carries::Variant,
+                    ));
+                    for field in &mut variant.fields {
+                        errors.extend(recover_conditional_marks(
+                            &mut field.attrs,
+                            Carries::Variant,
+                        ));
+                    }
+                }
+            }
+            Subject::Struct(item) => {
+                for field in &mut item.fields {
+                    errors.extend(recover_conditional_marks(&mut field.attrs, Carries::Field));
+                }
+            }
+        }
+        errors
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its

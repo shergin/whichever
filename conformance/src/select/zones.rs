@@ -312,8 +312,11 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "field-options",
-        summary: "an option a variant's marked field does not take, a trait's name or a conversion option, beside every second variant",
-        vary: &[("s0", &["marked-trait", "marked-from"]), ("s1", &[])],
+        summary: "an option a variant's marked field does not take, a trait's name or a conversion option, and a mark under `cfg_attr` on a variant's field and a struct's, beside every second variant",
+        vary: &[
+            ("s0", &["marked-trait", "marked-from", "marked-cfg-attr", "struct-marked-cfg-attr"]),
+            ("s1", &[]),
+        ],
         fixed: &[],
     },
     Zone {

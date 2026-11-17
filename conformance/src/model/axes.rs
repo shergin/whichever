@@ -101,6 +101,13 @@ axis! {
         /// begins with a keyword, `#[dispatch(self::Probe)]`, as its home
         /// spells it too: one spelling, so the trait goes to `held`.
         StructTraitSelf = "struct-trait-self",
+        /// `A(#[cfg_attr(all(), dispatch)] P0, u64)`, the mark of a tuple
+        /// variant's field under `cfg_attr`: "You get an error on the mark,
+        /// and the item is read as if the mark were plain" (limits.md).
+        MarkedCfgAttr = "marked-cfg-attr",
+        /// `pub struct E { pub label: u64, #[cfg_attr(all(), dispatch)] pub
+        /// held: P0 }`, the same mark on a struct's field.
+        StructMarkedCfgAttr = "struct-marked-cfg-attr",
     }
 }
 

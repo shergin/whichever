@@ -1,0 +1,17 @@
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+  --> tests/ui/mark_under_cfg_attr_on_a_method.rs:34:23
+   |
+34 |     #[cfg_attr(all(), dispatch(Square))]
+   |                       ^^^^^^^^^^^^^^^^
+
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+  --> tests/ui/mark_under_cfg_attr_on_a_method.rs:47:23
+   |
+47 |     #[cfg_attr(all(), dispatch(*))]
+   |                       ^^^^^^^^^^^
+
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+  --> tests/ui/mark_under_cfg_attr_on_a_method.rs:53:23
+   |
+53 |     #[cfg_attr(all(), dispatch(default))]
+   |                       ^^^^^^^^^^^^^^^^^
