@@ -5,6 +5,15 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The tutorial, the glossary and the troubleshooting page are on docs.rs
+  too, as `whichever::docs::tutorial`, `docs::glossary` and
+  `docs::troubleshooting`, so they read as they were at the version you
+  depend on and not as they are on `main`. The modules hold no items and
+  exist only while rustdoc builds documentation, so they add nothing to
+  the API. The three Markdown files now ship in the package. A link in
+  them goes to the matching section of the crate docs when it is read
+  there, and `scripts/check_doc_links.py`, which CI runs, fails on a link
+  in the rendered docs that reaches no page or no heading.
 - The documentation is rewritten in plainer English, with every fact
   kept. The README, the pages under `docs/`, the crate docs and the docs
   of the two attributes now open with the everyday case and a small

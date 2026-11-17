@@ -107,6 +107,7 @@ any default.
   `cargo test --workspace`,
   `cargo test --test expand -- --ignored`,
   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p whichever -p whichever-macros`,
+  `python3 scripts/check_doc_links.py`, which reads what that built,
   `cargo check -p whichever --no-default-features --tests`,
   `cargo check -p smoke-no-std --target thumbv7em-none-eabi`,
   `python3 smoke/mixed/check.py`,
