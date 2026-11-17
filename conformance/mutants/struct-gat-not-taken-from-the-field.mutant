@@ -1,0 +1,9 @@
+file: macros/src/items.rs
+breaks: A struct takes a generic associated type from its field's type where it can name it, as `docs/structs.md` says.
+expect: killed
+witness: s0=struct s1=none ret=gat
+
+find:
+                Some(_) if self.of.subject.has_one_target() => Some(self.of.supplied(name)?),
+replace:
+                Some(_) if self.of.subject.has_one_target() && false => Some(self.of.supplied(name)?),

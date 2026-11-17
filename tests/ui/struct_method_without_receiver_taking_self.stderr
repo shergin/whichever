@@ -1,0 +1,10 @@
+error: `merged` has no receiver and takes `Self` arguments, which are forwarded beside a receiver only; give it a default body, or write it in a `#[whichever::dispatch] impl Merge for Wrapper` block
+  --> tests/ui/struct_method_without_receiver_taking_self.rs:5:5
+   |
+ 5 |     fn merged(left: &Self, right: &Self) -> u32;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+20 | #[whichever::dispatch(Merge)]
+   |                       ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Merge` (in Nightly builds, run with -Z macro-backtrace for more info)

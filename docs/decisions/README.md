@@ -31,6 +31,7 @@ the planning notes, the note holds the long form and the record names it.
   superseding [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)
 - [A field's trait may be a partial block's](a-fields-trait-may-be-a-partial-blocks.md),
   completing the one above
+- [A struct takes what its field's type has](a-struct-takes-what-its-fields-type-has.md)
 - [Benchmarks are runtime only](benchmarks-are-runtime-only.md)
 - [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
 - [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)

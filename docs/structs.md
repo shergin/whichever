@@ -164,6 +164,58 @@ A field's mark that no home claims is not an error. It forwards nothing,
 and nothing says so, because the struct does not see its blocks. The
 first use of the trait then tells you that the impl is missing.
 
+## Functions and generic associated types
+
+A struct's target has a type the struct names: its one field, or the
+marked one, reached directly or through `deref`. So what needs no value
+comes from that type, as you would write it by hand:
+
+- **A trait method without a receiver** is the field type's,
+  `<Square as Shape>::kind()`. That includes provided methods, so the
+  field's override of one is what the struct answers.
+- **`-> Self` and `Option<Self>`** are built around the result, where
+  the struct has no other field: `Wrapper(<Square as Shape>::unit())`.
+- **A generic associated type** is the field type's too:
+  `type Side<'a> = <Square as Shape>::Side<'a> where Self: 'a;`. A
+  parameter named like one of the struct's is renamed, so on
+  `struct Generic<T>(T)` you get
+  `type Paired<T2> = <T as Shape>::Paired<T2>;`.
+- **An inherent method without a receiver**, marked in an inherent
+  block, is a path call on the field's type. It finds an inherent
+  function before a trait's, so a constructor is one line:
+
+```rust
+#[whichever::dispatch]
+pub struct Arith256(U256);
+
+#[whichever::dispatch]
+impl Arith256 {
+    #[dispatch(*, call = from)]
+    pub fn from_u64(v: u64) -> Self; // `Self(<U256>::from(v))`
+}
+```
+
+`call` and `with` work as on any inherent method. `async fn`,
+`unsafe fn` and generic functions are forwarded too.
+
+### What the field's type cannot be asked
+
+Some functions still cannot come from the field's type:
+
+- one that takes a `Self` argument, because a `Self` argument is
+  unwrapped beside a receiver only;
+- one over a field that holds a trait object, which has no function to
+  call without a value;
+- one over a field reached through a field or a method, whose type the
+  struct does not say.
+
+There, a provided method is left to the trait's default, and a required
+one gets an error: give it a default body, or write it in a
+[partial impl block](partial-impl-blocks.md). An inherent one gets an
+error that asks for a body. A generic associated type over such a field
+is declared in a partial impl block. `field` and `value` on an inherent
+method without a receiver are an error: there is no value to read.
+
 ## A trait in some builds only
 
 A wrapper may implement a trait on some targets only, or with some

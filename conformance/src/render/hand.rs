@@ -11,6 +11,7 @@ use super::context::{
     constructor, is_struct, pattern, target_type, variant, write_struct, Context, Site, HOLE,
 };
 use super::writer::Writer;
+use crate::model::agreement::{AssociatedItem, ItemKind};
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
@@ -215,6 +216,23 @@ struct Method {
     conditional: Vec<(usize, &'static str)>,
 }
 
+/// Writes a trait's method without a receiver as the hand forwards it: to
+/// the field's type on a struct, and on an enum not at all: "A trait method
+/// without a receiver is the field type's, `<Square as Shape>::kind()`.
+/// That includes provided methods, so the field's override of one is what
+/// the struct answers" (structs.md).
+fn write_function(writer: &mut Writer, context: &Context, item: &AssociatedItem, trait_path: &str) {
+    if !is_struct(&context.slots) {
+        return;
+    }
+    writer.line("#[inline]");
+    writer.line(item.definition(&format!(
+        "<{} as {trait_path}>::{}()",
+        context.supplier_payload(),
+        item.name
+    )));
+}
+
 /// Writes `mod hand`.
 pub fn write(writer: &mut Writer, context: &Context) {
     writer.line("/// The same subject with the forwarding written by hand.");
@@ -295,6 +313,13 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 context.supplier_payload(),
                 context.trait_path()
             ),
+            // "A generic associated type is the field type's too"
+            // (structs.md), where no block declares it.
+            (Associated::Item, _) if context.cell.takes_gat_from_field() => format!(
+                "<{} as {}>::Item<'v>",
+                context.supplier_payload(),
+                context.trait_path()
+            ),
             // The enum declares it, as the block does.
             (Associated::Item, _) => String::from(super::context::VIEW),
         };
@@ -303,6 +328,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
     // An item the enum fixes is the value fixed, and any other is the
     // supplier's (what-is-generated.md).
     for item in context.agreement.items {
+        if item.kind == ItemKind::Function {
+            write_function(writer, context, item, &context.trait_path());
+            continue;
+        }
         let value = item.overridden.map_or_else(
             || {
                 format!(
@@ -557,6 +586,10 @@ fn write_other(writer: &mut Writer, context: &Context) {
         context.type_generics()
     ));
     for item in context.agreement.items {
+        if item.kind == ItemKind::Function {
+            write_function(writer, context, item, OTHER);
+            continue;
+        }
         let value = item.overridden.map_or_else(
             || format!("<{} as {OTHER}>::{}", context.supplier_payload(), item.name),
             String::from,
@@ -765,6 +798,11 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
                 true => (Wrapping::Plain, false, conversion),
                 false => (Wrapping::BoxedBlock, true, conversion),
             }
+        }
+        // A generic associated type taken from the field's type is the
+        // payload's own, handed over as it is.
+        None if one_arm && method.node == Node::Gat && context.cell.takes_gat_from_field() => {
+            (Wrapping::Plain, method.asyncness, Some(Conversion::Keep))
         }
         None if one_arm => (
             Wrapping::Plain,

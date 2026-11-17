@@ -301,6 +301,19 @@ fn write_associated(writer: &mut Writer, context: &Context) {
                 writer.line(format!("let _: <S as {instance}>::{name} = kind;"));
                 writer.close("}");
             }
+            // "Give the trait method a default body, which the enum then
+            // uses" (limits.md), where a struct answers its field's: "the
+            // field's override of one is what the struct answers"
+            // (structs.md).
+            (ItemKind::Function, _) => {
+                let expected = match context.cell.s0.descriptor().is_struct() {
+                    true => format!("<{supplier} as {instance}>::{name}()"),
+                    false => String::from(crate::model::agreement::FUNCTION_DEFAULT),
+                };
+                writer.line(format!(
+                    "assert_eq!(<S as {instance}>::{name}(), {expected}, \"{name}\");"
+                ));
+            }
             (ItemKind::Const, Some(value)) => writer.line(format!(
                 "assert_eq!(<S as {instance}>::{name}, {value}, \"{name}\");"
             )),
@@ -342,13 +355,21 @@ fn write_observers(writer: &mut Writer, context: &Context) {
     // generic associated type as what the enum declares it, since the
     // projection would elide the lifetime of a subject that borrows apart
     // from its own.
-    let subject_type = match declared == Node::Gat {
-        true => super::context::VIEW.replace("<'v>", "<'_>"),
-        false => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    // A struct that takes the type from its field answers the payload's
+    // own loan, which shows as the payload's does.
+    let taken = declared == Node::Gat && context.cell.takes_gat_from_field();
+    let subject_type = match (declared == Node::Gat, taken) {
+        (true, true) => answer_type(&declared, 0).replace("&'a ", "&"),
+        (true, false) => super::context::VIEW.replace("<'v>", "<'_>"),
+        (false, _) => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    };
+    let side = match taken {
+        true => Side::Payload(0),
+        false => Side::Subject,
     };
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
-    writer.line(observation(&declared, "answer", Side::Subject, 0));
+    writer.line(observation(&declared, "answer", side, 0));
     writer.close("}");
     writer.blank();
     for (slot, _, _) in context.cell.method_slots() {

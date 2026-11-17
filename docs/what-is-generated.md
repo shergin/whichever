@@ -130,7 +130,7 @@ after the table.
 | any other `-> impl Trait` | An error on an enum. Forwarded as it is on a [struct](structs.md). |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`. Different variants return the `mismatch` expression; see [`Self` in arguments](#self-in-arguments). |
 | return `Self` | Wrapped back into the same variant; see [`Self` in return types](#self-in-return-types) for `Option<Self>`, `Result<Self, E>` and tuples. |
-| method without a receiver | Left to the trait's default body, or written by you in a partial impl block. An error if it has neither; see [methods without a receiver](#methods-without-a-receiver). |
+| method without a receiver | On an enum, left to the trait's default body, or written by you in a partial impl block; an error if it has neither. On a struct, `<Target as Trait>::method(args..)`. See [methods without a receiver](#methods-without-a-receiver). |
 | `#[cfg]` on a method or an associated item | Decided in the trait's crate; see [`#[cfg]` on trait items](#cfg-on-trait-items). |
 | `#[cfg]` on a variant | Carried onto the variant's arm, and decided where the enum is; see [`#[cfg]` on variants](#cfg-on-variants). |
 | `#[deprecated]` on a variant | Arms and conversions written under `#[allow(deprecated)]`. |
@@ -383,10 +383,35 @@ the trait's default body with `#[dispatch(default)]` in a
 ### Methods without a receiver
 
 A method without `self`, such as `fn new() -> Self`, has no value to
-match on. It is left to the trait's default body if it has one. If it does
-not, write it yourself in a partial impl block,
+match on. On an enum, it is left to the trait's default body if it has
+one. If it does not, write it yourself in a partial impl block,
 `#[whichever::dispatch] impl Trait for Enum { .. }`. When a method has
 neither, you get an error.
+
+A struct has one target, and it names the target's type: the one field,
+or the marked one, directly or through `deref`. So on a struct the method
+is that type's, the provided ones included:
+
+```rust
+fn kind() -> &'static str {
+    <Square as Shape>::kind()
+}
+fn unit() -> Self {
+    Wrapper(<Square as Shape>::unit())
+}
+```
+
+`-> Self` and `Option<Self>` are built around the result where the
+struct has no other field. A generic associated type is the field type's
+as well, `type Side<'a> = <Square as Shape>::Side<'a> where Self: 'a;`,
+with a parameter named like one of the struct's renamed (`T2`). An
+inherent method without a receiver, marked in a block, is
+`<Square>::method(args..)`.
+
+A function that takes a `Self` argument, one over a field holding a
+trait object, and one over a field reached through a route stay as on
+an enum: left to the default, or an error. See
+[structs.md](structs.md#what-the-fields-type-cannot-be-asked).
 
 ### `#[cfg]` on trait items
 

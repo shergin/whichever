@@ -130,7 +130,7 @@ case is handled.
 | Associated types | yes | no | yes | no | yes | no | no | by hand |
 | Differing associated types unified | yes, through `Into` | no | no | no | yes, wrapper enum | no | no | by hand |
 | Associated consts | yes, checked to agree or fixed on the enum | no | no | no | no | no | no | by hand |
-| Methods without a receiver | with a default body, or written by hand next to the forwarded ones | no | no | no | no | no | no | - |
+| Methods without a receiver | with a default body, or written by hand next to the forwarded ones; through a struct, forwarded to the field's type | no | no | no | no | no | no | - |
 | Some methods written by hand, the rest forwarded | yes | no | no | no | no | no | no | yes, by listing the rest |
 | `async fn` | yes | yes | yes | no | no | no | yes | yes |
 | Generic trait at a concrete instantiation | yes | no | yes | no | no | yes | no | by hand |

@@ -1,0 +1,5 @@
+error: `unit` returns `Self`, which cannot be built around the other fields of `Labelled`; write the method in a `#[whichever::dispatch] impl` block
+  --> tests/ui/struct_method_without_receiver_beside_other_fields.rs:23:13
+   |
+23 |     square: Square,
+   |             ^^^^^^

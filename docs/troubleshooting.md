@@ -404,6 +404,50 @@ has no value to `match` on, so no variant to forward to.
 uses, or write it yourself in a
 [partial impl block][partial-impl-blocks].
 
+### "has no receiver, and the field of `Wrapper` is reached through a field or a method"
+
+On a struct, a method without a receiver is forwarded to the field's
+type. You get one of these where that type cannot be asked:
+
+```text
+error: `kind` has no receiver, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to call `kind` on; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
+```
+
+```text
+error: `kind` has no receiver, and `Wrapper` holds a trait object, which has no function to call without a value; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
+```
+
+```text
+error: `merged` has no receiver and takes `Self` arguments, which are forwarded beside a receiver only; give it a default body, or write it in a `#[whichever::dispatch] impl Merge for Wrapper` block
+```
+
+For an inherent method, the end reads "give it a body" instead. And a
+generic associated type over a routed field:
+
+```text
+error: `Item` is a generic associated type, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to supply `Item`; write `type Item<'a> = ..;` in a `#[whichever::dispatch] impl Lend for Wrapper` block
+```
+
+**What it means.** The struct forwards what needs no value to its field's
+type, and here it cannot: the field is reached through a route, whose
+type the struct does not say; or it holds a trait object; or the method
+takes a `Self` argument, which is unwrapped only beside a receiver.
+
+**The fix.** As the error says. See
+[What the field's type cannot be asked][structs-cannot-be-asked].
+
+### "has no receiver, so there is no field of a value to read"
+
+```text
+error: `zero` has no receiver, so there is no field of a value to read; `field` and `value` hand over what a receiver holds
+```
+
+**What it means.** `field` and `value` hand over part of the value the
+method is called on, and a method without a receiver has none.
+
+**The fix.** Drop `field` or `value`, so the method calls the field
+type's function, or give the method a body.
+
 ### "a return-position `impl Trait` is not dispatched by a `match`"
 
 ```text
@@ -732,6 +776,11 @@ No error here. The enum compiles, but a provided method (a method with a
 default body) returns the trait's default, not what the payload's own
 version returns.
 
+(On a struct, a provided method without a receiver over a field reached
+through a route is left to the default too, because the field's type
+cannot be named. See
+[What the field's type cannot be asked][structs-cannot-be-asked].)
+
 **What it means.** The trait is a [restatement][restatements], and
 the restatement does not list that method. A restatement forwards
 exactly the methods it lists. A method left out falls back to the
@@ -787,6 +836,7 @@ reproduces the error helps most.
 [restatements-enums]: restatements.md#enums-from-other-crates
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
+[structs-cannot-be-asked]: structs.md#what-the-fields-type-cannot-be-asked
 [structs-some-builds]: structs.md#a-trait-in-some-builds-only
 [routes-mutable-borrow]: routes.md#a-route-for-a-mutable-borrow
 [what-is-generated]: what-is-generated.md

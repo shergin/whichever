@@ -1,9 +1,9 @@
 file: macros/src/items.rs
-breaks: A sentence about a dispatch struct speaks of the struct, which declares a generic associated type in a block as an enum does, as `docs/limits.md` and `docs/structs.md` say.
-expect: killed
-witness: s0=struct s1=none ret=gat
+breaks: A sentence about a dispatch struct speaks of the struct, whose generic associated type a field reached through a route cannot supply, as `docs/structs.md` says.
+expect: survives
+reason: The model writes no struct whose field is reached through a route, the one struct whose generic associated type is still a sentence; a routed struct value of `s0` would reach it.
 
 find:
-self.of.subject.words().subject()),
+            let message = if subject.has_one_target() {
 replace:
-"enum"),
+            let message = if false && subject.has_one_target() {

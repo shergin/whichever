@@ -77,11 +77,12 @@ On this page:
 - **`Rc<Self>`, `Arc<Self>` and `Pin<Box<Self>>` receivers are not
   supported.** Forwarding them would need a refcount or an allocation,
   which a hand-written `match` does not do.
-- **A method without a receiver, such as `fn new() -> Self`, needs a
-  default body or an implementation of your own.** It has no value to
-  match on, so there is no variant to forward to. Give the trait method
-  a default body, which the enum then uses, or write the method in a
-  [partial impl block](partial-impl-blocks.md).
+- **On an enum, a method without a receiver, such as `fn new() -> Self`,
+  needs a default body or an implementation of your own.** It has no
+  value to match on, so there is no variant to forward to. Give the trait
+  method a default body, which the enum then uses, or write the method in
+  a [partial impl block](partial-impl-blocks.md). A struct forwards it to
+  its field's type, within the limits under [Structs](#structs).
 
 ## `Self` in arguments and return types
 
@@ -259,10 +260,12 @@ method:
   Restate the trait with only the methods to forward, or leave the
   method to the trait's default with `#[dispatch(default)]` in a partial
   impl block.
-- **A generic associated type comes from the enum or the struct, in a
-  partial impl block.** It cannot come from the first variant or from
-  the struct's field, and no option on the attribute gives it. Write
-  `type Item<'a> = ..;` in a `#[whichever::dispatch] impl` block.
+- **An enum's generic associated type comes from a partial impl
+  block.** It cannot come from the first variant: nothing could check
+  that the variants agree on it for every argument. No option on the
+  attribute gives it either. Write `type Item<'a> = ..;` in a
+  `#[whichever::dispatch] impl` block. A struct takes it from its field's
+  type, except through a route, where the field's type cannot be named.
 - **An associated const is checked against every variant only in some
   cases.** An associated const is taken from the first variant without
   a check when:
@@ -346,10 +349,10 @@ The `#[cfg]` rules for the other items a block cannot read are under
 
 ## Inherent methods
 
-- **An inherent method without a receiver cannot be forwarded.** It has
-  no value to match on, so there is no variant to forward to. Leave the
-  `#[dispatch(..)]` off and give it a body: methods without one are left
-  alone.
+- **On an enum, an inherent method without a receiver cannot be
+  forwarded.** It has no value to match on, so there is no variant to
+  forward to. Leave the `#[dispatch(..)]` off and give it a body: methods
+  without one are left alone. A struct forwards it to its field's type.
 - **An inherent method cannot list a variant without a payload.** There
   is nothing in it to forward to. Leave the variant out of the list; it
   runs the method's body.
@@ -423,6 +426,22 @@ of its fields. See [structs.md](structs.md).
 - **Two different traits with the same name look like one.** A `Named`
   and a `wire::Named` are taken for one name spelled two ways. Import one
   of them under another name to tell them apart.
+- **A method without a receiver is the field type's only where the struct
+  names that type**: the one field or the marked one, directly or through
+  `deref`. These are left as on an enum:
+  - a function that takes a `Self` argument, which is unwrapped beside a
+    receiver only;
+  - a function over a field that holds a trait object, which has no
+    function to call without a value;
+  - a function over a field reached through a field or a method, whose
+    type the struct does not say.
+
+  A provided one is left to the trait's default. A required one is an
+  error: give it a default body, or write it in a partial impl block. An
+  inherent one is an error that asks for a body. `-> Self` is built only
+  around a struct with no other field.
+- **`field` and `value` on an inherent method without a receiver are an
+  error.** There is no value whose field they could hand over.
 - **A struct takes no conversion options.** `from`, `try_from` and
   `into` are options of an enum; a struct gets no conversions, so they
   are an error on it.

@@ -5,6 +5,43 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a dispatch struct took nothing from its field's type that needs
+  no value, though its declaration names that type: a trait method without
+  a receiver and a generic associated type were refused with an enum's
+  reason, "no field to forward to", an inherent method without a receiver
+  likewise, and a provided method without a receiver was left to the
+  trait's default, which hid the field's override of it. Where the struct
+  names its target's type, the one field or the marked one, directly or
+  through `deref`, a trait method without a receiver is now `<Target as
+  Trait>::name(args)`, `-> Self` and `Option<Self>` built around it where
+  the struct has no other field; a generic associated type is `type
+  Name<..> = <Target as Trait>::Name<..> where ..;`, a parameter named
+  like one of the struct's renamed, `T2`; and an inherent method without a
+  receiver marked in a block is `<Target>::name(args)`, with `call` and
+  `with`, so dash-num's `#[dispatch(*, call = from)] pub fn from_u64(v:
+  u64) -> Self;` is `Self(<U256>::from(v))`. This changes what existing
+  structs answer: a provided method without a receiver that the field's
+  type overrides now answers with the override, where it answered with
+  the trait's default. A method that takes a `Self` argument, a field
+  holding a trait object and a field reached through a field or a method
+  are left as before, a provided method to the default and a required or
+  an inherent one by a sentence of its own; `field` or `value` on an
+  inherent method without a receiver is a sentence. An enum is unchanged.
+  `docs/structs.md`, `docs/partial-impl-blocks.md`,
+  `docs/what-is-generated.md`, `docs/limits.md`, `docs/troubleshooting.md`,
+  the crate docs and the docs of `#[dispatch]` say so.
+  The snapshots `struct_generic_associated_type` and
+  `struct_trait_method_without_receiver` now pin a field reached through a
+  route, where a generic associated type says "the field of `Wrapper` is
+  reached through a field or a method, so its type cannot be named to
+  supply `Item`"; `struct_method_without_receiver_taking_self`,
+  `struct_method_without_receiver_over_a_trait_object`,
+  `struct_method_without_receiver_beside_other_fields` and
+  `struct_inherent_without_receiver_reading_a_field` are new. The
+  behaviour tests `newtype_delegation` and `inherent_block_on_a_struct` and
+  the golden `newtype` cover a tuple struct, a named field, a marked field
+  beside others, a `deref` field, a generic struct, async, unsafe and
+  generic functions and an inherent constructor.
 - Before, a route ending in a method call was refused for every method
   that borrows mutably, "whose result cannot be borrowed mutably; route to
   a field", though a getter that lends mutably, `fn data_mut(&mut self) ->

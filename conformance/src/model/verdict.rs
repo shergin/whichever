@@ -120,6 +120,18 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if !object_canonical(cell) {
         return Verdict::NonCanonical;
     }
+    // A method without a receiver is the dispatchable trait's own: a
+    // restatement would list it without the body it has, and another
+    // crate's enum would need the field's type the restatement names. The
+    // second trait would declare one of the same name, which the shapes
+    // pair by name alone.
+    let function = cell.agree == Agreement::Function;
+    let alone = cell.decl == Declaration::Dispatchable
+        && cell.owner == Owner::Local
+        && cell.stack == Stack::Absent;
+    if function && !alone {
+        return Verdict::NonCanonical;
+    }
     if let Some(verdict) = own_arms(cell) {
         return verdict;
     }
@@ -764,6 +776,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         }
     }
     let path = cell.path_descriptor();
+    // A body the block writes answers a constant of the type the enum
+    // declares, which a struct that takes the type from its field does not.
+    if cell.takes_gat_from_field() && path.form == PathForm::Written {
+        return Some("a written body answering the field's own generic associated type");
+    }
     if let Some(reason) = unpredicted_generics(cell) {
         return Some(reason);
     }
@@ -1802,13 +1819,17 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         .associated()
         .iter()
         .any(|(associated, _)| *associated == Associated::Item);
-    if gat && !cell.declares_gat() {
+    if gat && !cell.declares_gat() && !cell.takes_gat_from_field() {
         expect(Limit::GenericAssociatedType, Anchor::Associated);
     }
 
     let items = cell.agree.descriptor().items;
+    // A method without a receiver is no item taken from the first variant:
+    // an enum leaves it to its default.
     let taken = node.associated().iter().any(|(_, overridden)| !overridden)
-        || items.iter().any(|item| item.overridden.is_none());
+        || items
+            .iter()
+            .any(|item| item.overridden.is_none() && item.kind != ItemKind::Function);
     let supplier = cell.supplier();
     if taken && supplier.is_none() {
         expect(Limit::UnsuppliedType, Anchor::Enum);
@@ -1842,6 +1863,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
                 ItemKind::Type => true,
+                ItemKind::Function => false,
                 // The second trait declares the same consts, and its impl,
                 // which the enum's attribute writes, has none of a block's
                 // header parameters, so its check runs where the enum has
@@ -1858,7 +1880,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
             }
             let limit = match item.kind {
                 ItemKind::Type => Limit::TypeDisagreement,
-                ItemKind::Const => Limit::ConstDisagreement,
+                ItemKind::Const | ItemKind::Function => Limit::ConstDisagreement,
             };
             for slot in &slots {
                 let other = slot.index != supplier.index && slot.names_its_target();

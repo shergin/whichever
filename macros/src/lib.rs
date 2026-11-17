@@ -239,7 +239,10 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// marked `#[dispatch]`. The field may be any type that implements the
 /// trait. A struct gets no `From` impls and needs no `mismatch`, and it
 /// forwards a method that returns `impl Trait` as it is, because its
-/// `match` has one arm.
+/// `match` has one arm. What needs no value comes from the field's type,
+/// where the struct names it: a trait method without a receiver,
+/// `<Square as Shape>::kind()`, a generic associated type, and an inherent
+/// method without a receiver marked in a block.
 ///
 /// ## On an inherent block
 ///
@@ -286,8 +289,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// - The enum does not list the trait in its own attribute: the block is
 ///   the impl. The trait's options go on the block's attribute.
-/// - An associated type written in the block is an override. A generic
-///   associated type is declared here.
+/// - An associated type written in the block is an override. An enum's
+///   generic associated type is declared here.
 /// - The block's header, generics and bounds included, becomes the impl's
 ///   header. An empty block gives the impl a header the enum's attribute
 ///   cannot write.

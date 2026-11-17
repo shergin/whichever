@@ -136,14 +136,18 @@ has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says. A sentence about a struct speaks of the struct and
 its field, never of an enum or a variant, and the wording checks it where
-the model reaches one: a generic associated type only the struct can
-declare, and a body beside a method forwarded to the struct's field. A
-struct's sentences the model does not reach stay with `tests/ui`: a trait
-method without a receiver, which the `recv` axis does not write; a field
-reached through a route, which no struct value takes, so none leaves an
-associated type to supply; and a method that names the field it forwards
-to, which the paths write only to name another field or two of them,
-below.
+the model reaches one: a body beside a method forwarded to the struct's
+field. A struct takes what its field's type has
+(`docs/structs.md`, "Functions and generic associated types"): a generic
+associated type no block declares, `type Item<'v> = <P0 as
+Probe>::Item<'v> where Self: 'v;`, whose loan the arm hands over as it
+is, and a method without a receiver, which the `agree` value `function`
+writes. A struct's sentences the model does not reach stay with
+`tests/ui`: a field reached through a route, which no struct value takes,
+so none leaves an associated type to supply; an inherent method without a
+receiver, which the `recv` axis does not write; and a method that names
+the field it forwards to, which the paths write only to name another field
+or two of them, below.
 
 Two values of `path`, `inherent-fields` and `block-fields`, mark the
 method on an inherent block or in a partial block `#[dispatch(held,
@@ -252,7 +256,8 @@ where Self: 'v;`, as `docs/partial-impl-blocks.md` and the golden
 where the cell has one; under `gat-undeclared` the block leaves it out.
 Without the declaration, on the enum's attribute or in such a block, it is
 the sentence of `generic_associated_type` and `gat_undeclared_in_block`
-on the trait's declaration.
+on the trait's declaration; a struct takes it from its field's type
+instead, and a body the block writes for it there is unmodelled.
 
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
@@ -443,7 +448,14 @@ the subject. Under `type-returned` the type that differs is returned by a
 method every subject forwards as it forwards the control method, `fn
 kind(&self) -> Self::Kind`, whose arms are rustc's E0308 on the enum where
 two of them differ, beside the check's E0271 or alone where the variant
-takes no part in the check.
+takes no part in the check. Under `function` the trait declares a
+provided method without a receiver, `fn label() -> u64 { 7 }`, which
+every payload overrides: an enum leaves it to its default, and a struct
+forwards it to its field's type, `<P0 as Probe>::label()`, so that the
+field's override is what the struct answers
+(`docs/structs.md`); the law
+calls it through the subject. A second trait would declare one of the same
+name, and a restatement one without its body, so it stands beside neither.
 
 The `stack` axis dispatches a second trait, `Other`, a subtrait `Other:
 Probe`, or a supertrait the trait under test requires, `Probe: Other`, on

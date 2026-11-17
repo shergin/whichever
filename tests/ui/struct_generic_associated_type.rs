@@ -1,5 +1,6 @@
-//! A generic associated type is declared by the struct in a partial impl
-//! block; the sentence names the struct.
+//! A generic associated type is the struct's field's where the field's type
+//! can be named; through a route it cannot, and the struct declares it in a
+//! partial impl block, which the sentence names.
 #[whichever::dispatchable]
 trait Lend {
     type Item<'a>
@@ -17,7 +18,14 @@ impl Lend for A {
     }
 }
 
+struct Holder {
+    a: A,
+}
+
 #[whichever::dispatch(Lend)]
-struct Wrapper(A);
+struct Wrapper {
+    #[dispatch(via = .a)]
+    holder: Holder,
+}
 
 fn main() {}

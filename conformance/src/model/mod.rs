@@ -596,6 +596,17 @@ impl Cell {
         self.ret == Return::Gat && self.path_descriptor().site == path::Site::Block
     }
 
+    /// Returns whether the subject takes the trait's generic associated
+    /// type from its field's type: "A struct's target has a type the struct
+    /// names: its one field, or the marked one, reached directly or through
+    /// `deref`. [..] A generic associated type is the field type's too"
+    /// (structs.md), where no block declares it. Every struct the model writes holds its field as it
+    /// is.
+    pub fn takes_gat_from_field(&self) -> bool {
+        let gat = matches!(self.ret, Return::Gat | Return::GatUndeclared);
+        gat && self.s0.descriptor().is_struct() && !self.declares_gat()
+    }
+
     /// Returns whether the subject declares a variant that holds its
     /// payload as a trait object, compiled out in this build or not.
     pub fn holds_object(&self) -> bool {

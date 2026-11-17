@@ -19,17 +19,17 @@ use proc_macro2::{Delimiter, Group, Span, TokenStream as TokenStream2, TokenTree
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{
-    parse_quote_spanned, Block, Error, Expr, FnArg, Ident, Pat, PatIdent, Path, Result, Signature,
-    Token,
+    parse_quote_spanned, Block, Error, Expr, FnArg, Ident, Pat, PatIdent, PatType, Path, Result,
+    Signature, Token,
 };
 
-use crate::arm::{hygienic, Arm, ArmContext, ArmKind, Declared};
+use crate::arm::{convert, hygienic, Arm, ArmContext, ArmKind, Declared};
 use crate::options::{ForwardingOptions, TraitOptions};
-use crate::refusal::WayOut;
+use crate::refusal::{Refusal, WayOut};
 use crate::selection::{check_body, select_targets};
 use crate::shape::{
-    argument_kind, classify_receiver, classify_return, is_self, place_borrow, turbofish, Access,
-    ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
+    argument_kind, classify_receiver, classify_return, is_self, place_borrow, takes_self_argument,
+    turbofish, Access, ArgumentKind, Conversion, FutureShape, ReceiverKind, ReturnSite,
 };
 use crate::site::Site;
 use crate::subject::{Entries, Subject};
@@ -337,6 +337,205 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
     })
 }
 
+/// What became of a method without a receiver.
+// One per method, and short-lived; the size difference does not matter here.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum Associated {
+    /// Forwarded to the type of the struct's target.
+    Forwarded(Generated),
+    /// Nothing that type can be asked, as the sentence says; a trait's
+    /// provided method is then left to its default, as every method
+    /// without a receiver is on an enum.
+    Left(Error),
+}
+
+/// Forwards one method without a receiver over a struct. A struct has one
+/// target, whose type its declaration names, so the function is that
+/// type's: `<Target as Trait>::name(arguments..)` for a trait's, and
+/// `<Target>::name(arguments..)` for an inherent one, which resolves an
+/// inherent function before a trait's as method-call syntax does. The
+/// result is converted as a method's is, a `Self` built around it. An enum
+/// has no variant to ask before it has a value, and does not come here.
+pub(crate) fn forward_associated(request: Forward) -> Result<Associated> {
+    let Forward {
+        mut signature,
+        origin,
+        entries,
+        subject,
+        site,
+        body_site,
+    } = request;
+    let method = signature.ident.clone();
+    let mark = origin.mark();
+    let way_out = WayOut {
+        on_trait: matches!(origin, Origin::Trait { .. }),
+        has_body: mark.is_some_and(|mark| mark.body.is_some()),
+        own_arms: false,
+        words: subject.words(),
+    };
+    let prefix: Path = match &origin {
+        Origin::Trait {
+            method: of_trait, ..
+        } => of_trait.subject_path.clone(),
+        Origin::Inherent { .. } => parse_quote_spanned!(*site => Self),
+    };
+    // What the sentence about the method points at, and the way around it
+    // that the method's path offers.
+    let (declared, way): (&dyn ToTokens, String) = match &origin {
+        Origin::Trait {
+            method: of_trait, ..
+        } => (
+            of_trait.declared,
+            format!(
+                "give it a default body, or write it in a `#[whichever::dispatch] {}` block",
+                of_trait.block_header
+            ),
+        ),
+        Origin::Inherent { .. } => (&signature, String::from("give it a body")),
+    };
+    let selection;
+    let targets;
+    let target = match mark {
+        Some(mark) => {
+            selection = select_targets(
+                mark.options,
+                mark.body,
+                false,
+                entries,
+                &prefix,
+                &method,
+                subject,
+            )?;
+            check_body(&selection, mark.body, &signature, subject.words())?;
+            selection.targets.first().copied()
+        }
+        None => {
+            targets = entries.targets();
+            targets.first().copied()
+        }
+    };
+    let Some(target) = target else {
+        return Err(Error::new_spanned(
+            subject.ident(),
+            "a dispatch struct needs a field to forward to",
+        ));
+    };
+    let subject_ident = subject.ident();
+    if let Some(Mark { options, .. }) = mark {
+        if options.value || options.field.is_some() {
+            return Err(Error::new_spanned(
+                &signature,
+                format!("`{method}` has no receiver, so there is no field of a value to read; `field` and `value` hand over what a receiver holds"),
+            ));
+        }
+    }
+    if takes_self_argument(&signature) {
+        return Ok(Associated::Left(Error::new_spanned(
+            declared,
+            format!("`{method}` has no receiver and takes `Self` arguments, which are forwarded beside a receiver only; {way}"),
+        )));
+    }
+    if target.is_trait_object() {
+        return Ok(Associated::Left(Error::new_spanned(
+            declared,
+            format!("`{method}` has no receiver, and `{subject_ident}` holds a trait object, which has no function to call without a value; {way}"),
+        )));
+    }
+    let Some(target_type) = target.target_type() else {
+        return Ok(Associated::Left(Error::new_spanned(
+            declared,
+            format!("`{method}` has no receiver, and the field of `{subject_ident}` is reached through a field or a method, so its type cannot be named to call `{method}` on; {way}"),
+        )));
+    };
+    let (names, options, default, lift) = match &origin {
+        Origin::Trait {
+            method: of_trait,
+            mark,
+        } => (
+            match mark {
+                Some(_) => ArgumentNames::Written,
+                None => ArgumentNames::WrittenOrGenerated,
+            },
+            Some(of_trait.options),
+            of_trait
+                .has_default
+                .then_some((&method, of_trait.block_header)),
+            None,
+        ),
+        Origin::Inherent { mark } => (
+            ArgumentNames::Written,
+            None,
+            None,
+            mark.options.with.as_ref(),
+        ),
+    };
+    let mut arguments = vec![];
+    for (index, input) in signature.inputs.iter_mut().enumerate() {
+        let FnArg::Typed(pat_type) = input else {
+            unreachable!("the method has no receiver")
+        };
+        arguments.push(bind(pat_type, index, names, &|ident| ident)?);
+    }
+    let (conversion, future) = classify_return(
+        &signature.output,
+        options,
+        &ReturnSite {
+            subject: subject_ident,
+            one_target: true,
+            way_out,
+            default,
+        },
+    )?;
+    // Under a lift the function returns the plain value and the lift wraps
+    // the rebuilt struct, as for a method with a receiver.
+    let conversion = if lift.is_some() {
+        conversion.unwrapped()
+    } else {
+        conversion
+    };
+    if !target.route.is_direct() && conversion.rewraps() {
+        return Err(Refusal::RewrapThroughRoute.error(&method, &target, subject_ident, way_out));
+    }
+    let rebuilds = conversion.rebuilds();
+    if (rebuilds.whole && !target.is_rebuilt())
+        || (rebuilds.by_path && !target.is_built_by_a_path())
+    {
+        return Err(Refusal::NotRebuilt.error(&method, &target, subject_ident, way_out));
+    }
+    let awaited = signature.asyncness.is_some() || future.is_some();
+    let turbofish =
+        turbofish(&signature).map(|parameters| quote_spanned!(*site => ::<#(#parameters),*>));
+    let mut value = match &origin {
+        Origin::Trait {
+            method: of_trait, ..
+        } => {
+            let trait_path = of_trait.trait_path;
+            quote_spanned! { *site =>
+                <#target_type as #trait_path>::#method #turbofish (#(#arguments),*)
+            }
+        }
+        Origin::Inherent { mark } => {
+            let name = mark.options.call.as_ref().unwrap_or(&method);
+            quote_spanned! { *site => <#target_type>::#name #turbofish (#(#arguments),*) }
+        }
+    };
+    if matches!(signature.safety, syn::Safety::Unsafe(_)) {
+        value = quote_spanned! { *site => unsafe { #value } };
+    }
+    if awaited {
+        value = quote_spanned! { *site => #value.await };
+    }
+    value = convert(value, &conversion, &target, &prefix, site);
+    if let Some(lift) = lift {
+        value = quote_spanned! { *site => #lift(#value) };
+    }
+    Ok(Associated::Forwarded(Generated {
+        signature,
+        allowances: TokenStream2::new(),
+        body: enclose(value, future.as_ref(), body_site),
+    }))
+}
+
 /// How the arguments after the receiver are bound in the generated
 /// signature.
 #[derive(Clone, Copy)]
@@ -390,6 +589,38 @@ fn requires_sized(signature: &Signature) -> bool {
                 _ => false,
             })
     })
+}
+
+/// Binds the argument `pat_type`, the `index`th after the receiver, as
+/// `names` says, and returns the identifier the body names it by, which
+/// `resolve` places where the names of a `mismatch` expression resolve.
+fn bind(
+    pat_type: &mut PatType,
+    index: usize,
+    names: ArgumentNames,
+    resolve: &impl Fn(Ident) -> Ident,
+) -> Result<Ident> {
+    match (&*pat_type.pat, names) {
+        (Pat::Ident(pattern), ArgumentNames::Written) => Ok(pattern.ident.clone()),
+        // The identifier alone: a `mut` or `ref` the trait wrote would be
+        // unused or wrong around a plain forward.
+        (Pat::Ident(pattern), ArgumentNames::WrittenOrGenerated)
+            if pattern.by_ref.is_none() && pattern.subpat.is_none() =>
+        {
+            let ident = resolve(pattern.ident.clone());
+            *pat_type.pat = plain(ident.clone());
+            Ok(ident)
+        }
+        (pattern, ArgumentNames::WrittenOrGenerated) => {
+            let ident = hygienic(&format!("__argument{index}"), Site::at(pattern.span()));
+            *pat_type.pat = plain(ident.clone());
+            Ok(ident)
+        }
+        (other, ArgumentNames::Written) => Err(Error::new_spanned(
+            other,
+            "a forwarded parameter must be a plain identifier",
+        )),
+    }
 }
 
 /// Returns the pattern that binds `ident` and nothing else.
@@ -487,29 +718,7 @@ impl MethodPlan {
             let FnArg::Typed(pat_type) = input else {
                 unreachable!("the receiver is the first input")
             };
-            let binding = match (&*pat_type.pat, names) {
-                (Pat::Ident(pattern), ArgumentNames::Written) => pattern.ident.clone(),
-                // The identifier alone: a `mut` or `ref` the trait wrote
-                // would be unused or wrong around a plain forward.
-                (Pat::Ident(pattern), ArgumentNames::WrittenOrGenerated)
-                    if pattern.by_ref.is_none() && pattern.subpat.is_none() =>
-                {
-                    let ident = resolve(pattern.ident.clone());
-                    *pat_type.pat = plain(ident.clone());
-                    ident
-                }
-                (pattern, ArgumentNames::WrittenOrGenerated) => {
-                    let ident = hygienic(&format!("__argument{index}"), Site::at(pattern.span()));
-                    *pat_type.pat = plain(ident.clone());
-                    ident
-                }
-                (other, ArgumentNames::Written) => {
-                    return Err(Error::new_spanned(
-                        other,
-                        "a forwarded parameter must be a plain identifier",
-                    ))
-                }
-            };
+            let binding = bind(pat_type, index, names, &resolve)?;
             if let SelfArguments::Dispatch = self_arguments {
                 if let ArgumentKind::SameVariant(access) = argument_kind(&pat_type.ty)? {
                     same_variant.push((index, access));
@@ -714,20 +923,28 @@ impl Forwarding {
             fallback,
             future,
         } = self;
-        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
-        match future {
-            None => {}
-            Some(FutureShape::Opaque) => {
-                body = quote_spanned! { span => async move { #body } };
-            }
-            Some(FutureShape::Boxed(path)) => {
-                body = quote_spanned! { span => #path::pin(async move { #body }) };
-            }
-        }
-        let mut group = Group::new(Delimiter::Brace, body);
-        group.set_span(span);
-        TokenTree::Group(group).into()
+        let body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
+        enclose(body, future.as_ref(), site)
     }
+}
+
+/// Renders `body`, an expression, as a method's body: inside an `async
+/// move` block when the method returns a future the expression is awaited
+/// in, in braces carrying `site`.
+fn enclose(mut body: TokenStream2, future: Option<&FutureShape>, site: Site) -> TokenStream2 {
+    let span = *site;
+    match future {
+        None => {}
+        Some(FutureShape::Opaque) => {
+            body = quote_spanned! { span => async move { #body } };
+        }
+        Some(FutureShape::Boxed(path)) => {
+            body = quote_spanned! { span => #path::pin(async move { #body }) };
+        }
+    }
+    let mut group = Group::new(Delimiter::Brace, body);
+    group.set_span(span);
+    TokenTree::Group(group).into()
 }
 
 #[cfg(test)]

@@ -560,6 +560,11 @@ axis! {
         /// every subject forwards, `fn kind(&self) -> Self::Kind`, whose
         /// arms meet the types the payloads give.
         TypeReturned = "type-returned",
+        /// `fn label() -> u64 { 7 }`, a provided method without a receiver
+        /// that every payload overrides: "On an enum, left to the trait's
+        /// default body [..]. On a struct, `<Target as Trait>::method(args..)`"
+        /// (what-is-generated.md).
+        Function = "function",
     }
 }
 

@@ -1,8 +1,10 @@
 # Partial impl blocks: write some methods yourself
 
-Forwarding does not fit every trait method. A method without a receiver,
-such as a constructor, has no variant to forward to. And sometimes the
-enum should return something different from every payload.
+Forwarding does not fit every trait method. On an enum, a method without
+a receiver, such as a constructor, has no variant to forward to. And
+sometimes the enum should return something different from every payload.
+(A struct forwards a method without a receiver to its field's type; see
+[Forwarding from a struct field](structs.md#functions-and-generic-associated-types).)
 
 For these, write a
 [partial impl block](glossary.md#partial-impl-block): a trait impl block
@@ -58,7 +60,8 @@ On this page:
   no impl would read them there.
 - **An associated type written in the block is an override too**, as if
   you had written `Name = Type` on the attribute.
-- **A generic associated type is declared here.** No first variant can
+- **An enum's generic associated type is declared here**, and so is a
+  struct's whose field is reached through a route. No first variant can
   supply one, so you declare it in the block, and each payload's own type
   converts into it through `Into`, as for any override:
 

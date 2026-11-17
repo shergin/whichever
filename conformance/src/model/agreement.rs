@@ -12,6 +12,10 @@ pub enum ItemKind {
     Type,
     /// `const NAME: Type;`.
     Const,
+    /// `fn name() -> Type { default }`, a provided method without a
+    /// receiver: "On an enum, left to the trait's default body [..]. On a
+    /// struct, `<Target as Trait>::method(args..)`" (what-is-generated.md).
+    Function,
 }
 
 /// An associated item of the trait.
@@ -46,6 +50,12 @@ impl AssociatedItem {
         match self.kind {
             ItemKind::Type => format!("type {};", self.name),
             ItemKind::Const => format!("const {}: {};", self.name, self.ty),
+            ItemKind::Function => {
+                format!(
+                    "fn {}() -> {} {{ {} }}",
+                    self.name, self.ty, FUNCTION_DEFAULT
+                )
+            }
         }
     }
 
@@ -55,9 +65,13 @@ impl AssociatedItem {
         match self.kind {
             ItemKind::Type => format!("type {} = {value};", self.name),
             ItemKind::Const => format!("const {}: {} = {value};", self.name, self.ty),
+            ItemKind::Function => format!("fn {}() -> {} {{ {value} }}", self.name, self.ty),
         }
     }
 }
+
+/// What the trait's default body of [`ItemKind::Function`] answers.
+pub const FUNCTION_DEFAULT: &str = "7";
 
 /// The items' description, which the renderers interpret.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +141,16 @@ impl Agreement {
                 overridden: None,
                 comparable: false,
             }],
+            // Every payload overrides it, so that the default the enum
+            // keeps and the field's the struct takes tell apart.
+            Agreement::Function => &[AssociatedItem {
+                kind: ItemKind::Function,
+                name: "label",
+                ty: "u64",
+                values: ["11", "12", "13"],
+                overridden: None,
+                comparable: false,
+            }],
             Agreement::ConstOverride => &[
                 AssociatedItem {
                     values: ["\"zero\"", "\"one\"", "\"two\""],
@@ -153,7 +177,8 @@ impl Agreement {
             | Agreement::ConstAgrees
             | Agreement::ConstDiffers
             | Agreement::ConstUnchecked
-            | Agreement::ConstOverride => false,
+            | Agreement::ConstOverride
+            | Agreement::Function => false,
         };
         AgreementDescriptor { items, returned }
     }

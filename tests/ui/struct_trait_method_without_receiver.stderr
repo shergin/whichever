@@ -1,10 +1,16 @@
-error: `kind` has no receiver, so there is no field to forward to; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
-  --> tests/ui/struct_trait_method_without_receiver.rs:5:5
+error: `unit_square` has no receiver, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to call `unit_square` on; give it a body
+  --> tests/ui/struct_trait_method_without_receiver.rs:40:5
    |
- 5 |     fn kind() -> &'static str;
+40 |     fn unit_square() -> Square;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `kind` has no receiver, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to call `kind` on; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
+  --> tests/ui/struct_trait_method_without_receiver.rs:6:5
+   |
+ 6 |     fn kind() -> &'static str;
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-20 | #[whichever::dispatch(Shape)]
+31 | #[whichever::dispatch(Shape)]
    |                       ----- in this macro invocation
    |
    = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

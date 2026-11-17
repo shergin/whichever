@@ -313,6 +313,8 @@
 //! A generic associated type cannot come from the first variant, and no
 //! option gives one. You declare it in a
 //! [partial impl block](#partial-impl-blocks-write-some-methods-yourself).
+//! A struct takes it from its field's type instead, where it can name that
+//! type.
 //!
 //! ## `Self` arguments and `mismatch`
 //!
@@ -1025,8 +1027,8 @@
 //!
 //! ## Partial impl blocks: write some methods yourself
 //!
-//! Forwarding does not fit every trait method. A method without a receiver,
-//! such as a constructor, has no variant to forward to. And sometimes the
+//! Forwarding does not fit every trait method. On an enum, a method without
+//! a receiver, such as a constructor, has no variant to forward to. And sometimes the
 //! enum should return something different from every payload.
 //!
 //! For these, write a *partial impl block*: a trait impl block with
@@ -1092,7 +1094,8 @@
 //!   no trait, they are an error, since no impl would read them there.
 //! - **An associated type written in the block is an override too**, as if
 //!   you had written `Name = Type` on the attribute.
-//! - **A generic associated type is declared here.** No first variant can
+//! - **An enum's generic associated type is declared here**, and so is a
+//!   struct's whose field is reached through a route. No first variant can
 //!   supply one, so you declare it in the block,
 //!   `type Item<'a> = AnyItem<'a> where Self: 'a;`, and each payload's own
 //!   type converts into it through `Into`, as for any override.
@@ -1397,6 +1400,15 @@
 //! - **A struct gets no `From` impls.**
 //! - **`Self` arguments need no `mismatch`.** Two values of the struct always
 //!   hold the same field, and the argument is unwrapped to it.
+//! - **What needs no value comes from the field's type**, where the struct
+//!   names it: the one field or the marked one, directly or through
+//!   `deref`. A trait method without a receiver is
+//!   `<Square as Shape>::kind()`, the provided ones included; a generic
+//!   associated type is `<Square as Shape>::Side<'a>`; and an inherent
+//!   method without a receiver, marked in a block, is a path call such as
+//!   `#[dispatch(*, call = from)] pub fn from_u64(v: u64) -> Self;`. A
+//!   function with a `Self` argument, a field holding a trait object and a
+//!   field reached through a route stay as on an enum.
 //!
 //! # Reference
 //!
@@ -1454,7 +1466,7 @@
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`. Different variants return the `mismatch` expression. |
 //! | return `Self` | Wrapped back into the same variant. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`. |
-//! | method without a receiver | Left to the trait's default body, or written by you in a partial impl block. An error if it has neither. |
+//! | method without a receiver | On an enum, left to the trait's default body, or written by you in a partial impl block; an error if it has neither. On a struct, `<Target as Trait>::method(args..)`. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate. |
 //! | `#[cfg]` on a variant | Carried onto the variant's arm, and decided where the enum is. |
 //! | `#[deprecated]` on a variant | Arms and conversions written under `#[allow(deprecated)]`. |
@@ -1593,8 +1605,11 @@
 //!   `self: Pin<&mut Self>` when every payload is `Unpin`.** `Rc<Self>`,
 //!   `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
 //!   allocation, so they are not supported.
-//! - **A method without a receiver needs a default body or an
-//!   implementation of your own.** It has no value to match on. Give it a
+//! - **On an enum, a method without a receiver needs a default body or an
+//!   implementation of your own.** It has no value to match on. A struct
+//!   forwards it to its field's type, except where the method takes a
+//!   `Self` argument, the field holds a trait object or the field is reached
+//!   through a route. Give it a
 //!   default body, which the enum uses, or write it in a
 //!   [partial impl block](#partial-impl-blocks-write-some-methods-yourself).
 //!
@@ -1649,9 +1664,10 @@
 //!   closure over it, compiles only where every payload's own `Name` is the
 //!   override's. Restate the trait with only the methods to forward, or
 //!   leave such a method to the default with `#[dispatch(default)]`.
-//! - **A generic associated type is declared by the enum or the struct, in a
-//!   partial impl block.** It cannot come from the first variant or from the
-//!   struct's field, and no option on the attribute gives it.
+//! - **An enum's generic associated type is declared in a partial impl
+//!   block.** It cannot come from the first variant, and no option on the
+//!   attribute gives it. A struct takes it from its field's type, except
+//!   through a route.
 //! - **An associated const is checked only in some cases.** A const of a
 //!   type other than an integer, a float, `bool`, `char` or `&str`, or on
 //!   an enum with a type or const parameter, is taken from the first

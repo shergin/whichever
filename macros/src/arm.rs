@@ -568,7 +568,7 @@ fn names(tokens: &TokenStream2, ident: &Ident) -> bool {
 /// `.map_err(..)` takes, and a tuple taken apart and built again around
 /// its converted elements. The target was judged to be rebuilt as the
 /// conversion asks.
-fn convert(
+pub(crate) fn convert(
     value: TokenStream2,
     conversion: &Conversion,
     target: &Target,
