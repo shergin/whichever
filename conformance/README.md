@@ -336,6 +336,22 @@ declares at its root, so the rewrite of `crate::` paths to the trait's
 crate is exercised: left as written, the path names nothing in the
 subject's crate.
 
+The `qual` value `generic-named` is the method's own type parameter named
+as the impl names something around the method: `fn m<T: Into<u64>>` over
+the subject's parameter `T` under `generic=payload`, and `fn m<P0:
+Into<u64>>` over the payload `P0`, which an arm names, elsewhere. The impl
+the attribute writes renames it as a hand does, `T2` or `P02`, the first
+number neither the impl nor the trait writes (`docs/what-is-generated.md`),
+and so do the hand and the payloads' impls; the trait keeps the name. A
+trait-side `mismatch` names it, `<T as Into<u64>>::into(x) * 0` added to
+the constant, and follows the rename. It is crossed with the enum's
+attribute and a silent block only, since a method a block writes or marks
+keeps its names, and with no other generics. Not modelled: a lifetime or a
+const parameter renamed, a name the impl header's bounds or an argument
+given to the trait or an override's type brings, a turbofish that follows
+a renamed parameter, and a `mismatch` naming it inside a macro's arguments
+or a format string, which `tests/ui` and the behaviour tests hold.
+
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over
 a const dispatched at the enum's own parameter, a defaulted parameter

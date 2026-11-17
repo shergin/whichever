@@ -135,6 +135,23 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
+    // A method parameter named as the impl names something around the
+    // method is renamed in the impl the attribute writes; "a method the
+    // block writes or marks keeps the names written on it", and an
+    // inherent method is no trait's (what-is-generated.md). The names it
+    // meets are the subject's parameter and a payload's type, beside a
+    // trait-side `mismatch` that names it.
+    if cell.qual == Qualifier::GenericNamed {
+        let met = matches!(cell.path, Path::Attribute | Path::Block)
+            && matches!(cell.generic, Generics::Bare | Generics::Payload)
+            && matches!(cell.decl, Declaration::Dispatchable | Declaration::Unsafe)
+            && cell.owner == Owner::Local
+            && matches!(cell.arg, Argument::Absent | Argument::SharedOnTrait)
+            && (cell.arg == Argument::Absent || cell.ret == Return::Tag);
+        if !met {
+            return Verdict::NonCanonical;
+        }
+    }
     if let Some(verdict) = two_fields(cell) {
         return verdict;
     }

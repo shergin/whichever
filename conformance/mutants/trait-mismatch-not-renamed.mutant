@@ -1,0 +1,9 @@
+file: macros/src/substitution.rs
+breaks: A trait method's own `mismatch` expression follows the new names of the method's renamed generic parameters, as `docs/what-is-generated.md` says.
+expect: killed
+witness: arg=ref-trait qual=generic-named generic=payload
+
+find:
+            self.visit_expr_mut(expression);
+replace:
+            let _ = expression;

@@ -648,6 +648,21 @@ pub const ZONES: &[Zone] = &[
         fixed: &[],
     },
     Zone {
+        name: "renamed-generics",
+        summary: "a method's type parameter named as the subject's parameter or a payload's type, which the impl renames, beside the plain one, through the enum's attribute and a silent block, with a trait-side `mismatch` that names it",
+        vary: &[
+            ("qual", &["generic", "generic-named"]),
+            ("generic", &["none", "payload"]),
+            ("path", &["attribute", "block"]),
+            ("arg", &["none", "ref-trait"]),
+            ("s0", &["plain", "deref-box", "struct"]),
+            ("s1", &["plain", "none"]),
+            ("home", &["local", "crate"]),
+            ("recv", &["ref", "mut", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "foreign-iterators",
         summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
         vary: &[

@@ -1,0 +1,10 @@
+file: macros/src/substitution.rs
+breaks: A trait method's own generic parameter whose name the impl gives a meaning around the method, the enum's parameter or a payload's type in an arm, is renamed in the impl the attribute writes, as a hand renames it, as `docs/what-is-generated.md` says.
+expect: killed
+witness: qual=generic-named generic=payload
+witness: qual=generic-named
+
+find:
+            if !self.in_scope.contains(&name) {
+replace:
+            if !self.in_scope.contains(&name) || true {

@@ -5,6 +5,46 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a trait method whose own generic parameter is named like
+  something the impl gives a meaning around the method did not compile, or
+  meant something else. Named like a parameter of the enum or the struct,
+  or of a partial block's header, the impl declared two parameters of one
+  name, rustc's E0403 (E0496 for a lifetime), on the attribute: `struct
+  Tagged<I>` under `foreign::Iterator` failed at `eq<I>` and the other
+  methods taking an `I`, and `enum Either<A, B>` under `foreign::Iterator`
+  through a partial block's header failed on 0.8.0 too, at `fold<B, F>`.
+  Named like a type the impl writes into the method, a payload's in an arm
+  or an argument given to the trait, `fn pick<Square>` over a payload
+  `Square` or `fn encode<Json>` under `Encoder<Json>`, the parameter stood
+  for that type there. The method's parameter is now renamed as a hand
+  renames it, with the first number that neither the impl nor the trait
+  writes, in its declaration, its bounds, its `where` clause, its argument
+  and result types and the turbofish of the arms: `fn eq<I2>(self, other:
+  I2)`, `fn get<'a2>(&'a2 self, ..)`, `fn fill<const N2: usize>(..)`, `fn
+  pick<Square2>`, and `fn pick<T3>` where a type `T2` is in the signature
+  or among the payloads. It is renamed before the trait's parameters are
+  replaced, so a method's `T` stays apart from the enum's `T` that
+  `Encoder<T>` on `enum E<T>` puts in place of the trait's `F`. The trait
+  method's own `mismatch` expression follows the new names,
+  `#[dispatch(mismatch = T::default())]` giving `_ => T2::default()`,
+  inside a macro's arguments too, `vec![T::default()]`, and where a format
+  macro's format string captures a const parameter, `format!("{N}:{:N$}",
+  7)`; any other string is text and stays, `String::from("{N}")` and
+  `vec!["{N}"]` included, and so does the input of `stringify!` and
+  `cfg!`, while a user's macro that quotes its input as text is renamed
+  like code, since it cannot be told from one that runs it; the format
+  string is the argument at its
+  place, the arguments read as expressions, so a comma inside generic
+  arguments or a closure before it does not move it. A name the impl
+  writes is one that stands first in a path, which the
+  parameter would stand for, so `fn pick<IntoIter>` over a payload
+  `std::vec::IntoIter<u32>` keeps its name. A method a partial block
+  writes or marks keeps its signature as written.
+  `docs/what-is-generated.md` and `docs/options.md` say so. The behaviour
+  test `method_parameters_named_like_what_the_impl_names` and the golden
+  `method_parameters_named_like_what_the_impl_names` are new; the
+  behaviour test `iterator_provided_methods` names its generic struct
+  `Tagged<I>` again; no snapshot and no other golden changed.
 - Before, two conversion options that disagree went unreported: `from =
   true` on one attribute of an enum and `from = false` on another wrote no
   `From` impl and said nothing, so the first sign was rustc's E0308 at a

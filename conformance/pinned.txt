@@ -454,3 +454,13 @@ conv=from-agreed stack=second
 s0=struct-trait-spelt s1=none path=block home=crate
 s0=struct-trait-self s1=none
 s0=struct-trait-self s1=none path=block
+
+# A trait method's own generic parameter named as the enum's parameter, or
+# as a payload's type, was one name with it in the impl the attribute
+# writes, rustc's E0403, or stood for the type in an arm; it is renamed as a
+# hand renames it, the trait's `mismatch` with it (`Either<A, B>` under
+# `whichever::foreign::Iterator` at `fold<B, F>`).
+qual=generic-named generic=payload
+qual=generic-named
+arg=ref-trait qual=generic-named generic=payload
+s0=deref-box qual=generic-named path=block home=crate

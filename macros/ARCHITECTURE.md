@@ -130,7 +130,7 @@ src/
   shape.rs         classifying receivers, arguments, return types and pointers
   spelling.rs      how a type, a path or a route is spelled in a sentence
   words.rs         `Words`: whether a sentence speaks of an enum and its variants or of a struct and its field
-  substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's
+  substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's, and a method's own given names that mean nothing else in the impl
   agreement.rs     the associated type and const checks
   conversions.rs   `From`, `TryFrom` and `into = Target`
   limits.rs        a test: every sentence the macros write is pinned by a `tests/ui` snapshot
@@ -367,7 +367,57 @@ and a payload method taking the enum is a legitimate target. A trait
 method's parameter names come from a trait the enum's crate may not own:
 each is kept where it is a plain identifier and generated otherwise; an
 inherent method's are the user's, and a pattern that is not a plain
-identifier is an error there.
+identifier is an error there. A trait method's own generic parameter
+may be named like something the impl gives a meaning around the method's
+signature, which in the trait it never meets: a parameter of the header,
+the subject's or a partial block's, which would make two parameters of
+one name, rustc's E0403 (E0496 for a lifetime); or a name the impl writes
+into the method, which the parameter would stand for there. Such a name is
+one that stands first in a path, `Square` and `std` in `Pair<Square,
+std::vec::IntoIter<u8>>` and not `vec` or `IntoIter`, which follow `::`
+and are looked up in what stands before (`Which::First`). The names are
+gathered by `Substitution::names`, called from `expand_implement` on the
+header's parameters, bounds and `where` clause, the self type, the
+subject's path, every payload's type and the overrides' types and the
+enum's `mismatch` expressions, and by `Substitution::of_trait` on the
+trait's path with its arguments. Before the trait's parameters are
+replaced in a signature the attribute writes, the plain forwarding's or a
+rejected method's, `Substitution::distinguish` renames each such
+parameter as a hand does: the name with the first number that neither
+those names, nor any identifier the trait writes (`Which::Every`), nor the
+signature itself uses, `I2`, `'a2`, `N2`, `Square2`, at the parameter's own span, in the
+declaration, the bounds, the `where` clause, the arguments and the
+result, and so in the turbofish the arms spell. `distinguish` returns the
+`Renaming`, which `forward_trait_method` applies to the trait method's own
+`mismatch` expression (`Renaming::expression`), written against the
+method's parameters as the trait names them: a type parameter where it
+stands before `::` or in a type, a const parameter where it stands alone,
+so `T::default()` becomes `T2::default()`. A macro's arguments are tokens
+nothing has read. The arguments of a macro of `core` or `std` that takes
+a format string, as `format_argument` names it by the name before the
+`!`, with or without a path, are expressions between commas:
+`Renaming::arguments` reads them as such, renames each as any expression
+is, and has `capturing` rename a const parameter that the format string
+captures, `{N}`, `{N:>4}` or the width `{:N$}`, leaving `{{` and the rest
+of the text alone. The format string is the argument at its place, the
+first of `format!` and `println!`, the second of `write!` and `assert!`,
+the third of `assert_eq!`, whatever commas stand inside generic arguments
+or a closure before it. Where the arguments do not read as expressions,
+and for any other macro, `Renaming::among` renames the tokens one by one,
+a name that stands first in a path, not after `::` or `.`, and a
+lifetime; a string there is text, `vec!["{N}"]` included, and a macro
+called among the tokens has its arguments read as its own name says. The
+input of `stringify!` and `cfg!` is no code and is left as written, the
+first being the text its tokens are and the second a predicate; a user's
+macro that quotes its input as text cannot be told from one that runs
+it, and is renamed like code. An enum's `mismatch(..)` is
+written in the enum's scope and is not renamed; it is among the names the
+impl writes. A name only the trait
+writes is no reason to rename, since the trait's tokens mean the same in
+the impl. Running before the substitution, it keeps a method's `T` apart
+from the `T` a trait parameter becomes, `Encoder<T>` on `enum E<T>`. A
+method the block writes or marks keeps its signature as written, since
+it is the user's.
 
 Above the engine, `expand_implement` in `implement.rs` reads as the
 sequence it is: the partial block, the header, the entries with the

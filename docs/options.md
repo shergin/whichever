@@ -59,7 +59,15 @@ All options follow the trait path in `#[dispatch(..)]`.
 
   An expression on the trait method or on the enum may use the method's
   parameters, a `Self` argument included, and `self` when the method
-  takes `&self`; `&mut self` and `self` are moved into the `match`.
+  takes `&self`; `&mut self` and `self` are moved into the `match`. An
+  expression on the trait method may also name the method's own generic
+  parameters, `#[dispatch(mismatch = T::default())]`, and follows them
+  where the impl renames them, `T2::default()`, inside a macro's
+  arguments and the placeholders of a format macro's format string as
+  well, `format!("{N}")`; any other string is text and stays as written,
+  and so is the input of `stringify!` and `cfg!`. A macro of your own
+  that quotes its input as text cannot be told from one that runs it, and
+  its input is renamed like code.
   A path in an expression on the trait method resolves where the enum is,
   as the signature types do, so a helper beside the trait is spelled from
   `crate::`. A method the trait declares under a `#[cfg]` takes its
@@ -146,7 +154,12 @@ projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
 bound, written with the bound's generic arguments and without a constraint
 on an associated type, so `F: Format<Text, Value = u64>` gives `<Json as
 Format<Text>>::Value`; with several bounds the trait has to spell `<F as
-Format>::Value` itself. A payload that is a type parameter of the enum,
+Format>::Value` itself. A method's own parameter whose name the impl
+gives a meaning, one of the enum's parameters, `fn encode<T>` beside
+`Encoder<T>` on `enum E<T>`, or an argument given to the trait, `fn
+encode<Json>` beside `Encoder<Json>`, is renamed first, with the first
+number that neither the impl nor the trait writes, `encode<T2>` and
+`encode<Json2>`, so the two stay apart. A payload that is a type parameter of the enum,
 `Raw(Raw)` on `enum Lazy<Raw, Parsed>`, or `Box<T>` under `deref`, gives
 the impl the bound `Raw: Trait`, which is the bound a hand writes; a
 struct's field the same, `impl<T: Shape> Shape for Wrapper<T>` for `struct

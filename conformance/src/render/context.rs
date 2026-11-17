@@ -790,9 +790,10 @@ impl Context {
         // A converted boxed future holds the arguments in its `async move`
         // block, so a type parameter it holds is `Send`, as a trait under
         // `#[async_trait]` declares it.
+        let fixed = self.method_parameter(site);
         let (generic, generic_bound) = match self.qualifier.generic {
-            Some(Generic::Fixed) if boxed => (Some("X"), "Into<u64> + Send"),
-            Some(Generic::Fixed) => (Some("X"), "Into<u64>"),
+            Some(Generic::Fixed) if boxed => (Some(fixed.as_str()), "Into<u64> + Send"),
+            Some(Generic::Fixed) => (Some(fixed.as_str()), "Into<u64>"),
             Some(Generic::Turbofish) => (Some("W"), "support::Weight"),
             None => (None, ""),
         };
@@ -834,7 +835,7 @@ impl Context {
                 (Site::Impl, _) => "support::Count",
             };
             match self.qualifier.generic {
-                Some(Generic::Fixed) => text.push_str(&format!(", {name}: X")),
+                Some(Generic::Fixed) => text.push_str(&format!(", {name}: {fixed}")),
                 Some(Generic::Turbofish) | None => text.push_str(&format!(", {name}: {ty}")),
             }
         }
@@ -859,6 +860,26 @@ impl Context {
             text.push_str(&format!(" where {}", bounds.join(", ")));
         }
         text
+    }
+
+    /// Returns the name of the method's type parameter the argument fixes,
+    /// at `site`. A name the impl gives a meaning around the method, the
+    /// subject's parameter or a payload's type, is renamed in the impl the
+    /// attribute writes, as a hand renames it, with the first number
+    /// neither the impl nor the trait writes (what-is-generated.md); the
+    /// trait and the payloads' impls keep it.
+    pub fn method_parameter(&self, site: Site) -> String {
+        if !self.qualifier.named {
+            return String::from("X");
+        }
+        let name = match self.generics.payload {
+            true => "T",
+            false => "P0",
+        };
+        match site {
+            Site::Impl => format!("{name}2"),
+            Site::Trait | Site::Payload | Site::Inherent => String::from(name),
+        }
     }
 
     /// Returns the associated types the trait declares, with whether the
@@ -980,7 +1001,22 @@ impl Context {
     /// Returns the mismatch expression, the method's answer for two
     /// different variants, naming the enum by `path`.
     pub fn mismatch(&self, path: &str) -> String {
-        let output = self.mismatched_output(path);
+        let mut output = self.mismatched_output(path);
+        // A trait method's own `mismatch` that names its type parameter
+        // follows the impl's name for it (what-is-generated.md); it adds
+        // nothing to the answer.
+        let on_trait = self.argument.mismatch == MismatchSite::Trait;
+        if self.qualifier.named && on_trait && self.node == Node::Tag {
+            let site = match path {
+                "Self" => Site::Trait,
+                _ => Site::Impl,
+            };
+            output = format!(
+                "{output} + <{} as Into<u64>>::into({}) * 0",
+                self.method_parameter(site),
+                self.parameter()
+            );
+        }
         let Some((FutureKind::Boxed, inner)) = self.node.future() else {
             return output;
         };

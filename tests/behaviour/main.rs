@@ -42,6 +42,7 @@ mod kept_parameter_names;
 mod lifetimes_and_generic_enums;
 mod marks_under_the_trait_methods_cfg;
 mod method_attribute_spelled_with_the_crate_path;
+mod method_parameters_named_like_what_the_impl_names;
 mod mismatch_with_moved_arguments;
 mod named_carrier_macros;
 mod newtype_delegation;

@@ -184,8 +184,8 @@ fn a_generic_enum_forwards_through_a_partial_block_header() {
 
 /// A generic struct forwards every method to its field.
 #[whichever::dispatch(whichever::foreign::Iterator)]
-pub struct Tagged<Inner> {
-    pub inner: Inner,
+pub struct Tagged<I> {
+    pub inner: I,
 }
 
 #[test]

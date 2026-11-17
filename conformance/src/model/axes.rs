@@ -277,6 +277,12 @@ axis! {
         /// A provided method, with a default body, that `P0` overrides and
         /// `P1` does not.
         Provided = "provided",
+        /// `fn m<T: Into<u64>>(.., x: T)` over a subject generic over `T`,
+        /// or `fn m<P0: Into<u64>>(.., x: P0)` over the payload `P0`: a
+        /// name the impl gives a meaning around the method, which the
+        /// attribute renames as a hand does, `T2` or `P02`
+        /// (what-is-generated.md).
+        GenericNamed = "generic-named",
     }
 }
 

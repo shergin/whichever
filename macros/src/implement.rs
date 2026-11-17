@@ -1,6 +1,6 @@
 //! `implement!`: the forwarding impl of one trait for one subject.
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote_spanned;
+use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{parse_quote_spanned, Error, Generics, Ident, Path, Result};
 
@@ -143,12 +143,25 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         supplier: first,
         site,
     };
+    // What the impl names around a method's signature, in its header and in
+    // its arms: a method's own generic parameter keeps clear of these.
+    let mut substitution = Substitution::of_trait(item_trait, trait_path, generics)?;
+    substitution.names(generics.to_token_stream());
+    substitution.names(generics.where_clause.to_token_stream());
+    substitution.names(self_ty.to_token_stream());
+    substitution.names(subject_path.to_token_stream());
+    for target in &variants {
+        substitution.names(target.payload.to_token_stream());
+    }
+    for fixed in &options.overrides {
+        substitution.names(fixed.to_token_stream());
+    }
+    for (_, result) in &options.mismatch {
+        substitution.names(result.to_token_stream());
+    }
     // Every item of the trait is planned and written in turn; every item
     // that cannot be forwarded is reported, not only the first.
-    let mut writer = ItemWriter::new(
-        &of,
-        Substitution::of_trait(item_trait, trait_path, generics)?,
-    );
+    let mut writer = ItemWriter::new(&of, substitution);
     for item in &item_trait.items {
         writer.write(item);
     }
