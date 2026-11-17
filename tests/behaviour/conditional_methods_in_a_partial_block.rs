@@ -452,3 +452,171 @@ mod macro_invocations_compiled_out {
         assert_eq!((other.name(), other.kind()), ("default", "default"));
     }
 }
+
+/// Any item a partial block cannot read is in the block only where its
+/// `cfg` holds, as a macro invocation is: a method without a body or a
+/// mark, a mark that does not parse, one with an inherent method's option,
+/// a second mark, and `#[dispatch(default)]` on a method with a body. Where
+/// the `cfg` does not hold, the block is read without the item, and the
+/// method is forwarded to the payload's own.
+mod unreadable_items_compiled_out {
+    #[whichever::dispatchable]
+    pub trait Labels {
+        fn get(&self) -> u32;
+        fn bodiless(&self) -> &'static str {
+            "default"
+        }
+        fn unparsed(&self) -> &'static str {
+            "default"
+        }
+        fn inherent_option(&self) -> &'static str {
+            "default"
+        }
+        fn marked_twice(&self) -> &'static str {
+            "default"
+        }
+        fn default_with_a_body(&self) -> &'static str {
+            "default"
+        }
+    }
+
+    pub struct Inner;
+
+    impl Labels for Inner {
+        fn get(&self) -> u32 {
+            1
+        }
+        fn bodiless(&self) -> &'static str {
+            "inner"
+        }
+        fn unparsed(&self) -> &'static str {
+            "inner"
+        }
+        fn inherent_option(&self) -> &'static str {
+            "inner"
+        }
+        fn marked_twice(&self) -> &'static str {
+            "inner"
+        }
+        fn default_with_a_body(&self) -> &'static str {
+            "inner"
+        }
+    }
+
+    fn labels(value: &impl Labels) -> [&'static str; 5] {
+        [
+            value.bodiless(),
+            value.unparsed(),
+            value.inherent_option(),
+            value.marked_twice(),
+            value.default_with_a_body(),
+        ]
+    }
+
+    #[whichever::dispatch]
+    pub enum Single {
+        Inner(Inner),
+    }
+
+    #[whichever::dispatch]
+    impl Labels for Single {
+        #[cfg(any())]
+        fn bodiless(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(=)]
+        fn unparsed(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(*, call = other)]
+        fn inherent_option(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(default)]
+        #[dispatch(*)]
+        fn marked_twice(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(default)]
+        fn default_with_a_body(&self) -> &'static str {
+            "block"
+        }
+    }
+
+    #[test]
+    fn an_enum_forwards_every_method_the_items_name() {
+        let single = Single::Inner(Inner);
+        assert_eq!(single.get(), 1);
+        assert_eq!(labels(&single), ["inner"; 5]);
+    }
+
+    #[whichever::dispatch]
+    pub struct Held {
+        #[dispatch]
+        inner: Inner,
+        pub label: &'static str,
+    }
+
+    #[whichever::dispatch]
+    impl Labels for Held {
+        #[cfg(any())]
+        fn bodiless(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(=)]
+        fn unparsed(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(*, call = other)]
+        fn inherent_option(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(default)]
+        #[dispatch(*)]
+        fn marked_twice(&self) -> &'static str;
+
+        #[cfg(any())]
+        #[dispatch(default)]
+        fn default_with_a_body(&self) -> &'static str {
+            "block"
+        }
+    }
+
+    #[test]
+    fn a_struct_forwards_every_method_the_items_name() {
+        let held = Held {
+            inner: Inner,
+            label: "held",
+        };
+        assert_eq!(held.get(), 1);
+        assert_eq!(labels(&held), ["inner"; 5]);
+    }
+
+    /// One item compiled out leaves the block's other items as written.
+    #[whichever::dispatch]
+    pub enum Beside {
+        Inner(Inner),
+    }
+
+    #[whichever::dispatch]
+    impl Labels for Beside {
+        #[cfg(any())]
+        fn bodiless(&self) -> &'static str;
+
+        fn unparsed(&self) -> &'static str {
+            "block"
+        }
+
+        #[dispatch(default)]
+        fn inherent_option(&self) -> &'static str;
+    }
+
+    #[test]
+    fn the_other_items_of_the_block_stand() {
+        let beside = Beside::Inner(Inner);
+        assert_eq!(
+            labels(&beside),
+            ["inner", "block", "default", "inner", "inner"]
+        );
+    }
+}

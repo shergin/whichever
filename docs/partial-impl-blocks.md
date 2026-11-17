@@ -129,7 +129,12 @@ since the items it writes cannot be told from the ones to forward; write
 them out in the block. One under `#[cfg]` is reported only where the `cfg`
 holds: where it does not, the invocation is not in the block, as it is not
 in a hand's, and the block is read without it, so a method the macro
-would have written is forwarded. A method written in the block that still
+would have written is forwarded. The same goes for every other item the
+block cannot read, a method without a body or a mark, a mark that does
+not parse, names an inherent method's option or stands beside a second,
+and `#[dispatch(default)]` on a method with a body: under a `#[cfg]` that
+does not hold it is not in the block, and the method it names is
+forwarded. A method written in the block that still
 needs the payloads' answer calls an inherent `#[dispatch(*, call = name)]`
 method beside it. Like inherent blocks, it has to be in the enum's crate.
 

@@ -349,7 +349,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         // The invocation is the item from its first attribute on, and its
         // sentence is spanned on all of it.
         writer.anchor(Anchor::BlockInvocation.name());
-        if let Some(predicate) = context.path.invocation_cfg {
+        if let Some(predicate) = context.path.unread_cfg {
             writer.line(format!("#[cfg({predicate})]"));
         }
         writer.line("written!();");
@@ -377,6 +377,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         // own `#[cfg]`, as a hand writes the item (partial-impl-blocks.md).
         if let Some(predicate) = context.item.cfg {
             writer.line(format!("#[cfg({predicate})]"));
+        }
+        // A method the block cannot read is under a `cfg` of its own.
+        if context.path.bodiless {
+            if let Some(predicate) = context.path.unread_cfg {
+                writer.line(format!("#[cfg({predicate})]"));
+            }
         }
         writer.anchor(Anchor::BlockMethod.name());
         if let Some(mark) = context.block_mark() {

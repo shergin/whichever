@@ -662,7 +662,10 @@
 //! forwarded. A macro invocation in the block is reported, since the items
 //! it writes cannot be told from the ones to forward; one under `#[cfg]` is
 //! reported only where the `cfg` holds, and elsewhere the block is read
-//! without it. A method written in
+//! without it. So is every item the block cannot read: a method without a
+//! body or a mark, a mark that does not parse, names an inherent method's
+//! option or stands beside a second, and `#[dispatch(default)]` on a
+//! method with a body. A method written in
 //! the block that still needs the payloads'
 //! answer calls an inherent `#[dispatch(*, call = name)]` method beside it.
 //! Like inherent blocks, it has to be in the enum's crate.
@@ -834,7 +837,8 @@
 //! - A macro invocation in a partial impl block is not read, so the items
 //!   it writes could not be told from the ones to forward. It is reported;
 //!   write the items out in the block. One under `#[cfg]` is reported where
-//!   the `cfg` holds, and where it does not the block is read without it.
+//!   the `cfg` holds, and where it does not the block is read without it, as
+//!   is any item of the block under `#[cfg]` that cannot be read.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

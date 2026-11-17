@@ -220,7 +220,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::FieldTraitSpelt
         | Limit::BlockTraitSpelt
         | Limit::FieldElsewhere
-        | Limit::TwoFieldsNamed => String::new(),
+        | Limit::TwoFieldsNamed
+        | Limit::BodilessInBlock => String::new(),
     }
 }
 
@@ -382,6 +383,15 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::BlockTraitSpelt => push(Some(format!(
             "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` here"
         ))),
+        // The method, and the mark that forwards it in the subject's words
+        // (#18).
+        Limit::BodilessInBlock => {
+            push(Some(format!("{method} has no body")));
+            push(Some(String::from(match cell.s0.descriptor().is_struct() {
+                true => "forward it to the struct's field with `#[dispatch(*)]`",
+                false => "forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`",
+            })));
+        }
         // The method and the two fields it names, in the mark's order.
         Limit::TwoFieldsNamed => push(Some(format!(
             "{method} names two fields, `held` and `label`"

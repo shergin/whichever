@@ -278,7 +278,14 @@ depart from the neutral cell. Under `block-macro-on` the invocation is
 under `#[cfg(all())]`, which holds, and is the same sentence; under
 `block-macro-off` it is under `#[cfg(any())]`, so it is not in the block in
 this build, the block is read without it, and the cell is judged as
-`block`, its hand the hand's block in that build.
+`block`, its hand the hand's block in that build. The same holds for every
+item a block cannot read, and two more values write the simplest of them,
+`m` without a body and without a mark: under `block-bodiless-on` it is
+under `#[cfg(all())]` and is its sentence, the block withheld; under
+`block-bodiless-off` it is under `#[cfg(any())]` and the cell is judged as
+`block`. A mark that does not parse, names an inherent method's option or
+stands beside a second, and `#[dispatch(default)]` on a method with a
+body, are the other items, `tests/ui`'s and the behaviour tests'.
 
 Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
 `#[dispatch(*)]` with a body that is one `match self` holding the arms the

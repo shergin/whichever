@@ -107,6 +107,8 @@ pub enum Limit {
     FieldElsewhere,
     /// A struct's method naming two of its fields.
     TwoFieldsNamed,
+    /// A method of a partial block without a body and without a mark.
+    BodilessInBlock,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -196,6 +198,7 @@ impl Limit {
         Limit::BlockTraitSpelt,
         Limit::FieldElsewhere,
         Limit::TwoFieldsNamed,
+        Limit::BodilessInBlock,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -423,6 +426,16 @@ impl Limit {
                     "block_trait_spelt_two_ways_by_path",
                 )
             },
+            // The block is not read, so the impl it would hold is not
+            // written.
+            Limit::BodilessInBlock => Entry {
+                keeps_impl: false,
+                ..entry(
+                    "bodiless-in-block",
+                    "has no body; forward it",
+                    "block_bodiless_without_attribute",
+                )
+            },
             Limit::TwoFieldsNamed => entry(
                 "two-fields-named",
                 "and a struct forwards a method to one, since every value holds them all",
@@ -501,6 +514,10 @@ impl Limit {
             Limit::BlockTraitSpelt => ("a field names a trait as the block's header spells it", false),
             Limit::FieldElsewhere => ("`#[dispatch(Trait)]`, to forward it there", false),
             Limit::TwoFieldsNamed => ("name one, and write a method that needs both by hand", false),
+            Limit::BodilessInBlock => (
+                "or leave it to the trait's default with `#[dispatch(default)]`",
+                false,
+            ),
         };
         Entry {
             way_out,
@@ -531,7 +548,8 @@ impl Limit {
             | Limit::VariantFieldOption
             | Limit::MacroInBlock
             | Limit::FieldTraitSpelt
-            | Limit::BlockTraitSpelt => false,
+            | Limit::BlockTraitSpelt
+            | Limit::BodilessInBlock => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -606,7 +624,8 @@ impl Limit {
             | Limit::SizedOnObject
             | Limit::GenericAssociatedType
             | Limit::FieldTraitSpelt
-            | Limit::BlockTraitSpelt => false,
+            | Limit::BlockTraitSpelt
+            | Limit::BodilessInBlock => false,
         }
     }
 

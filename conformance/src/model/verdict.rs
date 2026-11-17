@@ -365,12 +365,15 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
 /// where it does not, the invocation is not in the block, the block is read
 /// without it, and the method the macro would have written is forwarded as
 /// usual" (limits.md): the cell is then judged as the block without it,
-/// `block`, whose hand is the hand's block in that build.
+/// `block`, whose hand is the hand's block in that build. So is a method of
+/// the block without a body and without a mark, the simplest of the items
+/// a block cannot read: "an item of a partial impl block that cannot be
+/// read [..] is reported under its own `#[cfg]`" (limits.md, #22).
 fn unread(cell: &Cell) -> Option<Verdict> {
     let refused = cell.s0.descriptor().refused;
     let path = cell.path.descriptor();
-    let invocation = path.reads_invocation();
-    let left_out = path.invocation && !invocation;
+    let invocation = path.reads_unread();
+    let left_out = path.holds_unread() && !invocation;
     if left_out {
         let neutral = Cell {
             s0: cell.s0,
@@ -396,9 +399,10 @@ fn unread(cell: &Cell) -> Option<Verdict> {
     if *cell != neutral || (refused && invocation) || path_departs {
         return Some(Verdict::NonCanonical);
     }
-    let (limit, anchor) = match refused {
-        true => (Limit::VariantFieldOption, Anchor::Variant(0)),
-        false => (Limit::MacroInBlock, Anchor::BlockInvocation),
+    let (limit, anchor) = match (refused, path.bodiless) {
+        (true, _) => (Limit::VariantFieldOption, Anchor::Variant(0)),
+        (false, false) => (Limit::MacroInBlock, Anchor::BlockInvocation),
+        (false, true) => (Limit::BodilessInBlock, Anchor::BlockMethod),
     };
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
 }
@@ -451,7 +455,7 @@ fn field_trait(cell: &Cell) -> Option<Verdict> {
     target.trait_on_field()?;
     let path = cell.path_descriptor();
     let alone = path.site != PathSite::Inherent
-        && !path.invocation
+        && !path.holds_unread()
         && cell.stack == Stack::Absent
         && cell.generic == Generics::Bare
         && cell.owner == Owner::Local

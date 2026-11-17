@@ -321,6 +321,14 @@ axis! {
         InherentFields = "inherent-fields",
         /// The same mark on the method in a partial block (limits.md).
         BlockFields = "block-fields",
+        /// A partial block holding `m` without a body and without a mark
+        /// under `#[cfg(all())]`, a `cfg` that holds: in the block, which
+        /// cannot read it, and reported, in this build (limits.md).
+        BlockBodilessOn = "block-bodiless-on",
+        /// The same method under `#[cfg(any())]`, a `cfg` that does not
+        /// hold: not in the block in this build, which is read without it
+        /// and forwards as `block` does (limits.md).
+        BlockBodilessOff = "block-bodiless-off",
     }
 }
 

@@ -9,7 +9,7 @@ use crate::builds::Builds;
 use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
-use crate::partial::unread_invocation;
+use crate::partial::read_item;
 use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
@@ -22,10 +22,11 @@ use crate::words::Words;
 /// block is emitted as written; its one error is the missing items. A block
 /// of a trait the subject's own attribute dispatches would be a second impl,
 /// which rustc reports as conflicting on the trait's attribute; it is
-/// reported here instead, and the attribute's impl stands. A macro
-/// invocation under `#[cfg]` is in the block only where the `cfg` holds,
-/// and so is its sentence: the block is handed on without it, for the
-/// builds that leave it out.
+/// reported here instead, and the attribute's impl stands. An item
+/// under `#[cfg]` that the block cannot read, a macro invocation among
+/// them, is in the block only where the `cfg` holds, and so is its
+/// sentence: the block is handed on without it, for the builds that leave
+/// it out.
 pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result<TokenStream2> {
     let BlockInput {
         rejected,
@@ -67,7 +68,8 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
     // The invocation carries the block's trait path, so that an error rustc
     // finds in the impl is labelled on the block.
     let site = trait_path.span();
-    let (read_in, sentences) = without_conditional_invocations(&mut item_impl, site);
+    let (read_in, sentences) =
+        without_unread_conditional_items(&mut item_impl, subject.words(), site);
     let read_where = read_in.attribute(site);
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
@@ -81,25 +83,29 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
     Ok(quote_spanned! { site => #read_where #macro_path! { #request } #sentences })
 }
 
-/// Takes the macro invocations under `#[cfg]` out of `block`, and returns
-/// the builds that hold none of them with the sentence of each, under its
-/// own `#[cfg]`. What an invocation writes is not seen, so the block cannot
-/// be read where one stands; where its `cfg` does not hold it is not in
-/// the block, which is then read as a hand's is compiled, without it. An
-/// invocation of every build stays, for `PartialBlock::read` to refuse.
-fn without_conditional_invocations(block: &mut ItemImpl, site: Span) -> (Builds, TokenStream2) {
+/// Takes the items under `#[cfg]` that a partial block cannot read out of
+/// `block`, and returns the builds that hold none of them with the sentence
+/// of each, under its own `#[cfg]`. Such an item is in the block only where
+/// its `cfg` holds, and a hand's block compiles where it does not; so the
+/// block is read without it there, and forwards as usual. An item of every
+/// build stays, for `PartialBlock::read` to refuse.
+fn without_unread_conditional_items(
+    block: &mut ItemImpl,
+    words: Words,
+    site: Span,
+) -> (Builds, TokenStream2) {
     let mut unread = Builds::Never;
     let mut sentences = TokenStream2::new();
     block.items.retain(|item| {
-        let ImplItem::Macro(invocation) = item else {
-            return true;
-        };
-        let builds = Builds::of(&invocation.attrs);
+        let (cfgs, read) = read_item(item.clone(), words);
+        let builds = Builds::of(&cfgs);
         if builds.is_every() {
             return true;
         }
-        let cfgs = cfg_attributes(&invocation.attrs);
-        let sentence = unread_invocation(invocation).to_compile_error();
+        let Err(error) = read else {
+            return true;
+        };
+        let sentence = error.to_compile_error();
         sentences.extend(quote_spanned! { site => #(#cfgs)* #sentence });
         unread = std::mem::replace(&mut unread, Builds::Never).or(builds);
         false

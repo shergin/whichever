@@ -318,9 +318,9 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "block-invocations",
-        summary: "a macro invocation in a partial impl block, bare or under a `#[cfg]` that holds or does not, over a few subjects",
+        summary: "an item a partial impl block cannot read, a macro invocation bare or under a `#[cfg]` that holds or does not, or a method without a body and without a mark under either, over a few subjects",
         vary: &[
-            ("path", &["block-macro", "block-macro-on", "block-macro-off"]),
+            ("path", &["block-macro", "block-macro-on", "block-macro-off", "block-bodiless-on", "block-bodiless-off"]),
             ("s0", &["plain", "deref-box", "marked-struct", "marked-named", "struct", "struct-named"]),
             ("s1", &["plain", "none", "unit"]),
         ],

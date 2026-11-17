@@ -110,7 +110,8 @@
   writes could not be told from the ones to forward. It is reported; write
   the items out in the block. One under `#[cfg]` is reported where the
   `cfg` holds; where it does not, the invocation is not in the block, which
-  is read without it and forwards as usual.
+  is read without it and forwards as usual, as for any item of the block
+  that cannot be read.
 - A lint attribute on the enum does not reach the impls written next to it,
   as it would not reach a hand-written one; `#[allow]` goes on the trait
   method, on a partial impl block, or on the module.
@@ -177,7 +178,12 @@ one without a receiver, a mark that cannot be read or a bodiless method
 without a mark, is reported under that method's own `#[cfg]`, so a method
 compiled out is no error, as a hand's method under that `cfg` is simply
 absent; tokens in the block that are no method are reported in every
-build. A rejected enum is still
+build. The same holds for an item of a partial impl block that cannot be
+read: a method without a body and without a mark, a mark that does not
+parse, carries an inherent method's option or stands beside a second,
+`#[dispatch(default)]` on a method with a body, and a macro invocation.
+Each is reported under its own `#[cfg]`; where the `cfg` does not hold,
+the block is read without it and forwards as usual. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
 as its body, and so is an associated type or const no variant can supply,

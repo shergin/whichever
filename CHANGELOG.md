@@ -5,6 +5,24 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, an item of a partial impl block that cannot be read was
+  reported in every build, whatever `#[cfg]` it carried, and the impl was
+  withheld with it, so every call of the trait's methods was rustc's E0599
+  as well: `#[cfg(any())] #[dispatch(default)] fn name(&self) -> &'static
+  str { "x" }` failed every build with "`name` is left to the trait's
+  default, so it takes no body", where a hand's method under the same
+  `cfg` is simply absent. The same held for a method without a body and
+  without a mark, a mark that does not parse or carries an inherent
+  method's option, and a second mark on one method. Such an item is now in
+  the block only where its `cfg` holds, as a macro invocation already is,
+  below: where the `cfg` does not hold, the block is read without it and
+  the method is forwarded, and where it holds, each such item has its
+  sentence, where only the first was reported. Without a `#[cfg]` nothing
+  changed
+  (#22). `docs/limits.md`, `docs/partial-impl-blocks.md` and the crate
+  docs say so. The `tests/ui` case `block_items_under_a_cfg_that_holds` is
+  new, and the behaviour test `conditional_methods_in_a_partial_block` is
+  extended; no other snapshot and no golden changed.
 - Before, an inherent method of a dispatch struct that named two fields,
   `#[dispatch(square, circle)] pub fn side(&self) -> u32;`, compiled into a
   `match` with two arms of which the second is never reached, so the

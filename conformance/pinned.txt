@@ -431,3 +431,11 @@ s0=struct-trait s1=none path=block-some
 # second one no value reaches; it is the method's sentence.
 s0=struct-marked s1=none path=inherent-fields
 s0=struct-marked s1=none path=block-fields
+
+# An item of a partial block that cannot be read, other than a macro
+# invocation, was reported, and the impl withheld, in a build whose `cfg`
+# compiles it out (#22): a method without a body and without a mark.
+path=block-bodiless-off
+s0=struct s1=none path=block-bodiless-off
+path=block-bodiless-on
+s0=struct s1=none path=block-bodiless-on

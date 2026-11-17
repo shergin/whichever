@@ -653,15 +653,17 @@ an impl with nothing to forward to would only add rustc's errors to, so
 that a partial block's impl is then the shape errors alone; and a trait
 path whose generic arguments do not fit the trait's parameters, or bind an
 associated item inside the path (`Substitution::of_trait`). In
-`PartialBlock::read`: a method of the block without a body and without a
-mark, a macro invocation, whose items cannot be told from the ones to
-forward (one under `#[cfg]` never reaches it: `expand_partial` takes such
-invocations out of the block, writes the trait's carrier invocation under
-the complement of their `cfg`s, so the block is read without them where
-none holds, and writes each sentence under its invocation's own `cfg`), a
-mark that does not parse or names an inherent method's option,
-a second mark on one method, and `#[dispatch(default)]` on a method with a
-body. In `ItemWriter::write`: a macro invocation inside the trait, an
+`PartialBlock::read`, through `read_item`: a method of the block without
+a body and without a mark, a macro invocation, whose items cannot be told
+from the ones to forward, a mark that does not parse or names an inherent
+method's option, a second mark on one method, and `#[dispatch(default)]`
+on a method with a body. Such an item under `#[cfg]` never reaches it:
+`expand_partial` reads each item with `read_item` first
+(`without_unread_conditional_items`), takes one that cannot be read and is
+not of every build out of the block, writes the trait's carrier invocation
+under the complement of their `cfg`s, so the block is read without them
+where none holds, and writes each sentence under its item's own `cfg`, so
+every such item has its sentence where its `cfg` holds. In `ItemWriter::write`: a macro invocation inside the trait, an
 associated type or const the block writes under `#[cfg]`, an override that
 does not read as a type or as a value, and a signature or a const's type
 the substitution could not write, a projection it could not qualify, which
