@@ -648,9 +648,17 @@ impl MethodPlan {
         }
         let Some(mismatch) = &method.mismatch else {
             let name = context.method;
+            // The enum's side of the option is read beside the trait: on
+            // the enum's attribute that names it, or on the partial block
+            // that is the impl.
+            let beside_the_trait = if method.derived {
+                "on the enum"
+            } else {
+                "on this block's attribute"
+            };
             return Err(Error::new_spanned(
                 method.declared,
-                format!("`{name}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({name} = <expr>)` on the enum"),
+                format!("`{name}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({name} = <expr>)` {beside_the_trait}"),
             ));
         };
         Ok(Fallback {

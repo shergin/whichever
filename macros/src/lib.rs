@@ -310,7 +310,10 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only. |
 ///
 /// The conversion options (`from`, `try_from`, `into`) belong to the enum,
-/// not to one trait, so they apply whichever attribute they are on.
+/// not to one trait, so they apply whichever attribute they are on. The
+/// other options belong to the trait they follow: on an attribute that
+/// lists no trait, they are an error. They go on a partial impl block's
+/// attribute when the block is the impl.
 ///
 /// ## On a variant
 ///

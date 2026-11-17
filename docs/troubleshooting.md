@@ -305,7 +305,41 @@ pub enum Any {
 }
 ```
 
+For a trait implemented by a [partial impl block][partial-impl-blocks],
+the error says `mismatch(same = <expr>)` "on this block's attribute"
+instead, and the option goes there:
+
+```rust
+#[whichever::dispatch(mismatch(same = false))]
+impl Same for Any {}
+```
+
 See [`mismatch`][options-mismatch].
+
+### "is an option of a trait's impl, and this attribute names no trait"
+
+```text
+error: `mismatch(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+```
+
+The same error names `SIDES = ..`, `via(..)` or `via_mut(..)` for those
+options. A name close to one of the enum's own options gets this
+instead:
+
+```text
+error: unknown option `form`; did you mean `from = ..`?
+```
+
+**What it means.** An override, a `mismatch` or a route belongs to the
+trait it follows. You wrote it on an attribute that lists no trait, such
+as a bare `#[whichever::dispatch(mismatch(same = false))]` on the enum,
+so no impl would read it there. When the enum lists exactly one trait on
+its own attributes, the option is still read beside that trait, so this
+is the only error you see.
+
+**The fix.** Move the option after the trait,
+`#[whichever::dispatch(Same, mismatch(same = false))]`. If the trait is
+implemented by a partial impl block, put it on the block's attribute.
 
 ### "has no receiver, so there is no variant to dispatch on"
 

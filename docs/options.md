@@ -4,6 +4,20 @@ Options on the enum go inside `#[dispatch(..)]`, after the trait path,
 as in `#[whichever::dispatch(Storage, Error = StorageError)]`. A few
 options go on a variant, on a trait method or on a marked field instead.
 
+An override, a `mismatch` and a `via(..)` route belong to the trait
+they follow. Write them after the trait path. If you write one on an
+attribute that lists no trait, you get an error on the option, because no
+impl would read it there. For a trait implemented by a
+[partial impl block](partial-impl-blocks.md), these options go on the
+block's attribute instead.
+
+When the enum lists exactly one trait on its own attributes, the option
+is still read beside that trait, so the impl is the one you meant and the
+error stands alone. With two or more traits, or with none (a partial impl
+block), it is not read anywhere. A name close to one of the enum's own
+options, such as `form = false`, gets "did you mean `from = ..`?" instead,
+and is not read either.
+
 | Option | Where you write it | What it does |
 | --- | --- | --- |
 | [`Name = Type`](#name--type-override-an-associated-type) | on the enum, after the trait path | Fixes an associated type; results are converted into it. |

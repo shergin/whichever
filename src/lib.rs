@@ -1080,7 +1080,8 @@
 //!   is the impl. If you list the trait in both places, you get an error on
 //!   the block.
 //! - **The trait's options go on the block's attribute**: overrides such as
-//!   `Name = Type`, and `mismatch`.
+//!   `Name = Type`, and `mismatch`. On the enum's own attribute, which lists
+//!   no trait, they are an error, since no impl would read them there.
 //! - **An associated type written in the block is an override too**, as if
 //!   you had written `Name = Type` on the attribute.
 //! - **A generic associated type is declared here.** No first variant can

@@ -289,9 +289,16 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             push(variant.clone());
             push(slot.map(|slot| format!("`{}(Payload)`", slot.name())));
         }
+        // The option goes on the attribute that implements the trait: the
+        // enum's, or a partial block's (#36).
         Limit::SelfArgumentWithoutMismatch => {
             push(Some(format!("{method} takes `Self` arguments")));
-            push(Some(String::from("`mismatch(m = <expr>)`")));
+            push(Some(String::from(
+                match cell.path_descriptor().site == PathSite::Block {
+                    true => "`mismatch(m = <expr>)` on this block's attribute",
+                    false => "`mismatch(m = <expr>)` on the enum",
+                },
+            )));
         }
         Limit::SelfInReturn => push(Some(String::from("back into `E`"))),
         Limit::DerefSelfReturn => {

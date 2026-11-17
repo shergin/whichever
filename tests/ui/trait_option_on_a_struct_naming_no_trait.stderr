@@ -1,0 +1,11 @@
+error: `via(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, via(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/trait_option_on_a_struct_naming_no_trait.rs:24:27
+   |
+24 | #[whichever::dispatch(via(inner = .shape))]
+   |                           ^^^^^
+
+error: `SIDES = ..` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, SIDES = ..)]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/trait_option_on_a_struct_naming_no_trait.rs:30:23
+   |
+30 | #[whichever::dispatch(SIDES = 3)]
+   |                       ^^^^^

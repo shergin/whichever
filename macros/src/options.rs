@@ -124,6 +124,7 @@ fn parse_separated(
 /// A trait's options: the `Name = ..` overrides, the `mismatch` results and
 /// the routes. This is what travels to the implementation macro beside the
 /// trait's path, and what a partial impl block's attribute holds.
+#[derive(Default)]
 pub(crate) struct TraitOptions {
     pub(crate) overrides: Vec<Override>,
     pub(crate) mismatch: Vec<(Ident, Expr)>,
@@ -133,6 +134,26 @@ pub(crate) struct TraitOptions {
 }
 
 impl TraitOptions {
+    /// Adds the options of `other` that name nothing these options name
+    /// already.
+    pub(crate) fn absorb(&mut self, other: TraitOptions) {
+        for fixed in other.overrides {
+            if !self.is_overridden(&fixed.name) {
+                self.overrides.push(fixed);
+            }
+        }
+        for (method, result) in other.mismatch {
+            if self.mismatch_for(&method).is_none() {
+                self.mismatch.push((method, result));
+            }
+        }
+        for (name, route) in other.routes {
+            if !self.routes.iter().any(|(known, _)| *known == name) {
+                self.routes.push((name, route));
+            }
+        }
+    }
+
     pub(crate) fn override_for(&self, name: &Ident) -> Option<&Override> {
         self.overrides.iter().find(|fixed| &fixed.name == name)
     }
@@ -351,6 +372,74 @@ impl DispatchAttribute {
         }
         Ok(())
     }
+}
+
+impl DispatchAttribute {
+    /// Returns the error for an option of a trait's impl on an attribute
+    /// that names no trait: an override, a `mismatch` or a route, which
+    /// `implement!` reads beside the trait's path and nothing reads here.
+    /// The impl such an option is meant for is the attribute's that names
+    /// the trait, or a partial impl block's, whose own attribute takes it.
+    /// A name close to one of the subject's own options was probably that.
+    pub(crate) fn stray_options(&self, words: Words) -> Option<Error> {
+        if self.path.is_some() {
+            return None;
+        }
+        let TraitOptions {
+            overrides,
+            mismatch,
+            routes,
+        } = &self.options;
+        let (span, spelled) = if let Some(fixed) = overrides.first() {
+            let name = fixed.name.to_string();
+            if let Some(near) = misspelt_own_option(&name, words) {
+                return Some(Error::new(
+                    fixed.name.span(),
+                    format!("unknown option `{name}`; did you mean `{near} = ..`?"),
+                ));
+            }
+            (fixed.name.span(), format!("{name} = .."))
+        } else if let Some((method, _)) = mismatch.first() {
+            (method.span(), String::from("mismatch(..)"))
+        } else if let Some((name, _)) = routes.first() {
+            (name.span(), String::from("via(..)"))
+        } else {
+            return None;
+        };
+        Some(Error::new(
+            span,
+            format!("`{spelled}` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, {spelled})]`, or on the `#[whichever::dispatch] impl` block that implements the trait"),
+        ))
+    }
+}
+
+impl DispatchAttribute {
+    /// Takes the options of a trait's impl off an attribute that names no
+    /// trait, for the one trait the item dispatches, which they were meant
+    /// for: read beside it, the impl is the one that was asked for, and
+    /// the sentence about where they were written stands alone. An
+    /// override that was probably one of the item's own options, misspelt,
+    /// is no trait's and is dropped.
+    pub(crate) fn take_stray_options(&mut self, words: Words) -> TraitOptions {
+        if self.path.is_some() {
+            return TraitOptions::default();
+        }
+        let mut taken = std::mem::take(&mut self.options);
+        taken
+            .overrides
+            .retain(|fixed| misspelt_own_option(&fixed.name.to_string(), words).is_none());
+        taken
+    }
+}
+
+/// Returns the option of the enum or the struct itself that `name` is
+/// within a typo of.
+fn misspelt_own_option(name: &str, words: Words) -> Option<&'static str> {
+    let own = match words {
+        Words::Enum => &["from", "try_from", "into", "remote"][..],
+        Words::Struct => &["remote"][..],
+    };
+    closest(name, own.iter().copied())
 }
 
 /// Who reads a list of a trait's options, which decides the words its

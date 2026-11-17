@@ -5,6 +5,29 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, an option of a trait's impl written on an enum's or a struct's
+  attribute that names no trait, an override `Unit = u8` or `SIDES = 7`,
+  `mismatch(same = false)` or `via(A = .0)`, was accepted and did nothing;
+  for a trait implemented by a partial impl block, the sentence for a
+  `Self` argument even sent the user to the enum, where the option was
+  read and dropped. Each is now one sentence on the option, and where the
+  enum or the struct dispatches one trait from its own attributes the
+  option is read beside it too, so the impl is the one meant and the
+  sentence stands alone: "`mismatch(..)`
+  is an option of a trait's impl, and this attribute names no trait; write
+  it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on
+  the `#[whichever::dispatch] impl` block that implements the trait", and
+  a name close to one of the enum's or the struct's own options, `form =
+  false`, is "unknown option `form`; did you mean `from = ..`?". The
+  sentence for a `Self` argument of a partial block's method names
+  `mismatch(same = <expr>)` "on this block's attribute". `docs/limits.md`,
+  `docs/options.md`, `docs/partial-impl-blocks.md`,
+  `docs/troubleshooting.md`, the crate docs and the docs of `#[dispatch]`
+  say so; the
+  snapshots `trait_option_on_an_enum_naming_no_trait`,
+  `trait_option_on_a_struct_naming_no_trait`,
+  `misspelled_option_on_an_attribute_naming_no_trait` and
+  `mismatch_on_the_enum_for_a_partial_block` are new.
 - Before, a variant whose payload is an associated type of one of the
   enum's type parameters, `Out(S::Out)` or `Out(<S as Source>::Out)`, got
   a `From` impl that can never compile, reported by rustc as E0119 on the

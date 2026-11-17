@@ -59,8 +59,30 @@ pub(crate) fn expand_subject(
             Ok(attribute)
         });
         match parsed {
-            Ok(attribute) => attributes.push(attribute),
+            Ok(attribute) => {
+                errors.extend(attribute.stray_options(captured.words()));
+                attributes.push(attribute);
+            }
             Err(error) => errors.push(error),
+        }
+    }
+    // An option of a trait's impl written apart from the one trait the item
+    // dispatches was meant for that trait, and is read beside it.
+    let words = captured.words();
+    let dispatching = attributes
+        .iter()
+        .filter(|attribute| attribute.path.is_some())
+        .count();
+    if dispatching == 1 {
+        let mut stray = TraitOptions::default();
+        for attribute in &mut attributes {
+            stray.absorb(attribute.take_stray_options(words));
+        }
+        if let Some(home) = attributes
+            .iter_mut()
+            .find(|attribute| attribute.path.is_some())
+        {
+            home.options.absorb(stray);
         }
     }
     // A restatement of another crate's enum: nothing is emitted for it but

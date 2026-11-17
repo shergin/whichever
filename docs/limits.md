@@ -297,6 +297,17 @@ and [inherent-methods.md](inherent-methods.md#forward-to-every-variant-but-a-few
 A [partial impl block](partial-impl-blocks.md) is a trait impl with
 `#[dispatch]` on it: you write some items, and the rest are forwarded.
 
+- **An option of a trait's impl goes after the trait, or on the block's
+  attribute.** An override (`Name = ..`), `mismatch(..)` or `via(..)` on
+  an enum's or a struct's attribute that lists no trait would be read by
+  no impl, so you get an error on the option. Write it after the trait,
+  `#[whichever::dispatch(Trait, mismatch(..))]`, or on the attribute of
+  the partial impl block that implements the trait. Where the enum or the
+  struct lists exactly one trait on its own attributes, the option is
+  read beside that trait as well, so the error stands alone. A name close
+  to one of the enum's or the struct's own options, `form = false`, is
+  reported as that option misspelled, and is not read.
+
 - **A macro invocation in a partial impl block is not read.** The items
   it writes could not be told apart from the ones to forward, so you get
   an error. Write the items out in the block.

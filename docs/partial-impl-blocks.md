@@ -52,7 +52,10 @@ On this page:
   the block.
 - **The trait's options go on the block's attribute**:
   [overrides](glossary.md#override) such as `Name = Type`, and
-  [`mismatch`](options.md).
+  [`mismatch`](options.md), as in
+  `#[whichever::dispatch(mismatch(same = false))] impl Same for Any {}`.
+  On the enum's own attribute, which lists no trait, they are an error:
+  no impl would read them there.
 - **An associated type written in the block is an override too**, as if
   you had written `Name = Type` on the attribute.
 - **A generic associated type is declared here.** No first variant can
