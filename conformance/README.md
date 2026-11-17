@@ -107,7 +107,14 @@ signature, a block's mark on `m` included, repeats the bound and carries
 the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
 under a `#[cfg]` that does not hold exists in no build: its sentences and
 rejections are dropped, the hand writes none of it, and the law checks the
-control method alone.
+control method alone. On an inherent path the method is the block's, and
+of these attributes only its `#[cfg]` is modelled, on the block's method
+and the hand's: a method the block cannot forward is reported under it, so
+a build that compiles the method out reports nothing, its sentence about
+the method itself included. The sentences an inherent method gets for a
+signature the model does not write, no receiver, a mark that does not
+parse or a second mark, are not modelled; `tests/ui` and the behaviour
+tests hold them, under a `#[cfg]` and without.
 
 A boxed future is spelled as `#[async_trait]` writes it, as the golden
 `boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +

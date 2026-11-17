@@ -38,8 +38,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     // The attributes are on the trait's method, which an inherent method
-    // is not.
-    if inherent && cell.item != Item::Bare {
+    // is not; its own `#[cfg]` is the inherent method's too: "a marked
+    // method of an inherent `#[dispatch]` block that cannot be forwarded
+    // [..] is reported under that method's own `#[cfg]`" (limits.md), so a
+    // build that compiles it out reports nothing, as a hand's method under
+    // that `cfg` is absent. The other attributes are the trait method's.
+    if inherent && !matches!(cell.item, Item::Bare | Item::CfgOn | Item::CfgOff) {
         return Verdict::NonCanonical;
     }
     // A payload's method that borrows its receiver differs from `method`

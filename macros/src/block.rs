@@ -11,7 +11,7 @@ use crate::options::{trait_key, ForwardingOptions, TraitOptions};
 use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
-use crate::subject::{Entries, Subject};
+use crate::subject::{cfg_attributes, Entries, Subject};
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
@@ -62,8 +62,10 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
 /// Rewrites every marked method of the block. A method that cannot be
 /// forwarded is reported and kept as written, without the attribute, or
 /// dropped when it has no body, so that the rest of the block still
-/// compiles and the real error stands alone. When the enum itself was
-/// rejected nothing is reported here.
+/// compiles and the real error stands alone. The sentence stands under the
+/// method's own `#[cfg]`, as the method does, so a build that compiles the
+/// method out has neither. When the enum itself was rejected nothing is
+/// reported here.
 pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
     let BlockInput {
         rejected,
@@ -87,22 +89,33 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         Some(subject.read()?)
     };
     let mut items = Vec::with_capacity(item_impl.items.len());
-    let mut errors: Vec<Error> = vec![];
+    let site = Site::at(item_impl.impl_token.span);
+    let mut sentences = TokenStream2::new();
+    let mut report = |cfgs: &[Attribute], error: Error| {
+        let sentence = error.to_compile_error();
+        sentences.extend(quote_spanned! { *site => #(#cfgs)* #sentence });
+    };
     for item in std::mem::take(&mut item_impl.items) {
         let mut method = match BlockItem::read(item) {
             BlockItem::Marked(method) => method,
-            BlockItem::Bodyless(sig) => {
-                errors.push(Error::new_spanned(
-                    &sig,
-                    "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
-                ));
+            BlockItem::Bodyless { attrs, sig } => {
+                report(
+                    &cfg_attributes(&attrs),
+                    Error::new_spanned(
+                        &sig,
+                        "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                    ),
+                );
                 continue;
             }
             BlockItem::Unread(tokens) => {
-                errors.push(Error::new_spanned(
-                    &tokens,
-                    "only methods, with or without a body, are forwarded in a `#[dispatch]` impl block",
-                ));
+                report(
+                    &[],
+                    Error::new_spanned(
+                        &tokens,
+                        "only methods, with or without a body, are forwarded in a `#[dispatch]` impl block",
+                    ),
+                );
                 continue;
             }
             BlockItem::Plain(item) => {
@@ -116,6 +129,7 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
             items.extend(method.unmarked());
             continue;
         };
+        let cfgs = cfg_attributes(&method.attrs);
         let forwarded = method.mark(ForwardingOptions::read).and_then(|forwarding| {
             forward_method(
                 &method.attrs,
@@ -130,15 +144,13 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         match forwarded {
             Ok(generated) => items.push(ImplItem::Verbatim(generated)),
             Err(error) => {
-                errors.push(error);
+                report(&cfgs, error);
                 items.extend(method.unmarked());
             }
         }
     }
     item_impl.items = items;
-    let errors = errors.into_iter().map(|error| error.to_compile_error());
-    let site = Site::at(item_impl.impl_token.span);
-    Ok(quote_spanned! { *site => #item_impl #(#errors)* })
+    Ok(quote_spanned! { *site => #item_impl #sentences })
 }
 
 /// Writes one forwarded inherent method: a `match` with one arm per selected

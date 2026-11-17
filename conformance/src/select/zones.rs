@@ -245,6 +245,18 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("recv", "value"), ("callee", "borrowing")],
     },
     Zone {
+        name: "inherent-items",
+        summary: "an inherent method under a `#[cfg]` that holds or does not, over the shapes a sentence about the method itself meets: a body that never runs, `*` over a variant without a payload, a lift over a wrapped `Self`",
+        vary: &[
+            ("path", &["inherent", "inherent-some", "inherent-arms"]),
+            ("item", &["none", "cfg-on", "cfg-off"]),
+            ("s1", &["plain", "none", "unit", "pair"]),
+            ("ret", &["u64", "self", "option-self"]),
+            ("lift", &["none", "some"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "inherent-shared",
         summary: "`value` over two variants that hold one payload type, reached by different target kinds",
         vary: &[

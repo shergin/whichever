@@ -5,6 +5,22 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a method of an inherent `#[dispatch]` impl block that cannot be
+  forwarded was reported in every build, whatever `#[cfg]` it carried:
+  `#[cfg(feature = "off")] #[dispatch(*)] pub fn make(side: f64) -> Self;`
+  failed the build without the feature with "`make` has no receiver, so
+  there is no variant to forward to", where a hand's method under the same
+  `cfg` is simply absent. The same held for a mark that cannot be read,
+  `#[dispatch(*, Circle)]`, a second mark, a variant the enum lacks, and a
+  method without a body or a mark, on an enum or a struct. The sentence is
+  now under the method's own `#[cfg]`, so a build that compiles the method
+  out reports nothing, and one where the `cfg` holds reports as before.
+  Tokens in the block that are no method are still reported in every
+  build. dash-num 0.3.0-beta's constructors behind a feature are the shape.
+  `docs/limits.md`, `docs/inherent-methods.md` and the crate docs say so.
+  The `tests/ui` case `block_method_under_a_cfg_that_holds` is new, and
+  the behaviour test `cfg_on_variants_and_methods` is extended; no other
+  snapshot and no golden changed.
 - Before, a partial impl block that leaves a trait method with a `Self`
   argument to the plain forwarding, `fn f(&self, other: Self, n: u64)`,
   over an enum whose only variant in the build cannot be forwarded to,

@@ -633,7 +633,11 @@ variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could
 forward, for the same reason, and a method it cannot forward stays as
-written, without its mark, or is dropped when it has no body. At the subject the unit of rejection is the
+written, without its mark, or is dropped when it has no body; its sentence
+stands under the method's own `cfg` attributes, written beside the block
+in `expand_inherent`, so a build that compiles the method out has neither,
+as it would have no hand-written method. Tokens that are no method are
+reported in every build. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors

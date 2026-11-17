@@ -1,0 +1,23 @@
+error: `*` already names every variant
+  --> tests/ui/block_method_under_a_cfg_that_holds.rs:52:19
+   |
+52 |     #[dispatch(*, shape)]
+   |                   ^^^^^
+
+error: `make` has no receiver, so there is no variant to forward to
+  --> tests/ui/block_method_under_a_cfg_that_holds.rs:21:9
+   |
+21 |     pub fn make(side: u32) -> Self;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `*` already names every variant
+  --> tests/ui/block_method_under_a_cfg_that_holds.rs:24:19
+   |
+24 |     #[dispatch(*, Circle)]
+   |                   ^^^^^^
+
+error: a method without a body needs `#[dispatch(*)]` to be forwarded to every variant
+  --> tests/ui/block_method_under_a_cfg_that_holds.rs:28:9
+   |
+28 |     pub fn unmarked(&self) -> u32;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^

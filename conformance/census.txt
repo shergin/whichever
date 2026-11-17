@@ -166,6 +166,14 @@ suite inherent-borrows
   never 72 unmodelled: an inherent body for a return type that needs a payload to make
   never 15 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
 
+suite inherent-items
+  pass 63
+  limit 114
+  rejected 0
+  malformed 0
+  never 21 unmodelled: an inherent body for a return type that needs a payload to make
+  never 18 unmodelled: arms of the method's own over an enum of one variant
+
 suite inherent-shared
   pass 526
   limit 42
@@ -304,13 +312,13 @@ suite parameter-conversions
   malformed 0
 
 suite items
-  pass 669
-  limit 567
+  pass 693
+  limit 615
   rejected 0
   malformed 0
-  never 699 non-canonical
+  never 591 non-canonical
   never 126 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
-  never 18 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
+  never 54 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
   pass 654
@@ -572,37 +580,37 @@ suite own-arms-refusals
   never 40 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite pinned
-  pass 107
-  limit 41
+  pass 108
+  limit 44
   rejected 8
   malformed 0
 
 suite array
-  pass 9404
+  pass 9281
   limit 0
   rejected 0
   malformed 0
-  rows 9404
-  covered 99668
-  unreached 60726
+  rows 9281
+  covered 100594
+  unreached 59800
 
 suite array-limits
   pass 0
-  limit 531
+  limit 527
   rejected 0
   malformed 0
-  rows 531
-  covered 12080
-  unreached 2890
+  rows 527
+  covered 12115
+  unreached 2855
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 998
+  rejected 988
   malformed 0
-  rows 998
-  covered 11843
-  unreached 3127
+  rows 988
+  covered 11938
+  unreached 3032
 
 suite known
   pass 0

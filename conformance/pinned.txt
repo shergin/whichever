@@ -380,3 +380,13 @@ s0=deref-ref recv=value path=inherent
 # stood beside the sentence: the arm standing in for the variant was not
 # written beside a `Self` argument (#13).
 s1=pair arg=value path=block cfg=first-off decl=remote
+
+# A method of an inherent block that cannot be forwarded was reported in a
+# build that compiles it out, its sentence written beside the block rather
+# than under the method's `#[cfg]` (#17, the dash-num survey): a body that
+# never runs and `*` over a variant without a payload, each under a `cfg`
+# that does not hold and one that does.
+s1=none path=inherent-some item=cfg-off
+s1=none path=inherent-some item=cfg-on
+s1=unit path=inherent item=cfg-off
+s1=unit path=inherent item=cfg-on

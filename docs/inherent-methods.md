@@ -105,7 +105,10 @@ and the payload's method decides what moves: `#[dispatch(*)] fn base(self)
 A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
-it is compiled out, the method takes its body. The `impl` block has to be
+it is compiled out, the method takes its body. A method that cannot be
+forwarded is reported under its own `#[cfg]`, so a build that compiles the
+method out reports nothing, as it would have no hand-written method there.
+The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
 on an enum registers it for this without dispatching a trait. A block on a
 dispatch struct forwards the same way: `*` is the field marked bare, or the

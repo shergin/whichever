@@ -248,6 +248,10 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
     writer.line("#[whichever::dispatch]");
     let generics = context.generics();
     writer.open(format!("impl{generics} E{generics} {{"));
+    // The method's own `#[cfg]`, under which it is forwarded or reported.
+    if let Some(predicate) = context.item.cfg {
+        writer.line(format!("#[cfg({predicate})]"));
+    }
     writer.anchor(Anchor::BlockMethod.name());
     if let Some(mark) = context.path.mark {
         writer.line(format!("#[dispatch({mark}{})]", context.inherent_options()));

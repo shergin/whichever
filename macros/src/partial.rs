@@ -53,7 +53,7 @@ impl PartialBlock {
                         .push(BlockMethod::read(method)?);
                     continue;
                 }
-                BlockItem::Bodyless(sig) => {
+                BlockItem::Bodyless { sig, .. } => {
                     return Err(Error::new_spanned(
                         &sig,
                         format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),

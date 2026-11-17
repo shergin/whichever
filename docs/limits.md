@@ -141,7 +141,12 @@ item or variant; see `tests/ui` for all of them. A sentence about one
 variant, whether about its shape or about the way a method reaches it, is
 reported under that variant's `#[cfg]`, so a variant compiled out is no
 error, and each variant a method cannot reach is named in a sentence of its
-own. A rejected enum is still
+own. A sentence about a method of an inherent `#[dispatch]` impl block,
+one without a receiver, a mark that cannot be read or a bodiless method
+without a mark, is reported under that method's own `#[cfg]`, so a method
+compiled out is no error, as a hand's method under that `cfg` is simply
+absent; tokens in the block that are no method are reported in every
+build. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
 as its body, and so is an associated type or const no variant can supply,

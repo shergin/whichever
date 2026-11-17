@@ -484,12 +484,18 @@ pub fn write(writer: &mut Writer, context: &Context) {
             )),
             PathForm::Forwarded | PathForm::Default | PathForm::Written | PathForm::Arms => None,
         };
-        // An inherent method carries what the user wrote and the allowance
-        // over an enum that may be empty, and no `#[inline]`.
-        let attributes = match quiet {
-            true => vec![String::from("#[allow(unused_variables)]")],
-            false => Vec::new(),
-        };
+        // An inherent method carries what the user wrote, its `#[cfg]`
+        // included, and the allowance over an enum that may be empty, and
+        // no `#[inline]`.
+        let mut attributes: Vec<String> = context
+            .item
+            .cfg
+            .map(|predicate| format!("#[cfg({predicate})]"))
+            .into_iter()
+            .collect();
+        if quiet {
+            attributes.push(String::from("#[allow(unused_variables)]"));
+        }
         // A function lift's declared type is its own, `u64`, which names
         // no `Self` and no future, so its arms are neither rewrapped nor
         // awaited: the function is handed the payload's answer as it is.

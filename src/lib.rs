@@ -480,7 +480,9 @@
 //! `(*inner).name()`, and the payload's method decides what moves, so one
 //! taking `&self` borrows what the variant points at. A `Self` argument is the enum itself and is handed to the
 //! payload's method as it is. A variant under `#[cfg]` may be named; where
-//! it is compiled out, the method takes its body. The enum keeps its
+//! it is compiled out, the method takes its body. A method that cannot be
+//! forwarded is reported under its own `#[cfg]`, so a build that compiles
+//! the method out reports nothing. The enum keeps its
 //! definition in a crate-local macro for this, so the `impl` block has to be
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait. A block on a
