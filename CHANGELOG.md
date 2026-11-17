@@ -49,6 +49,14 @@ changes are expected and listed without apology.
   changes nothing at run time. The goldens `generic_payloads`,
   `named_field_variant`, `newtype` and `opaque_through_a_struct` moved; no
   snapshot changed.
+- Before, an unnamed marked field that is the last of its variant or
+  struct was matched with a rest pattern that had nothing to skip,
+  `Last(_, inner, ..)` for `Last(u64, #[dispatch] Square)`. It is now
+  matched `Last(_, inner)`, and `struct Labelled(u64, #[dispatch] Square)`
+  `Labelled(_, inner)`; a field with others after it keeps its `..`, as
+  does a named field beside others. This is what `cargo expand` shows and
+  changes nothing at run time. The golden `marked_last_field` is new; no
+  other golden and no snapshot changed.
 - Before, a variant whose one field is named and marked, `Named {
   #[dispatch] shape: Square }`, was read as a field beside others, so a
   method returning `Self` was refused with "cannot be built around the

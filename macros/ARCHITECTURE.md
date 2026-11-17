@@ -454,8 +454,12 @@ field and a variant whose one field is named and marked are both
 under an `Option` or a `Result` is refused with the tuple form as the way
 around (`Target::is_built_by_no_path`). Only a variant's `Only` field takes
 part in the conversions (`Target::conversions`). `Target::pattern` writes a
-rest pattern only for a `Beside` field, `Tagged(_, inner, ..)` or `Row {
-cell: inner, .. }`; an `Only` field is matched `Wrapped(inner)` and an
+rest pattern only for a `Beside` field that other fields follow,
+`Beside { member, followed }` as `PayloadField::beside(member, count)`
+builds it: `Tagged(inner, ..)`, `Middle(_, inner, ..)` or `Row { cell:
+inner, .. }`, where a named field is always `followed`, since braces skip
+the rest whatever their order. An unnamed last field is matched without
+one, `Last(_, inner)`; an `Only` field is matched `Wrapped(inner)` and an
 `OnlyNamed` one `Named { field: inner }`, on a variant and on a struct
 alike, as a hand writes them.
 
@@ -1330,6 +1334,23 @@ snapshots `inherent_all_with_body`, `inherent_all_with_unforwardable` and
 `star_over_variants_without_a_payload_beside_a_self_argument` did not,
 pinning the named list kept beside a `Self` argument. No build changes meaning: `*` with a body was an
 error, and a body under a named list is unchanged.
+
+### Stage 28: a last field is matched without a rest pattern
+
+Status: landed on 2026-11-16, unreleased, on the branch `arms-under-star`.
+`Target::pattern` matched an unnamed marked field that is the last of its
+variant or struct as `Last(_, inner, ..)` and `Labelled(_, inner, ..)`, a
+rest pattern with nothing to skip, as stage 26 found for a sole field; the
+conformance matrix's shape comparison, once it saw a rest pattern, found
+it. `PayloadField::Beside` is now `Beside { member, followed }`, built by
+`PayloadField::beside(member, count)`, and the pattern writes the rest only
+where `followed`: `Last(_, inner)` and `Labelled(_, inner)`, while
+`Tagged(inner, ..)`, `Middle(_, inner, ..)` and a named field beside others
+keep their `..`. Golden `marked_last_field` is new, and the unit tests
+`a_rest_pattern_follows_a_payload_only_where_fields_follow_it` and
+`a_target_is_matched_and_built_as_its_holder_and_field_say` in `subject.rs`
+pin the patterns. No existing golden and no snapshot moved, and nothing
+changes at run time.
 
 ## 5. Invariants every stage keeps
 

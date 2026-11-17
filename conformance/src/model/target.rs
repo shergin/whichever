@@ -76,6 +76,11 @@ pub enum Form {
     /// The one field of a struct variant, named and marked, `A {
     /// #[dispatch] held: storage }`.
     MarkedNamed,
+    /// The marked last field of two, `A(u64, #[dispatch] storage)`.
+    MarkedLast,
+    /// The subject is a tuple struct whose marked field is the last of
+    /// two, `E(u64, #[dispatch] storage)`.
+    StructMarkedLast,
 }
 
 /// One step of a route from the stored value to the target.
@@ -122,7 +127,11 @@ impl TargetDescriptor {
     pub fn has_other_fields(&self) -> bool {
         match self.form {
             Form::Single | Form::Struct | Form::StructNamed | Form::MarkedNamed => false,
-            Form::MarkedTuple | Form::MarkedStruct | Form::StructMarked => true,
+            Form::MarkedTuple
+            | Form::MarkedStruct
+            | Form::StructMarked
+            | Form::MarkedLast
+            | Form::StructMarkedLast => true,
         }
     }
 
@@ -189,7 +198,7 @@ impl TargetDescriptor {
     pub fn is_struct(&self) -> bool {
         matches!(
             self.form,
-            Form::Struct | Form::StructMarked | Form::StructNamed
+            Form::Struct | Form::StructMarked | Form::StructNamed | Form::StructMarkedLast
         )
     }
 
@@ -321,6 +330,20 @@ impl Target {
                 route: &[],
                 option: Some("from = false"),
                 refused: true,
+            },
+            Target::MarkedLast => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::MarkedLast,
+                route: &[],
+                option: None,
+                refused: false,
+            },
+            Target::StructMarkedLast => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarkedLast,
+                route: &[],
+                option: None,
+                refused: false,
             },
         }
     }

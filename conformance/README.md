@@ -107,14 +107,22 @@ argument's `'life1`, each bound to outlive the future, as are `Self` and
 the method's type parameters, a parameter the converting block holds
 declared `Send`.
 
-Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
-the subject a struct: one field, which the hand matches with no rest
-pattern, a field marked `#[dispatch]` beside a label, or one named field,
-which the hand rebuilds by its braces and
+Four values of `s0`, `struct`, `struct-marked`, `struct-named` and
+`struct-marked-last`, make the subject a struct: one field, which the hand
+matches with no rest pattern, a field marked `#[dispatch]` beside a label,
+one named field, or a tuple struct whose marked field is the last of two,
+`E(u64, #[dispatch] P0)`, which the hand matches as `E(_, inner)`. One
+named field is the one the hand rebuilds by its braces and
 which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
+
+The `s0` value `marked-last` marks the last field of a tuple variant,
+`A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as
+`A(_, inner)`, with no rest pattern, since none would have anything left to
+skip, as rule 1 of `docs/vision.md` asks, where a marked first field,
+`marked-tuple`, is bound as `A(inner, ..)`, as the goldens write it.
 
 Four values of `s0` mark a struct variant's field. Under `marked-named`
 the field is the variant's one field, `A { #[dispatch] held: P0 }`, which

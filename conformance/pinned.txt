@@ -351,3 +351,12 @@ s1=unit ret=option-self path=inherent-arms lift=some
 # compiled out the arguments were warned of beside the sentence
 # (`marked.rs`, `standing_alone`).
 ret=option-self path=inherent-arms lift=some arms=cfg-off
+
+# A marked field that is the last of its variant or struct was matched with
+# a rest pattern that had nothing left to skip, `Last(_, __inner, ..)` and
+# `Labelled(_, __inner, ..)`, where a hand writes `Last(_, inner)`.
+s0=marked-last
+s0=marked-last path=inherent
+s0=marked-last recv=value ret=self
+s0=struct-marked-last s1=none
+s0=struct-marked-last s1=none path=inherent

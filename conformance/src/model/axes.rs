@@ -79,6 +79,13 @@ axis! {
         /// conversion option on a variant's marked field, which goes on the
         /// variant (limits.md).
         MarkedConversion = "marked-from",
+        /// `A(u64, #[dispatch] P0)`, the marked field of a tuple variant
+        /// that is its last, which a hand binds as `A(_, inner)` with no
+        /// rest pattern left to skip anything.
+        MarkedLast = "marked-last",
+        /// `pub struct E(u64, #[dispatch] P0)`: a tuple struct subject whose
+        /// marked field is its last.
+        StructMarkedLast = "struct-marked-last",
     }
 }
 

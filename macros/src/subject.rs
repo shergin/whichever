@@ -115,12 +115,12 @@ impl Subject {
                 marks: None,
             }),
             Subject::Struct(item) => {
-                let only = item.fields.len() == 1;
+                let count = item.fields.len();
                 let mut entries = vec![];
                 let mut marks = vec![];
                 for (index, field) in item.fields.iter().enumerate() {
                     let options = TargetOptions::read(&field.attrs, Position::StructField)?;
-                    entries.push(field_entry(member_of(field, index), field, &options, only));
+                    entries.push(field_entry(member_of(field, index), field, &options, count));
                     marks.push(Marks {
                         marked: field.attrs.iter().any(is_dispatch_attribute),
                         traits: options.traits,
@@ -494,8 +494,22 @@ pub(crate) enum PayloadField {
     /// build and no path does.
     OnlyNamed(Ident),
     /// One field beside others, `Name(_, payload, ..)` or `Name { field:
-    /// payload, .. }`, which no value can be built around.
-    Beside(Member),
+    /// payload, .. }`, which no value can be built around. `followed` says
+    /// whether a rest pattern has fields to skip after it: an unnamed
+    /// field that is the last has none, and a named field is found by its
+    /// name wherever it sits, with the others always left to the rest.
+    Beside { member: Member, followed: bool },
+}
+
+impl PayloadField {
+    /// Returns the field `member` beside the others of `count` fields.
+    fn beside(member: Member, count: usize) -> Self {
+        let followed = match &member {
+            Member::Named(_) => true,
+            Member::Unnamed(index) => (index.index as usize) + 1 < count,
+        };
+        PayloadField::Beside { member, followed }
+    }
 }
 
 /// A variant's part in the `From` and `TryFrom` impls.
@@ -565,19 +579,23 @@ impl<'a> Target<'a> {
         site: Site,
     ) -> TokenStream2 {
         let holder = self.holder(prefix, site);
-        // A field that has others beside it is matched with a rest pattern
-        // for them; the one field of a variant or a struct has nothing to
-        // skip, and a hand writes no `..` there.
+        // A rest pattern skips the fields after the payload's. The one
+        // field of a variant or a struct, and an unnamed field that is the
+        // last, have none to skip, and a hand writes no `..` there.
         match &self.place.field {
             PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
             PayloadField::OnlyNamed(name) => {
                 quote_spanned!(*site => #holder { #name: #binding })
             }
-            PayloadField::Beside(Member::Unnamed(index)) => {
+            PayloadField::Beside {
+                member: Member::Unnamed(index),
+                followed,
+            } => {
                 let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
-                quote_spanned!(*site => #holder(#(#skipped,)* #binding, ..))
+                let rest = followed.then(|| quote_spanned!(*site => , ..));
+                quote_spanned!(*site => #holder(#(#skipped,)* #binding #rest))
             }
-            PayloadField::Beside(member) => {
+            PayloadField::Beside { member, .. } => {
                 quote_spanned!(*site => #holder { #member: #binding, .. })
             }
         }
@@ -604,14 +622,14 @@ impl<'a> Target<'a> {
             PayloadField::OnlyNamed(name) => {
                 Some(quote_spanned!(*site => #holder { #name: #value }))
             }
-            PayloadField::Beside(_) => None,
+            PayloadField::Beside { .. } => None,
         }
     }
 
     /// Returns whether the subject can be built around a payload: no
     /// other field would be missing.
     pub(crate) fn is_rebuilt(&self) -> bool {
-        !matches!(self.place.field, PayloadField::Beside(_))
+        !matches!(self.place.field, PayloadField::Beside { .. })
     }
 
     /// Returns whether a path builds the subject from a payload, as
@@ -626,7 +644,7 @@ impl<'a> Target<'a> {
     pub(crate) fn constructor(&self, prefix: &Path, site: Site) -> Option<TokenStream2> {
         match &self.place.field {
             PayloadField::Only => Some(self.holder(prefix, site)),
-            PayloadField::OnlyNamed(_) | PayloadField::Beside(_) => None,
+            PayloadField::OnlyNamed(_) | PayloadField::Beside { .. } => None,
         }
     }
 
@@ -776,7 +794,10 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
         (Fields::Named(fields), [(Member::Named(name), field)]) if fields.named.len() == 1 => {
             (PayloadField::OnlyNamed(name.clone()), *field)
         }
-        (_, [(member, field)]) => (PayloadField::Beside(member.clone()), *field),
+        (_, [(member, field)]) => (
+            PayloadField::beside(member.clone(), variant.fields.len()),
+            *field,
+        ),
         (_, [_, (_, second), ..]) => {
             return Err(Error::new_spanned(
                 second,
@@ -852,17 +873,17 @@ fn member_of(field: &Field, index: usize) -> Member {
 }
 
 /// Returns the entry a struct's field is: named by the field, or `_<index>`
-/// for an unnamed one, with the field's own route. A field that is the
-/// struct's `only` one is what the struct is built around.
-fn field_entry(member: Member, field: &Field, options: &TargetOptions, only: bool) -> Entry {
+/// for an unnamed one, with the field's own route. The one field of a
+/// struct of `count` fields is what the struct is built around.
+fn field_entry(member: Member, field: &Field, options: &TargetOptions, count: usize) -> Entry {
     let ident = match &member {
         Member::Named(ident) => ident.clone(),
         Member::Unnamed(index) => format_ident!("_{}", index.index, span = index.span),
     };
     let field_in_struct = match member {
-        Member::Unnamed(_) if only => PayloadField::Only,
-        Member::Named(name) if only => PayloadField::OnlyNamed(name),
-        member => PayloadField::Beside(member),
+        Member::Unnamed(_) if count == 1 => PayloadField::Only,
+        Member::Named(name) if count == 1 => PayloadField::OnlyNamed(name),
+        member => PayloadField::beside(member, count),
     };
     Entry {
         ident,
@@ -947,7 +968,9 @@ mod tests {
         match &target.place.field {
             PayloadField::Only => "only".to_owned(),
             PayloadField::OnlyNamed(name) => format!("only named {name}"),
-            PayloadField::Beside(member) => format!("beside {}", member.to_token_stream()),
+            PayloadField::Beside { member, .. } => {
+                format!("beside {}", member.to_token_stream())
+            }
         }
     }
 
@@ -1221,6 +1244,120 @@ mod tests {
         assert!(under.contains(&quote!(#[cfg(test)] ::core::compile_error!).to_string()));
     }
 
+    /// Whether a rest pattern follows the payload of `target`: nothing for
+    /// a payload that is the only field.
+    fn followed(target: &Target) -> Option<bool> {
+        match &target.place.field {
+            PayloadField::Beside { followed, .. } => Some(*followed),
+            PayloadField::Only | PayloadField::OnlyNamed(_) => None,
+        }
+    }
+
+    #[test]
+    fn a_rest_pattern_follows_a_payload_only_where_fields_follow_it() {
+        let subject: Subject = parse_quote! {
+            enum Any {
+                First(#[dispatch] Circle, u32),
+                Middle(u8, #[dispatch] Circle, u32),
+                Last(u8, #[dispatch] Circle),
+                Labelled {
+                    #[dispatch]
+                    inner: Circle,
+                    label: u32,
+                },
+                Ending {
+                    label: u32,
+                    #[dispatch]
+                    inner: Circle,
+                },
+                Plain(Circle),
+            }
+        };
+        let entries = subject.read().unwrap();
+        let prefix: Path = parse_quote!(Any);
+        let binding = quote!(__inner);
+        let read = |name: &str| {
+            let target = target(&entries, name);
+            (
+                followed(&target),
+                target.pattern(&prefix, &binding, site()).to_string(),
+            )
+        };
+        assert_eq!(
+            read("First"),
+            (Some(true), quote!(Any::First(__inner, ..)).to_string())
+        );
+        assert_eq!(
+            read("Middle"),
+            (Some(true), quote!(Any::Middle(_, __inner, ..)).to_string())
+        );
+        assert_eq!(
+            read("Last"),
+            (Some(false), quote!(Any::Last(_, __inner)).to_string())
+        );
+        assert_eq!(
+            read("Labelled"),
+            (
+                Some(true),
+                quote!(Any::Labelled { inner: __inner, .. }).to_string()
+            )
+        );
+        assert_eq!(
+            read("Ending"),
+            (
+                Some(true),
+                quote!(Any::Ending { inner: __inner, .. }).to_string()
+            ),
+            "a named field is found by its name, and the others are left to the rest wherever it sits"
+        );
+        assert_eq!(
+            read("Plain"),
+            (None, quote!(Any::Plain(__inner)).to_string())
+        );
+        let pair: Subject = parse_quote!(
+            struct Pair(First, Second);
+        );
+        let fields = pair.read().unwrap();
+        let prefix: Path = parse_quote!(Pair);
+        let read = |index: usize| {
+            let target = &fields.targets()[index];
+            (
+                followed(target),
+                target.pattern(&prefix, &binding, site()).to_string(),
+            )
+        };
+        assert_eq!(read(0), (Some(true), quote!(Pair(__inner, ..)).to_string()));
+        assert_eq!(read(1), (Some(false), quote!(Pair(_, __inner)).to_string()));
+        let labelled: Subject = parse_quote!(
+            struct Labelled {
+                label: u32,
+                inner: Circle,
+            }
+        );
+        let fields = labelled.read().unwrap();
+        let prefix: Path = parse_quote!(Labelled);
+        assert_eq!(
+            fields
+                .targets()
+                .iter()
+                .map(|target| (
+                    followed(target),
+                    target.pattern(&prefix, &binding, site()).to_string()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    Some(true),
+                    quote!(Labelled { label: __inner, .. }).to_string()
+                ),
+                (
+                    Some(true),
+                    quote!(Labelled { inner: __inner, .. }).to_string()
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn a_target_is_matched_and_built_as_its_holder_and_field_say() {
         let subject = shapes();
@@ -1239,7 +1376,8 @@ mod tests {
         assert_eq!(pattern("Plain"), quote!(Any::Plain(__inner)).to_string());
         assert_eq!(
             pattern("Tagged"),
-            quote!(Any::Tagged(_, __inner, ..)).to_string()
+            quote!(Any::Tagged(_, __inner)).to_string(),
+            "the last field leaves nothing for a rest pattern to skip"
         );
         assert_eq!(
             pattern("Named"),

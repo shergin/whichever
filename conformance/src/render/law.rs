@@ -143,7 +143,7 @@ fn generic_tuple_struct(context: &Context) -> bool {
         .slots
         .first()
         .and_then(Slot::target)
-        .is_some_and(|(_, target)| target.form == Form::Struct);
+        .is_some_and(|(_, target)| matches!(target.form, Form::Struct | Form::StructMarkedLast));
     tuple && context.generics.parameter.is_some()
 }
 
@@ -443,6 +443,8 @@ fn write_subject(
         Form::Struct => format!("{path}({stored})"),
         Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
         Form::StructNamed => format!("{path} {{ held: {stored} }}"),
+        Form::MarkedLast => format!("{path}::{variant}({LABEL}, {stored})"),
+        Form::StructMarkedLast => format!("{path}({LABEL}, {stored})"),
     };
     writer.line(format!("{binding} {name} = {value};"));
 }

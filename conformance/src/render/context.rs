@@ -623,9 +623,11 @@ impl Context {
                 Form::MarkedStruct | Form::MarkedNamed => format!("{path}::{name} {{ .. }}"),
                 Form::Single
                 | Form::MarkedTuple
+                | Form::MarkedLast
                 | Form::Struct
                 | Form::StructMarked
-                | Form::StructNamed => format!("{path}::{name}(..)"),
+                | Form::StructNamed
+                | Form::StructMarkedLast => format!("{path}::{name}(..)"),
             },
         };
         let mut attributes = String::new();
@@ -983,6 +985,8 @@ impl Context {
             Form::Struct => format!("{path}({stored})"),
             Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
             Form::StructNamed => format!("{path} {{ held: {stored} }}"),
+            Form::MarkedLast => format!("{path}::A({LABEL}, {stored})"),
+            Form::StructMarkedLast => format!("{path}({LABEL}, {stored})"),
         }
     }
 }
@@ -1141,7 +1145,8 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
         Form::MarkedNamed => (None, format!("{name} {{ {field_option}held: {stored} }},")),
-        Form::Struct | Form::StructMarked | Form::StructNamed => {
+        Form::MarkedLast => (None, format!("{name}(u64, {field_option}{stored}),")),
+        Form::Struct | Form::StructMarked | Form::StructNamed | Form::StructMarkedLast => {
             unreachable!("a struct subject is written by `write_struct`")
         }
     }
@@ -1196,7 +1201,25 @@ pub fn write_struct(
             writer.line(format!("pub held: {stored},"));
             writer.close("}");
         }
-        Form::Single | Form::MarkedTuple | Form::MarkedStruct | Form::MarkedNamed => {
+        Form::StructMarkedLast => {
+            let mark = match (attributes, target.option) {
+                (false, _) => "",
+                (true, Some(_)) => unreachable!("the marked struct field takes no option"),
+                (true, None) => "#[dispatch] ",
+            };
+            writer.open(format!("pub struct E{generics}("));
+            writer.line("pub u64,");
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("{mark}pub {stored},"));
+            writer.close(");");
+        }
+        Form::Single
+        | Form::MarkedTuple
+        | Form::MarkedStruct
+        | Form::MarkedNamed
+        | Form::MarkedLast => {
             unreachable!("an enum subject is written variant by variant")
         }
     }
@@ -1205,8 +1228,11 @@ pub fn write_struct(
 /// Returns the pattern that binds a slot's forwarded field to `binding`,
 /// with the subject's path `path`. A sole field, of a variant or a struct,
 /// named or not, is bound with no rest pattern, which would skip nothing;
-/// a marked field beside others skips them with `..`, as the goldens
-/// `marked_field_by_value` and `routes` write `Self::Tagged(__inner, ..)`.
+/// a marked field beside others skips the fields after it with `..`, as
+/// the goldens `marked_field_by_value` and `routes` write
+/// `Self::Tagged(__inner, ..)`, and a marked field that is the last has
+/// none after it to skip, so a hand writes `A(_, inner)` (rule 1 of
+/// `docs/vision.md`; no document shows the form).
 pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str) -> String {
     let name = slot.name();
     match target.form {
@@ -1217,6 +1243,8 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::Struct => format!("{path}({binding})"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
         Form::StructNamed => format!("{path} {{ held: {binding} }}"),
+        Form::MarkedLast => format!("{path}::{name}(_, {binding})"),
+        Form::StructMarkedLast => format!("{path}(_, {binding})"),
     }
 }
 
@@ -1229,8 +1257,8 @@ pub fn constructor(path: &str, slot: &Slot) -> String {
     match form {
         Some(Form::StructNamed) => format!("{path} {{ held: {HOLE} }}"),
         Some(Form::MarkedNamed) => format!("{path}::{} {{ held: {HOLE} }}", slot.name()),
-        Some(Form::Struct | Form::StructMarked) => String::from(path),
-        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct) | None => {
+        Some(Form::Struct | Form::StructMarked | Form::StructMarkedLast) => String::from(path),
+        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct | Form::MarkedLast) | None => {
             format!("{path}::{}", slot.name())
         }
     }
