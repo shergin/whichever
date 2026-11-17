@@ -38,6 +38,7 @@ the planning notes, the note holds the long form and the record names it.
 - [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
 - [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)
 - [A required method's `#[inline]` is its forwarders'](a-required-methods-inline-is-its-forwarders.md)
+- [The automatic bound is a bare parameter's](the-automatic-bound-is-a-bare-parameters.md)
 - [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
 - [A mutable borrow takes a route of its own](a-mutable-borrow-takes-a-route-of-its-own.md),
   completing the one above

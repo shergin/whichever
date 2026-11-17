@@ -83,6 +83,7 @@ pub mod glossary {}
 /// [options-name-type]: crate#associated-types-and-consts
 /// [options-name-value]: crate#associated-types-and-consts
 /// [partial-impl-blocks]: crate#partial-impl-blocks-write-some-methods-yourself
+/// [partial-impl-blocks-header]: crate#the-impl-header
 /// [partial-impl-blocks-names]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [restatements]: crate#traits-from-std-and-other-crates
 /// [restatements-any-trait]: crate#restate-any-other-trait

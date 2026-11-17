@@ -188,6 +188,13 @@ not take part, leave it to a fallback in a
 [partial impl block][partial-impl-blocks], or reach a target that does
 implement the trait with a [route][routes].
 
+When the bound is on a type parameter, as in "the trait bound `T: Shape`
+is not satisfied" at a payload `Boxed<T>`, the payload's own impl needs a
+bound the impl does not have. The impl gets `T: Trait` only for a payload
+that is `T` itself. List no trait on the enum, and write the header in an
+empty partial impl block, `impl<T: Shape> Shape for AnyShape<T> {}`. See
+[The impl header][partial-impl-blocks-header].
+
 ### Two variants disagree on an associated type
 
 ```text
@@ -856,6 +863,7 @@ reproduces the error helps most.
 [options-name-type]: options.md#name--type-override-an-associated-type
 [options-name-value]: options.md#name--value-override-an-associated-const
 [partial-impl-blocks]: partial-impl-blocks.md
+[partial-impl-blocks-header]: partial-impl-blocks.md#the-impl-header
 [partial-impl-blocks-names]: partial-impl-blocks.md#which-names-must-be-in-scope
 [restatements]: restatements.md
 [restatements-any-trait]: restatements.md#restate-any-other-trait

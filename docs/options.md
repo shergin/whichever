@@ -490,3 +490,21 @@ that parameter, which is the bound you would write by hand:
 - So does `Box<Raw>` under `deref`.
 - A struct's field works the same way: `struct Wrapper<T>(T)` gets
   `impl<T: Shape> Shape for Wrapper<T>`.
+
+A payload that only mentions a parameter, such as `Wrapped(Boxed<T>)`,
+gives no bound. The bound it needs is whatever `Boxed<T>`'s own impl asks
+of `T`, which is not written in the enum and may be another trait
+altogether. So the impl is rustc's E0277 on the payload until you write
+the header yourself: list no trait on the enum, and add an empty
+[partial impl block](partial-impl-blocks.md#the-impl-header) with the
+bound you need:
+
+```rust
+#[whichever::dispatch]
+impl<T: Shape> Shape for AnyShape<T> {}
+```
+
+`where Boxed<T>: Shape` works as the bound too. Why not write that bound
+for you? On an enum whose payload names the enum itself,
+`Node(Box<Tree<T>>)`, it would make the impl one that no type satisfies:
+every use would fail, where the automatic bound alone compiles.

@@ -276,6 +276,13 @@ The other cases:
   `impl ColNames for Lazy<Raw<'static>, Parsed> {}`.
 - A bound on a type parameter that the trait's own `Param: Trait` bound
   does not cover: `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
+- A bound for a payload that only mentions a parameter, such as
+  `Wrapped(Boxed<T>)`. The automatic bound is a bare parameter's alone:
+  `Raw(T)` gets `T: Trait`, and `Boxed<T>` gets nothing, since what its
+  own impl asks of `T` is not written in the enum. Write the header the
+  way you would by hand: `impl<T: Shape> Shape for AnyShape<T> {}`, or
+  `impl<T> Shape for Labelled<T> where Boxed<T>: Shape {}`. The enum then
+  lists no trait in its own attribute.
 
 ## Which names must be in scope
 

@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `docs/limits.md`, `docs/options.md`, `docs/partial-impl-blocks.md`,
+  `docs/troubleshooting.md` and the crate docs say that the automatic bound is a bare parameter's: a
+  payload that only mentions a parameter, `Wrapped(Boxed<T>)`, gives the
+  impl no bound, since what its own impl asks of `T` is not written in the
+  enum, and an empty partial impl block writes the header, `impl<T: Shape>
+  Shape for AnyShape<T> {}` or `where Boxed<T>: Shape`. The behaviour test
+  `bounds_for_type_parameter_payloads` runs that block over an enum and a
+  struct, and a recursive enum that keeps the automatic bound alone.
 - `docs/options.md`, `docs/limits.md`, `docs/troubleshooting.md` and the
   crate docs say that the `From` impls reach one level: an enum held by
   another gives the outer enum `From<Inner>` and nothing for the inner

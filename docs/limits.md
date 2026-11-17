@@ -56,6 +56,16 @@ On this page:
   calls the trait method on it, as a hand-written arm would. Implement
   the trait for the payload, or reach a target that implements it with a
   [route](routes.md).
+- **The impl's automatic bound is a bare parameter's.** A payload that is
+  a type parameter, `Raw(T)` or `Box<T>` under `deref`, gives the impl
+  `T: Trait`. A payload that only mentions one, `Wrapped(Boxed<T>)`,
+  gives none, and you get rustc's E0277 on the payload. What `Boxed<T>`'s
+  impl asks of `T` is not written in the enum. And a bound on the
+  payload's type would leave an enum that names itself,
+  `Node(Box<Tree<T>>)`, with an impl no type satisfies. List no trait on
+  the attribute, and write the header in an empty
+  [partial impl block](partial-impl-blocks.md#the-impl-header):
+  `impl<T: Shape> Shape for AnyShape<T> {}`, or `where Boxed<T>: Shape`.
 - **An enum that only forwards [inherent methods](inherent-methods.md)
   may hold variants of any other form.** Those variants have no payload
   to forward to, so they take the method's body.

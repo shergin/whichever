@@ -594,7 +594,10 @@
 //! - **Payloads that are type parameters.** A payload that is a type
 //!   parameter of the enum gives the impl the bound you would write by hand:
 //!   `Raw(Raw)` on `enum Lazy<Raw, Parsed>`, or `Box<Raw>` under `deref`,
-//!   gives `Raw: Trait`. A struct's field works the same way.
+//!   gives `Raw: Trait`. A struct's field works the same way. A payload
+//!   that only mentions a parameter, `Boxed<T>`, gives none: what its own
+//!   impl asks of `T` is not written in the enum. An empty partial impl
+//!   block writes that header, `impl<T: Shape> Shape for AnyShape<T> {}`.
 //! - **Any other header.** A trait generic over its own parameter, for
 //!   every `F`, needs a header the attribute cannot write. An empty
 //!   [partial impl block](#the-impl-header) gives it one.
@@ -1173,7 +1176,9 @@
 //!   lifetime, `impl<'r> Renderable<'r> for Node {}`;
 //! - one instantiation of a generic enum;
 //! - a bound on a type parameter beyond the `Param: Trait` the impl gets on
-//!   its own.
+//!   its own. That bound comes only from a payload that is the parameter
+//!   itself; a payload that mentions it, `Boxed<T>`, needs the block's
+//!   `impl<T: Shape> Shape for AnyShape<T> {}`.
 //!
 //! ### Names, attributes and what the block cannot hold
 //!
