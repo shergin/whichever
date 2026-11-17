@@ -3,12 +3,13 @@
 //! ```text
 //! cargo run -p whichever-conformance --release -- <command>
 //!
-//! run [--suite NAME]... [--filter TEXT] [--bless] [--whichever PATH] [--jobs N]
-//!     [--shape] [--random N [--seed S]]
+//! run [--suite NAME]... [--cell ID]... [--filter TEXT] [--bless] [--whichever PATH]
+//!     [--jobs N] [--shape] [--random N [--seed S]]
 //! list [--suite NAME]...
 //! show <id>
 //! axes
-//! mutants [--only NAME]... [--baseline PATH] [--suite NAME]... [--no-shape]
+//! mutants [--only NAME]... [--shard I/N]
+//!     [--full [--baseline PATH] [--suite NAME]... [--no-shape]]
 //! census [--bless]
 //! ```
 //!
@@ -31,12 +32,13 @@ const USAGE: &str = "\
 usage: cargo run -p whichever-conformance --release -- <command>
 
 commands:
-  run [--suite NAME]... [--filter TEXT] [--bless] [--whichever PATH] [--jobs N]
-      [--shape] [--random N [--seed S]]
+  run [--suite NAME]... [--cell ID]... [--filter TEXT] [--bless] [--whichever PATH]
+      [--jobs N] [--shape] [--random N [--seed S]]
   list [--suite NAME]...
   show <id>
   axes
-  mutants [--only NAME]... [--baseline PATH] [--suite NAME]... [--no-shape]
+  mutants [--only NAME]... [--shard I/N]
+      [--full [--baseline PATH] [--suite NAME]... [--no-shape]]
   census [--bless]";
 
 fn main() -> ExitCode {
@@ -115,6 +117,7 @@ fn options(arguments: &[String]) -> Result<Options, RunError> {
         };
         match argument.as_str() {
             "--suite" => options.suites.push(value("--suite")?),
+            "--cell" => options.cells.push(value("--cell")?),
             "--filter" => options.filter = Some(value("--filter")?),
             "--bless" => options.bless = true,
             "--shape" => options.shape = true,

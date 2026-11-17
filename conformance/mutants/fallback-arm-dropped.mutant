@@ -1,6 +1,7 @@
 file: macros/src/forwarding.rs
 breaks: Two different variants of a `Self` argument give the `mismatch` expression, as `docs/what-is-generated.md` and `docs/options.md` say.
 expect: killed
+witness: arg=ref-trait
 
 find:
         let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };

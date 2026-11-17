@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A method returning an overridden `Self::Name` converts the payload's result with `Into`, as `docs/options.md` says.
 expect: killed
+witness: ret=out
 
 find:
         Conversion::Into => quote_spanned! { *site => ::core::convert::Into::into(#value) },

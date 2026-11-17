@@ -1,6 +1,7 @@
 file: macros/src/subject.rs
 breaks: An arm binds a marked field that is the last of its variant or struct with no rest pattern, which would skip nothing, as rule 1 of `docs/vision.md` asks of the output, the hand's, and as `docs/what-is-generated.md` describes the arms.
 expect: killed
+witness: s0=marked-last
 
 find:
             Member::Unnamed(index) => (index.index as usize) + 1 < count,

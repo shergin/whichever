@@ -1,6 +1,7 @@
 file: macros/src/subject.rs
 breaks: A variant whose one field is named and marked is rebuilt by its braces for a method returning `Self`, and under `Option<Self>` or `Result<Self, E>` its sentence names the tuple variant, as `docs/limits.md` and `docs/routes.md` say.
 expect: killed
+witness: s0=marked-named ret=self
 
 find:
         (Fields::Named(fields), [(Member::Named(name), field)]) if fields.named.len() == 1 => {

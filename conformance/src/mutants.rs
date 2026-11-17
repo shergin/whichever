@@ -8,11 +8,16 @@
 //! the point of the format: when the macros move on, the mutant no longer
 //! applies and says so, instead of silently mutating something else.
 //!
-//! The command runs the matrix once on the unmodified crate, then once per
-//! mutant on a copy of the crate under test with the change applied, as
-//! `run --whichever PATH` does, and compares the two tables the runs write.
-//! A mutant is killed when a cell that agreed in the baseline diverges, or
-//! a line of `known.tsv` goes stale.
+//! A mutant expected to be killed names its witnesses, cells that agree on
+//! the unmodified crate and diverge under the change. By default the
+//! command runs the witnesses of the mutants asked for once on the
+//! unmodified crate, then each mutant's own on a copy of the crate under
+//! test with the change applied, as `run --cell ID --whichever PATH` does:
+//! a mutant is killed when a witness that agreed now diverges. With
+//! `--full` it runs the matrix, or the suites asked for, once on the
+//! unmodified crate and once per mutant, and a mutant is killed when a cell
+//! that agreed in the baseline diverges, or a line of `known.tsv` goes
+//! stale: how witnesses are found, and how widely a mutant is noticed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -49,6 +54,9 @@ pub struct Mutant {
     pub find: String,
     /// What replaces it.
     pub replace: String,
+    /// The cells that agree on the unmodified crate and diverge under the
+    /// change, by id; none for a mutant expected to survive.
+    pub witnesses: Vec<String>,
 }
 
 /// Returns the lines from `lines` up to the next line that is exactly
@@ -68,13 +76,16 @@ fn block<'a>(lines: &mut impl Iterator<Item = &'a str>, end: Option<&str>) -> (S
 impl Mutant {
     /// Parses a mutant file. The header is `key: value` lines, `file`,
     /// `breaks`, `expect` and, after `expect: survives`, `reason`, with `#`
-    /// comments and blank lines; then a line `find:` opens the text to
+    /// comments and blank lines, and after `expect: killed` any number of
+    /// `witness:` lines, one cell id each, spelled as the tool spells it;
+    /// then a line `find:` opens the text to
     /// find, a line `replace:` ends it and opens its replacement, which runs
     /// to the end of the file. Both texts keep their lines as written,
     /// without the line break of their last line.
     pub fn parse(name: &str, text: &str) -> Result<Mutant, String> {
         let mut lines = text.lines();
         let mut header: BTreeMap<&str, String> = BTreeMap::new();
+        let mut witnesses: Vec<String> = Vec::new();
         let mut opened = false;
         for line in lines.by_ref() {
             if line == "find:" {
@@ -88,9 +99,21 @@ impl Mutant {
                 return Err(format!("`{line}` is no `key: value` line"));
             };
             let key = key.trim();
+            if key == "witness" {
+                let id = value.trim();
+                let cell = Cell::parse(id).map_err(|error| format!("witness `{id}`: {error}"))?;
+                if cell.id() != id {
+                    return Err(format!("witness `{id}` is spelled `{}`", cell.id()));
+                }
+                if witnesses.iter().any(|witness| witness == id) {
+                    return Err(format!("witness `{id}` is given twice"));
+                }
+                witnesses.push(String::from(id));
+                continue;
+            }
             if !["file", "breaks", "expect", "reason"].contains(&key) {
                 return Err(format!(
-                    "no key `{key}`; the keys are `file`, `breaks`, `expect` and `reason`"
+                    "no key `{key}`; the keys are `file`, `breaks`, `expect`, `reason` and `witness`"
                 ));
             }
             if header.insert(key, String::from(value.trim())).is_some() {
@@ -129,6 +152,11 @@ impl Mutant {
                 Expect::Killed
             }
             "survives" => {
+                if !witnesses.is_empty() {
+                    return Err(String::from(
+                        "a mutant expected to survive has no witness, which would kill it",
+                    ));
+                }
                 let reason = take("reason")?;
                 if !reason.ends_with('.') {
                     return Err(String::from(
@@ -159,6 +187,7 @@ impl Mutant {
             expect,
             find,
             replace,
+            witnesses,
         })
     }
 
@@ -405,7 +434,9 @@ pub enum Fate {
         checks: Vec<String>,
         /// How many cells newly diverge.
         cells: usize,
-        /// One of them, with its finding, or the stale line.
+        /// The first witness that diverges, in a run of witnesses.
+        witness: Option<String>,
+        /// One of the cells, with its finding, or the stale line.
         example: String,
     },
     /// No cell that agreed in the baseline diverges, and no known line
@@ -417,6 +448,9 @@ pub enum Fate {
         /// One of them, with its finding.
         example: String,
     },
+    /// A mutant expected to survive, which a run of witnesses does not
+    /// judge: it has none, and only `--full` can show that it survives.
+    Unjudged,
     /// Its text to find does not occur exactly once.
     Stale(String),
     /// The changed crate does not compile.
@@ -430,17 +464,20 @@ impl Fate {
         match self {
             Fate::Killed { .. } => "killed",
             Fate::Survived { .. } => "survived",
+            Fate::Unjudged => "not judged",
             Fate::Stale(_) => "stale",
             Fate::Uncompiled(_) => "uncompiled",
             Fate::Harness(_) => "harness",
         }
     }
 
-    /// Returns whether the result is what `expect` says.
+    /// Returns whether the result is what `expect` says, or says nothing
+    /// against it.
     fn meets(&self, expect: &Expect) -> bool {
         matches!(
             (self, expect),
-            (Fate::Killed { .. }, Expect::Killed) | (Fate::Survived { .. }, Expect::Survives(_))
+            (Fate::Killed { .. }, Expect::Killed)
+                | (Fate::Survived { .. } | Fate::Unjudged, Expect::Survives(_))
         )
     }
 }
@@ -498,9 +535,87 @@ pub fn compare(baseline: &[Row], mutated: &[Row], stale: &[&Known]) -> Fate {
         Some(example) => Fate::Killed {
             checks: checks.into_iter().map(String::from).collect(),
             cells,
+            witness: None,
             example,
         },
     }
+}
+
+/// Returns why the baseline of a run of witnesses measures nothing for
+/// `mutant`: a witness missing from it, or one that does not agree on the
+/// unmodified crate, which a witness has to.
+pub fn baseline_problem(mutant: &Mutant, baseline: &[Row]) -> Option<String> {
+    for witness in &mutant.witnesses {
+        let Some(row) = baseline.iter().find(|row| row.id == *witness) else {
+            return Some(format!(
+                "mutant `{}`: witness `{witness}` did not run in the baseline",
+                mutant.name
+            ));
+        };
+        if row.standing != "agrees" {
+            return Some(format!(
+                "mutant `{}`: witness `{witness}` {} on the unmodified crate, so it measures nothing; find another with `--full`",
+                mutant.name, row.standing
+            ));
+        }
+    }
+    None
+}
+
+/// Judges a mutant by its witnesses' run on the changed crate: killed when
+/// one of them, all of which agreed in the baseline, diverges now.
+pub fn judge_witnesses(mutant: &Mutant, baseline: &[Row], mutated: &[Row]) -> Fate {
+    let witnessed: Vec<Row> = mutated
+        .iter()
+        .filter(|row| mutant.witnesses.contains(&row.id))
+        .cloned()
+        .collect();
+    match compare(baseline, &witnessed, &[]) {
+        Fate::Killed {
+            checks,
+            cells,
+            example,
+            ..
+        } => {
+            let witness = mutant
+                .witnesses
+                .iter()
+                .find(|witness| {
+                    witnessed.iter().any(|row| {
+                        row.id == **witness
+                            && (row.standing == "diverges" || row.standing == "model-broken")
+                    })
+                })
+                .cloned();
+            Fate::Killed {
+                checks,
+                cells,
+                witness,
+                example,
+            }
+        }
+        fate => fate,
+    }
+}
+
+/// Returns the mutants of shard `index` of `count`, counted from one: every
+/// `count`-th of the sorted list, starting at the `index`-th.
+pub fn shard(mutants: Vec<Mutant>, index: usize, count: usize) -> Vec<Mutant> {
+    mutants
+        .into_iter()
+        .enumerate()
+        .filter(|(position, _)| position % count == index - 1)
+        .map(|(_, mutant)| mutant)
+        .collect()
+}
+
+/// Returns the mutants expected to be killed that name no witness, which
+/// a run of witnesses cannot judge.
+pub fn without_witnesses(mutants: &[Mutant]) -> Vec<&Mutant> {
+    mutants
+        .iter()
+        .filter(|mutant| mutant.expect == Expect::Killed && mutant.witnesses.is_empty())
+        .collect()
 }
 
 /// The artifacts under a target directory, four levels deep:
@@ -569,12 +684,34 @@ fn compiles(copy: &Path, target: &Path) -> Result<(), String> {
 #[derive(Clone, Debug, Default)]
 struct Asked {
     only: Vec<String>,
+    /// Run the matrix, or the suites asked for, per mutant, instead of its
+    /// witnesses.
+    full: bool,
+    /// The shard of the sorted mutants to run, counted from one, and the
+    /// number of shards.
+    shard: Option<(usize, usize)>,
     suites: Vec<String>,
     shape: bool,
     /// The table of a run on the unmodified crate, with the same suites
     /// and shape, to compare against instead of running the baseline: so
     /// that jobs running one mutant each share one baseline.
     baseline: Option<PathBuf>,
+}
+
+/// Parses `I/N`, a shard counted from one of `N`.
+fn parse_shard(text: &str) -> Result<(usize, usize), RunError> {
+    let invalid = || {
+        RunError::Usage(format!(
+            "`--shard {text}` is no shard: write `I/N`, with `I` from 1 to `N`"
+        ))
+    };
+    let (index, count) = text.split_once('/').ok_or_else(invalid)?;
+    let index: usize = index.parse().map_err(|_| invalid())?;
+    let count: usize = count.parse().map_err(|_| invalid())?;
+    if count == 0 || index == 0 || index > count {
+        return Err(invalid());
+    }
+    Ok((index, count))
 }
 
 fn asked(arguments: &[String]) -> Result<Asked, RunError> {
@@ -591,11 +728,19 @@ fn asked(arguments: &[String]) -> Result<Asked, RunError> {
         };
         match argument.as_str() {
             "--only" => asked.only.push(value("--only")?),
+            "--full" => asked.full = true,
+            "--shard" => asked.shard = Some(parse_shard(&value("--shard")?)?),
             "--suite" => asked.suites.push(value("--suite")?),
             "--no-shape" => asked.shape = false,
             "--baseline" => asked.baseline = Some(PathBuf::from(value("--baseline")?)),
             other => return Err(RunError::Usage(format!("unknown option `{other}`"))),
         }
+    }
+    let wide = !asked.suites.is_empty() || !asked.shape || asked.baseline.is_some();
+    if wide && !asked.full {
+        return Err(RunError::Usage(String::from(
+            "`--suite`, `--no-shape` and `--baseline` go with `--full`; a run of witnesses runs each mutant's witnesses with the shape",
+        )));
     }
     Ok(asked)
 }
@@ -623,33 +768,55 @@ struct Line<'a> {
     seconds: f64,
 }
 
-fn table(lines: &[Line]) -> String {
-    let mut text =
-        String::from("mutant\tfile\tresult\texpected\tchecks\tcells\tseconds\texample\n");
+/// Returns the table of `lines`: its sixth column is the witness that
+/// killed each mutant in a run of witnesses, and how many cells newly
+/// diverge in a full run.
+fn table(lines: &[Line], full: bool) -> String {
+    let column = match full {
+        true => "cells",
+        false => "witness",
+    };
+    let mut text = format!("mutant\tfile\tresult\texpected\tchecks\t{column}\tseconds\texample\n");
     for line in lines {
         let expected = match &line.mutant.expect {
             Expect::Killed => "killed",
             Expect::Survives(_) => "survives",
         };
-        let (checks, cells, example) = match &line.result {
+        let (checks, sixth, example) = match &line.result {
             Fate::Killed {
                 checks,
                 cells,
+                witness,
                 example,
-            } => (checks.join(","), cells.to_string(), example.clone()),
+            } => {
+                let sixth = match (full, witness) {
+                    (false, Some(witness)) => witness.clone(),
+                    (true, _) | (false, None) => cells.to_string(),
+                };
+                (checks.join(","), sixth, example.clone())
+            }
             Fate::Survived { excused, example } => {
                 let example = match excused {
                     0 => String::new(),
                     _ => format!("{excused} cells newly excused by known.tsv, such as {example}"),
                 };
-                (String::new(), String::from("0"), example)
+                let sixth = match full {
+                    true => String::from("0"),
+                    false => String::new(),
+                };
+                (String::new(), sixth, example)
             }
+            Fate::Unjudged => (
+                String::new(),
+                String::new(),
+                String::from("a mutant expected to survive is judged by `--full` alone"),
+            ),
             Fate::Stale(message) | Fate::Uncompiled(message) | Fate::Harness(message) => {
                 (String::new(), String::new(), message.clone())
             }
         };
         text.push_str(&format!(
-            "{}\t{}\t{}\t{expected}\t{checks}\t{cells}\t{:.0}\t{}\n",
+            "{}\t{}\t{}\t{expected}\t{checks}\t{sixth}\t{:.0}\t{}\n",
             line.mutant.name,
             line.mutant.file,
             line.result.word(),
@@ -660,10 +827,12 @@ fn table(lines: &[Line]) -> String {
     text
 }
 
-/// Runs `mutants [--only NAME]... [--suite NAME]... [--no-shape]`: exits 0
-/// when every mutant's result is what it expects, 1 when one expected to be
-/// killed survived or one expected to survive was killed, and 2 on a usage
-/// or harness error, a stale or uncompiled mutant included.
+/// Runs `mutants [--only NAME]... [--shard I/N] [--full [--suite NAME]...
+/// [--no-shape] [--baseline PATH]]`: exits 0 when every mutant's result is
+/// what it expects, 1 when one expected to be killed survived or one
+/// expected to survive was killed, and 2 on a usage or harness error, a
+/// stale or uncompiled mutant, a mutant without a witness and a witness
+/// that does not agree on the unmodified crate included.
 pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     let started = Instant::now();
     let asked = asked(arguments)?;
@@ -676,6 +845,9 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     }
     if !asked.only.is_empty() {
         mutants.retain(|mutant| asked.only.contains(&mutant.name));
+    }
+    if let Some((index, count)) = asked.shard {
+        mutants = shard(mutants, index, count);
     }
     let mut changed = Vec::new();
     for mutant in &mutants {
@@ -702,19 +874,20 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
     let base = repo.join("target").join("conformance");
     let report = base.join("report.tsv");
     let check_target = base.join("mutant-check");
+    let files = Files::at(&repo.join("conformance"));
+    let known_text = fs::read_to_string(&files.known).unwrap_or_default();
+    let known = ledger::parse_known(&known_text).map_err(harness)?;
+    let complete = asked.suites.is_empty();
     let options = Options {
         suites: asked.suites.clone(),
         shape: asked.shape,
         quiet: true,
         ..Options::default()
     };
-    let complete = asked.suites.is_empty();
-    let files = Files::at(&repo.join("conformance"));
-    let known_text = fs::read_to_string(&files.known).unwrap_or_default();
-    let known = ledger::parse_known(&known_text).map_err(harness)?;
 
-    let baseline = match &asked.baseline {
-        Some(path) => {
+    let baseline = match (asked.full, &asked.baseline) {
+        (false, _) => witness_baseline(&mutants, &report)?,
+        (true, Some(path)) => {
             progress(&format!("the baseline, read from `{}`", path.display()));
             let text = fs::read_to_string(path)
                 .map_err(|error| harness(format!("`{}`: {error}", path.display())))?;
@@ -731,7 +904,7 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
             }
             rows
         }
-        None => {
+        (true, None) => {
             progress("the baseline, on the unmodified crate");
             let (status, rows) = judged(&options, &report)?;
             if status != Status::Clean {
@@ -751,6 +924,14 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
             mutants.len(),
             mutant.name
         ));
+        if !asked.full && mutant.witnesses.is_empty() {
+            lines.push(Line {
+                mutant,
+                result: Fate::Unjudged,
+                seconds: 0.0,
+            });
+            continue;
+        }
         let copy = base.join("mutants").join(&mutant.name);
         copy_crate(&repo, &copy).map_err(harness)?;
         let source = source.expect("every mutant applies");
@@ -760,15 +941,25 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
             Ok(()) => {
                 let target = base.join("target");
                 let before = artifacts(&target);
-                let options = Options {
-                    whichever: Some(copy.clone()),
-                    ..options.clone()
+                let options = match asked.full {
+                    true => Options {
+                        whichever: Some(copy.clone()),
+                        ..options.clone()
+                    },
+                    false => Options {
+                        whichever: Some(copy.clone()),
+                        cells: mutant.witnesses.clone(),
+                        shape: true,
+                        quiet: true,
+                        ..Options::default()
+                    },
                 };
                 let judged = judged(&options, &report);
                 prune(&target, &before);
                 match judged {
                     Err(RunError::Usage(message)) => return Err(RunError::Usage(message)),
                     Err(RunError::Harness(message)) => Fate::Harness(message),
+                    Ok((_, rows)) if !asked.full => judge_witnesses(mutant, &baseline, &rows),
                     Ok((_, rows)) => {
                         let stale = stale_lines(&known, &rows, complete, asked.shape)
                             .map_err(RunError::Harness)?;
@@ -785,7 +976,7 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
         });
     }
 
-    let text = table(&lines);
+    let text = table(&lines, asked.full);
     fs::write(base.join("mutants.tsv"), &text).map_err(harness)?;
     print_table(&text);
     let killed = lines
@@ -812,12 +1003,15 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
         if line.result.meets(&line.mutant.expect) {
             continue;
         }
-        let note = match (&line.result, &line.mutant.expect) {
-            (Fate::Killed { .. }, Expect::Survives(_)) => {
+        let note = match (&line.result, &line.mutant.expect, asked.full) {
+            (Fate::Killed { .. }, Expect::Survives(_), _) => {
                 "was killed although it expects to survive; update its `expect:` line"
             }
-            (Fate::Survived { .. }, Expect::Killed) => {
+            (Fate::Survived { .. }, Expect::Killed, true) => {
                 "survived although it expects to be killed: the matrix no longer notices it"
+            }
+            (Fate::Survived { .. }, Expect::Killed, false) => {
+                "survived its witnesses although it expects to be killed: run it with `--full` to find the cells that kill it, or the matrix lost the check"
             }
             _ => {
                 broken = true;
@@ -829,6 +1023,9 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
         println!("unexpected: `{}` {}", line.mutant.name, line.result.word());
         println!("  note      {note}");
         println!("  breaks    {}", line.mutant.breaks);
+        if !line.mutant.witnesses.is_empty() {
+            println!("  witness   {}", line.mutant.witnesses.join(", "));
+        }
         if let Expect::Survives(reason) = &line.mutant.expect {
             println!("  reason    {reason}");
         }
@@ -837,6 +1034,53 @@ pub fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
         code = ExitCode::from(2);
     }
     Ok(code)
+}
+
+/// Runs the witnesses of `mutants` once on the unmodified crate, with the
+/// shape, and returns the table: after checking that every mutant expected
+/// to be killed names a witness, that every witness is a cell the model
+/// selects, and that every one agrees.
+fn witness_baseline(mutants: &[Mutant], report: &Path) -> Result<Vec<Row>, RunError> {
+    if let Some(mutant) = without_witnesses(mutants).first() {
+        return Err(RunError::Harness(format!(
+            "mutant `{}` is expected to be killed and names no witness; find one with `mutants --full --only {}` and add a `witness:` line",
+            mutant.name, mutant.name
+        )));
+    }
+    let mut union: Vec<String> = Vec::new();
+    for mutant in mutants {
+        for witness in &mutant.witnesses {
+            run::cells(std::slice::from_ref(witness)).map_err(|error| {
+                let message = match error {
+                    RunError::Usage(message) | RunError::Harness(message) => message,
+                };
+                RunError::Harness(format!("mutant `{}`: witness {message}", mutant.name))
+            })?;
+            if !union.contains(witness) {
+                union.push(witness.clone());
+            }
+        }
+    }
+    if union.is_empty() {
+        return Ok(Vec::new());
+    }
+    progress(&format!(
+        "the baseline, {} witnesses on the unmodified crate",
+        union.len()
+    ));
+    let options = Options {
+        cells: union,
+        shape: true,
+        quiet: true,
+        ..Options::default()
+    };
+    let (_, rows) = judged(&options, report)?;
+    for mutant in mutants {
+        if let Some(problem) = baseline_problem(mutant, &rows) {
+            return Err(RunError::Harness(problem));
+        }
+    }
+    Ok(rows)
 }
 
 /// Prints the table with its columns aligned, but for the last.
@@ -984,6 +1228,7 @@ replace:
             Fate::Killed {
                 checks: vec![String::from("law"), String::from("shape")],
                 cells: 2,
+                witness: None,
                 example: String::from("`base` law:subject: m"),
             }
         );
@@ -1005,6 +1250,178 @@ replace:
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].pattern.text, "lift=by-ref");
         assert!(stale_lines(&known, &rows, false, true).unwrap().is_empty());
+    }
+
+    const KILLED: &str = "\
+file: macros/src/forwarding.rs
+breaks: An arm borrows the target, as `docs/routes.md` says.
+expect: killed
+witness: base
+witness: s0=deref-box recv=box
+
+find:
+    a
+replace:
+    b
+";
+
+    #[test]
+    fn witnesses_are_read_in_order_as_the_tool_spells_them() {
+        let mutant = Mutant::parse("m", KILLED).unwrap();
+        assert_eq!(mutant.witnesses, vec!["base", "s0=deref-box recv=box"]);
+        let refused = |text: &str| Mutant::parse("m", text).unwrap_err();
+        assert!(
+            refused(&KILLED.replace("s0=deref-box recv=box", "recv=box s0=deref-box"))
+                .contains("is spelled `s0=deref-box recv=box`")
+        );
+        assert!(refused(&KILLED.replace("s0=deref-box recv=box", "base")).contains("twice"));
+        assert!(
+            refused(&KILLED.replace("witness: base", "witness: recv=boxed"))
+                .contains("witness `recv=boxed`")
+        );
+        let survives = KILLED.replace(
+            "expect: killed",
+            "expect: survives\nreason: No cell reaches it.",
+        );
+        assert!(refused(&survives).contains("no witness"));
+        assert!(Mutant::parse("m", MUTANT).unwrap().witnesses.is_empty());
+    }
+
+    fn row(id: &str, standing: &str, findings: &[&str]) -> Row {
+        Row {
+            id: String::from(id),
+            standing: String::from(standing),
+            findings: findings
+                .iter()
+                .map(|finding| String::from(*finding))
+                .collect(),
+            message: String::from("m"),
+        }
+    }
+
+    #[test]
+    fn a_mutant_is_killed_by_a_witness_that_newly_diverges() {
+        let mutant = Mutant::parse("m", KILLED).unwrap();
+        let baseline = vec![
+            row("base", "agrees", &[]),
+            row("s0=deref-box recv=box", "agrees", &[]),
+            row("recv=mut", "agrees", &[]),
+        ];
+        assert_eq!(baseline_problem(&mutant, &baseline), None);
+        assert_eq!(
+            judge_witnesses(&mutant, &baseline, &baseline),
+            Fate::Survived {
+                excused: 0,
+                example: String::new(),
+            }
+        );
+        // A cell that is no witness of the mutant does not count.
+        let elsewhere = vec![
+            row("base", "agrees", &[]),
+            row("recv=mut", "diverges", &["law:subject"]),
+        ];
+        assert!(matches!(
+            judge_witnesses(&mutant, &baseline, &elsewhere),
+            Fate::Survived { .. }
+        ));
+        let mutated = vec![
+            row("base", "agrees", &[]),
+            row("s0=deref-box recv=box", "diverges", &["shape:m"]),
+        ];
+        assert_eq!(
+            judge_witnesses(&mutant, &baseline, &mutated),
+            Fate::Killed {
+                checks: vec![String::from("shape")],
+                cells: 1,
+                witness: Some(String::from("s0=deref-box recv=box")),
+                example: String::from("`s0=deref-box recv=box` shape:m: m"),
+            }
+        );
+    }
+
+    #[test]
+    fn a_witness_that_does_not_agree_in_the_baseline_measures_nothing() {
+        let mutant = Mutant::parse("m", KILLED).unwrap();
+        let diverging = vec![
+            row("base", "agrees", &[]),
+            row("s0=deref-box recv=box", "diverges", &["law:subject"]),
+        ];
+        let problem = baseline_problem(&mutant, &diverging).unwrap();
+        assert!(
+            problem.contains("`s0=deref-box recv=box` diverges"),
+            "{problem}"
+        );
+        let excused = vec![
+            row("base", "known", &["law:subject"]),
+            row("s0=deref-box recv=box", "agrees", &[]),
+        ];
+        assert!(baseline_problem(&mutant, &excused)
+            .unwrap()
+            .contains("`base` known"));
+        let missing = vec![row("base", "agrees", &[])];
+        assert!(baseline_problem(&mutant, &missing)
+            .unwrap()
+            .contains("did not run"));
+    }
+
+    #[test]
+    fn a_shard_takes_every_nth_mutant_from_its_own() {
+        let mutants: Vec<Mutant> = (0..7)
+            .map(|index| Mutant {
+                name: format!("m{index}"),
+                ..Mutant::parse("m", KILLED).unwrap()
+            })
+            .collect();
+        let names = |index, count| -> Vec<String> {
+            shard(mutants.clone(), index, count)
+                .into_iter()
+                .map(|mutant| mutant.name)
+                .collect()
+        };
+        assert_eq!(names(1, 3), vec!["m0", "m3", "m6"]);
+        assert_eq!(names(2, 3), vec!["m1", "m4"]);
+        assert_eq!(names(3, 3), vec!["m2", "m5"]);
+        assert_eq!(names(1, 1).len(), 7);
+        assert_eq!(parse_shard("2/4").unwrap(), (2, 4));
+        for wrong in ["0/4", "5/4", "1/0", "4", "a/b"] {
+            assert!(parse_shard(wrong).is_err(), "{wrong}");
+        }
+    }
+
+    #[test]
+    fn a_run_of_witnesses_takes_no_option_of_a_full_run() {
+        let arguments = |list: &[&str]| -> Vec<String> {
+            list.iter()
+                .map(|argument| String::from(*argument))
+                .collect()
+        };
+        assert!(asked(&arguments(&["--suite", "pinned"])).is_err());
+        assert!(asked(&arguments(&["--no-shape"])).is_err());
+        assert!(asked(&arguments(&["--full", "--suite", "pinned"])).is_ok());
+        let shard = asked(&arguments(&["--shard", "3/4"])).unwrap();
+        assert_eq!(shard.shard, Some((3, 4)));
+    }
+
+    /// Every checked-in mutant expected to be killed names a witness, which
+    /// is a cell the model selects, spelled as the tool spells it.
+    #[test]
+    fn every_mutant_has_a_witness() {
+        let repo = run::repository();
+        let mutants = load(&directory(&repo)).unwrap();
+        let missing: Vec<&str> = without_witnesses(&mutants)
+            .iter()
+            .map(|mutant| mutant.name.as_str())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "mutants without a witness: {}",
+            missing.join(", ")
+        );
+        for mutant in &mutants {
+            if let Err(error) = run::cells(&mutant.witnesses) {
+                panic!("mutant `{}`: {error}", mutant.name);
+            }
+        }
     }
 
     /// Every checked-in mutant parses, names a source file of the crate

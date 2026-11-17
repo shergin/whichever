@@ -1,6 +1,7 @@
 file: macros/src/conversions.rs
 breaks: The enum gets `From<Payload>` for every variant not marked `from = false`, as `docs/what-is-generated.md` and `docs/options.md` say.
 expect: killed
+witness: ret=self path=inherent lift=into
 
 find:
         .filter(|(_, conversions)| conversions.from)

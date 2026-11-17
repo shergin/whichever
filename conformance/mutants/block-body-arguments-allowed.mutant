@@ -1,6 +1,7 @@
 file: macros/src/forwarding.rs
 breaks: A partial block's method with a body for the rest carries what the user writes on it and nothing more, as `docs/partial-impl-blocks.md` says, so the lint about its body's arguments stays the user's.
 expect: killed
+witness: path=block-some cfg=every-on
 
 find:
     let allow_unused = match derived || way_out.has_body {

@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: An inherent `field` or `value` arm is borrowed where the method returns a reference, as `docs/inherent-methods.md` says.
 expect: killed
+witness: s1=none ret=ref path=inherent callee=field
 
 find:
                         PlaceBorrow::Reference(Borrow::Shared) => {

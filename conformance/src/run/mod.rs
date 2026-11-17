@@ -51,6 +51,9 @@ pub struct Options {
     /// Print the summary without the divergences, for a caller that reads
     /// the table instead.
     pub quiet: bool,
+    /// Exactly these cells, by id, instead of the suites: an ad-hoc
+    /// selection, whose census is not compared.
+    pub cells: Vec<String>,
 }
 
 /// Why a run could not judge.
@@ -205,7 +208,18 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
     let started = Instant::now();
     let repo = repository();
     let files = Files::at(&repo.join("conformance"));
-    let (selections, known) = suites(&files)?;
+    // An ad-hoc selection needs the ledger's known lines and no suite, whose
+    // arrays take seconds to build.
+    let (selections, known) = match options.cells.is_empty() {
+        true => suites(&files)?,
+        false => {
+            let known_text = std::fs::read_to_string(&files.known).unwrap_or_default();
+            (
+                Vec::new(),
+                ledger::parse_known(&known_text).map_err(harness)?,
+            )
+        }
+    };
     let names: Vec<&str> = selections
         .iter()
         .map(|selection| selection.suite.as_str())
@@ -220,13 +234,29 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         }
     }
 
-    let census_differences = census(&files, &selections, options.bless)?;
+    if !options.cells.is_empty() && (!options.suites.is_empty() || options.bless) {
+        return Err(RunError::Usage(String::from(
+            "`--cell` selects the cells itself; it takes no `--suite` and no `--bless`",
+        )));
+    }
+    // An ad-hoc selection is no suite, so the census, which counts the
+    // suites, is not compared.
+    let census_differences = match options.cells.is_empty() {
+        true => census(&files, &selections, options.bless)?,
+        false => Vec::new(),
+    };
 
     let mut selections = selections;
     if let Some(count) = options.random {
         selections.push(select::random(count, options.seed));
     }
-    let entries = gather(&selections, options)?;
+    let entries = match options.cells.is_empty() {
+        true => gather(&selections, options)?,
+        false => {
+            let cells = cells(&options.cells)?;
+            gather(&[select::select("cell", cells)], options)?
+        }
+    };
     if entries.is_empty() {
         return Err(RunError::Usage(String::from("the selection holds no cell")));
     }
@@ -270,6 +300,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                     | ShardKind::Rejected => subject.clone(),
                 }
             },
+            workspace::optimised(entries.len()),
         )
         .map_err(harness)?;
     progress(&format!(
@@ -469,7 +500,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         workspace: &workspace,
         census_differences: &census_differences,
         timings: &timings,
-        complete: options.suites.is_empty() && options.filter.is_none(),
+        complete: options.suites.is_empty() && options.filter.is_none() && options.cells.is_empty(),
         shape: options.shape,
         quiet: options.quiet,
     };
@@ -478,6 +509,33 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         .write_table(&repo.join("target").join("conformance").join("report.tsv"))
         .map_err(harness)?;
     Ok(status)
+}
+
+/// Returns the cells `ids` spell, each as the model spells it and each a
+/// cell the model selects: an id spelled otherwise names the cell it
+/// parses to, but a ledger or a mutant keeps the spelling the tool prints.
+pub fn cells(ids: &[String]) -> Result<Vec<Cell>, RunError> {
+    let mut cells = Vec::new();
+    for id in ids {
+        let cell = Cell::parse(id).map_err(|error| RunError::Usage(format!("`{id}`: {error}")))?;
+        if cell.id() != *id {
+            return Err(RunError::Usage(format!(
+                "`{id}` is spelled `{}`",
+                cell.id()
+            )));
+        }
+        let verdict = cell.verdict();
+        if !verdict.is_selectable() {
+            return Err(RunError::Usage(format!(
+                "`{id}` is no cell the model selects: {}",
+                verdict.describe()
+            )));
+        }
+        if !cells.contains(&cell) {
+            cells.push(cell);
+        }
+    }
+    Ok(cells)
 }
 
 /// Returns the run's cells: the suites asked for, the known cells always,
@@ -489,7 +547,8 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
         let asked = options.suites.is_empty()
             || options.suites.contains(&selection.suite)
             || selection.suite == "known"
-            || selection.suite == "random";
+            || selection.suite == "random"
+            || selection.suite == "cell";
         if !asked {
             continue;
         }
@@ -648,4 +707,42 @@ fn test(
         )));
     }
     Ok(cargo::test_results(&stdout))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cells_are_taken_exactly_as_the_tool_spells_them() {
+        let ids =
+            |list: &[&str]| -> Vec<String> { list.iter().map(|id| String::from(*id)).collect() };
+        let cells = cells(&ids(&["base", "s0=deref-box recv=box", "base"])).unwrap();
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[1].id(), "s0=deref-box recv=box");
+        let refused = |list: &[&str]| match super::cells(&ids(list)) {
+            Err(RunError::Usage(message)) => message,
+            other => panic!("expected a usage error, got {other:?}"),
+        };
+        assert!(refused(&["recv=box s0=deref-box"]).contains("is spelled"));
+        assert!(refused(&["recv=boxed"]).contains("`recv=boxed`"));
+        // A struct beside a second variant is no cell the model selects.
+        assert!(refused(&["s0=struct"]).contains("no cell the model selects"));
+    }
+
+    #[test]
+    fn a_selection_of_cells_holds_those_cells_alone() {
+        let selection = select::select(
+            "cell",
+            cells(&[String::from("recv=mut"), String::from("base")]).unwrap(),
+        );
+        let options = Options {
+            cells: vec![String::from("recv=mut"), String::from("base")],
+            ..Options::default()
+        };
+        let entries = gather(&[selection], &options).unwrap();
+        let ids: Vec<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["recv=mut", "base"]);
+        assert_eq!(entries[0].suites, vec![String::from("cell")]);
+    }
 }

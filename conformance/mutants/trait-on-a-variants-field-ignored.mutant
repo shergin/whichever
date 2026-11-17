@@ -1,6 +1,7 @@
 file: macros/src/options.rs
 breaks: A trait named on a variant's marked field is reported, since the variant is the target of every trait its enum dispatches, as `docs/limits.md` says.
 expect: killed
+witness: s0=marked-trait
 
 find:
                         // A variant is the target of every trait its enum

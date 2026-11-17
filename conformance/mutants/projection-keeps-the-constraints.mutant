@@ -1,6 +1,7 @@
 file: macros/src/substitution.rs
 breaks: A projection `F::Value` through a trait parameter with one bound is qualified as `<Json as Format>::Value`, the bound's constraints left out, as `docs/options.md` says.
 expect: killed
+witness: qual=provided generic=concrete
 
 find:
                 GenericArgument::Lifetime(_) | GenericArgument::Type(_) | GenericArgument::Const(_)

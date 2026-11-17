@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: The calls of an `unsafe fn` are wrapped in `unsafe { }`, as `docs/what-is-generated.md` says.
 expect: killed
+witness: s0=deref-box s1=deref-box qual=unsafe
 
 find:
             value = quote_spanned! { *site => unsafe { #value } };

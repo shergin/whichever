@@ -1,6 +1,7 @@
 file: macros/src/refusal.rs
 breaks: A sentence about the whole of a method that names its variants and has a body for the rest offers that body, as `tests/ui/lift_over_a_wrapped_self` pins it.
 expect: killed
+witness: ret=vec-self path=block-some
 
 find:
         if self.has_body {
