@@ -1,0 +1,10 @@
+error: every variant of `Bounds` is under `#[cfg]`, so `len` is matched as `match *self` with `ref` bindings, which arms written for `match self` are not; name the variants in `#[dispatch(..)]` and give the method a body for the rest
+  --> tests/ui/own_arms_over_variants_all_under_cfg.rs:23:32
+   |
+23 |       pub fn len(&self) -> usize {
+   |  ________________________________^
+24 | |         match self {
+25 | |             Self::NoOrder => 0,
+26 | |         }
+27 | |     }
+   | |_____^

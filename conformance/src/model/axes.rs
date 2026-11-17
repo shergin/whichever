@@ -79,6 +79,13 @@ axis! {
         /// conversion option on a variant's marked field, which goes on the
         /// variant (limits.md).
         MarkedConversion = "marked-from",
+        /// `A(u64, #[dispatch] P0)`, the marked field of a tuple variant
+        /// that is its last, which a hand binds as `A(_, inner)` with no
+        /// rest pattern left to skip anything.
+        MarkedLast = "marked-last",
+        /// `pub struct E(u64, #[dispatch] P0)`: a tuple struct subject whose
+        /// marked field is its last.
+        StructMarkedLast = "struct-marked-last",
     }
 }
 
@@ -284,6 +291,13 @@ axis! {
         /// A partial impl block that says nothing about `m` and holds a
         /// macro invocation, which is not read (limits.md).
         BlockMacro = "block-macro",
+        /// `#[dispatch(*)] fn m(..) { match self { .. } }` in the block: the
+        /// arms the enum answers itself, every other variant forwarded
+        /// (partial-impl-blocks.md).
+        BlockArms = "block-arms",
+        /// An inherent `#[dispatch(*)] pub fn m(..) { match self { .. } }`
+        /// (inherent-methods.md).
+        InherentArms = "inherent-arms",
     }
 }
 
@@ -552,6 +566,30 @@ axis! {
         ViaField = "via-field",
         /// `C`, a unit variant.
         Unit = "unit",
+    }
+}
+
+axis! {
+    /// The arms a method under `*` writes in its body, on the paths that
+    /// give it one (`block-arms`, `inherent-arms`): which variants they
+    /// name, under which `#[cfg]`, and what else the body holds.
+    pub enum Arms {
+        /// An arm for the second variant, whatever it holds, and one for
+        /// every later variant that holds no payload.
+        Answered = "answered",
+        /// The same, the second variant's arm under `#[cfg(all())]`.
+        CfgOn = "cfg-on",
+        /// The same, the second variant's arm under `#[cfg(any())]`, so the
+        /// variant is forwarded in this build.
+        CfgOff = "cfg-off",
+        /// An arm for the second variant alone, which leaves a third that
+        /// holds no payload without one.
+        Second = "second",
+        /// The arms of `answered` and a wildcard arm, which names no
+        /// variant.
+        Wildcard = "wildcard",
+        /// A body that is no `match self`: the answer alone.
+        Unmatched = "unmatched",
     }
 }
 

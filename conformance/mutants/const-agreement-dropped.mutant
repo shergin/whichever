@@ -1,6 +1,7 @@
 file: macros/src/agreement.rs
 breaks: Every other variant's associated const is checked at compile time to agree with the first's, as `docs/what-is-generated.md` says.
 expect: killed
+witness: agree=const-differs
 
 find:
                     #(#cfgs)* const _: () = ::core::assert!(#equal, #message);

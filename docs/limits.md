@@ -6,6 +6,26 @@
   reported under its own `#[cfg]`, so a variant compiled out, such as a
   test-only mock, is no error; an enum that only forwards inherent methods
   may hold such variants, which take the method's body.
+- A method under `#[dispatch(*)]` over a variant without a payload is
+  reported on the method, naming the variant. Write the variant's arm in
+  the method's body, one `match self`, `Self::Empty => ..`, or, where the
+  method can take no such arm (the two lines below), name the variants
+  with a payload and give the method a body for the rest. A body under
+  `*` that is anything but one `match self` would never run, and is
+  reported too.
+- Under `*`, an arm the enum answers itself names its variants by path,
+  `Self::Name(..)`; one that names none, `_` or a binding, is reported.
+  Name the forwarded variants in `#[dispatch(..)]` and make it the
+  method's body instead.
+- A trait method with a `Self` argument, which is matched beside `self`,
+  holds no arms the enum answers itself under `*`; an inherent method
+  hands a `Self` argument on as it is and is not concerned. Name the
+  variants in `#[dispatch(..)]` and give the method a body for the rest.
+- A method whose receiver is a reference, `&self` or `&mut self`, plain
+  or pinned, over an enum whose every variant is under `#[cfg]` is matched
+  as `match *self` with `ref` bindings, so under `*` it holds no arms the
+  enum answers itself, which are written for `match self`. Name the
+  variants in `#[dispatch(..)]` and give the method a body for the rest.
 - An enum cannot dispatch a return-position `impl Trait`, at any depth of
   the return type, except `impl Future<Output = T>`, which is awaited like
   an `async fn`; a struct forwards any.
@@ -81,12 +101,21 @@
   variant is reported too, since there is no box to hand over. Hold a
   `Box`, or give the method a body, or implement a trait method by hand; a
   method that names its variants and has a body for the rest is offered
-  that body.
+  that body, and one under `*` whose body holds the arms the enum answers
+  itself is offered the variant's arm there.
 - The types in the trait's signatures are written into the enum's module
   and must be in scope there, as for a hand-written impl; `crate::` paths
   are rewritten to the trait's crate, `super::` and `self::` paths are not.
   They must also be nameable from there: a private alias or type in a
-  signature limits the trait to its own crate.
+  signature limits the trait to its own crate. The attribute does not
+  import them itself, since a glob written around the impl would shadow
+  the enum module's own names. A glob import of the trait's crate in the
+  enum's module, `use trait_crate::*;`, brings them in, and the module's
+  own names still win over it; to keep the glob out of the enum's file,
+  a module that holds it writes one empty
+  [partial impl block](partial-impl-blocks.md) per trait,
+  `#[whichever::dispatch] impl Client for ClientWrapper {}`, with the
+  payload types imported there by name.
 - An associated const of a type other than an integer, a float, `bool`, `char` or
   `&str`, on an enum with a type or const parameter, or of a variant reached
   through a field or a method, is taken from the first variant without a

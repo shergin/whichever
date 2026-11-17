@@ -34,7 +34,8 @@ where it does not, as a hand writes the two arms. A method in the block
 may name the variants it forwards to, as an inherent method does, and its
 body is then the arm for every other variant, two different variants of a
 `Self` argument included; `*` with a bodiless method is the plain
-forwarding's arms written out, and `#[dispatch(default)]` on a bodiless method
+forwarding's arms written out, `*` with a body is the arms the enum answers
+itself, below, and `#[dispatch(default)]` on a bodiless method
 leaves it to the trait's default, neither forwarded nor written; over a
 restatement that is the real trait's default, which the restatement cannot
 see:
@@ -50,9 +51,50 @@ impl whichever::foreign::Display for Category {
 }
 ```
 
+When the enum answers only a few variants itself, `#[dispatch(*)]` with a
+body writes the list the other way round. The body is one `match self`
+holding the arms the enum answers itself, and every variant those arms do
+not name is forwarded; the method is the `match` a hand writes, without the
+arms that only forward:
+
+```rust
+#[whichever::dispatch]
+impl Encode for Codec {
+    /// An unknown codec is written back as it was read.
+    #[dispatch(*)]
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), Error> {
+        match self {
+            Self::Unknown(kind, data) => {
+                buf.extend_from_slice(kind);
+                buf.extend_from_slice(data);
+                Ok(())
+            }
+        }
+    }
+}
+```
+
+The generated `match` is a forwarding arm for each other variant, in the
+enum's order, then these arms as written, with no wildcard, so a variant
+added to the enum later is forwarded with no second edit, and one that
+holds no payload is reported on the method, naming the arm to write. An
+arm names its variants by path, `Self::Unknown(..)`, through a guard, an
+or-pattern, a reference or a binding `name @ ..`, and a variant it names
+is not forwarded, guard or not; an arm that names none, `_` or a
+binding, is reported, since the form with a wildcard is the named list
+with a body. The arms are the method's own, written as they stand in the
+declared return type, and read the fields their pattern binds; in an
+`async fn` they sit where the forwarding arms sit, inside the future. An
+arm under `#[cfg]` answers where the `cfg` holds, and its variant is
+forwarded where it does not. A trait method with a `Self` argument, which
+is matched beside `self`, and a method over an enum whose every variant is
+under `#[cfg]`, which is matched as `match *self`, hold no arms the enum
+answers itself; the named list with a body writes both.
+
 That is how a trait reaches a unit variant, a variant whose payload has no
-impl, or a variant the enum answers differently: the method names the
-rest. A mark under `#[cfg]` follows the rule of a method written under
+impl, or a variant the enum answers itself whether it holds a payload or
+not: the method names the rest, or under `*` its body holds the arms of those
+variants. A mark under `#[cfg]` follows the rule of a method written under
 one, `#[dispatch(default)]` included: the method is left to the default,
 or forwarded as marked, where the `cfg` holds; where it does not, it is
 forwarded as a mark of the same name without a `#[cfg]` says, or else to
@@ -71,8 +113,8 @@ generics and bounds included, becomes the impl's header, and may name the enum's
 for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
 them, so a block in another module needs them in scope there; the converse
 holds too, so when the trait's signature types are not in scope where the
-enum is, an empty block in a module where they are is the place to write
-the impl. Outer
+enum is, an empty block in a module where they are, such as one holding
+`use trait_crate::*;`, is the place to write the impl. Outer
 attributes on the block are carried onto the impl: `#[typetag::serde(name =
 "..")]` goes there, with `#[whichever::dispatchable]` above
 `#[typetag::serde]` on the trait, so that typetag's own methods are the

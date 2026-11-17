@@ -5,6 +5,42 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, `#[dispatch(*)]` with a body was an error, and the only way to
+  forward to every variant but a few was to name every forwarded variant
+  on the method, with the body as the arm for the rest: a list as long as
+  the `match`, which a new variant left off passed silently. Under `*`, a
+  method of a partial impl block or of an inherent block may now have a
+  body that is one `match self` holding the arms the enum answers itself,
+  `Self::Unknown(kind, data) => ..`, and every variant those arms do not
+  name is forwarded. The generated `match` is the forwarding arms in the
+  enum's order, then the arms as written, with no wildcard, so a variant
+  added later is forwarded, and one that holds no payload and has no arm
+  is reported on the method with the arm to write: "write its arm in the
+  method's body, `match self { Self::Empty => .. }`", where the sentence
+  said "name the variants with a payload and give the method a body for
+  the rest". A method that can take no arm of its own, a trait method with
+  a `Self` argument or one over an enum whose every variant is under
+  `#[cfg]`, keeps that old way around, and an arm there, like an arm that
+  names no variant, is one sentence. No build changes meaning: `*` with a
+  body was an error, and a body under a named list is still the arm for
+  every other variant. The golden and the behaviour test
+  `own_arms_under_star` are new, and so are the `tests/ui` cases
+  `own_arm_naming_no_variant`, `own_arms_beside_a_self_argument` and
+  `own_arms_over_variants_all_under_cfg` for the new sentences;
+  `own_arms_leaving_a_variant_without_a_payload` for the arm named as the
+  way around, and `star_over_variants_all_under_cfg_without_a_payload` for
+  the list kept where no arm can go;
+  `own_arms_over_a_variant_the_method_refuses`,
+  `own_arms_over_a_variant_that_cannot_be_rebuilt` and
+  `own_arms_beside_a_self_return_the_lift_cannot_wrap` for the ways
+  around a refusal offers beside arms; `inherent_all_with_body_on_a_struct`
+  and `inherent_list_of_every_variant_with_body` for a body that still
+  never runs; and `impl_attribute_error_keeps_own_arms_under_a_boxed_receiver`
+  for a rejected block that keeps such a method. The snapshots
+  `inherent_all_with_body`, `inherent_all_with_unforwardable` and
+  `rejected_variant_keeps_enum` moved with the reworded sentences;
+  `star_over_variants_without_a_payload_beside_a_self_argument` did not,
+  and pins the old way around beside a `Self` argument.
 - Before, the one field of a tuple struct was matched `Wrapped(inner, ..)`,
   and the one named field of a struct or a variant `Named { field: inner,
   .. }`, a rest pattern with nothing to skip. They are now matched as a
@@ -13,6 +49,14 @@ changes are expected and listed without apology.
   changes nothing at run time. The goldens `generic_payloads`,
   `named_field_variant`, `newtype` and `opaque_through_a_struct` moved; no
   snapshot changed.
+- Before, an unnamed marked field that is the last of its variant or
+  struct was matched with a rest pattern that had nothing to skip,
+  `Last(_, inner, ..)` for `Last(u64, #[dispatch] Square)`. It is now
+  matched `Last(_, inner)`, and `struct Labelled(u64, #[dispatch] Square)`
+  `Labelled(_, inner)`; a field with others after it keeps its `..`, as
+  does a named field beside others. This is what `cargo expand` shows and
+  changes nothing at run time. The golden `marked_last_field` is new; no
+  other golden and no snapshot changed.
 - Before, a variant whose one field is named and marked, `Named {
   #[dispatch] shape: Square }`, was read as a field beside others, so a
   method returning `Self` was refused with "cannot be built around the
@@ -57,6 +101,11 @@ changes are expected and listed without apology.
   `From` impls out, the widest `try_from` form applies, and the `into`
   targets of every attribute are collected. The behaviour test
   `conversion_options_on_repeated_attributes` is new.
+- `docs/limits.md` and the crate docs say how an enum keeps its imports
+  short when the trait is in another crate: a glob import of the trait's
+  crate at the enum, or an empty partial impl block per trait in a module
+  that holds the glob. The attribute does not write the glob itself, since
+  around the impl it would shadow the enum module's own names.
 
 ## 0.8.0 - 2026-11-15
 

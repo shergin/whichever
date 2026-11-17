@@ -4,7 +4,10 @@
 //! wording is the snapshots' in `tests/ui`.
 
 use super::argument::ArgumentKind;
-use super::limits::{Anchor, Expected, Limit, Tail};
+use super::limits::{
+    Anchor, Expected, Limit, Tail, BODY_NEVER_RUNS_UNDER_STAR,
+    STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST,
+};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::receiver::Lends;
 use super::target::{Step, TargetDescriptor};
@@ -45,6 +48,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
         | Anchor::BlockInvocation
+        | Anchor::Arm
         | Anchor::Associated
         | Anchor::Anywhere => None,
     };
@@ -59,12 +63,34 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
     // there the entry's way out, a `#[whichever::dispatch] impl` block, is
     // where the method already is, so it is read as ending in the
     // inherent method's own way out, a body.
-    let body_for_the_rest = cell.path_descriptor().form == PathForm::First;
+    //
+    // Under `*` with arms of the method's own, it is the variant's arm
+    // (`own_arms_over_a_variant_that_cannot_be_rebuilt`).
+    let body_for_the_rest = matches!(
+        cell.path_descriptor().form,
+        PathForm::First | PathForm::Arms
+    );
     let inherent = cell.path_descriptor().site == PathSite::Inherent;
     let rebuild_left_to_the_body =
         expected.limit == Limit::SelfReturnOtherFields && (body_for_the_rest || inherent);
+    // A method that holds no arms of its own under `*` keeps the named
+    // list as its way out, where another writes the variant's arm.
+    let star_by_named_list =
+        expected.limit == Limit::StarOverUnforwardable && !cell.takes_own_arms();
+    // A body under `*` on an enum may hold the arms the enum answers
+    // itself, which its sentence offers; a named list that names every
+    // variant, and a struct, which has no variant to name, keep the entry's.
+    let body_under_star = expected.limit == Limit::BodyNeverRuns
+        && cell.path_descriptor().form == PathForm::Arms
+        && !cell.s0.descriptor().is_struct();
     let mut fragments = Vec::new();
-    if !rebuild_left_to_the_body {
+    if body_under_star {
+        fragments.push(Fragment::one(String::from(BODY_NEVER_RUNS_UNDER_STAR)));
+    } else if star_by_named_list {
+        fragments.push(Fragment::one(String::from(
+            STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST,
+        )));
+    } else if !rebuild_left_to_the_body {
         fragments.push(Fragment::one(String::from(entry.way_out)));
     }
     if entry.tail || rebuild_left_to_the_body {
@@ -96,11 +122,15 @@ fn named(cell: &Cell, slot: &Slot) -> String {
 /// the mark dropped for a sentence on the whole of a method that has a
 /// body (`lift_over_a_wrapped_self`), on the inherent path and a partial
 /// block's alike, and by hand for a trait's method, a block's bodiless
-/// mark included.
+/// mark included. Under `*` with arms of its own it is the variant's arm,
+/// or for a sentence on the whole method the mark dropped and every
+/// variant's arm written (`own_arms_over_a_variant_the_method_refuses`,
+/// `own_arms_beside_a_self_return_the_lift_cannot_wrap`).
 fn tail(cell: &Cell, variant: Option<&str>) -> Option<String> {
     let path = cell.path_descriptor();
     let tail = match (path.form, path.site) {
         (PathForm::First, _) => Tail::LeaveToBody,
+        (PathForm::Arms, _) => Tail::ArmInBody,
         (PathForm::Forwarded | PathForm::Default | PathForm::Written, PathSite::Inherent) => {
             Tail::Body
         }
@@ -112,7 +142,9 @@ fn tail(cell: &Cell, variant: Option<&str>) -> Option<String> {
     match (tail, variant) {
         (Tail::LeaveToBody, None) => Some(Tail::DropMark.fragment("")),
         (Tail::LeaveToBody, Some(variant)) => Some(tail.fragment(variant)),
-        (Tail::ByHand | Tail::Body | Tail::DropMark, _) => Some(tail.fragment("")),
+        (Tail::ArmInBody, None) => Some(Tail::DropStar.fragment("")),
+        (Tail::ArmInBody, Some(variant)) => Some(tail.fragment(variant)),
+        (Tail::ByHand | Tail::Body | Tail::DropMark | Tail::DropStar, _) => Some(tail.fragment("")),
     }
 }
 
@@ -180,7 +212,10 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::ArmsDisagree
         | Limit::MismatchForAbsentMethod
         | Limit::SizedOnObject
-        | Limit::GenericAssociatedType => String::new(),
+        | Limit::GenericAssociatedType
+        | Limit::ArmNamingNoVariant
+        | Limit::ArmsBesideSelfArgument
+        | Limit::ArmsMatchedByPlace => String::new(),
     }
 }
 
@@ -232,6 +267,8 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     // A name that is any of several, which a sentence about one of several
     // variants on one anchor holds.
     let mut any: Option<Fragment> = None;
+    // The way out that names one of those variants, as `any` names it.
+    let mut arm: Option<Fragment> = None;
     let mut push = |name: Option<String>| names.extend(name.map(Fragment::one));
     match limit {
         Limit::Receiver
@@ -323,16 +360,45 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::DefaultWithoutDefault => {
             push(Some(format!("{method} has no default body in `Probe")))
         }
-        Limit::BodyNeverRuns => push(Some(format!("{method} is forwarded to every variant"))),
+        // A struct is forwarded to its field
+        // (`inherent_all_with_body_on_a_struct`).
+        Limit::BodyNeverRuns => push(Some(match cell.s0.descriptor().is_struct() {
+            true => format!("{method} is forwarded to every field"),
+            false => format!("{method} is forwarded to every variant"),
+        })),
+        Limit::ArmNamingNoVariant => push(Some(format!("an arm of {method} names the variants"))),
+        Limit::ArmsBesideSelfArgument => push(Some(format!("{method} takes `Self` arguments"))),
+        Limit::ArmsMatchedByPlace => {
+            push(Some(String::from("every variant of `E` is under `#[cfg]`")));
+            push(Some(format!("so {method} is matched as `match *self`")));
+        }
         // Each variant that holds no single payload gets a sentence of its
         // own on the one anchor (`star_over_variants_without_a_payload_
         // beside_a_self_argument`), so a sentence names any of them.
+        // Where the method may hold arms of its own, the way out is the
+        // variant's arm, its fields left to a rest pattern.
         Limit::StarOverUnforwardable => {
             push(Some(format!("{method} is forwarded to every variant")));
-            let held: Vec<String> = cell
+            let held: Vec<Slot> = cell
                 .slots()
                 .into_iter()
                 .filter(|slot| matches!(slot.variant, SlotVariant::Unit | SlotVariant::Pair))
+                .collect();
+            if cell.takes_own_arms() {
+                let arms = held
+                    .iter()
+                    .map(|slot| {
+                        let rest = match slot.variant {
+                            SlotVariant::Pair => "(..)",
+                            SlotVariant::Unit | SlotVariant::Live(_) => "",
+                        };
+                        format!("`match self {{ Self::{}{rest} => .. }}`", slot.name())
+                    })
+                    .collect();
+                arm = Some(Fragment(arms));
+            }
+            let held = held
+                .iter()
                 .map(|slot| format!("`{}`", slot.name()))
                 .collect();
             any = Some(Fragment(held));
@@ -392,5 +458,6 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         }
     }
     names.extend(any.filter(|fragment| !fragment.0.is_empty()));
+    names.extend(arm.filter(|fragment| !fragment.0.is_empty()));
     names
 }

@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: The sentence on a variant without a payload under `*` names the variant's arm as the way around only where the method can take arms of its own, and the named list with a body beside a `Self` argument or over an enum matched by place, as `docs/limits.md` says.
+expect: killed
+witness: s1=unit arg=ref-trait path=block-star
+
+find:
+                plan.matches_self_alone(),
+replace:
+                plan.matches_self_alone() || true,

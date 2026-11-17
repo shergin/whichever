@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: The generated `match` is the forwarding arms, in the enum's order, then the arms of the method's own as written, as `docs/partial-impl-blocks.md` says.
+expect: killed
+witness: path=block-arms
+
+find:
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
+replace:
+        let mut body = quote_spanned! { span => match #scrutinee { #written #(#arms)* #fallback } };

@@ -1,6 +1,7 @@
 file: macros/src/forwarding.rs
 breaks: The forwarding writes no closure, as `docs/what-is-generated.md` and the rules of `CLAUDE.md` say.
 expect: killed
+witness: base
 
 find:
         match future {

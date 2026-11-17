@@ -1,0 +1,9 @@
+file: macros/src/selection.rs
+breaks: Under `*` an arm that names no variant, `_` or a binding, is reported, since it would leave nothing to forward, as `docs/limits.md` says.
+expect: killed
+witness: path=block-arms arms=wildcard
+
+find:
+            if !names(&arm.pat, entries, &mut named) {
+replace:
+            if !names(&arm.pat, entries, &mut named) && false {

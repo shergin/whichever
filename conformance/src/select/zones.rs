@@ -42,6 +42,7 @@ const TARGETS: &[&str] = &[
     "marked-via",
     "marked-named",
     "marked-deref",
+    "marked-last",
 ];
 
 /// The target kinds `arguments` and `qualifiers` cross: the payload, a
@@ -212,7 +213,7 @@ pub const ZONES: &[Zone] = &[
         name: "inherent-struct-returns",
         summary: "an inherent method of a struct subject over every return type, a return-position `impl Trait` forwarded as it is, under the lifts that wrap it",
         vary: &[
-            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("s0", &["struct", "struct-marked", "struct-named", "struct-marked-last"]),
             ("ret", &[]),
             ("recv", &["ref", "mut", "value"]),
             ("lift", &["none", "some"]),
@@ -247,7 +248,7 @@ pub const ZONES: &[Zone] = &[
         name: "structs",
         summary: "the struct subjects under every receiver, return type and qualifier",
         vary: &[
-            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("s0", &["struct", "struct-marked", "struct-named", "struct-marked-last"]),
             ("recv", &[]),
             ("ret", &[]),
             ("qual", &[]),
@@ -258,7 +259,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-arguments",
         summary: "the struct subjects with every `Self` argument",
         vary: &[
-            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("s0", &["struct", "struct-marked", "struct-named", "struct-marked-last"]),
             ("arg", &[]),
             ("recv", &["ref", "mut", "value"]),
             ("ret", &["u64", "unit", "self", "option-self", "future"]),
@@ -269,7 +270,7 @@ pub const ZONES: &[Zone] = &[
         name: "struct-paths",
         summary: "the struct subjects through the block paths",
         vary: &[
-            ("s0", &["struct", "struct-marked", "struct-named"]),
+            ("s0", &["struct", "struct-marked", "struct-named", "struct-marked-last"]),
             ("path", &["attribute", "block", "block-star", "block-default", "block-written"]),
             ("ret", &[]),
             ("qual", &["plain", "provided"]),
@@ -719,6 +720,57 @@ pub const ZONES: &[Zone] = &[
             ("stack", &["second", "supertrait"]),
             ("path", &["attribute", "block", "block-star", "block-some"]),
             ("agree", &["none", "type-differs", "const-differs"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "own-arms",
+        summary: "a method under `*` whose body holds arms of its own, in a partial block and an inherent block: which variants they name, an arm under `#[cfg]`, a wildcard and a body that is no `match`, over the variants they answer and the receivers they bind under",
+        vary: &[
+            ("path", &["block-arms", "inherent-arms"]),
+            ("arms", &[]),
+            ("s1", &["plain", "unit", "pair", "deref-box", "marked-struct"]),
+            ("s2", &["none", "plain", "unit"]),
+            ("recv", &["ref", "mut", "value", "box", "pin-ref", "pin-mut"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "own-arms-cfg",
+        summary: "arms of a method's own beside variants under `#[cfg]`, the enum matched by place or by value, and an arm under a `#[cfg]` of its own",
+        vary: &[
+            ("path", &["block-arms", "inherent-arms"]),
+            ("arms", &["answered", "cfg-on", "cfg-off", "wildcard"]),
+            ("cfg", &[]),
+            ("s1", &["plain", "unit"]),
+            ("recv", &["ref", "value", "box", "pin-mut"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "own-arms-signatures",
+        summary: "arms of a method's own beside a `Self` argument, the returns and qualifiers a body answers in, a lift and a struct",
+        vary: &[
+            ("path", &["block-arms", "inherent-arms"]),
+            ("arms", &["answered", "unmatched"]),
+            ("s0", &["plain", "struct"]),
+            ("s1", &["plain", "none", "unit", "pair"]),
+            ("arg", &[]),
+            ("ret", &["u64", "unit", "ref", "self", "option-self", "out", "future"]),
+            ("qual", &["plain", "async"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "own-arms-refusals",
+        summary: "arms of a method's own beside a variant the method cannot be forwarded to, whose sentence offers the variant's arm, and a return a lift cannot wrap, whose sentence offers every variant's",
+        vary: &[
+            ("path", &["block-arms", "inherent-arms"]),
+            ("s0", &["plain", "deref-rc", "deref-box", "marked-tuple", "via-method"]),
+            ("s1", &["unit", "plain"]),
+            ("recv", &["ref", "mut", "value", "box"]),
+            ("ret", &["u64", "self", "option-self", "tuple-self"]),
+            ("lift", &["none", "some"]),
         ],
         fixed: &[],
     },

@@ -1,6 +1,7 @@
 file: macros/src/conversions.rs
 breaks: `#[dispatch(try_from = true)]` on a variant adds the `TryFrom` impl for that payload alone, as `docs/options.md` says.
 expect: killed
+witness: conv=variant-try
 
 find:
         let forms = conversions.try_from.unwrap_or(try_from);

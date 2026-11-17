@@ -107,13 +107,22 @@ argument's `'life1`, each bound to outlive the future, as are `Self` and
 the method's type parameters, a parameter the converting block holds
 declared `Send`.
 
-Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
-the subject a struct: one field, a field marked `#[dispatch]` beside a
-label, or one named field, which the hand rebuilds by its braces and
+Four values of `s0`, `struct`, `struct-marked`, `struct-named` and
+`struct-marked-last`, make the subject a struct: one field, which the hand
+matches with no rest pattern, a field marked `#[dispatch]` beside a label,
+one named field, or a tuple struct whose marked field is the last of two,
+`E(u64, #[dispatch] P0)`, which the hand matches as `E(_, inner)`. One
+named field is the one the hand rebuilds by its braces and
 which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says.
+
+The `s0` value `marked-last` marks the last field of a tuple variant,
+`A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as
+`A(_, inner)`, with no rest pattern, since none would have anything left to
+skip, as rule 1 of `docs/vision.md` asks, where a marked first field,
+`marked-tuple`, is bound as `A(inner, ..)`, as the goldens write it.
 
 Four values of `s0` mark a struct variant's field. Under `marked-named`
 the field is the variant's one field, `A { #[dispatch] held: P0 }`, which
@@ -203,6 +212,22 @@ block, silent about `m`, also invokes a macro of the cell that writes
 nothing; the block is not read, so the invocation's sentence is all it
 reports and no impl is written, whatever the method, and only the variants
 depart from the neutral cell.
+
+Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
+`#[dispatch(*)]` with a body that is one `match self` holding the arms the
+enum answers itself, and the `arms` axis says what that body holds: an arm
+for the second variant, whatever it holds, and one for every later variant
+without a payload; the second variant's arm under a `#[cfg]` that holds or
+one that does not, where the variant is forwarded instead; an arm for the
+second variant alone, which leaves a third without a payload unanswered; a
+wildcard arm beside them; or a body that is no `match`. An arm answers the
+constant a body for the rest answers, so the law tells it from the
+payload's, and the arm of a variant of two fields reads its label where the
+method answers a number. The hand writes the forwarding arms in the enum's
+order and then the arms as written, with no wildcard, and `--shape`
+compares both in that order. On a struct, which has no variant for an arm
+to name, every body is the sentence of `inherent_all_with_body_on_a_struct`.
+The axis is neutral on every other path.
 
 A provided method's default body knows no payload. It answers a number
 made from the control method, a place it leaks for that number where the
@@ -302,6 +327,7 @@ cargo run -p whichever-conformance --release -- run --suite boxed --filter recv=
 cargo run -p whichever-conformance --release -- run --whichever ../another-checkout
 cargo run -p whichever-conformance --release -- list --suite pinned
 cargo run -p whichever-conformance --release -- show 's0=via-field recv=mut'
+cargo run -p whichever-conformance --release -- census
 ```
 
 A run writes a workspace of shard crates under `target/conformance/ws`, one
@@ -310,18 +336,24 @@ written only when it changed, so a second run rebuilds only what moved.
 The nested cargo runs with none of the outer cargo's environment but
 `CARGO_HOME` and `CARGO_INCREMENTAL`: a run that starts cold, as CI's does,
 sets `CARGO_INCREMENTAL=0`, since an incremental cache no later run reads
-only fills the disk.
+only fills the disk. A run of ten thousand cells or more builds the macro
+crate and its dependencies optimised, which pays over the whole matrix;
+a smaller one builds them unoptimised, which is several times faster to
+build and no slower to expand over that many cells.
 `cargo check` runs first; a passing cell whose subject has an error is
 checked again rendered with its hand alone, so that its hand's law still
 runs and the divergence is known to be the macro's, and the check repeats
 until the passing shards are clean; then `cargo test` runs their laws.
 `--shape` expands every passing shard with `cargo expand` and compares the
-operations of each forwarded method with its hand's, and its attributes:
+operations of each forwarded method with its hand's, arm by arm, each
+arm's rest patterns `..` counted, so that a rest with nothing to skip
+shows while `ref` and binding names stay erased, and its attributes:
 `#[inline]` or the trait method's own, what the trait method passes on, and
 nothing on an inherent method the user did not write; and that the impl
 the subject's attribute writes is `#[automatically_derived]`; `--random N --seed S`
 adds N random cells of the three classes for a soak run, outside the
-census. `--whichever PATH` judges another checkout, an older release
+census. `--cell ID`, given once per cell, runs exactly those cells, each
+spelled as the tool prints it, and compares no census. `--whichever PATH` judges another checkout, an older release
 exported with `git archive` or a mutated copy, with the same model. `--jobs
 N` is handed to cargo.
 
@@ -353,7 +385,8 @@ An outcome is `pass` or a list of findings:
 - `wording:KEY`, a predicted sentence that lacks what the cell asks of it:
   the way out its catalogue entry names, as its `tests/ui` snapshot spells
   it; the method's own way out where the sentence ends in one, by hand,
-  a body, or leaving the variant to the body the method has; and the names
+  a body, leaving the variant to the body the method has, or writing the
+  variant's arm in a body that holds the enum's own arms; and the names
   it interpolates, the method's, the variant's, what the method takes as
   the signature spells it, and the payload's type as written;
 - `error:CODE@PART`, a rustc error, by code, in a part of the cell:
@@ -425,8 +458,11 @@ documents and the goldens best support and says so in a comment beginning
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the
   combinations never selected by reason. A run compares it exactly, so a
-  rule that silently empties a suite shows as a difference. `run --bless`
-  rewrites it, and never touches `known.tsv`.
+  rule that silently empties a suite shows as a difference. The census is
+  a function of the selection alone, so `census` compares it without
+  building anything, in seconds, and `census --bless` rewrites it; `run
+  --bless` rewrites it too, and runs the matrix besides. Neither touches
+  `known.tsv`.
 
 ## Adding a value to an axis
 
@@ -440,7 +476,7 @@ receiver through how the enum is unwrapped and the target handed over
 value is one variant and its descriptor. Every `match` over an axis or a
 descriptor is exhaustive, so the compiler names every place that needs to
 know about the new value, the verdict among them. Then run the suite, settle
-what diverges, and bless the census.
+what diverges, and bless the census with `census --bless`.
 
 A new axis is one more line in the `cell!` invocation in `src/cell.rs`, its
 neutral value first, so no id changes. A new zone is one more entry in
@@ -461,6 +497,7 @@ A mutant is a file of `mutants/`, `<name>.mutant`:
 file: macros/src/forwarding.rs
 breaks: The arms of an `async fn` are awaited, as `docs/what-is-generated.md` says.
 expect: killed
+witness: ret=future
 
 find:
             value = quote_spanned! { site => #value.await };
@@ -471,72 +508,98 @@ replace:
 `file` is the source file it changes, relative to the repository's root;
 `breaks` is the promise it breaks and the document that makes it;
 `expect` is `killed`, or `survives` with a line `reason:` saying in one
-sentence what the matrix lacks. The lines between `find:` and `replace:`
-are the text to find, which occurs exactly once in the file, and the
-lines after `replace:` replace it. A mutant whose text no longer occurs
-exactly once is stale: the macros moved on, and the mutant is updated or
-deleted rather than left to mutate something else. A unit test of this
-crate checks that every mutant still applies.
+sentence what the matrix lacks. A mutant expected to be killed names its
+**witnesses**, one `witness:` line per cell id, spelled as the tool prints
+it: cells that agree on the unmodified crate and diverge under the change.
+A witness is a cell the model selects, though no suite need hold it, so
+one that is pinned or short does not go away when an array is drawn
+again; a mutant whose check is `shape` needs a passing witness, and one
+whose check is `law` a witness whose law runs. A mutant expected to
+survive names none. The lines between `find:` and `replace:` are the text
+to find, which occurs exactly once in the file, and the lines after
+`replace:` replace it. A mutant whose text no longer occurs exactly once
+is stale: the macros moved on, and the mutant is updated or deleted rather
+than left to mutate something else. Unit tests of this crate check that
+every mutant still applies and that every mutant expected to be killed has
+a witness.
 
 ```sh
+cargo run -p whichever-conformance --release -- mutants
 cargo run -p whichever-conformance --release -- mutants --only await-dropped
-cargo run -p whichever-conformance --release -- mutants --suite array --suite pinned
-cargo run -p whichever-conformance --release -- mutants --only await-dropped --baseline report.tsv
+cargo run -p whichever-conformance --release -- mutants --shard 2/4
+cargo run -p whichever-conformance --release -- mutants --full --only await-dropped --suite boxed-futures
+cargo run -p whichever-conformance --release -- run --shape --cell ret=future
 ```
 
-A run of every mutant takes hours, so it is CI's:
-`.github/workflows/mutants.yml` runs on every push to `main` and every
-pull request that touches `macros/src/` or `conformance/`, weekly, and on
-demand. One job runs `run --shape` on the unmodified crate and uploads its
-`report.tsv`; then every mutant has a job of its own, which runs it with
-`--only NAME --baseline report.tsv`, and a last job joins their tables
-into the run's summary. Locally, one mutant is the check: `--only NAME`,
-narrowed with `--suite` to the cells that concern it.
+By default the command judges each mutant by its witnesses. It runs the
+witnesses of the mutants asked for once on the unmodified crate, with
+`--shape`, as `run --cell ID` runs any cells, and stops with a harness
+error naming the mutant and the id when a witness is no cell the model
+selects or does not agree, since such a witness measures nothing. Then,
+per mutant, it copies the crate under test, the facade's manifest and
+sources and the macro crate's, to `target/conformance/mutants/<name>`,
+applies the change, checks that the copy compiles, and runs that mutant's
+witnesses against the copy. A run of a few cells builds the macro crate
+unoptimised, which takes seconds where an optimised build takes tens, so a
+mutant is judged in a few seconds once the dependencies are built, and
+every mutant shares them. `--shard I/N` takes every `N`-th mutant of the
+sorted list, starting at the `I`-th, so that a few jobs share the list
+without naming the mutants. A mutant expected to survive has no witness
+and is listed as not judged.
 
-The command runs the matrix with `--shape` on the unmodified crate, and
-stops with a harness error unless that run agrees; `--baseline PATH`
-reads that run's table from a file instead, which must come from `run`
-with the same suites and shape, and is refused if a cell in it does not
-agree. Then, per mutant, it
-copies the crate under test, the facade's manifest and sources and the
-macro crate's, to `target/conformance/mutants/<name>`, applies the
-change, checks that the copy compiles, and runs the matrix against the
-copy as `run --shape --whichever PATH` does. `--suite` narrows both runs
-as it narrows `run`, and `--no-shape` leaves the shape out of both. A
-full run per mutant builds every shard again, about as long as a cold
-run.
+`--full` runs the matrix, every suite or those `--suite` names, with
+`--shape` unless `--no-shape`, once on the unmodified crate and once per
+mutant, about as long per mutant as a cold run of the matrix; `--baseline
+PATH` reads the unmodified run's table from a file instead, which must
+come from `run` with the same suites and shape, and is refused if a cell
+in it does not agree. A full run is how a witness is found, the cell in
+its `example` column, and how widely a mutant is noticed; it is also the
+one that judges a mutant expected to survive.
 
-A mutant is **killed** when a cell that agreed in the baseline diverges,
-or a line of `known.tsv` goes stale; otherwise it **survived**. The table
-is printed and written to `target/conformance/mutants.tsv`, one line per
-mutant:
+A mutant is **killed** when a witness that agreed now diverges, or in a
+full run when a cell that agreed in the baseline diverges or a line of
+`known.tsv` goes stale; otherwise it **survived**. The table is printed
+and written to `target/conformance/mutants.tsv`, one line per mutant:
 
-- `result`: `killed` or `survived`; `stale` for a text that does not
-  occur once, `uncompiled` for a copy that does not compile, and
-  `harness` for a run that could not judge, which count as neither;
+- `result`: `killed` or `survived`; `not judged` for a mutant expected to
+  survive outside a full run; `stale` for a text that does not occur
+  once, `uncompiled` for a copy that does not compile, and `harness` for
+  a run that could not judge, which count as neither;
 - `expected`: what the mutant's `expect:` line says;
 - `checks`: what caught it: `verdict` for an error, a warning or a
   sentence where the verdict allows none, or a sentence missing; `law`;
   `shape`; `stale` for a known line that excuses nothing; `hand` for a
   hand that broke, where the mutant changed what the trait's attribute
   writes;
-- `cells`: how many cells newly diverge;
-- `example`: one of them, with its first new finding and its message, or
-  the stale line. For a survivor, the cells that agreed in the baseline
-  and now diverge where a line of `known.tsv` excuses them, if any: a line
-  wider than its defect hides a mutant there.
+- `witness`: the first witness that diverges; in a full run the column
+  is `cells`, how many cells newly diverge;
+- `example`: a diverging cell, with its first new finding and its message,
+  or the stale line. For a survivor of a full run, the cells that agreed
+  in the baseline and now diverge where a line of `known.tsv` excuses
+  them, if any: a line wider than its defect hides a mutant there.
 
 Below the table come the kill rate among the mutants that compiled and
 ran, and every mutant whose result is not its `expect:` line. The command
 exits 0 when every result is what its mutant expects; 1 when a mutant
-expected to be killed survived, which means the matrix lost a check, or
-one expected to survive was killed, whose `expect:` line is then updated
-as a stale `known.tsv` line is removed; and 2 on a usage or harness
-error, a stale or uncompiled mutant included.
+expected to be killed survived, or one expected to survive was killed,
+whose `expect:` line is then updated as a stale `known.tsv` line is
+removed; and 2 on a usage or harness error, a stale or uncompiled mutant,
+a mutant expected to be killed with no witness and a witness that does
+not agree included. A mutant that survives its witnesses is not run more
+widely: either the matrix lost the check, or the witness no longer shows
+it, and `--full --only NAME` finds the cells that do.
+
+`.github/workflows/mutants.yml` runs the mutants on every push to `main`
+and every pull request that touches `macros/src/` or `conformance/`,
+weekly, and on demand: four jobs, each `mutants --shard I/4`, and a last
+job that joins their tables into the run's summary. Started by hand with
+`full` set, it runs instead one job per mutant with `--full` against a
+baseline job's `report.tsv`, for measuring.
 
 A mutant expected to survive is a gap of the matrix with its reason, and
 the reason says what would close it: an axis value, a zone, a check. When
-the matrix grows to close it, the run says so and the line becomes
-`expect: killed`. A defect the matrix should have caught becomes a mutant
-when it is fixed: the fix reverted is the mutant, so the matrix keeps
-proving that it would notice the defect again.
+the matrix grows to close it, the full run says so and the line becomes
+`expect: killed`, with the witness the run found. A defect the matrix
+should have caught becomes a mutant when it is fixed: the fix reverted is
+the mutant, so the matrix keeps proving that it would notice the defect
+again.

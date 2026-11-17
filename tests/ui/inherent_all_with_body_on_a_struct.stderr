@@ -1,0 +1,10 @@
+error: `radius` is forwarded to every field, so its body would never run; end the signature with `;` instead
+  --> tests/ui/inherent_all_with_body_on_a_struct.rs:17:33
+   |
+17 |       pub fn radius(&self) -> u32 {
+   |  _________________________________^
+18 | |         match self {
+19 | |             Self(_) => 0,
+20 | |         }
+21 | |     }
+   | |_____^

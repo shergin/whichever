@@ -14,7 +14,9 @@ use crate::model::receiver::{Lends, ReceiverDescriptor};
 use crate::model::returns::{Associated, FutureKind, Node};
 use crate::model::stack::{StackDescriptor, OTHER};
 use crate::model::target::{Form, Pointer, Storage, TargetDescriptor};
-use crate::model::{Anchor, Callee, Lift, Owner, Receiver, Slot, SlotVariant, Target, Verdict};
+use crate::model::{
+    Anchor, Callee, Lift, OwnArm, Owner, Receiver, Slot, SlotVariant, Target, Verdict,
+};
 
 use super::writer::Writer;
 
@@ -592,6 +594,72 @@ impl Context {
         constant(&self.cell.declared_node(), "E::A(P0::new(424_242))")
     }
 
+    /// Returns whether an arm of the method's own over a slot reads the
+    /// variant's field: a variant of two fields, where the method answers a
+    /// number, answers its label, so that the law tells it from the
+    /// constant and from what the payload answers.
+    pub fn own_arm_reads_field(&self, slot: &Slot) -> bool {
+        let node = match self.inherent() {
+            true => self.cell.declared_node(),
+            false => self.node,
+        };
+        slot.variant == SlotVariant::Pair && node == Node::Tag
+    }
+
+    /// Returns an arm of the method's own, as the body under `*` writes it
+    /// and the hand writes it after the forwarding arms: the variant's and
+    /// the arm's `#[cfg]`, the variant's allowance of its deprecation, the
+    /// pattern by `path`, and the answer, a constant of the declared type or
+    /// the label a variant of two fields holds.
+    pub fn own_arm(&self, arm: &OwnArm, path: &str) -> String {
+        let slot = &arm.slot;
+        let name = slot.name();
+        let reads = self.own_arm_reads_field(slot);
+        let pattern = match slot.variant {
+            SlotVariant::Unit => format!("{path}::{name}"),
+            SlotVariant::Pair if reads => format!("{path}::{name}(_, label)"),
+            SlotVariant::Pair => format!("{path}::{name}(..)"),
+            SlotVariant::Live(target) => match target.descriptor().form {
+                Form::MarkedStruct | Form::MarkedNamed => format!("{path}::{name} {{ .. }}"),
+                Form::Single
+                | Form::MarkedTuple
+                | Form::MarkedLast
+                | Form::Struct
+                | Form::StructMarked
+                | Form::StructNamed
+                | Form::StructMarkedLast => format!("{path}::{name}(..)"),
+            },
+        };
+        let mut attributes = String::new();
+        if let Some(predicate) = slot.cfg {
+            attributes.push_str(&format!("#[cfg({predicate})] "));
+        }
+        if let Some(predicate) = arm.cfg {
+            attributes.push_str(&format!("#[cfg({predicate})] "));
+        }
+        if slot.deprecated {
+            attributes.push_str("#[allow(deprecated)] ");
+        }
+        let (unused, constant) = match self.inherent() {
+            true => (
+                self.unused(Site::Inherent, self.hands_the_enum()),
+                self.declared_constant(),
+            ),
+            false => (self.unused(Site::Impl, false), self.mismatch("E")),
+        };
+        // A `u64` label is read the same under every binding mode, by
+        // value or through a reference, by `clone`. An arm compiled out of
+        // this build is never type-checked, and answers what names nothing
+        // the cell imports only for it.
+        let compiled_out = slot.cfg == Some("any()") || arm.cfg == Some("any()");
+        let answer = match (compiled_out, reads) {
+            (true, _) => String::from("::core::unreachable!()"),
+            (false, true) => String::from("label.clone()"),
+            (false, false) => constant,
+        };
+        format!("{attributes}{pattern} => {{ {unused} {answer} }},")
+    }
+
     /// Returns the options an inherent method's `#[dispatch(..)]` takes
     /// after the variants it names.
     pub fn inherent_options(&self) -> String {
@@ -917,6 +985,8 @@ impl Context {
             Form::Struct => format!("{path}({stored})"),
             Form::StructMarked => format!("{path} {{ label: {LABEL}, held: {stored} }}"),
             Form::StructNamed => format!("{path} {{ held: {stored} }}"),
+            Form::MarkedLast => format!("{path}::A({LABEL}, {stored})"),
+            Form::StructMarkedLast => format!("{path}({LABEL}, {stored})"),
         }
     }
 }
@@ -1075,7 +1145,8 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
             format!("{name} {{ label: u64, {field_option}held: {stored} }},"),
         ),
         Form::MarkedNamed => (None, format!("{name} {{ {field_option}held: {stored} }},")),
-        Form::Struct | Form::StructMarked | Form::StructNamed => {
+        Form::MarkedLast => (None, format!("{name}(u64, {field_option}{stored}),")),
+        Form::Struct | Form::StructMarked | Form::StructNamed | Form::StructMarkedLast => {
             unreachable!("a struct subject is written by `write_struct`")
         }
     }
@@ -1130,14 +1201,38 @@ pub fn write_struct(
             writer.line(format!("pub held: {stored},"));
             writer.close("}");
         }
-        Form::Single | Form::MarkedTuple | Form::MarkedStruct | Form::MarkedNamed => {
+        Form::StructMarkedLast => {
+            let mark = match (attributes, target.option) {
+                (false, _) => "",
+                (true, Some(_)) => unreachable!("the marked struct field takes no option"),
+                (true, None) => "#[dispatch] ",
+            };
+            writer.open(format!("pub struct E{generics}("));
+            writer.line("pub u64,");
+            if anchored {
+                writer.anchor(Anchor::Variant(slot.index).name());
+            }
+            writer.line(format!("{mark}pub {stored},"));
+            writer.close(");");
+        }
+        Form::Single
+        | Form::MarkedTuple
+        | Form::MarkedStruct
+        | Form::MarkedNamed
+        | Form::MarkedLast => {
             unreachable!("an enum subject is written variant by variant")
         }
     }
 }
 
 /// Returns the pattern that binds a slot's forwarded field to `binding`,
-/// with the subject's path `path`.
+/// with the subject's path `path`. A sole field, of a variant or a struct,
+/// named or not, is bound with no rest pattern, which would skip nothing;
+/// a marked field beside others skips the fields after it with `..`, as
+/// the goldens `marked_field_by_value` and `routes` write
+/// `Self::Tagged(__inner, ..)`, and a marked field that is the last has
+/// none after it to skip, so a hand writes `A(_, inner)` (rule 1 of
+/// `docs/vision.md`; no document shows the form).
 pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str) -> String {
     let name = slot.name();
     match target.form {
@@ -1145,9 +1240,11 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::MarkedTuple => format!("{path}::{name}({binding}, ..)"),
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
         Form::MarkedNamed => format!("{path}::{name} {{ held: {binding} }}"),
-        Form::Struct => format!("{path}({binding}, ..)"),
+        Form::Struct => format!("{path}({binding})"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
         Form::StructNamed => format!("{path} {{ held: {binding} }}"),
+        Form::MarkedLast => format!("{path}::{name}(_, {binding})"),
+        Form::StructMarkedLast => format!("{path}(_, {binding})"),
     }
 }
 
@@ -1160,8 +1257,8 @@ pub fn constructor(path: &str, slot: &Slot) -> String {
     match form {
         Some(Form::StructNamed) => format!("{path} {{ held: {HOLE} }}"),
         Some(Form::MarkedNamed) => format!("{path}::{} {{ held: {HOLE} }}", slot.name()),
-        Some(Form::Struct | Form::StructMarked) => String::from(path),
-        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct) | None => {
+        Some(Form::Struct | Form::StructMarked | Form::StructMarkedLast) => String::from(path),
+        Some(Form::Single | Form::MarkedTuple | Form::MarkedStruct | Form::MarkedLast) | None => {
             format!("{path}::{}", slot.name())
         }
     }

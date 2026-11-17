@@ -96,6 +96,28 @@ pub struct Workspace {
 
 /// Writes `content` to `path` unless it holds it already; returns whether
 /// it wrote.
+/// The fewest cells a run builds the macro crate optimised for: below it,
+/// building `syn` and the macro crate with `opt-level = 3` costs more than
+/// the faster expansion saves. Measured on 2026-11-16 against a fresh copy
+/// of the crate under test, `cargo check` took 2.3s unoptimised and 8.6s
+/// optimised over ten cells, 2.8s and 13.6s over the 149 pinned cells, and
+/// 5.1s and 12.7s over the 2,721 of `shapes`; the full matrix, some sixty
+/// thousand cells, is where the optimised build was measured to pay.
+pub const OPTIMISED_FROM: usize = 10_000;
+
+/// Returns whether a run of `cells` cells builds the macro crate optimised.
+pub fn optimised(cells: usize) -> bool {
+    cells >= OPTIMISED_FROM
+}
+
+/// Returns the `opt-level` the build scripts and procedural macros take.
+fn build_opt_level(optimised: bool) -> u8 {
+    match optimised {
+        true => 3,
+        false => 0,
+    }
+}
+
 fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
     if fs::read_to_string(path).is_ok_and(|existing| existing == content) {
         return Ok(false);
@@ -133,13 +155,15 @@ impl Workspace {
 
     /// Writes the manifest, the lock file and every shard with its cells'
     /// files, and removes the shards and the files no longer selected.
-    /// `source` returns the source of a module.
+    /// `source` returns the source of a module; `optimised` says whether
+    /// the macro crate and its dependencies are built optimised.
     pub fn write(
         &self,
         whichever: &Path,
         lock: Option<&Path>,
         shards: &[Shard],
         source: &dyn Fn(&Shard, &str) -> String,
+        optimised: bool,
     ) -> io::Result<usize> {
         fs::create_dir_all(&self.root)?;
         let members: Vec<String> = shards
@@ -155,11 +179,13 @@ impl Workspace {
              [profile.dev]\n\
              debug = 0\n\
              \n\
-             # The attributes run once per cell; an optimised macro crate\n\
-             # expands them faster than it takes to build.\n\
+             # The attributes run once per cell; over many cells an optimised\n\
+             # macro crate expands them faster than it takes to build, and\n\
+             # over a few it is built for longer than it saves.\n\
              [profile.dev.build-override]\n\
-             opt-level = 3\n",
-            members.join(", ")
+             opt-level = {}\n",
+            members.join(", "),
+            build_opt_level(optimised)
         );
         write_if_changed(&self.root.join("Cargo.toml"), &manifest)?;
         if let Some(lock) = lock {
@@ -271,5 +297,14 @@ mod tests {
         assert_eq!(ShardKind::Limit.shard(25), "limit-001");
         assert_eq!(ShardKind::Malformed.shard(13), "malformed-000");
         assert_eq!(toml_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn a_small_selection_builds_the_macro_crate_unoptimised() {
+        assert!(!optimised(1));
+        assert!(!optimised(OPTIMISED_FROM - 1));
+        assert!(optimised(OPTIMISED_FROM));
+        assert_eq!(build_opt_level(false), 0);
+        assert_eq!(build_opt_level(true), 3);
     }
 }

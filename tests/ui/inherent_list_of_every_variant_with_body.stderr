@@ -1,0 +1,8 @@
+error: `radius` is forwarded to every variant, so its body would never run; end the signature with `;` instead
+  --> tests/ui/inherent_list_of_every_variant_with_body.rs:28:33
+   |
+28 |       pub fn radius(&self) -> u32 {
+   |  _________________________________^
+29 | |         0
+30 | |     }
+   | |_____^

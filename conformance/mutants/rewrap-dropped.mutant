@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A method returning `Self` wraps the payload's result back into the same variant, as `docs/what-is-generated.md` says.
 expect: killed
+witness: ret=self
 
 find:
         Conversion::Rewrap => target

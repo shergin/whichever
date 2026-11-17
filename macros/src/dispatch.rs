@@ -7,6 +7,7 @@ use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
 
 use crate::combined;
 use crate::conversions::conversion_impls;
+use crate::marked::standing_alone;
 use crate::naming;
 use crate::options::{
     is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitOptions, TryFromForms,
@@ -278,15 +279,25 @@ pub(crate) fn expand_block(attr: TokenStream2, item_impl: ItemImpl) -> TokenStre
 
 /// Returns the block without `#[dispatch]` on its methods, and without the
 /// methods declared without a body, which only a forwarding could give one.
+/// A method whose body holds arms of its own is closed, as a marked method
+/// kept as written is.
 fn without_method_attributes(mut item_impl: ItemImpl) -> ItemImpl {
     item_impl
         .items
         .retain(|item| !matches!(item, ImplItem::Verbatim(_)));
     for item in &mut item_impl.items {
         if let ImplItem::Fn(function) = item {
+            let mark = function
+                .attrs
+                .iter()
+                .position(is_dispatch_attribute)
+                .map(|position| function.attrs.remove(position));
             function
                 .attrs
                 .retain(|attribute| !is_dispatch_attribute(attribute));
+            if let Some(mark) = mark {
+                standing_alone(function, &mark);
+            }
         }
     }
     item_impl

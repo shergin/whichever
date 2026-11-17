@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: A trait method with a `Self` argument, which is matched beside `self`, holds no arms the enum answers itself under `*`, and is one sentence, as `docs/limits.md` says.
+expect: killed
+witness: arg=ref-trait path=block-arms
+
+find:
+        if self.has_same_variant() {
+replace:
+        if false && self.has_same_variant() {

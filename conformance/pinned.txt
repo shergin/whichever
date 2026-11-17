@@ -314,3 +314,49 @@ s0=marked-named ret=option-self
 # block was dropped without a word (`macro_in_a_partial_block`).
 s0=marked-trait
 path=block-macro
+
+# A method under `*` whose body holds the enum's own arms
+# (docs/decisions/under-star-a-methods-body-holds-the-enums-own-arms.md,
+# golden `own_arms_under_star`): a unit variant, a variant of two fields
+# whose arm reads one, a payload the enum answers itself, and an arm under
+# a `#[cfg]` that holds and one that does not.
+s1=unit path=block-arms
+s1=pair path=block-arms
+path=block-arms
+path=inherent-arms
+path=block-arms arms=cfg-on
+path=inherent-arms arms=cfg-off
+s0=deref-box s1=unit recv=box path=block-arms
+
+# The sentences beside the arms, each its `tests/ui` case:
+# `own_arms_leaving_a_variant_without_a_payload`, `own_arm_naming_no_variant`,
+# `own_arms_beside_a_self_argument`, `own_arms_over_variants_all_under_cfg`,
+# `inherent_all_with_body`, `inherent_all_with_body_on_a_struct`,
+# `own_arms_over_a_variant_the_method_refuses`,
+# `own_arms_over_a_variant_that_cannot_be_rebuilt` and
+# `own_arms_beside_a_self_return_the_lift_cannot_wrap`.
+s1=unit path=block-arms s2=unit arms=second
+s1=unit path=block-arms arms=cfg-off
+s1=unit path=block-arms arms=wildcard
+s1=unit arg=ref-trait path=block-arms
+s1=unit path=block-arms cfg=every-on
+s1=unit path=block-arms arms=unmatched
+s0=struct s1=none path=inherent-arms
+s0=deref-rc s1=unit recv=mut path=block-arms
+s0=marked-tuple s1=unit ret=self path=block-arms
+s1=unit ret=option-self path=inherent-arms lift=some
+
+# A method kept as written beside the sentence that replaces it closed its
+# arms with one that read no argument, so where its only arm reading one is
+# compiled out the arguments were warned of beside the sentence
+# (`marked.rs`, `standing_alone`).
+ret=option-self path=inherent-arms lift=some arms=cfg-off
+
+# A marked field that is the last of its variant or struct was matched with
+# a rest pattern that had nothing left to skip, `Last(_, __inner, ..)` and
+# `Labelled(_, __inner, ..)`, where a hand writes `Last(_, inner)`.
+s0=marked-last
+s0=marked-last path=inherent
+s0=marked-last recv=value ret=self
+s0=struct-marked-last s1=none
+s0=struct-marked-last s1=none path=inherent

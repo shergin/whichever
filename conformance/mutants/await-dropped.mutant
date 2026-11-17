@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: The arms of an `async fn` or of a method returning `impl Future` are awaited, as `docs/what-is-generated.md` says.
 expect: killed
+witness: ret=future
 
 find:
             value = quote_spanned! { *site => #value.await };

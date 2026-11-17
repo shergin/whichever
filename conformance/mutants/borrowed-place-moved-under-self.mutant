@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: Under `self` by value a place the return type borrows is handed over and moves nothing, as `docs/inherent-methods.md` says.
 expect: killed
+witness: s0=deref-ref s1=none recv=value ret=lent path=inherent callee=value
 
 find:
             ReceiverKind::Value(Access::Owned) if moves_the_place => Some(Taken::SelfByValue),

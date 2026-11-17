@@ -1,6 +1,7 @@
 file: macros/src/forwarding.rs
 breaks: A generic method is called with its type and const parameters spelled out when no argument fixes them, as `docs/what-is-generated.md` says.
 expect: killed
+witness: s0=deref-box s1=deref-box qual=turbofish
 
 find:
             turbofish: turbofish(signature),

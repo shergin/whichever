@@ -1,11 +1,14 @@
 name: Mutants
 
-# A mutant is a small bug put into the macros, and the matrix runs once per
-# mutant against the changed crate: hours in all, so every mutant has a job
-# of its own here and none is run on a developer's machine. One job runs the
-# matrix on the unmodified crate, and every mutant's job compares its run
-# with that baseline, failing when the mutant's result is not its
-# `expect:` line.
+# A mutant is a small bug put into the macros, and every mutant names its
+# witnesses: cells that agree on the unmodified crate and diverge under the
+# change. Four jobs each take every fourth mutant, run the witnesses of
+# those mutants once on the unmodified crate, then each mutant's witnesses
+# on the changed crate, and fail when a mutant's result is not its
+# `expect:` line; a summary joins their tables. Started by hand with `full`
+# set, the workflow runs the matrix once per mutant instead, every mutant in
+# a job of its own against one shared baseline: hours in all, for finding
+# witnesses and measuring how widely each mutant is noticed.
 on:
   push:
     branches: [main]
@@ -21,6 +24,11 @@ on:
   schedule:
     - cron: "23 5 * * 1"
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run the matrix once per mutant instead of its witnesses
+        type: boolean
+        default: false
 
 concurrency:
   group: mutants-${{ github.ref }}
@@ -32,8 +40,32 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  witnesses:
+    name: mutants ${{ matrix.shard }}/4
+    if: ${{ !inputs.full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-expand
+      - run: cargo run -p whichever-conformance --release -- mutants --shard ${{ matrix.shard }}/4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutant-shard-${{ matrix.shard }}
+          path: target/conformance/mutants.tsv
+          if-no-files-found: ignore
+
   list:
     name: list the mutants
+    if: ${{ inputs.full }}
     runs-on: ubuntu-latest
     outputs:
       names: ${{ steps.list.outputs.names }}
@@ -46,6 +78,7 @@ jobs:
 
   baseline:
     name: baseline
+    if: ${{ inputs.full }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -63,11 +96,12 @@ jobs:
           name: baseline
           path: target/conformance/report.tsv
 
-  mutant:
+  full:
     name: ${{ matrix.mutant }}
+    if: ${{ inputs.full }}
     needs: [list, baseline]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +117,7 @@ jobs:
         with:
           name: baseline
           path: baseline
-      - run: cargo run -p whichever-conformance --release -- mutants --only "${{ matrix.mutant }}" --baseline baseline/report.tsv
+      - run: cargo run -p whichever-conformance --release -- mutants --full --only "${{ matrix.mutant }}" --baseline baseline/report.tsv
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -93,7 +127,7 @@ jobs:
 
   summary:
     name: mutants summary
-    needs: mutant
+    needs: [witnesses, full]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -101,11 +135,13 @@ jobs:
         with:
           pattern: mutant-*
           path: tables
-      # One table of every mutant's job, and the kill rate among those that
-      # compiled and ran.
+      # One table of every mutant, and the kill rate among those that
+      # compiled and ran. The sixth column is the witness that killed a
+      # mutant, or in a full run how many cells newly diverge.
       - name: Write the table
         run: |
           shopt -s nullglob
+          header=$(for table in tables/*/mutants.tsv; do head -n 1 "$table"; done | head -n 1 | cut -f6)
           rows=$(for table in tables/*/mutants.tsv; do tail -n +2 "$table"; done | sort)
           {
             killed=$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "killed"' | grep -c . || true)
@@ -113,7 +149,7 @@ jobs:
             total=$(printf '%s\n' "$rows" | grep -c . || true)
             echo "Killed $killed of $judged mutants that compiled and ran; $total mutants reported."
             echo
-            echo "| mutant | result | expected | checks | cells | seconds |"
+            echo "| mutant | result | expected | checks | ${header:-witness} | seconds |"
             echo "|---|---|---|---|---|---|"
-            printf '%s\n' "$rows" | awk -F'\t' 'NF { printf "| `%s` | %s | %s | %s | %s | %s |\n", $1, $3, $4, $5, $6, $7 }'
+            printf '%s\n' "$rows" | awk -F'\t' 'NF { printf "| `%s` | %s | %s | %s | `%s` | %s |\n", $1, $3, $4, $5, $6, $7 }'
           } >> "$GITHUB_STEP_SUMMARY"

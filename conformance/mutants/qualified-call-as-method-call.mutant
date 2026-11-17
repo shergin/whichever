@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: Each arm of a trait method is a fully qualified call, so that an inherent method of the same name never takes over, as `docs/what-is-generated.md` says.
 expect: killed
+witness: base
 
 find:
                 quote_spanned! { *site =>

@@ -4,7 +4,7 @@ error: `B` has named fields, not one payload, so no trait method can be forwarde
 31 |     B { inner: A },
    |     ^^^^^^^^^^^^^^
 
-error: `bodyless` is forwarded to every variant, but `B` has named fields, not one payload; name the variants with a payload and give the method a body for the rest
+error: `bodyless` is forwarded to every variant, but `B` has named fields, not one payload; write its arm in the method's body, `match self { Self::B { .. } => .. }`
   --> tests/ui/rejected_variant_keeps_enum.rs:42:8
    |
 42 |     fn bodyless(&self) -> u32;

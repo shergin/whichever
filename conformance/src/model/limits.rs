@@ -56,7 +56,7 @@ pub enum Limit {
     UnsuppliedType,
     /// `#[dispatch(default)]` on a method the trait gives no default body.
     DefaultWithoutDefault,
-    /// A body on a method whose mark names every variant.
+    /// A body for the rest on a method whose mark names every variant.
     BodyNeverRuns,
     /// `#[dispatch(*)]` over a variant that holds no payload.
     StarOverUnforwardable,
@@ -88,7 +88,34 @@ pub enum Limit {
     /// A generic associated type the enum does not declare in a partial
     /// block.
     GenericAssociatedType,
+    /// An arm of a method under `*` that names no variant.
+    ArmNamingNoVariant,
+    /// Arms of its own beside a `Self` argument a trait method matches
+    /// beside `self`.
+    ArmsBesideSelfArgument,
+    /// Arms of its own in a method matched by place, over an enum whose
+    /// every variant is under `#[cfg]`.
+    ArmsMatchedByPlace,
 }
+
+/// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
+/// no arms of its own under `*`: a trait method with a `Self` argument,
+/// matched beside `self`, and a method matched by place over an enum whose
+/// every variant is under `#[cfg]` (`docs/limits.md`), as the snapshot
+/// `star_over_variants_without_a_payload_beside_a_self_argument` spells it.
+pub const STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST: &str =
+    "name the variants with a payload and give the method a body for the rest";
+
+/// The way out of [`Limit::BodyNeverRuns`] for a body under `*` on an enum,
+/// which may instead hold the arms the enum answers itself, as the snapshot
+/// `inherent_all_with_body` spells it; a named list that names every
+/// variant, and a struct, keep the entry's.
+pub const BODY_NEVER_RUNS_UNDER_STAR: &str = "make the body one `match self` holding the arms of the variants the enum answers itself, or end the signature with `;`";
+
+/// The way out of the sentences that name a variant a method under `*`
+/// cannot reach and offer its arm, as the snapshot
+/// `own_arms_over_a_variant_the_method_refuses` spells it.
+pub const ARM_IN_BODY_CASE: &str = "own_arms_over_a_variant_the_method_refuses";
 
 /// A catalogue entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +178,9 @@ impl Limit {
         Limit::ArmsDisagree,
         Limit::SizedOnObject,
         Limit::GenericAssociatedType,
+        Limit::ArmNamingNoVariant,
+        Limit::ArmsBesideSelfArgument,
+        Limit::ArmsMatchedByPlace,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -277,7 +307,7 @@ impl Limit {
             Limit::BodyNeverRuns => entry(
                 "body-never-runs",
                 "so its body would never run",
-                "inherent_all_with_body",
+                "inherent_list_of_every_variant_with_body",
             ),
             Limit::StarOverUnforwardable => entry(
                 "star-over-unforwardable",
@@ -352,6 +382,21 @@ impl Limit {
                 "is a generic associated type, which only the enum can declare; write `type",
                 "generic_associated_type",
             ),
+            Limit::ArmNamingNoVariant => entry(
+                "arm-naming-no-variant",
+                "names the variants it answers, as `Self::Name(..)`, and every other variant is forwarded; this one names none",
+                "own_arm_naming_no_variant",
+            ),
+            Limit::ArmsBesideSelfArgument => entry(
+                "arms-beside-self-argument",
+                "which are matched beside `self`, and an arm of its own is written for `self` alone",
+                "own_arms_beside_a_self_argument",
+            ),
+            Limit::ArmsMatchedByPlace => entry(
+                "arms-matched-by-place",
+                "with `ref` bindings, which arms written for `match self` are not",
+                "own_arms_over_variants_all_under_cfg",
+            ),
         };
         let (way_out, tail) = match self {
             Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
@@ -379,7 +424,9 @@ impl Limit {
             Limit::MethodRouteOnMutSelf => ("route to a field", true),
             Limit::DefaultWithoutDefault => ("give it a body, or forward it", false),
             Limit::BodyNeverRuns => ("end the signature with `;` instead", false),
-            Limit::StarOverUnforwardable => ("name the variants with a payload and give the method a body for the rest", false),
+            // Where the method holds no arms of its own, its way out is
+            // `STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST` instead (`wording`).
+            Limit::StarOverUnforwardable => ("write its arm in the method's body, `match self { Self::", false),
             Limit::StructConversion => ("a struct gets no conversions", false),
             Limit::IntoOtherFields => ("or is left out with `from = false`", false),
             Limit::IntoWithoutPayload => ("holds no payload", false),
@@ -401,6 +448,14 @@ impl Limit {
                 true,
             ),
             Limit::GenericAssociatedType => (" = ..;` in a `#[whichever::dispatch] impl", false),
+            Limit::ArmNamingNoVariant => (
+                "name the variants it answers, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body",
+                false,
+            ),
+            Limit::ArmsBesideSelfArgument | Limit::ArmsMatchedByPlace => (
+                "name the variants in `#[dispatch(..)]` and give the method a body for the rest",
+                false,
+            ),
         };
         Entry {
             way_out,
@@ -430,7 +485,10 @@ impl Limit {
             | Limit::GenericAssociatedType
             | Limit::VariantFieldOption
             | Limit::MacroInBlock => false,
-            Limit::MutableBorrowThroughSharedPointer
+            Limit::ArmNamingNoVariant
+            | Limit::ArmsBesideSelfArgument
+            | Limit::ArmsMatchedByPlace
+            | Limit::MutableBorrowThroughSharedPointer
             | Limit::Receiver
             | Limit::SelfArgumentWithoutMismatch
             | Limit::OpaqueReturn
@@ -462,7 +520,10 @@ impl Limit {
             | Limit::OpaqueReturn
             | Limit::SelfInReturn
             | Limit::DefaultWithoutDefault
-            | Limit::BodyNeverRuns => true,
+            | Limit::BodyNeverRuns
+            | Limit::ArmNamingNoVariant
+            | Limit::ArmsBesideSelfArgument
+            | Limit::ArmsMatchedByPlace => true,
             // The variants a mark of `*` names are forwarded, each arm
             // carrying a sentence of its own, beside the one on the mark.
             Limit::StarOverUnforwardable
@@ -528,11 +589,24 @@ pub enum Tail {
     /// A sentence on the whole of a method that names its variants and has
     /// a body for the rest: "drop its `#[dispatch(..)]`".
     DropMark,
+    /// A method under `*` whose body holds arms of its own: "write the arm
+    /// of `A` in the method's body".
+    ArmInBody,
+    /// A sentence on the whole of a method under `*` whose body holds arms
+    /// of its own: "drop its `#[dispatch(*)]`".
+    DropStar,
 }
 
 impl Tail {
     /// Every tail.
-    pub const ALL: &'static [Tail] = &[Tail::ByHand, Tail::Body, Tail::LeaveToBody, Tail::DropMark];
+    pub const ALL: &'static [Tail] = &[
+        Tail::ByHand,
+        Tail::Body,
+        Tail::LeaveToBody,
+        Tail::DropMark,
+        Tail::ArmInBody,
+        Tail::DropStar,
+    ];
 
     /// Returns the tail as a sentence spells it, `variant` being the
     /// variant it is about, in backticks.
@@ -543,6 +617,10 @@ impl Tail {
             Tail::LeaveToBody => format!("leave {variant} to the body"),
             Tail::DropMark => {
                 String::from("drop its `#[dispatch(..)]`, and the body answers for every variant")
+            }
+            Tail::ArmInBody => format!("write the arm of {variant} in the method's body"),
+            Tail::DropStar => {
+                String::from("drop its `#[dispatch(*)]` and write every variant's arm in the body")
             }
         }
     }
@@ -568,6 +646,8 @@ pub enum Anchor {
     BlockAttribute,
     /// The macro invocation in a partial impl block.
     BlockInvocation,
+    /// The arm of the method's own body under `*` that names no variant.
+    Arm,
     /// The declaration of the trait's generic associated type, in the
     /// trait or in its restatement.
     Associated,
@@ -587,6 +667,7 @@ impl Anchor {
             Anchor::BlockSignature => String::from("block-signature"),
             Anchor::BlockAttribute => String::from("block-attribute"),
             Anchor::BlockInvocation => String::from("block-invocation"),
+            Anchor::Arm => String::from("arm"),
             Anchor::Associated => String::from("associated"),
             Anchor::Anywhere => String::from("anywhere"),
         }
@@ -631,7 +712,8 @@ mod tests {
                 assert!(
                     Tail::ALL.iter().any(|tail| match tail {
                         Tail::LeaveToBody => stderr.contains(" to the body"),
-                        Tail::ByHand | Tail::Body | Tail::DropMark => {
+                        Tail::ArmInBody => stderr.contains(" in the method's body"),
+                        Tail::ByHand | Tail::Body | Tail::DropMark | Tail::DropStar => {
                             stderr.contains(tail.fragment("").as_str())
                         }
                     }),
@@ -650,6 +732,41 @@ mod tests {
             assert_eq!(Limit::of_message(line), Some(*limit), "{}", entry.key);
             assert!(ui.join(format!("{}.rs", entry.case)).exists());
         }
+    }
+
+    #[test]
+    fn the_named_list_way_out_is_pinned_by_its_case() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/ui/star_over_variants_without_a_payload_beside_a_self_argument.stderr");
+        let stderr = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let line = stderr
+            .lines()
+            .find(|line| line.contains(STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST))
+            .expect("the way out is on a line of its snapshot");
+        assert_eq!(Limit::of_message(line), Some(Limit::StarOverUnforwardable));
+    }
+
+    #[test]
+    fn the_ways_out_under_star_are_pinned_by_their_cases() {
+        let ui = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/ui");
+        let read = |case: &str| {
+            let path = ui.join(format!("{case}.stderr"));
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+        };
+        let body = read("inherent_all_with_body");
+        let line = body
+            .lines()
+            .find(|line| line.contains(BODY_NEVER_RUNS_UNDER_STAR))
+            .expect("the way out is on a line of its snapshot");
+        assert_eq!(Limit::of_message(line), Some(Limit::BodyNeverRuns));
+        let refused = read(ARM_IN_BODY_CASE);
+        assert!(refused.contains(&Tail::ArmInBody.fragment("`Counted`")));
+        let lifted = read("own_arms_beside_a_self_return_the_lift_cannot_wrap");
+        assert!(lifted.contains(&Tail::DropStar.fragment("")));
+        let rebuilt = read("own_arms_over_a_variant_that_cannot_be_rebuilt");
+        assert!(rebuilt.contains(&Tail::ArmInBody.fragment("`Tagged`")));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 file: macros/src/agreement.rs
 breaks: Every variant whose associated const differs from the first variant's is reported on that variant, as `docs/what-is-generated.md` says in its row for `const N: T;`.
 expect: killed
+witness: agree=const-differs s2=plain
 
 find:
                     #(#cfgs)* const _: () = ::core::assert!(#equal, #message);

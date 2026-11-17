@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: An arm hands a target reached through a route to `&self` as a reference, as `docs/routes.md` writes it, `<_ as Shape>::area(&inner.base)`.
 expect: killed
+witness: s0=deref-box
 
 find:
         Access::Shared => quote_spanned!(*site => &#reached),

@@ -134,9 +134,14 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
     } = request;
     let method = signature.ident.clone();
     let mark = origin.mark();
+    // Under `*` an enum's method leaves no variant to a body for the rest,
+    // so a body there holds the arms the method writes itself.
+    let own_arms = mark.is_some_and(|mark| mark.options.all && mark.body.is_some())
+        && !subject.has_one_target();
     let way_out = WayOut {
         on_trait: matches!(origin, Origin::Trait { .. }),
         has_body: mark.is_some_and(|mark| mark.body.is_some()),
+        own_arms,
     };
     let (kind, prefix, lift, declared) = match &origin {
         Origin::Trait {
@@ -239,21 +244,38 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
         entries,
     )?;
     // A marked method selects its variants and gives the body for the
-    // rest; the trait's attribute forwards to every variant.
+    // rest, or under `*` the arms it writes itself; the trait's attribute
+    // forwards to every variant.
     let selection = match mark {
         Some(mark) => {
-            let selection =
-                select_targets(mark.options, entries, &context.prefix, &method, subject)?;
+            let selection = select_targets(
+                mark.options,
+                mark.body,
+                plan.matches_self_alone(),
+                entries,
+                &context.prefix,
+                &method,
+                subject,
+            )?;
             check_body(&selection, mark.body, &signature, subject.target_noun())?;
             Some(selection)
         }
         None => None,
     };
+    let own = selection
+        .as_ref()
+        .and_then(|selection| selection.own.as_ref());
+    if let (Some(_), Some(body)) = (own, mark.and_then(|mark| mark.body)) {
+        plan.takes_own_arms(&method, subject.ident(), body)?;
+    }
     let mut arms = vec![];
     match &selection {
         Some(selection) => {
             for target in &selection.targets {
-                arms.push(plan.arm(target, &context));
+                let mut arm = plan.arm(target, &context);
+                arm.attributes
+                    .extend(selection.forwarded_where(target.ident(), site));
+                arms.push(arm);
             }
         }
         None => {
@@ -277,10 +299,13 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
             }
         }
     }
+    // A body that holds the method's own arms is no arm for the rest.
+    let rest = mark.and_then(|mark| mark.body).filter(|_| own.is_none());
     let Fallback {
         arm: fallback,
         allow_unreachable,
-    } = plan.fallback_for(entries, subject, &origin, &context)?;
+    } = plan.fallback_for(entries, subject, &origin, rest, &context)?;
+    let written = own.map(|own| own.tokens(site)).unwrap_or_default();
     if let Some(selection) = selection {
         arms.extend(
             selection
@@ -301,6 +326,7 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
     let body = Forwarding {
         scrutinee: plan.scrutinee(site),
         arms,
+        written,
         fallback,
         future: plan.future.clone(),
     }
@@ -539,6 +565,36 @@ impl MethodPlan {
             .map(|(index, _)| &self.arguments[*index])
     }
 
+    /// Returns whether the `match` is `match self` over the receiver
+    /// alone, with default binding modes, which is the `match` an arm of
+    /// the method's own is written for. A `Self` argument is matched
+    /// beside the receiver in a tuple, and an enum whose every variant is
+    /// under `#[cfg]` is matched by place with `ref` bindings.
+    pub(crate) fn matches_self_alone(&self) -> bool {
+        !self.has_same_variant() && !self.by_place
+    }
+
+    /// Checks that the method can take arms of its own, which go into the
+    /// `match` as they stand: it has to be the `match` they were written
+    /// for, see `matches_self_alone`. No surveyed project writes arms of
+    /// its own in a method that is matched otherwise, so each is a
+    /// sentence, and the named list with a body writes both.
+    fn takes_own_arms(&self, method: &Ident, subject: &Ident, body: &Block) -> Result<()> {
+        if self.has_same_variant() {
+            return Err(Error::new_spanned(
+                body,
+                format!("`{method}` takes `Self` arguments, which are matched beside `self`, and an arm of its own is written for `self` alone; name the variants in `#[dispatch(..)]` and give the method a body for the rest"),
+            ));
+        }
+        if self.by_place {
+            return Err(Error::new_spanned(
+                body,
+                format!("every variant of `{subject}` is under `#[cfg]`, so `{method}` is matched as `match *self` with `ref` bindings, which arms written for `match self` are not; name the variants in `#[dispatch(..)]` and give the method a body for the rest"),
+            ));
+        }
+        Ok(())
+    }
+
     /// Returns whether a `Self` argument takes part in the `match`, so that
     /// two different variants need a fallback arm.
     pub(crate) fn has_same_variant(&self) -> bool {
@@ -546,9 +602,9 @@ impl MethodPlan {
     }
 
     /// Decides the arm for everything the targets' arms leave. A marked
-    /// method's body is the arm for every variant it does not name, the
-    /// mismatch of two different variants included, so it needs no
-    /// `mismatch`; under `*` without a body the trait's rule applies. Two
+    /// method's body for the rest, `rest`, is the arm for every variant it
+    /// does not name, the mismatch of two different variants included, so
+    /// it needs no `mismatch`; under `*` the trait's rule applies. Two
     /// values of a struct always hold the same field, so only an enum
     /// needs the arm for two different variants, and an enum with one
     /// variant that is always compiled in has no second variant to meet: a
@@ -560,13 +616,14 @@ impl MethodPlan {
         entries: &Entries,
         subject: &Subject,
         origin: &Origin,
+        rest: Option<&Block>,
         context: &ArmContext,
     ) -> Result<Fallback> {
         let none = Fallback {
             arm: None,
             allow_unreachable: false,
         };
-        if let Some(body) = origin.mark().and_then(|mark| mark.body) {
+        if let Some(body) = rest {
             return Ok(Fallback {
                 arm: Some(Arm::rest(body.to_token_stream(), context.site)),
                 allow_unreachable: false,
@@ -615,6 +672,9 @@ struct Fallback {
 pub(crate) struct Forwarding {
     pub(crate) scrutinee: TokenStream2,
     pub(crate) arms: Vec<Arm>,
+    /// The arms the method writes itself under `*`, as written, after the
+    /// forwarding arms.
+    pub(crate) written: TokenStream2,
     /// The arm for everything the others leave: the mismatch of a trait
     /// method, or the fallback body of an inherent one.
     pub(crate) fallback: Option<Arm>,
@@ -635,10 +695,11 @@ impl Forwarding {
         let Forwarding {
             scrutinee,
             arms,
+            written,
             fallback,
             future,
         } = self;
-        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #fallback } };
+        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
         match future {
             None => {}
             Some(FutureShape::Opaque) => {
@@ -693,6 +754,7 @@ mod tests {
         WayOut {
             on_trait: true,
             has_body: false,
+            own_arms: false,
         }
     }
 
@@ -943,7 +1005,10 @@ mod tests {
             mismatch: vec![],
             routes: vec![],
         };
-        let forwarding: ForwardingOptions = syn::parse_str("*").unwrap();
+        // The body is the arm for the variants a named list leaves; under
+        // `*` an enum's body holds the method's own arms instead, and
+        // `forward` passes no rest.
+        let forwarding: ForwardingOptions = syn::parse_str("A").unwrap();
         let mark = body.as_ref().map(|body| Mark {
             options: &forwarding,
             body: Some(body),
@@ -975,7 +1040,8 @@ mod tests {
             declared: None,
             site: site(),
         };
-        match plan.fallback_for(&entries, &subject, &origin, &context) {
+        let rest = origin.mark().and_then(|mark| mark.body);
+        match plan.fallback_for(&entries, &subject, &origin, rest, &context) {
             Ok(Fallback {
                 arm,
                 allow_unreachable,

@@ -1,6 +1,7 @@
 file: macros/src/implement.rs
 breaks: The impl is marked `#[automatically_derived]`, as `docs/what-is-generated.md` says.
 expect: killed
+witness: base
 
 find:
         .then(|| quote_spanned!(*site => #[automatically_derived]));

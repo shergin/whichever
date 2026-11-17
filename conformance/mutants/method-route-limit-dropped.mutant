@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A route ending in a method call cannot serve a `&mut self` method and says so in one sentence, as `docs/limits.md` says.
 expect: killed
+witness: s0=via-method recv=mut
 
 find:
         if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {

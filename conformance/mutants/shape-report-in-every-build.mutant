@@ -1,6 +1,7 @@
 file: macros/src/implement.rs
 breaks: A partial block reports a variant no method can forward to only in the builds in which some method forwards to every variant, so a mark under the trait method's own `#[cfg]` holds where that `cfg` does, as `docs/partial-impl-blocks.md` says.
 expect: killed
+witness: s1=unit path=block-star item=cfg-on
 
 find:
             entries.shape_errors(plain_forwarding.attribute(*site).as_ref())

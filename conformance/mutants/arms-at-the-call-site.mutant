@@ -1,6 +1,7 @@
 file: macros/src/forwarding.rs
 breaks: Every token of a forwarded method carries the subject's span, so that no error lands on the trait's attribute, as `macros/ARCHITECTURE.md` 3.8 says.
 expect: killed
+witness: s0=via-method recv=value
 
 find:
         way_out,

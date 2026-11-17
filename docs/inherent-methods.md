@@ -3,9 +3,9 @@
 An enum often needs methods of its own that only some variants can answer.
 `#[dispatch]` on an inherent `impl` block forwards each marked method to the
 named variants' method of the same name; the body is what every other
-variant returns. `*` names every variant, and the method then has no body,
-nor has a method that names every variant one by one, since no variant is
-left to the body:
+variant returns. `*` names every variant, and the method then has no body
+for the rest, nor has a method that names every variant one by one, since
+no variant is left to it:
 
 ```rust
 #[whichever::dispatch]
@@ -23,6 +23,39 @@ impl AnyShape {
     pub fn label(&self) -> String;
 }
 ```
+
+Under `*` a body is instead one `match self` holding the arms the enum
+answers itself, and every variant those arms do not name is forwarded. It
+is the way to forward to every variant but a few, such as a unit variant
+beside the payloads:
+
+```rust
+#[whichever::dispatch]
+pub enum AnyShape {
+    Circle(Circle),
+    Square(Square),
+    Empty,
+}
+
+#[whichever::dispatch]
+impl AnyShape {
+    #[dispatch(*)]
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Empty => String::from("nothing"),
+        }
+    }
+}
+```
+
+The generated `match` is the forwarding arms, in the enum's order, then
+the arms as written, with no wildcard, so a variant added later is
+forwarded, and one without a payload and without an arm is reported on the
+method. The arms follow the rules [a partial impl
+block](partial-impl-blocks.md) gives them: they name their variants by path, are
+written in the declared return type with no `with` around them, and may
+read the fields they bind; a `Self` argument, handed on as it is here, is
+no obstacle.
 
 Each arm calls the payload's method by method-call syntax,
 `inner.describe()`, so autoref, autoderef and inherent-before-trait

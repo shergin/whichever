@@ -25,8 +25,8 @@ use super::receiver::Lends;
 use super::returns::{Associated, FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
-    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Agreement, Argument, Arms, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home,
+    Item, Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
@@ -103,6 +103,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     }
     if !object_canonical(cell) {
         return Verdict::NonCanonical;
+    }
+    if let Some(verdict) = own_arms(cell) {
+        return verdict;
     }
     // A block's own header is how the impl gets generics the enum does not
     // have, or one instantiation of a generic enum (partial-impl-blocks.md,
@@ -200,6 +203,52 @@ struct Rejection {
     code: &'static str,
     reason: &'static str,
     method: Forwarded,
+}
+
+/// The shapes the arms of a method under `*` take, or `None` where the
+/// cell is judged as any other. The `arms` axis is the body's, which only
+/// the paths that give one under `*` have; on a struct, which has no
+/// variant for an arm to name, any body is its sentence, so its neutral
+/// value stands for every one.
+fn own_arms(cell: &Cell) -> Option<Verdict> {
+    let arms_path = cell.path_descriptor().form == PathForm::Arms;
+    if !arms_path {
+        return (cell.arms != Arms::Answered).then_some(Verdict::NonCanonical);
+    }
+    if cell.s0.descriptor().is_struct() {
+        return (cell.arms != Arms::Answered).then_some(Verdict::NonCanonical);
+    }
+    // The arms name the second variant: an enum of one has none to name.
+    if cell.s1 == Second::Absent {
+        return Some(Verdict::Unmodelled(
+            "arms of the method's own over an enum of one variant",
+        ));
+    }
+    // Naming the second variant alone differs from naming every variant
+    // without a payload only beside a third that holds none.
+    if cell.arms == Arms::Second && cell.s2 != Third::Unit {
+        return Some(Verdict::NonCanonical);
+    }
+    // An arm's own `#[cfg]` is crossed with a variant under none, so that
+    // the arm alone decides whether the variant is forwarded.
+    let conditional = matches!(cell.arms, Arms::CfgOn | Arms::CfgOff);
+    if conditional && cell.cfg.of(1).is_some() {
+        return Some(Verdict::NonCanonical);
+    }
+    // `whichever::foreign::Display`'s `fmt` is written by the model as
+    // the trait's attribute or a block names it, with no arms of its own.
+    if cell.decl.descriptor().foreign {
+        return Some(Verdict::NonCanonical);
+    }
+    // In a build that leaves no variant, no arm reads the arguments the
+    // arms use, and the method is the user's, whose own code then leaves
+    // them unused, beside the sentence or not.
+    if cell.cfg == Cfg::EveryOff {
+        return Some(Verdict::Unmodelled(
+            "arms of the method's own over an enum empty in this build",
+        ));
+    }
+    None
 }
 
 /// Returns whether a cell whose subject holds a trait object is canonical.
@@ -670,7 +719,10 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     // A body a block writes, for the variants a mark leaves out or for
     // every variant, is a constant of the return type, which under a
     // function lift is the lift's own.
-    if matches!(path.form, PathForm::First | PathForm::Written) {
+    if matches!(
+        path.form,
+        PathForm::First | PathForm::Written | PathForm::Arms
+    ) {
         let node = arm_node(cell);
         if node.holds_future() {
             return Some("a block body for a future return");
@@ -775,10 +827,19 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     }
     // "The deprecation reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
-    // the first variant, and would be warned of as the user's own code.
+    // the first variant, and would be warned of as the user's own code; so
+    // does the constant an arm of the method's own answers for `Self`.
     let path = cell.path_descriptor();
     let names_first = cell.arg.descriptor().kind.is_some()
-        || matches!(path.form, PathForm::First | PathForm::Written);
+        || matches!(
+            path.form,
+            PathForm::First | PathForm::Written | PathForm::Arms
+        );
+    // An arm of the method's own names the second variant.
+    let names_second = path.form == PathForm::Arms;
+    if cell.deprecated == Deprecation::Second && names_second {
+        return Some("an arm of the user's naming the deprecated variant");
+    }
     if cell.deprecated == Deprecation::First && names_first {
         return Some("a mismatch or a body of the user's naming the deprecated variant");
     }
@@ -915,7 +976,10 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
     // An inherent method that names the first variant has a body for the
     // rest, a constant of the declared type; only rendering builds that
     // type, so its constant is read here from the target's.
-    let first = cell.path_descriptor().form == PathForm::First;
+    let first = matches!(
+        cell.path_descriptor().form,
+        PathForm::First | PathForm::Arms
+    );
     let constant = match lift {
         Lift::Bare | Lift::Into => cell.target_node().has_constant(false),
         Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => true,
@@ -1066,7 +1130,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // all: a method a block writes, or leaves to the default, is no
     // forwarding.
     let method_live = cell.method_slots();
-    let forwarded = matches!(path.form, PathForm::Forwarded | PathForm::First);
+    let forwarded = matches!(
+        path.form,
+        PathForm::Forwarded | PathForm::First | PathForm::Arms
+    );
 
     // A sentence on the whole method sits on its signature in the block
     // when the block holds it, and on the trait's method otherwise.
@@ -1075,21 +1142,61 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         false => Anchor::Method,
     };
 
-    // A method has no body when its mark names every variant, `*` or "a
-    // method that names every variant one by one, since no variant is left
-    // to the body" (inherent-methods.md, `inherent_all_with_body`), and `*`
-    // names a variant that holds no payload too
-    // (`inherent_all_with_unforwardable`).
+    // A method has no body for the rest when its mark names every variant,
+    // `*` or "a method that names every variant one by one, since no
+    // variant is left to it" (inherent-methods.md,
+    // `inherent_list_of_every_variant_with_body`); the model gives a body
+    // under `*` no arms, so the sentence it reaches is the named list's.
+    // `*` names a variant that holds no payload too
+    // (`inherent_all_with_unforwardable`), whose way out depends on whether
+    // the method may hold arms of its own (`wording`).
     // "Naming every variant, the conditional one included, is exhaustive in
     // every build, so the method takes no body" (behaviour test
     // `inherent_list_naming_a_conditional_variant`): the mark names `A`,
     // so the variants counted are those the enum declares.
-    let unreachable = slots.iter().any(|slot| slot.target().is_none());
+    // Under `*` with arms of its own, "a variant with neither a payload nor
+    // an arm is an error on that variant" (the decision record), and an arm
+    // under a `#[cfg]` that does not hold leaves its variant forwarded.
+    let unreachable = slots
+        .iter()
+        .any(|slot| slot.target().is_none() && !cell.answered_by_arm(slot));
     if path.form == PathForm::First && cell.declared_slots().len() == 1 {
         expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
     }
     if path.mark == Some("*") && unreachable {
         expect(Limit::StarOverUnforwardable, Anchor::BlockSignature);
+    }
+    if path.form == PathForm::Arms {
+        // "A body under `*` that is anything but one `match self` would
+        // never run, and is reported too" (limits.md); "A struct has one
+        // field and no variant for an arm to name, so under
+        // `#[dispatch(*)]` a body would never run, whatever it holds"
+        // (`inherent_all_with_body_on_a_struct`).
+        let unmatched = cell.arms == Arms::Unmatched || cell.s0.descriptor().is_struct();
+        if unmatched {
+            expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
+        }
+        // Open question: the documents do not order the sentences on the
+        // body; a wildcard arm, as a body that is no `match self`, is read
+        // as reported alone, before what the arms would meet.
+        let wildcard = cell.arms == Arms::Wildcard;
+        // "A trait method with a `Self` argument, which is matched beside
+        // `self`, holds no arms the enum answers itself under `*`" and "A
+        // method whose receiver is a reference [..] over an enum whose
+        // every variant is under `#[cfg]` [..] holds no arms the enum
+        // answers itself" (limits.md).
+        if !unmatched && !wildcard && cell.reached_argument().kind.is_some() {
+            expect(Limit::ArmsBesideSelfArgument, Anchor::BlockSignature);
+        }
+        if !unmatched && !wildcard && cell.matched_by_place() {
+            expect(Limit::ArmsMatchedByPlace, Anchor::BlockSignature);
+        }
+        // "Under `*`, an arm the enum answers itself names its variants by
+        // path, `Self::Name(..)`; one that names none, `_` or a binding, is
+        // reported" (limits.md).
+        if wildcard {
+            expect(Limit::ArmNamingNoVariant, Anchor::Arm);
+        }
     }
 
     // "`#[dispatch(default)]` on a bodiless method leaves it to the trait's
@@ -1563,7 +1670,8 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     // arm is a variant's sentence or no variant is left in the build, so
     // what the body itself captures is rejected whatever the variants hold.
     let form = cell.path_descriptor().form;
-    let forwarded = cell.method_present() && matches!(form, PathForm::Forwarded | PathForm::First);
+    let forwarded = cell.method_present()
+        && matches!(form, PathForm::Forwarded | PathForm::First | PathForm::Arms);
     let any = |predicate: &dyn Fn(&super::target::TargetDescriptor) -> bool| {
         live.iter().any(|(_, _, target)| predicate(target))
     };

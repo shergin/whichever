@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: An inherent `value` arm is read through the binding where the method returns a value, `*inner`, as `docs/inherent-methods.md` says.
 expect: killed
+witness: s1=none path=inherent callee=value
 
 find:
                     if read {
