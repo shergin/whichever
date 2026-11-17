@@ -138,7 +138,13 @@ impl MethodPlan {
     pub(crate) fn arm(&self, target: &Target, context: &ArmContext) -> Arm {
         match self.refusal(target, context) {
             Some(refusal) => {
-                let error = refusal.error(context.method, target, context.subject, context.way_out);
+                // The sentence speaks of the route the receiver takes.
+                let reached = Target {
+                    route: target.route_for(self.receiver.access()),
+                    ..*target
+                };
+                let error =
+                    refusal.error(context.method, &reached, context.subject, context.way_out);
                 self.sentence_arm(target, context, error)
             }
             None => self.forward(target, context),
@@ -152,7 +158,10 @@ impl MethodPlan {
         target: &Target,
         context: &ArmContext<'a>,
     ) -> Option<Refusal<'a>> {
-        let Target { payload, route, .. } = *target;
+        let payload = target.payload;
+        // The route the receiver takes, which the arm's result comes back
+        // through.
+        let route = target.route_for(self.receiver.access());
         if let Some(declared) = context.declared {
             if self.requires_sized && target.is_trait_object() {
                 return Some(Refusal::TraitObject {
@@ -165,8 +174,11 @@ impl MethodPlan {
         if !route.is_direct() && conversion.rewraps() {
             return Some(Refusal::RewrapThroughRoute);
         }
-        // What a method returns is a value, which `&mut self` cannot borrow
-        // through; a field is a place, which it can.
+        // What a method returns is a value, handed over as it is, and
+        // nothing here tells whether it is a `&mut`: a mutable borrow goes
+        // through a method call only where a route is named for it, the
+        // variant's or the trait's `via_mut` or the method's own. A field
+        // is a place, which is borrowed either way.
         let exclusive = match self.receiver {
             ReceiverKind::Value(Access::Exclusive) => Some(Taken::MutSelf),
             ReceiverKind::Pinned(Borrow::Exclusive) => Some(Taken::PinnedMutSelf),
@@ -174,7 +186,7 @@ impl MethodPlan {
             | ReceiverKind::Pinned(Borrow::Shared)
             | ReceiverKind::Boxed => self.taken(Access::Exclusive).map(Taken::MutArgument),
         };
-        if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {
+        if let Some(taken) = exclusive.filter(|_| target.borrows_mutably_through_a_call()) {
             return Some(Refusal::MethodRouteBorrowedMutably(taken));
         }
         // An `Rc`, an `Arc` and a `&T` lend what they point at shared and
@@ -191,8 +203,9 @@ impl MethodPlan {
                 exclusive.map(MutableBorrow::Takes)
             }
         };
+        let lent = target.route_for(Access::Exclusive);
         if let Some(does) =
-            borrows_mutably.filter(|_| route.starts_with_deref() && pointer == Pointer::Shared)
+            borrows_mutably.filter(|_| lent.starts_with_deref() && pointer == Pointer::Shared)
         {
             return Some(Refusal::SharedPointerBorrowedMutably(does));
         }
@@ -222,7 +235,9 @@ impl MethodPlan {
                 self.taken(Access::Owned).map(Taken::ArgumentByValue)
             }
         };
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && pointer != Pointer::Box)
+        let moved_through = target.route_for(Access::Owned);
+        if let Some(taken) =
+            moved.filter(|_| moved_through.starts_with_deref() && pointer != Pointer::Box)
         {
             return Some(Refusal::MovedOutOfPointer(taken));
         }
@@ -261,7 +276,8 @@ impl MethodPlan {
             ..
         } = context;
         let site = *site;
-        let route = target.route;
+        // The route the receiver takes; a `Self` argument takes its own.
+        let route = target.route_for(self.receiver.access());
         let conversion = self.conversion_under(*lift);
         let inner = hygienic("__inner", site);
         let receiver = match (kind, self.receiver) {
@@ -289,7 +305,7 @@ impl MethodPlan {
                 // A field's or a method's type cannot be named; the call is
                 // then qualified by the trait alone, which still keeps an
                 // inherent method of the same name from taking over.
-                let qualified = match target.target_type() {
+                let qualified = match target.type_through(route) {
                     Some(target_type) => quote_spanned! { *site => <#target_type as #trait_path> },
                     None => quote_spanned! { *site => <_ as #trait_path> },
                 };
@@ -334,6 +350,11 @@ impl MethodPlan {
                     } else {
                         place
                     }
+                } else if field.is_none() && route.ends_in_a_method() {
+                    // What a method returns is a value and no place: it is
+                    // handed over as it is, the reference the method lends
+                    // where the return type asks for one.
+                    place
                 } else {
                     match borrow {
                         PlaceBorrow::Value | PlaceBorrow::Unread => place,
@@ -480,7 +501,7 @@ impl MethodPlan {
             .map(
                 |(index, ident)| match self.same_variant.iter().find(|(same, _)| *same == index) {
                     Some((_, access)) => payload_expression(
-                        target.route,
+                        target.route_for(*access),
                         *access,
                         &Self::same_binding(index, site),
                         site,
@@ -547,7 +568,7 @@ fn names(tokens: &TokenStream2, ident: &Ident) -> bool {
 /// `.map_err(..)` takes, and a tuple taken apart and built again around
 /// its converted elements. The target was judged to be rebuilt as the
 /// conversion asks.
-fn convert(
+pub(crate) fn convert(
     value: TokenStream2,
     conversion: &Conversion,
     target: &Target,
@@ -634,10 +655,13 @@ fn receiver_expression(
     site: Site,
 ) -> TokenStream2 {
     match kind {
-        ReceiverKind::Value(access) => payload_expression(target.route, access, binding, site),
+        ReceiverKind::Value(access) => {
+            payload_expression(target.route_for(access), access, binding, site)
+        }
         ReceiverKind::Boxed => quote_spanned!(*site => #binding),
         ReceiverKind::Pinned(borrow) => {
-            let payload = payload_expression(target.route, borrow.into(), binding, site);
+            let access = borrow.into();
+            let payload = payload_expression(target.route_for(access), access, binding, site);
             quote_spanned!(*site => ::core::pin::Pin::new(#payload))
         }
     }

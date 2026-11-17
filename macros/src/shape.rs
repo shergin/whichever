@@ -317,9 +317,10 @@ pub(crate) struct ReturnSite<'a> {
 /// carries the associated type overrides of a trait; inherent methods have
 /// none.
 ///
-/// A `match` with several arms cannot return `impl Trait`, since every arm
-/// would return a different opaque type; a future is the exception, because
-/// one `async` block around the `match` is one future. A boxed future is one
+/// A `match` with several arms does not return `impl Trait`, since the arms
+/// of variants of different types return different opaque types, and the
+/// variants that reach one type cannot be told from them; a future is the
+/// exception, because one `async` block around the `match` is one future. A boxed future is one
 /// type already and is forwarded as it is, unless its `Output` has to be
 /// converted, in which case the `async` block, boxed and pinned again, is
 /// where the conversion happens. A `match` with one arm returns that arm's
@@ -354,10 +355,13 @@ pub(crate) fn classify_return(
         let awaited = future.filter(|_| conversion != Conversion::Keep);
         return Ok((conversion, awaited));
     }
+    // The arms agree where every variant reaches a target of one type, as
+    // variants routed to a field of the same type do, and nothing here
+    // tells: a field's or a method's type cannot be read off the payload.
     if let Some(opaque) = first_impl_trait(ty) {
         return Err(Error::new_spanned(
             opaque,
-            "a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`",
+            format!("a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or {} where every variant reaches one type", site.way_out.of_method()),
         ));
     }
     let conversion = return_model(ty, options, site)?;
@@ -662,6 +666,17 @@ pub(crate) enum ReceiverKind {
 }
 
 impl ReceiverKind {
+    /// Returns how the receiver takes the subject: by one of the two
+    /// borrows, plain or pinned, or by value, as `self` and `self:
+    /// Box<Self>` do.
+    pub(crate) fn access(self) -> Access {
+        match self {
+            ReceiverKind::Value(access) => access,
+            ReceiverKind::Boxed => Access::Owned,
+            ReceiverKind::Pinned(borrow) => borrow.into(),
+        }
+    }
+
     /// Returns the borrow the receiver takes the subject by, plain or
     /// pinned, so that a pattern over it binds references; nothing for
     /// `self` and `self: Box<Self>`, which are matched by value and bind

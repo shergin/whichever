@@ -4,10 +4,10 @@ expect: killed
 witness: base
 
 find:
-        match future {
-            None => {}
+    match future {
+        None => {}
 replace:
-        match future {
-            None => {
-                body = quote_spanned! { span => (|| #body)() };
-            }
+    match future {
+        None => {
+            body = quote_spanned! { span => (|| #body)() };
+        }

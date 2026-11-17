@@ -4,6 +4,6 @@ expect: killed
 witness: path=block-arms
 
 find:
-        let mut body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
+        let body = quote_spanned! { span => match #scrutinee { #(#arms)* #written #fallback } };
 replace:
-        let mut body = quote_spanned! { span => match #scrutinee { #written #(#arms)* #fallback } };
+        let body = quote_spanned! { span => match #scrutinee { #written #(#arms)* #fallback } };

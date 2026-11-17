@@ -130,7 +130,7 @@ case is handled.
 | Associated types | yes | no | yes | no | yes | no | no | by hand |
 | Differing associated types unified | yes, through `Into` | no | no | no | yes, wrapper enum | no | no | by hand |
 | Associated consts | yes, checked to agree or fixed on the enum | no | no | no | no | no | no | by hand |
-| Methods without a receiver | with a default body, or written by hand next to the forwarded ones | no | no | no | no | no | no | - |
+| Methods without a receiver | with a default body, or written by hand next to the forwarded ones; through a struct, forwarded to the field's type | no | no | no | no | no | no | - |
 | Some methods written by hand, the rest forwarded | yes | no | no | no | no | no | no | yes, by listing the rest |
 | `async fn` | yes | yes | yes | no | no | no | yes | yes |
 | Generic trait at a concrete instantiation | yes | no | yes | no | no | yes | no | by hand |
@@ -140,13 +140,13 @@ case is handled.
 | Several traits on one enum | yes | yes | yes | yes | no | no | yes | yes |
 | Payload with a same-named inherent method | safe | safe | safe | safe | safe | safe | safe | calls it, unless `#[through]` |
 | `Box<T>`, `Rc<T>`, `&T` payloads | yes, `#[dispatch(deref)]` | no | no | no | no | no | no | yes |
-| A field of the payload, or of a variant with several fields, as the target | yes, a route or a marked field | no | no | no | no | no | no | yes, by hand |
+| A field of the payload, or of a variant with several fields, as the target | yes, a route or a marked field, with a route of its own for a mutable borrow | no | no | no | no | no | no | yes, by hand |
 | `-> impl Trait` | `impl Future<Output = T>` on an enum; any, through a struct | no | through a struct | no | no | no | no | no |
 | `From<Payload>` impls | yes, opt-out; `TryFrom<Enum>` opt-in, by value, `&` and `&mut`; `From<Enum> for Target` with `into =` | yes, plus a forced `TryInto` | no | no | yes, with `&` and `&mut` `TryInto` | no | no | no |
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 | Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
 | A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
-| An enum another crate defines | yes, restated with `remote` | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
+| An enum another crate defines | yes, restated with `remote`; a struct too | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
 | `self: Pin<&mut Self>`, `self: Box<Self>` | yes | - | - | - | - | - | - | - |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one

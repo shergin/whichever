@@ -79,7 +79,9 @@ The steps from the payload to the [target](#target). A step is `*` (what
 the payload dereferences to), `.field` or `.0` (a field), or `.method()`
 (what a method returns), in any sequence. `#[dispatch(deref)]` on a
 variant is the route `*`, and `#[dispatch(via = .shape)]` reaches a
-field. See [Reaching the target][routes].
+field. A second route, `via_mut`, can serve the methods that borrow the
+target mutably, such as a getter that lends mutably. See [Reaching the
+target][routes].
 
 ```rust
 #[dispatch(deref)]
@@ -107,9 +109,9 @@ generated][what-is-generated].
 A copy of the signatures of a trait that another crate owns, marked
 `remote`, so that it has a carrier macro: `#[whichever::dispatchable(remote
 = std::io::Write)]` on a trait that lists the methods to forward. An
-enum another crate defines can be restated the same way.
+enum or a struct another crate defines can be restated the same way.
 `whichever::foreign` ships restatements of common `std` traits. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ## Partial impl block
 

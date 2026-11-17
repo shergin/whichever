@@ -1,0 +1,13 @@
+file: macros/src/dispatchable.rs
+breaks: An `#[inline(..)]` on a trait method without a body is its forwarders' alone and stays off the trait's own method, which rustc warns of, as `docs/what-is-generated.md` says.
+expect: killed
+witness: item=inline-always
+
+find:
+            if function.default.is_none() {
+                function
+                    .attrs
+                    .retain(|attribute| !attribute.path().is_ident("inline"));
+            }
+replace:
+            if function.default.is_none() {}

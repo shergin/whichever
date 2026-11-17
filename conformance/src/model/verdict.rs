@@ -120,6 +120,18 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if !object_canonical(cell) {
         return Verdict::NonCanonical;
     }
+    // A method without a receiver is the dispatchable trait's own: a
+    // restatement would list it without the body it has, and another
+    // crate's enum would need the field's type the restatement names. The
+    // second trait would declare one of the same name, which the shapes
+    // pair by name alone.
+    let function = cell.agree == Agreement::Function;
+    let alone = cell.decl == Declaration::Dispatchable
+        && cell.owner == Owner::Local
+        && cell.stack == Stack::Absent;
+    if function && !alone {
+        return Verdict::NonCanonical;
+    }
     if let Some(verdict) = own_arms(cell) {
         return verdict;
     }
@@ -156,6 +168,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return verdict;
     }
     if let Some(verdict) = field_trait(cell) {
+        return verdict;
+    }
+    if let Some(verdict) = under_cfg_attr(cell) {
         return verdict;
     }
     if let Some(verdict) = unread(cell) {
@@ -428,6 +443,24 @@ fn unread(cell: &Cell) -> Option<Verdict> {
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
 }
 
+/// A mark under `cfg_attr`, or `None` where the subject has none. "A mark
+/// cannot go under `cfg_attr`. [..] You get an error on the mark, and the
+/// item is read as if the mark were plain, so nothing else follows"
+/// (limits.md): the impl is written beside it, and the subject is judged as any other, the
+/// sentence added in `limits`. Only the axes that make it so and the
+/// variants beside it depart from the neutral cell.
+fn under_cfg_attr(cell: &Cell) -> Option<Verdict> {
+    if !cell.s0.descriptor().under_cfg_attr {
+        return None;
+    }
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: cell.s1,
+        ..Cell::neutral()
+    };
+    (*cell != neutral).then_some(Verdict::NonCanonical)
+}
+
 /// A method that names two fields of a struct, or `None` where the path
 /// names none. "An inherent method of a dispatch struct forwards to one
 /// field [..]. Every value holds every field, so a second field in the list
@@ -530,10 +563,20 @@ fn owned(cell: &Cell) -> Option<Verdict> {
     if cell.owner == Owner::Local {
         return None;
     }
-    if cell.s0.descriptor().is_struct() {
-        return Some(Verdict::NonCanonical);
-    }
-    let first = matches!(cell.s0, Target::Plain | Target::DerefBox);
+    // "A struct another crate defines is restated the same way [..]. The
+    // fields are forwarded as a dispatch struct's are: the one field, the
+    // field marked `#[dispatch]`, or a field that lists the trait"
+    // (restatements.md); the field that lists the trait is the plain
+    // struct's alone (`field_trait`).
+    let first = matches!(
+        cell.s0,
+        Target::Plain
+            | Target::DerefBox
+            | Target::Struct
+            | Target::StructNamed
+            | Target::StructMarked
+            | Target::StructMarkedLast
+    );
     let second = matches!(
         cell.s1,
         Second::Plain | Second::Absent | Second::DerefBox | Second::Unit
@@ -732,13 +775,12 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             );
         }
     }
-    // rustc warns of `#[inline]` on a method with no body in the trait
-    // itself, and is phasing it out, so the attribute is the provided
-    // method's.
-    if cell.item == Item::Inline && !qualifier.provided {
-        return Some("`#[inline]` on a required method, which rustc warns of in the trait");
-    }
     let path = cell.path_descriptor();
+    // A body the block writes answers a constant of the type the enum
+    // declares, which a struct that takes the type from its field does not.
+    if cell.takes_gat_from_field() && path.form == PathForm::Written {
+        return Some("a written body answering the field's own generic associated type");
+    }
     if let Some(reason) = unpredicted_generics(cell) {
         return Some(reason);
     }
@@ -1430,6 +1472,12 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
+    // A mark under `cfg_attr` is one sentence on the mark, which is on the
+    // line of the field it marks (`under_cfg_attr`).
+    if cell.s0.descriptor().under_cfg_attr {
+        expect(Limit::MarkUnderCfgAttr, Anchor::Variant(0));
+    }
+
     // "Receivers are `self`, `&self`, `&mut self`, `self: Box<Self>` [..],
     // and `self: Pin<&Self>` or `self: Pin<&mut Self>` [..]. `Rc<Self>`,
     // `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
@@ -1668,14 +1716,16 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::MismatchForAbsentMethod, anchor);
     }
 
-    // "A route ending in a method call cannot serve a `&mut self` method."
-    //
-    // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
-    // sentence, naming the receiver or the argument as the signature has
-    // it.
+    // "Without `via_mut`, a mutable borrow through a route that ends in a
+    // method call is an error on the variant. [..] The error names
+    // `via_mut`" (routes.md): a method that borrows
+    // the target mutably, by `&mut self`, by `self: Pin<&mut Self>` or in
+    // a `&mut Self` argument, over a route that ends in a method call and
+    // names no route for a mutable borrow. The sentence names the receiver
+    // or the argument as the signature has it.
     if receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive) {
         for (slot, _, target) in &method_live {
-            if target.ends_in_method() {
+            if target.borrows_mutably_through_a_call() {
                 expect(Limit::MethodRouteOnMutSelf, Anchor::Variant(slot.index));
             }
         }
@@ -1709,8 +1759,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // A restated enum gets "No conversions and no inherent impl. The orphan
     // rules and the language refuse both for a type from another crate"
     // (restatements.md), and an option asking for one, or for none, is its
-    // sentence (`restated_enum_conversions`).
-    if cell.owner == Owner::Remote && conversion.option.is_some() {
+    // sentence (`restated_enum_conversions`). A restated struct gets "No
+    // inherent impl and no conversions, as for an enum. [..] no struct gets
+    // conversions" (restatements.md), the struct's sentence alone.
+    if cell.owner == Owner::Remote && conversion.option.is_some() && !one_arm {
         expect(Limit::RestatedConversions, Anchor::Attribute);
     }
     // A variant whose payload is the enum's type parameter: "`I` is a type
@@ -1767,13 +1819,17 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         .associated()
         .iter()
         .any(|(associated, _)| *associated == Associated::Item);
-    if gat && !cell.declares_gat() {
+    if gat && !cell.declares_gat() && !cell.takes_gat_from_field() {
         expect(Limit::GenericAssociatedType, Anchor::Associated);
     }
 
     let items = cell.agree.descriptor().items;
+    // A method without a receiver is no item taken from the first variant:
+    // an enum leaves it to its default.
     let taken = node.associated().iter().any(|(_, overridden)| !overridden)
-        || items.iter().any(|item| item.overridden.is_none());
+        || items
+            .iter()
+            .any(|item| item.overridden.is_none() && item.kind != ItemKind::Function);
     let supplier = cell.supplier();
     if taken && supplier.is_none() {
         expect(Limit::UnsuppliedType, Anchor::Enum);
@@ -1807,6 +1863,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         for item in items.iter().filter(|item| item.overridden.is_none()) {
             let checked = match item.kind {
                 ItemKind::Type => true,
+                ItemKind::Function => false,
                 // The second trait declares the same consts, and its impl,
                 // which the enum's attribute writes, has none of a block's
                 // header parameters, so its check runs where the enum has
@@ -1823,7 +1880,7 @@ fn limits(cell: &Cell) -> Vec<Expected> {
             }
             let limit = match item.kind {
                 ItemKind::Type => Limit::TypeDisagreement,
-                ItemKind::Const => Limit::ConstDisagreement,
+                ItemKind::Const | ItemKind::Function => Limit::ConstDisagreement,
             };
             for slot in &slots {
                 let other = slot.index != supplier.index && slot.names_its_target();

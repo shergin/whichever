@@ -6,7 +6,9 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Path, Result, Signature, Visibility};
 
 use crate::builds::Builds;
-use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
+use crate::forwarding::{
+    forward, forward_associated, Associated, Forward, Generated, Mark, Origin,
+};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
 use crate::partial::read_item;
@@ -144,7 +146,7 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         let spelled = spelling::spelled(remote);
         return Err(Error::new_spanned(
             &item_impl.self_ty,
-            format!("`{spelled}` is another crate's enum, which gets no inherent impl here; forward through a trait of this crate, or write free functions"),
+            format!("`{spelled}` is another crate's {}, which gets no inherent impl here; forward through a trait of this crate, or write free functions", subject.words().subject()),
         ));
     }
     let variants = if rejected {
@@ -237,18 +239,7 @@ pub(crate) fn forward_method(
 ) -> Result<TokenStream2> {
     let method = &sig.ident;
     let site = Site::at(method.span());
-    if sig.receiver().is_none() {
-        let noun = subject.target_noun();
-        return Err(Error::new_spanned(
-            sig,
-            format!("`{method}` has no receiver, so there is no {noun} to forward to"),
-        ));
-    }
-    let Generated {
-        signature,
-        allowances,
-        body,
-    } = forward(Forward {
+    let request = Forward {
         signature: sig.clone(),
         origin: Origin::Inherent {
             mark: Mark {
@@ -260,6 +251,27 @@ pub(crate) fn forward_method(
         subject,
         site,
         body_site: site,
-    })?;
+    };
+    // A struct's method without a receiver is a function of its field's
+    // type, as a constructor is; an enum has no variant to ask before it
+    // has a value.
+    let generated = match (sig.receiver(), subject.has_one_target()) {
+        (Some(_), _) => forward(request)?,
+        (None, true) => match forward_associated(request)? {
+            Associated::Forwarded(generated) => generated,
+            Associated::Left(error) => return Err(error),
+        },
+        (None, false) => {
+            return Err(Error::new_spanned(
+                sig,
+                format!("`{method}` has no receiver, so there is no variant to forward to"),
+            ))
+        }
+    };
+    let Generated {
+        signature,
+        allowances,
+        body,
+    } = generated;
     Ok(quote_spanned! { *site => #(#attrs)* #allowances #vis #signature #body })
 }

@@ -312,8 +312,11 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "field-options",
-        summary: "an option a variant's marked field does not take, a trait's name or a conversion option, beside every second variant",
-        vary: &[("s0", &["marked-trait", "marked-from"]), ("s1", &[])],
+        summary: "an option a variant's marked field does not take, a trait's name or a conversion option, and a mark under `cfg_attr` on a variant's field and a struct's, beside every second variant",
+        vary: &[
+            ("s0", &["marked-trait", "marked-from", "marked-cfg-attr", "struct-marked-cfg-attr"]),
+            ("s1", &[]),
+        ],
         fixed: &[],
     },
     Zone {
@@ -683,6 +686,32 @@ pub const ZONES: &[Zone] = &[
             ("ret", &["u64", "self", "assoc"]),
         ],
         fixed: &[("owner", "remote")],
+    },
+    Zone {
+        name: "mutable-routes",
+        summary: "a getter pair, `via` and `via_mut`, on a variant and on a marked field, beside a method route that names none, under the receivers and the `Self` arguments that borrow each way, through the enum's attribute, a block and an inherent block that calls or reads the target",
+        vary: &[
+            ("s0", &["via-getters", "marked-getters", "via-method"]),
+            ("s1", &["plain", "none", "via-getters", "via-method"]),
+            ("recv", &["ref", "mut", "value", "pin-ref", "pin-mut"]),
+            ("arg", &["none", "ref-trait", "mut"]),
+            ("path", &["attribute", "block-star", "inherent"]),
+            ("ret", &["u64", "mut", "unit"]),
+            ("callee", &["method", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "restated-structs",
+        summary: "a struct of another crate restated beside the subject, its one field or a marked one, whose pattern ends in `..`, through the enum's attribute and the blocks, with the receivers, the returns that rebuild it and a conversion option it refuses",
+        vary: &[
+            ("s0", &["struct", "struct-named", "struct-marked", "struct-marked-last"]),
+            ("path", &["attribute", "block", "block-star", "block-written"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self", "option-self"]),
+            ("conv", &["none", "from-off"]),
+        ],
+        fixed: &[("owner", "remote"), ("s1", "none")],
     },
     Zone {
         name: "restated-enum-items",

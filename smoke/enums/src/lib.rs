@@ -366,3 +366,27 @@ mod restated {
         assert_eq!((left.weight(), right.weight()), (3, 6));
     }
 }
+
+/// `smoke_traits::Labelled`, restated with the one field the impl forwards
+/// to: the real struct's `label` is left to the pattern's `..`.
+#[dispatch(remote = smoke_traits::Labelled)]
+#[dispatch(Weighed)]
+pub struct Labelled<S> {
+    shape: S,
+}
+
+#[cfg(test)]
+mod restated_struct {
+    use super::*;
+    use smoke_traits::Labelled;
+
+    #[test]
+    fn the_impl_is_written_for_the_other_crates_struct() {
+        let labelled = Labelled {
+            shape: Circle(2),
+            label: "wheel",
+        };
+        assert_eq!(labelled.weight(), 4);
+        assert_eq!(labelled.label, "wheel");
+    }
+}

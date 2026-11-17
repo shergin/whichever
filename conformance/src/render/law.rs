@@ -173,23 +173,28 @@ fn write_foreign_iterator_slot(writer: &mut Writer, context: &Context, slot: &Sl
 const BUILT: &str = "Built";
 
 /// Returns whether the subject is a generic tuple struct, whose constructor
-/// and pattern an alias cannot spell.
+/// and pattern an alias cannot spell: generic over its payload, or a
+/// restated struct, which is generic over what its field holds.
 fn generic_tuple_struct(context: &Context) -> bool {
     let tuple = context
         .slots
         .first()
         .and_then(Slot::target)
         .is_some_and(|(_, target)| matches!(target.form, Form::Struct | Form::StructMarkedLast));
-    tuple && context.generics.parameter.is_some()
+    let restated = context.cell.owner == crate::model::Owner::Remote;
+    tuple && (context.generics.parameter.is_some() || restated)
 }
 
 /// Returns the path the law builds the subject by and takes it apart by:
 /// `S`, or, for a generic tuple struct, the subject's own path with its
 /// argument, `Built::<P0>`.
 fn value_path(context: &Context) -> String {
-    match (generic_tuple_struct(context), context.generics.parameter) {
-        (true, Some(parameter)) => format!("{BUILT}::<{}>", parameter.instance),
-        (true, None) | (false, _) => String::from("S"),
+    if !generic_tuple_struct(context) {
+        return String::from("S");
+    }
+    match context.generics.parameter {
+        Some(parameter) => format!("{BUILT}::<{}>", parameter.instance),
+        None => format!("{BUILT}::<{}>", context.slots[0].payload()),
     }
 }
 
@@ -296,6 +301,19 @@ fn write_associated(writer: &mut Writer, context: &Context) {
                 writer.line(format!("let _: <S as {instance}>::{name} = kind;"));
                 writer.close("}");
             }
+            // "Give the trait method a default body, which the enum then
+            // uses" (limits.md), where a struct answers its field's: "the
+            // field's override of one is what the struct answers"
+            // (structs.md).
+            (ItemKind::Function, _) => {
+                let expected = match context.cell.s0.descriptor().is_struct() {
+                    true => format!("<{supplier} as {instance}>::{name}()"),
+                    false => String::from(crate::model::agreement::FUNCTION_DEFAULT),
+                };
+                writer.line(format!(
+                    "assert_eq!(<S as {instance}>::{name}(), {expected}, \"{name}\");"
+                ));
+            }
             (ItemKind::Const, Some(value)) => writer.line(format!(
                 "assert_eq!(<S as {instance}>::{name}, {value}, \"{name}\");"
             )),
@@ -337,13 +355,21 @@ fn write_observers(writer: &mut Writer, context: &Context) {
     // generic associated type as what the enum declares it, since the
     // projection would elide the lifetime of a subject that borrows apart
     // from its own.
-    let subject_type = match declared == Node::Gat {
-        true => super::context::VIEW.replace("<'v>", "<'_>"),
-        false => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    // A struct that takes the type from its field answers the payload's
+    // own loan, which shows as the payload's does.
+    let taken = declared == Node::Gat && context.cell.takes_gat_from_field();
+    let subject_type = match (declared == Node::Gat, taken) {
+        (true, true) => answer_type(&declared, 0).replace("&'a ", "&"),
+        (true, false) => super::context::VIEW.replace("<'v>", "<'_>"),
+        (false, _) => spell(&declared, "S", Associates::Qualified).replace("&'a ", "&"),
+    };
+    let side = match taken {
+        true => Side::Payload(0),
+        false => Side::Subject,
     };
     writer.line("/// Returns what the subject's answer shows.");
     writer.open(format!("fn observe(answer: {subject_type}) -> String {{"));
-    writer.line(observation(&declared, "answer", Side::Subject, 0));
+    writer.line(observation(&declared, "answer", side, 0));
     writer.close("}");
     writer.blank();
     for (slot, _, _) in context.cell.method_slots() {
@@ -840,10 +866,36 @@ fn write_method_checks(
             call(context, "S", "lent", None, "x")
         ));
     }
+    // A mutable getter does more than lend: "The getter runs as it would in
+    // your own code, so a `source_mut` that also clears a cache still
+    // clears it. A route to the field would skip that" (routes.md). A call
+    // that borrows its target mutably through it counts its loans, one for
+    // `self` and one for a `Self` argument, each by the route of its own
+    // borrow.
+    let getters = context.declared.iter().any(|slot| {
+        slot.target()
+            .is_some_and(|(_, target)| target.route_mut.is_some())
+    });
+    if getters {
+        writer.line("support::take_lent_mut();");
+    }
     writer.line(format!(
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
     ));
+    if getters {
+        let named = |slot: &Slot| {
+            slot.target()
+                .is_some_and(|(_, target)| target.route_mut.is_some())
+        };
+        let forwarded = *method == Expect::Twin;
+        let own = forwarded && exclusive && named(slot);
+        let argument_lent = forwarded && other_exclusive && !enum_argument && named(argument);
+        let loans = u64::from(own) + u64::from(argument_lent);
+        writer.line(format!(
+            "assert_eq!(support::take_lent_mut(), {loans}, \"loans of a mutable getter by m on {name} with x = {{x}}\");"
+        ));
+    }
     match method {
         Expect::Twin if context.inherent() => {
             writer.line(format!(

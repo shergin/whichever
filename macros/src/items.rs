@@ -11,11 +11,14 @@ use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    Attribute, Error, Ident, Result, Signature, TraitItem, TraitItemConst, TraitItemType, Type,
+    Attribute, Error, GenericParam, Ident, Result, Signature, TraitItem, TraitItemConst,
+    TraitItemType, Type,
 };
 
 use crate::builds::Builds;
-use crate::forwarding::{forward, Forward, Generated, Mark, Origin, TraitMethod};
+use crate::forwarding::{
+    forward, forward_associated, Associated, Forward, Generated, Mark, Origin, TraitMethod,
+};
 use crate::implement::Impl;
 use crate::partial::{BlockMethod, Forwarded};
 use crate::signatures::{carried_attributes, Method};
@@ -23,7 +26,6 @@ use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{allow_deprecated, is_deprecated};
 use crate::substitution::{Renaming, Substitution};
-use crate::words::Words;
 
 /// One thing an item of the trait becomes in the impl, decided before
 /// anything is written. An item the partial block writes in every build,
@@ -282,19 +284,44 @@ impl<'a> ItemWriter<'a> {
         if is_deprecated(&assoc.attrs) {
             carried.push(allow_deprecated(site));
         }
-        // A generic associated type has no supplier: written holding its
-        // sentence, as an item no variant can supply is, the impl stays
-        // complete and the sentence stands alone. Its parameters and `where`
-        // clause are the trait's, which the impl may not strengthen.
+        // A generic associated type is the struct's field's, where the
+        // field's type can be named: the same projection with the type's
+        // own parameters handed on. An enum's has no supplier, since
+        // nothing can check that the variants agree on it for every
+        // argument, and neither has a struct's field reached through a
+        // field or a method: it is written holding its sentence, as an
+        // item no variant can supply is, so that the impl stays complete
+        // and the sentence stands alone. Its parameters and `where` clause
+        // are the trait's, which the impl may not strengthen.
         if !assoc.generics.params.is_empty() {
+            let mut generics = assoc.generics.clone();
+            self.substitution.distinguish_generics(&mut generics);
+            self.substitution.visit_generics_mut(&mut generics);
+            self.substitution.check()?;
+            let where_clause = &generics.where_clause;
+            let supplied = match self.of.supplier {
+                Some(_) if self.of.subject.has_one_target() => Some(self.of.supplied(name)?),
+                _ => None,
+            };
+            if let Some(supplied) = supplied {
+                let arguments = generics.params.iter().map(|parameter| match parameter {
+                    GenericParam::Lifetime(parameter) => parameter.lifetime.to_token_stream(),
+                    GenericParam::Type(parameter) => parameter.ident.to_token_stream(),
+                    GenericParam::Const(parameter) => parameter.ident.to_token_stream(),
+                });
+                return Ok(quote_spanned! { *site =>
+                    #(#carried)* type #name #generics = #supplied<#(#arguments),*> #where_clause;
+                });
+            }
             let parameters = spelling::spelled(&assoc.generics);
-            let error = Error::new_spanned(
-                assoc,
-                format!("`{name}` is a generic associated type, which only the {} can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block", self.of.subject.words().subject()),
-            )
-            .to_compile_error();
-            let generics = &assoc.generics;
-            let where_clause = &assoc.generics.where_clause;
+            let subject = self.of.subject;
+            let message = if subject.has_one_target() {
+                // The field is reached through a field or a method.
+                format!("`{name}` is a generic associated type, and the field of `{}` is reached through a field or a method, so its type cannot be named to supply `{name}`; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block", subject.ident())
+            } else {
+                format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block")
+            };
+            let error = Error::new_spanned(assoc, message).to_compile_error();
             return Ok(quote_spanned! { *site =>
                 #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
             });
@@ -440,16 +467,16 @@ fn forward_trait_method(
     // A method the trait gives a body can be left to it; a restatement
     // lists its methods without one, and they count as required.
     let has_default = declared.has_default();
-    if signature.receiver().is_none() {
+    let has_receiver = signature.receiver().is_some();
+    // An enum has no variant to ask before it has a value: a method
+    // without a receiver is left to its default, or reported.
+    if !has_receiver && !subject.has_one_target() {
         if has_default {
             return Ok(TokenStream2::new());
         }
         return Err(Error::new_spanned(
             &function.sig,
-            match subject.words() {
-                Words::Enum => format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
-                Words::Struct => format!("`{method}` has no receiver, so there is no field to forward to; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
-            },
+            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
     // The enum's `mismatch` wins over the trait method's, and the names the
@@ -466,11 +493,7 @@ fn forward_trait_method(
             (mismatch, None)
         }
     };
-    let Generated {
-        signature,
-        allowances,
-        body,
-    } = forward(Forward {
+    let request = Forward {
         signature,
         origin: Origin::Trait {
             method: TraitMethod {
@@ -493,7 +516,25 @@ fn forward_trait_method(
         subject,
         site,
         body_site: Site::at(method.span()),
-    })?;
+    };
+    // A struct has one target, whose type it names: a method without a
+    // receiver is that type's, the provided ones included, so that what
+    // the field's type overrides is what the struct answers. One the type
+    // cannot be asked is left to its default, or reported.
+    let generated = if has_receiver {
+        forward(request)?
+    } else {
+        match forward_associated(request)? {
+            Associated::Forwarded(generated) => generated,
+            Associated::Left(_) if has_default => return Ok(TokenStream2::new()),
+            Associated::Left(error) => return Err(error),
+        }
+    };
+    let Generated {
+        signature,
+        allowances,
+        body,
+    } = generated;
     // The method's own `#[inline]`, the block's or the trait's, or ours.
     let own_attrs: &[Attribute] = match forwarded {
         Some(forwarded) => &forwarded.attrs,

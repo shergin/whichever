@@ -77,11 +77,13 @@ pub mod glossary {}
 /// [limits]: crate#requirements-and-limits
 /// [limits-conversions]: crate#conversions
 /// [limits-receivers]: crate#receivers
+/// [options-enum-inside-enum]: crate#conversions
 /// [options-from-false]: crate#conversions
 /// [options-mismatch]: crate#self-arguments-and-mismatch
 /// [options-name-type]: crate#associated-types-and-consts
 /// [options-name-value]: crate#associated-types-and-consts
 /// [partial-impl-blocks]: crate#partial-impl-blocks-write-some-methods-yourself
+/// [partial-impl-blocks-header]: crate#the-impl-header
 /// [partial-impl-blocks-names]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [restatements]: crate#traits-from-std-and-other-crates
 /// [restatements-any-trait]: crate#restate-any-other-trait
@@ -89,6 +91,9 @@ pub mod glossary {}
 /// [restatements-enums]: crate#enums-from-other-crates
 /// [restatements-provided-methods]: crate#restate-any-other-trait
 /// [routes]: crate#reaching-the-target-pointers-fields-and-methods
+/// [structs-cannot-be-asked]: crate#forwarding-from-a-struct-field
+/// [structs-some-builds]: crate#forwarding-from-a-struct-field
+/// [routes-mutable-borrow]: crate#where-you-write-a-route
 /// [what-is-generated]: crate#what-is-generated
 ///
 #[doc = include_str!("../docs/troubleshooting.md")]

@@ -4,7 +4,7 @@
 //! names the steps from the payload to the value the trait is called on:
 //! `*` for what the payload dereferences to, `.field` or `.0` for a field,
 //! `.method()` for what a method returns. `deref` is the route `*`.
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Group, Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, Index, LitFloat, LitInt, Member, Result, Token};
@@ -114,6 +114,11 @@ impl Route {
                     } else {
                         expression = quote_spanned!(*site => #expression.#method());
                     }
+                    // What the method returns is rustc's to judge against
+                    // what the arm hands it to, and the call is located at
+                    // the method's name in the route, so that the judgement
+                    // lands on the route and not on the subject.
+                    expression = located_at(expression, method.span());
                     derefs = 0;
                 }
             }
@@ -143,6 +148,23 @@ impl Route {
     pub(crate) fn spelled(&self) -> String {
         spelling::spelled(self)
     }
+}
+
+/// Returns `tokens` located at `span`, each token resolving as it did.
+fn located_at(tokens: TokenStream2, span: Span) -> TokenStream2 {
+    tokens
+        .into_iter()
+        .map(|mut tree| {
+            if let TokenTree::Group(group) = &tree {
+                let mut located = Group::new(group.delimiter(), located_at(group.stream(), span));
+                located.set_span(group.span().located_at(span));
+                tree = TokenTree::Group(located);
+            } else {
+                tree.set_span(tree.span().located_at(span));
+            }
+            tree
+        })
+        .collect()
 }
 
 impl Parse for Route {

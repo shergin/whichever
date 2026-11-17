@@ -56,11 +56,21 @@ On this page:
   calls the trait method on it, as a hand-written arm would. Implement
   the trait for the payload, or reach a target that implements it with a
   [route](routes.md).
+- **The impl's automatic bound is a bare parameter's.** A payload that is
+  a type parameter, `Raw(T)` or `Box<T>` under `deref`, gives the impl
+  `T: Trait`. A payload that only mentions one, `Wrapped(Boxed<T>)`,
+  gives none, and you get rustc's E0277 on the payload. What `Boxed<T>`'s
+  impl asks of `T` is not written in the enum. And a bound on the
+  payload's type would leave an enum that names itself,
+  `Node(Box<Tree<T>>)`, with an impl no type satisfies. List no trait on
+  the attribute, and write the header in an empty
+  [partial impl block](partial-impl-blocks.md#the-impl-header):
+  `impl<T: Shape> Shape for AnyShape<T> {}`, or `where Boxed<T>: Shape`.
 - **An enum that only forwards [inherent methods](inherent-methods.md)
   may hold variants of any other form.** Those variants have no payload
   to forward to, so they take the method's body.
-- **The marked field of a variant takes `deref` and `via = route`
-  only.** The other variant options belong to the variant itself:
+- **The marked field of a variant takes `deref`, `via = route` and
+  `via_mut = route` only.** The other variant options belong to the variant itself:
   `from` and `try_from` go on the variant, not on its field.
 - **A variant's marked field cannot list a trait**, as a struct's field
   may. The variant is already the target of every trait its enum
@@ -77,11 +87,12 @@ On this page:
 - **`Rc<Self>`, `Arc<Self>` and `Pin<Box<Self>>` receivers are not
   supported.** Forwarding them would need a refcount or an allocation,
   which a hand-written `match` does not do.
-- **A method without a receiver, such as `fn new() -> Self`, needs a
-  default body or an implementation of your own.** It has no value to
-  match on, so there is no variant to forward to. Give the trait method
-  a default body, which the enum then uses, or write the method in a
-  [partial impl block](partial-impl-blocks.md).
+- **On an enum, a method without a receiver, such as `fn new() -> Self`,
+  needs a default body or an implementation of your own.** It has no
+  value to match on, so there is no variant to forward to. Give the trait
+  method a default body, which the enum then uses, or write the method in
+  a [partial impl block](partial-impl-blocks.md). A struct forwards it to
+  its field's type, within the limits under [Structs](#structs).
 
 ## `Self` in arguments and return types
 
@@ -134,10 +145,23 @@ a limit: see [options.md](options.md).
 ## Methods that return `impl Trait`
 
 - **An enum cannot forward a method that returns `impl Trait`**, at any
-  depth of the return type. Each variant returns a different hidden
-  type, and a `match` needs one. The exception is
+  depth of the return type. A `match` must return one type, and the
+  variants' hidden types are usually different ones. Even where every
+  variant reaches a target of one type, as variants routed to fields of
+  the same type do, the attribute cannot tell: the type of a field or of
+  a method's result cannot be read off the payload. The exception is
   `impl Future<Output = T>`, which is awaited like an `async fn`.
-  Otherwise, return a concrete type or a boxed trait object.
+  Otherwise, return a concrete type or a boxed trait object. Where every
+  variant does reach one type, write the method in a
+  [partial impl block](partial-impl-blocks.md), through an accessor that
+  lends the common target.
+- **A method with a `Self` argument over several variants needs a
+  `mismatch`, even where every variant reaches one type** and a hand would
+  forward the two values. The attribute cannot tell that the targets
+  agree. If the trait gives the method a body, you can leave it to that
+  default with `#[dispatch(default)]` in a partial impl block. The
+  default calls the forwarded methods on both values, so it looks at
+  them, where a `mismatch` expression cannot.
 - **A struct forwards any `impl Trait`.** It forwards to one field, so
   there is only one hidden type.
 
@@ -159,11 +183,29 @@ A [route](routes.md) is the steps from the payload to the target: `*`
   [partial impl block](partial-impl-blocks.md). Where the method is
   under `*` with arms you write, write that variant's arm in the
   method's body instead.
-- **A route that ends in a method call cannot serve a method that borrows
-  mutably**: through `&mut self`, `self: Pin<&mut Self>` or a `&mut Self`
-  argument. The error says which of the three it is. The method call
-  returns a value that cannot be borrowed mutably. Route to a field
-  instead, or implement the method by hand.
+- **A route that ends in a method call serves a method that borrows
+  mutably only when a route is given for the mutable borrow**: through
+  `&mut self`, `self: Pin<&mut Self>` or a `&mut Self` argument. The
+  method call returns a value, handed over as it is, and the attribute
+  cannot see whether it is a `&mut`. Give the route for a mutable borrow,
+  `via_mut = ..` on the variant or the field, or `via_mut(Variant = ..)`
+  after the trait, or route through the method's own mark. Otherwise you
+  get an error that names `via_mut` and says which of the three borrows
+  it is, or implement the method by hand.
+- **`via_mut = route` after a trait is an error.** After a trait, a
+  route is keyed by what it goes through: write `via_mut(Variant =
+  route)`.
+- **A variant and its marked field cannot both give `via_mut`.** One of
+  them is the route; two would leave you guessing which wins.
+- **A method's own mark takes `via`, not `via_mut`.** The method follows
+  its own route whatever it borrows, and its receiver is beside the mark,
+  so a second route would say nothing.
+- **A route's method that returns its target by value serves `self`
+  alone.** Under `&self` or `&mut self`, the arm hands the value where a
+  reference is asked for, and rustc's mismatch ("expected `&_`") lands on
+  the method's name in the route. By hand you could borrow the temporary,
+  `&inner.parsed()`, which the attribute does not write. Implement the
+  method by hand, in a partial impl block for a trait.
 - **A `deref` variant over an `Rc`, an `Arc` or a `&T` cannot serve a
   method that borrows mutably.** Those pointers lend what they point at
   shared only. Hold a `Box` or a `&mut`.
@@ -234,10 +276,12 @@ method:
   Restate the trait with only the methods to forward, or leave the
   method to the trait's default with `#[dispatch(default)]` in a partial
   impl block.
-- **A generic associated type comes from the enum or the struct, in a
-  partial impl block.** It cannot come from the first variant or from
-  the struct's field, and no option on the attribute gives it. Write
-  `type Item<'a> = ..;` in a `#[whichever::dispatch] impl` block.
+- **An enum's generic associated type comes from a partial impl
+  block.** It cannot come from the first variant: nothing could check
+  that the variants agree on it for every argument. No option on the
+  attribute gives it either. Write `type Item<'a> = ..;` in a
+  `#[whichever::dispatch] impl` block. A struct takes it from its field's
+  type, except through a route, where the field's type cannot be named.
 - **An associated const is checked against every variant only in some
   cases.** An associated const is taken from the first variant without
   a check when:
@@ -297,6 +341,17 @@ and [inherent-methods.md](inherent-methods.md#forward-to-every-variant-but-a-few
 A [partial impl block](partial-impl-blocks.md) is a trait impl with
 `#[dispatch]` on it: you write some items, and the rest are forwarded.
 
+- **An option of a trait's impl goes after the trait, or on the block's
+  attribute.** An override (`Name = ..`), `mismatch(..)` or `via(..)` on
+  an enum's or a struct's attribute that lists no trait would be read by
+  no impl, so you get an error on the option. Write it after the trait,
+  `#[whichever::dispatch(Trait, mismatch(..))]`, or on the attribute of
+  the partial impl block that implements the trait. Where the enum or the
+  struct lists exactly one trait on its own attributes, the option is
+  read beside that trait as well, so the error stands alone. A name close
+  to one of the enum's or the struct's own options, `form = false`, is
+  reported as that option misspelled, and is not read.
+
 - **A macro invocation in a partial impl block is not read.** The items
   it writes could not be told apart from the ones to forward, so you get
   an error. Write the items out in the block.
@@ -310,10 +365,10 @@ The `#[cfg]` rules for the other items a block cannot read are under
 
 ## Inherent methods
 
-- **An inherent method without a receiver cannot be forwarded.** It has
-  no value to match on, so there is no variant to forward to. Leave the
-  `#[dispatch(..)]` off and give it a body: methods without one are left
-  alone.
+- **On an enum, an inherent method without a receiver cannot be
+  forwarded.** It has no value to match on, so there is no variant to
+  forward to. Leave the `#[dispatch(..)]` off and give it a body: methods
+  without one are left alone. A struct forwards it to its field's type.
 - **An inherent method cannot list a variant without a payload.** There
   is nothing in it to forward to. Leave the variant out of the list; it
   runs the method's body.
@@ -324,10 +379,11 @@ The `#[cfg]` rules for the other items a block cannot read are under
 - **`with` takes the path of a function, not a closure.** `with` calls
   that function on each arm's result. Write a helper function instead,
   generic over the result when the payloads' results differ.
-- **Another crate's enum gets no inherent block.** The language allows
-  an inherent impl only in the type's own crate, so a
-  [restated](restatements.md#enums-from-other-crates) enum cannot have
-  one. Forward through a trait of your crate, or write free functions.
+- **Another crate's enum or struct gets no inherent block.** The language
+  allows an inherent impl only in the type's own crate, so a
+  [restated](restatements.md#enums-from-other-crates) enum or
+  [struct](restatements.md#structs-from-other-crates) cannot have one.
+  Forward through a trait of your crate, or write free functions.
 
 The other limits of [inherent methods](inherent-methods.md) sit with the
 topic they touch:
@@ -386,6 +442,22 @@ of its fields. See [structs.md](structs.md).
 - **Two different traits with the same name look like one.** A `Named`
   and a `wire::Named` are taken for one name spelled two ways. Import one
   of them under another name to tell them apart.
+- **A method without a receiver is the field type's only where the struct
+  names that type**: the one field or the marked one, directly or through
+  `deref`. These are left as on an enum:
+  - a function that takes a `Self` argument, which is unwrapped beside a
+    receiver only;
+  - a function over a field that holds a trait object, which has no
+    function to call without a value;
+  - a function over a field reached through a field or a method, whose
+    type the struct does not say.
+
+  A provided one is left to the trait's default. A required one is an
+  error: give it a default body, or write it in a partial impl block. An
+  inherent one is an error that asks for a body. `-> Self` is built only
+  around a struct with no other field.
+- **`field` and `value` on an inherent method without a receiver are an
+  error.** There is no value whose field they could hand over.
 - **A struct takes no conversion options.** `from`, `try_from` and
   `into` are options of an enum; a struct gets no conversions, so they
   are an error on it.
@@ -412,6 +484,27 @@ once, whatever attributes it has. See [options.md](options.md).
 - **Nor does it get `TryFrom` under `try_from`.** `TryFrom<Enum> for T`
   would implement a foreign trait for a type parameter, which the orphan
   rules forbid. Add `#[dispatch(try_from = false)]` on that variant.
+- **A payload that is an associated type of a type parameter,
+  `Out(S::Out)` or `Out(<S as Source>::Out)`, gets no `From`, even when
+  it is the only variant.** `S::Out` may be any type, the enum itself
+  included, so `From<S::Out>` would overlap `core`'s `From<T> for T`. A
+  hand cannot write that impl either. Add `from = false` on the enum, or
+  `#[dispatch(from = false)]` on that variant.
+- **Nor does it get `TryFrom` under `try_from`.** For the same reason,
+  `TryFrom<Enum> for S::Out` would overlap the `TryFrom` that `core`
+  implements for every type. Add `#[dispatch(try_from = false)]` on that
+  variant.
+- Not a limit: a projection from a type that is not a type parameter,
+  such as `<Fixed as Source>::Out`. rustc can name that type, so the
+  payload gets its `From` and `TryFrom` like any other.
+- **The `From` impls reach one level.** An enum held by another gives the
+  outer enum `From<Inner>`, and nothing for the inner enum's payloads,
+  because the outer attribute cannot see what the inner enum holds. Write
+  one blanket impl, `impl<T> From<T> for Outer where Inner: From<T>`, with
+  `#[dispatch(from = false)]` on the variant, as
+  [options.md](options.md#an-enum-inside-an-enum) shows. It fits one inner
+  enum per outer enum, and not an inner enum of another crate beside a
+  direct payload of another crate.
 - **`into = Target` needs every variant to hold a payload.** It converts
   every variant's payload, so a variant without one, or with other
   fields beside its payload, is an error. Write the `From<Enum> for
@@ -419,7 +512,14 @@ once, whatever attributes it has. See [options.md](options.md).
 - **A restated enum takes no conversion options**, not even
   `from = false`. `From`, `TryFrom` and `into` would implement a foreign
   trait for another crate's type, which the orphan rules forbid, so it
-  gets no conversions at all. Leave the options off.
+  gets no conversions at all. Leave the options off. A restated struct
+  gets the error any struct gets for them.
+- **`remote` goes on the enum's or the struct's own attribute.** It
+  restates the type, and a partial impl block's attribute takes the
+  trait's options only, so `remote` there is an error.
+- **A restated struct's pattern ends in `..`**, so a field the
+  restatement leaves out is not caught. `-> Self` built around a struct
+  that has such fields fails against the real struct.
 
 ## `#[cfg]`
 
@@ -434,6 +534,20 @@ once, whatever attributes it has. See [options.md](options.md).
   The carrier macro is written once per combination of them, so you get
   the error on the fifth. Combine the predicates, or move the items under
   the fifth to a trait of their own.
+
+- **A mark cannot go under `cfg_attr`.** That covers
+  `#[cfg_attr(feature = "x", dispatch)]` on a struct's field, a variant, a
+  variant's field or a method of a block. An attribute macro is handed its
+  item before a `cfg_attr` inside the item is decided, and a macro cannot
+  decide a predicate itself, so such a mark would be read in no build. You
+  get an error on the mark, and the item is read as if the mark were
+  plain, so nothing else follows. Instead:
+  - a struct marks its field in every build, with a bare
+    `#[whichever::dispatch]` beside the trait's attribute under
+    `cfg_attr` (see [structs.md](structs.md#a-trait-in-some-builds-only));
+  - a variant or a method whose mark differs between builds is written
+    twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]`
+    without it.
 
 An associated type or const under `#[cfg]` in a partial impl block is
 under [Associated types and consts](#associated-types-and-consts).

@@ -1,0 +1,11 @@
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; mark the field in every build, with a bare `#[whichever::dispatch]` on the struct where its own attributes are under `cfg_attr`
+  --> tests/ui/mark_under_cfg_attr_on_a_struct_field.rs:20:23
+   |
+20 |     #[cfg_attr(all(), dispatch)]
+   |                       ^^^^^^^^
+
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; mark the field in every build, with a bare `#[whichever::dispatch]` on the struct where its own attributes are under `cfg_attr`
+  --> tests/ui/mark_under_cfg_attr_on_a_struct_field.rs:27:23
+   |
+27 |     #[cfg_attr(any(), dispatch(deref), allow(unused))]
+   |                       ^^^^^^^^^^^^^^^

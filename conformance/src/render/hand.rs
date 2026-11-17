@@ -11,6 +11,7 @@ use super::context::{
     constructor, is_struct, pattern, target_type, variant, write_struct, Context, Site, HOLE,
 };
 use super::writer::Writer;
+use crate::model::agreement::{AssociatedItem, ItemKind};
 use crate::model::argument::ArgumentKind;
 use crate::model::path::Form as PathForm;
 use crate::model::receiver::{Binding, Handover};
@@ -215,6 +216,23 @@ struct Method {
     conditional: Vec<(usize, &'static str)>,
 }
 
+/// Writes a trait's method without a receiver as the hand forwards it: to
+/// the field's type on a struct, and on an enum not at all: "A trait method
+/// without a receiver is the field type's, `<Square as Shape>::kind()`.
+/// That includes provided methods, so the field's override of one is what
+/// the struct answers" (structs.md).
+fn write_function(writer: &mut Writer, context: &Context, item: &AssociatedItem, trait_path: &str) {
+    if !is_struct(&context.slots) {
+        return;
+    }
+    writer.line("#[inline]");
+    writer.line(item.definition(&format!(
+        "<{} as {trait_path}>::{}()",
+        context.supplier_payload(),
+        item.name
+    )));
+}
+
 /// Writes `mod hand`.
 pub fn write(writer: &mut Writer, context: &Context) {
     writer.line("/// The same subject with the forwarding written by hand.");
@@ -295,6 +313,13 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 context.supplier_payload(),
                 context.trait_path()
             ),
+            // "A generic associated type is the field type's too"
+            // (structs.md), where no block declares it.
+            (Associated::Item, _) if context.cell.takes_gat_from_field() => format!(
+                "<{} as {}>::Item<'v>",
+                context.supplier_payload(),
+                context.trait_path()
+            ),
             // The enum declares it, as the block does.
             (Associated::Item, _) => String::from(super::context::VIEW),
         };
@@ -303,6 +328,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
     // An item the enum fixes is the value fixed, and any other is the
     // supplier's (what-is-generated.md).
     for item in context.agreement.items {
+        if item.kind == ItemKind::Function {
+            write_function(writer, context, item, &context.trait_path());
+            continue;
+        }
         let value = item.overridden.map_or_else(
             || {
                 format!(
@@ -557,6 +586,10 @@ fn write_other(writer: &mut Writer, context: &Context) {
         context.type_generics()
     ));
     for item in context.agreement.items {
+        if item.kind == ItemKind::Function {
+            write_function(writer, context, item, OTHER);
+            continue;
+        }
         let value = item.overridden.map_or_else(
             || format!("<{} as {OTHER}>::{}", context.supplier_payload(), item.name),
             String::from,
@@ -766,6 +799,11 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
                 false => (Wrapping::BoxedBlock, true, conversion),
             }
         }
+        // A generic associated type taken from the field's type is the
+        // payload's own, handed over as it is.
+        None if one_arm && method.node == Node::Gat && context.cell.takes_gat_from_field() => {
+            (Wrapping::Plain, method.asyncness, Some(Conversion::Keep))
+        }
         None if one_arm => (
             Wrapping::Plain,
             method.asyncness,
@@ -852,6 +890,17 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     writer.close("}");
 }
 
+/// Returns the path the hand names its subject by in an arm: `E`, or over
+/// a restated struct `self::E`, a path to a struct as the real struct's is,
+/// which the attribute names by its path in the other crate.
+fn hand_path(slot: &Slot) -> &'static str {
+    let is_struct = slot.target().is_some_and(|(_, target)| target.is_struct());
+    match slot.restated && is_struct {
+        true => "self::E",
+        false => "E",
+    }
+}
+
 fn arm(
     slot: &Slot,
     target: &TargetDescriptor,
@@ -861,14 +910,21 @@ fn arm(
     awaited: bool,
     conversion: &Conversion,
 ) -> String {
-    let own = Place::of("inner", binding, target.route);
+    // A method that borrows its target mutably takes the route named for
+    // that, where the variant names one: "Each `Self` argument takes the
+    // route of its own borrow" (routes.md).
+    let own = Place::of(
+        "inner",
+        binding,
+        target.route_for(binding == Binding::Exclusive),
+    );
     let by_place = method.matches_by_place(binding);
     let bound = match (by_place, binding) {
         (true, Binding::Shared) => "ref inner",
         (true, Binding::Exclusive) => "ref mut inner",
         (true, Binding::Owned) | (false, _) => "inner",
     };
-    let mut pattern_text = pattern("E", slot, target, bound);
+    let mut pattern_text = pattern(hand_path(slot), slot, target, bound);
     // The `Self` argument: the enum handed over as it is, or the same
     // variant's target, matched beside `self`.
     let mut other_argument = None;
@@ -881,8 +937,15 @@ fn arm(
         match method.hands_enum {
             true => other_argument = Some(String::from("other")),
             false => {
-                let other = Place::of("same", other_binding, target.route);
-                pattern_text = format!("({pattern_text}, {})", pattern("E", slot, target, "same"));
+                let other = Place::of(
+                    "same",
+                    other_binding,
+                    target.route_for(other_binding == Binding::Exclusive),
+                );
+                pattern_text = format!(
+                    "({pattern_text}, {})",
+                    pattern(hand_path(slot), slot, target, "same")
+                );
                 other_argument = Some(other.handed(other_handover));
             }
         }
@@ -938,7 +1001,7 @@ fn arm(
     if awaited {
         call = format!("{call}.await");
     }
-    let variant = constructor("E", slot);
+    let variant = constructor(hand_path(slot), slot);
     format!(
         "{pattern_text} => {},",
         convert(conversion, &call, &variant)
@@ -1023,7 +1086,7 @@ fn inherent_value(
             match method.lift {
                 Lift::Into => format!("Into::into({call})"),
                 Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => {
-                    let variant = constructor("E", slot);
+                    let variant = constructor(hand_path(slot), slot);
                     convert(conversion, &call, &variant)
                 }
             }

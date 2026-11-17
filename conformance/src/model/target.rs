@@ -107,6 +107,10 @@ pub struct TargetDescriptor {
     pub form: Form,
     /// The steps from the stored value to the payload.
     pub route: &'static [Step],
+    /// The steps a method that borrows its target mutably takes instead,
+    /// where the variant or its field names them with `via_mut`: "a second
+    /// route for the methods that borrow the target mutably" (routes.md).
+    pub route_mut: Option<&'static [Step]>,
     /// The option written in `#[dispatch(..)]` on the variant, or on the
     /// marked field: `deref`, `via = .payload`.
     pub option: Option<&'static str>,
@@ -114,9 +118,34 @@ pub struct TargetDescriptor {
     /// trait's name or a conversion option, which is the subject's one
     /// sentence (limits.md).
     pub refused: bool,
+    /// Whether the mark is written under `cfg_attr`, `#[cfg_attr(all(),
+    /// dispatch)]`: "A mark cannot go under `cfg_attr`. [..] You get an
+    /// error on the mark, and the item is read as if the mark were plain,
+    /// so nothing else follows" (limits.md).
+    pub under_cfg_attr: bool,
 }
 
 impl TargetDescriptor {
+    /// Returns the steps a method takes to the target: those named for a
+    /// mutable borrow where it borrows `exclusive`ly and the variant names
+    /// them, and the route otherwise. "A method that borrows the target
+    /// mutably follows `via_mut`. That is a method taking `&mut self` or
+    /// `self: Pin<&mut Self>`, and a `&mut Self` argument. Every other
+    /// method follows `via`" (routes.md).
+    pub fn route_for(&self, exclusive: bool) -> &'static [Step] {
+        match (exclusive, self.route_mut) {
+            (true, Some(route)) => route,
+            (true, None) | (false, _) => self.route,
+        }
+    }
+
+    /// Returns whether a mutable borrow would go through a method call
+    /// that no route names for one: the route ends in a call, and the
+    /// variant names no `via_mut`.
+    pub fn borrows_mutably_through_a_call(&self) -> bool {
+        self.route_mut.is_none() && self.ends_in_method()
+    }
+
     /// Returns whether the target is reached through a route, `deref`
     /// included, rather than being the stored value.
     pub fn is_routed(&self) -> bool {
@@ -240,6 +269,12 @@ const YIELD: &[Step] = &[Step::Yield("copied")];
 const DEREF_FIELD: &[Step] = &[Step::Deref, Step::Field("payload")];
 const INDEX_FIELD: &[Step] = &[Step::Field("1"), Step::Field("payload")];
 const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
+const METHOD_MUT: &[Step] = &[Step::Method("lend_mut")];
+
+/// The option of a variant or a field that reaches its target through a
+/// getter pair: "A type with a getter pair therefore needs two routes.
+/// Write the second with `via_mut`" (routes.md).
+const GETTERS: &str = "via = .lend(), via_mut = .lend_mut()";
 
 impl Target {
     /// Returns whether the struct's field names the trait under test as an
@@ -268,6 +303,8 @@ impl Target {
             route,
             option,
             refused: false,
+            under_cfg_attr: false,
+            route_mut: None,
         };
         let deref = |pointer| single(Storage::Pointer(pointer), DEREF, Some("deref"));
         match self {
@@ -287,6 +324,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedStruct => TargetDescriptor {
                 storage: Storage::Payload,
@@ -294,6 +333,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::Struct => TargetDescriptor {
                 storage: Storage::Payload,
@@ -301,6 +342,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::StructNamed => TargetDescriptor {
                 storage: Storage::Payload,
@@ -308,6 +351,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::StructMarked => TargetDescriptor {
                 storage: Storage::Payload,
@@ -315,6 +360,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedVia => TargetDescriptor {
                 storage: Storage::Wrapper,
@@ -322,6 +369,8 @@ impl Target {
                 route: FIELD,
                 option: Some("via = .payload"),
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::DerefBoxField => single(
                 Storage::WrapperBehind(Pointer::Box),
@@ -348,6 +397,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedDeref => TargetDescriptor {
                 storage: Storage::Pointer(Pointer::Box),
@@ -355,6 +406,8 @@ impl Target {
                 route: DEREF,
                 option: Some("deref"),
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedTrait => TargetDescriptor {
                 storage: Storage::Payload,
@@ -362,6 +415,8 @@ impl Target {
                 route: &[],
                 option: Some("Probe"),
                 refused: true,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedConversion => TargetDescriptor {
                 storage: Storage::Payload,
@@ -369,6 +424,8 @@ impl Target {
                 route: &[],
                 option: Some("from = false"),
                 refused: true,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::MarkedLast => TargetDescriptor {
                 storage: Storage::Payload,
@@ -376,6 +433,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::StructMarkedLast => TargetDescriptor {
                 storage: Storage::Payload,
@@ -383,6 +442,8 @@ impl Target {
                 route: &[],
                 option: None,
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::StructTrait => TargetDescriptor {
                 storage: Storage::Payload,
@@ -390,6 +451,8 @@ impl Target {
                 route: &[],
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
             Target::StructTraitSpelt => TargetDescriptor {
                 storage: Storage::Payload,
@@ -397,6 +460,26 @@ impl Target {
                 route: &[],
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
+            },
+            Target::ViaGetters => TargetDescriptor {
+                route_mut: Some(METHOD_MUT),
+                ..single(Storage::Wrapper, METHOD, Some(GETTERS))
+            },
+            Target::MarkedGetters => TargetDescriptor {
+                route: METHOD,
+                route_mut: Some(METHOD_MUT),
+                option: Some(GETTERS),
+                ..Target::MarkedVia.descriptor()
+            },
+            Target::MarkedCfgAttr => TargetDescriptor {
+                under_cfg_attr: true,
+                ..Target::MarkedTuple.descriptor()
+            },
+            Target::StructMarkedCfgAttr => TargetDescriptor {
+                under_cfg_attr: true,
+                ..Target::StructMarked.descriptor()
             },
             Target::StructTraitSelf => TargetDescriptor {
                 storage: Storage::Payload,
@@ -404,6 +487,8 @@ impl Target {
                 route: &[],
                 option: Some(ROOTED_TRAIT_ON_FIELD),
                 refused: false,
+                under_cfg_attr: false,
+                route_mut: None,
             },
         }
     }
@@ -446,6 +531,7 @@ impl Second {
             Second::ViaIndexField => LaterSlot::Live(Target::ViaIndexField),
             Second::ViaMethodField => LaterSlot::Live(Target::ViaMethodField),
             Second::DerefObject => LaterSlot::Live(Target::DerefObject),
+            Second::ViaGetters => LaterSlot::Live(Target::ViaGetters),
         }
     }
 }

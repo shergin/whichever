@@ -1,0 +1,11 @@
+error: unknown option `form`; did you mean `from = ..`?
+  --> tests/ui/misspelled_option_on_an_attribute_naming_no_trait.rs:17:23
+   |
+17 | #[whichever::dispatch(form = false)]
+   |                       ^^^^
+
+error: unknown option `remot`; did you mean `remote = ..`?
+  --> tests/ui/misspelled_option_on_an_attribute_naming_no_trait.rs:23:23
+   |
+23 | #[whichever::dispatch(remot = other::A)]
+   |                       ^^^^^

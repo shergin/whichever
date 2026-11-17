@@ -1,0 +1,5 @@
+error: `from`, `try_from` and `into` are options of an enum; a struct gets no conversions
+ --> tests/ui/restated_struct_conversions.rs:8:45
+  |
+8 | #[whichever::dispatch(remote = other::Solo, from = true)]
+  |                                             ^^^^

@@ -101,6 +101,21 @@ axis! {
         /// begins with a keyword, `#[dispatch(self::Probe)]`, as its home
         /// spells it too: one spelling, so the trait goes to `held`.
         StructTraitSelf = "struct-trait-self",
+        /// `#[dispatch(via = .lend(), via_mut = .lend_mut())] A(W0)`: a
+        /// getter pair of a wrapper: "A method that borrows the target
+        /// mutably follows `via_mut`. [..] Every other method follows `via`"
+        /// (routes.md).
+        ViaGetters = "via-getters",
+        /// `A { label: u64, #[dispatch(via = .lend(), via_mut =
+        /// .lend_mut())] held: W0 }`, the getter pair on a marked field.
+        MarkedGetters = "marked-getters",
+        /// `A(#[cfg_attr(all(), dispatch)] P0, u64)`, the mark of a tuple
+        /// variant's field under `cfg_attr`: "You get an error on the mark,
+        /// and the item is read as if the mark were plain" (limits.md).
+        MarkedCfgAttr = "marked-cfg-attr",
+        /// `pub struct E { pub label: u64, #[cfg_attr(all(), dispatch)] pub
+        /// held: P0 }`, the same mark on a struct's field.
+        StructMarkedCfgAttr = "struct-marked-cfg-attr",
     }
 }
 
@@ -149,6 +164,8 @@ axis! {
         /// `#[dispatch(deref)] B(Box<dyn Probe>)`, a `P1` held as a trait
         /// object.
         DerefObject = "deref-dyn",
+        /// `#[dispatch(via = .lend(), via_mut = .lend_mut())] B(W1)`.
+        ViaGetters = "via-getters",
     }
 }
 
@@ -418,7 +435,9 @@ axis! {
         /// otherwise warn of.
         Allow = "allow",
         /// `#[inline(always)]`, which the forwarding takes instead of
-        /// `#[inline]`.
+        /// `#[inline]`; on a required method, "The carrier macro keeps it
+        /// for them, and `#[dispatchable]` takes it off the trait's own
+        /// method" (what-is-generated.md).
         Inline = "inline-always",
         /// `where Self: Sized`, which a trait object does not meet
         /// (limits.md).
@@ -541,6 +560,11 @@ axis! {
         /// every subject forwards, `fn kind(&self) -> Self::Kind`, whose
         /// arms meet the types the payloads give.
         TypeReturned = "type-returned",
+        /// `fn label() -> u64 { 7 }`, a provided method without a receiver
+        /// that every payload overrides: "On an enum, left to the trait's
+        /// default body [..]. On a struct, `<Target as Trait>::method(args..)`"
+        /// (what-is-generated.md).
+        Function = "function",
     }
 }
 

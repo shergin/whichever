@@ -194,11 +194,21 @@
 //! - **`#[dispatch(try_from = true)]`** adds the `TryFrom` impl for that
 //!   variant's payload alone.
 //!
+//! The `From` impls reach one level: an enum held by another gives the outer
+//! enum `From<Inner>`, not the inner enum's payloads. One blanket impl by
+//! hand reaches them, `impl<T> From<T> for Outer where Inner: From<T>`,
+//! calling `Outer::Inner(Inner::from(value))`, with `#[dispatch(from =
+//! false)]` on the variant, whose own `From<Inner>` the blanket covers.
+//!
 //! A payload type that two variants hold gets no `From` either way: there
 //! would be two impls of the same `From`, one per variant. Neither does a
 //! payload that is a type parameter of the enum, because `From<T>` would
 //! overlap the other variants' impls; the error asks for `from = false`, on
-//! the enum or on that variant.
+//! the enum or on that variant. A payload that is an associated type of a
+//! type parameter, `Out(S::Out)`, may be any type, the enum included, so
+//! its `From` would overlap `From<T> for T`; you get an error asking for
+//! `#[dispatch(from = false)]` on it. A projection from a concrete type,
+//! `<Fixed as Source>::Out`, gets its `From`.
 //!
 //! Some variants and types get no conversions at all: a variant with other
 //! fields beside the payload
@@ -309,6 +319,8 @@
 //! A generic associated type cannot come from the first variant, and no
 //! option gives one. You declare it in a
 //! [partial impl block](#partial-impl-blocks-write-some-methods-yourself).
+//! A struct takes it from its field's type instead, where it can name that
+//! type.
 //!
 //! ## `Self` arguments and `mismatch`
 //!
@@ -582,7 +594,10 @@
 //! - **Payloads that are type parameters.** A payload that is a type
 //!   parameter of the enum gives the impl the bound you would write by hand:
 //!   `Raw(Raw)` on `enum Lazy<Raw, Parsed>`, or `Box<Raw>` under `deref`,
-//!   gives `Raw: Trait`. A struct's field works the same way.
+//!   gives `Raw: Trait`. A struct's field works the same way. A payload
+//!   that only mentions a parameter, `Boxed<T>`, gives none: what its own
+//!   impl asks of `T` is not written in the enum. An empty partial impl
+//!   block writes that header, `impl<T: Shape> Shape for AnyShape<T> {}`.
 //! - **Any other header.** A trait generic over its own parameter, for
 //!   every `F`, needs a header the attribute cannot write. An empty
 //!   [partial impl block](#the-impl-header) gives it one.
@@ -652,16 +667,19 @@
 //! ### Where you write a route
 //!
 //! - **On a variant or a struct field**, for every trait:
-//!   `#[dispatch(via = .base)]`.
+//!   `#[dispatch(via = .base)]`. A second route, `via_mut = route`, serves
+//!   the methods that borrow the target mutably; see below.
 //! - **On one field of a variant with several**, as the marker:
 //!   `Node { id: u32, #[dispatch] data: Data }`. The arm's pattern skips the
-//!   other fields with `_` or `..`. The marked field takes `deref` or
-//!   `via = route`, and nothing else.
+//!   other fields with `_` or `..`. The marked field takes `deref`,
+//!   `via = route` or `via_mut = route`, and nothing else.
 //! - **On the enum's attribute, for one trait**, when the route through one
 //!   variant differs from trait to trait: `via(Variant = route)` after the
-//!   trait path, as in the example below. For that trait, it wins over the
-//!   variant's own route.
-//! - **On an inherent method**, for that method alone; see
+//!   trait path, as in the example below. For that trait, it wins over both
+//!   of the variant's own routes. `via_mut(Variant = route)` given alone
+//!   replaces the variant's `via_mut` only.
+//! - **On an inherent method, or a marked method of a partial impl block**,
+//!   for that method alone, whatever it borrows; see
 //!   [inherent methods](#inherent-methods).
 //!
 //! ```
@@ -714,9 +732,17 @@
 //!
 //! ### What a route cannot do
 //!
-//! - **A route that ends in a method call serves `&self` and `self`
-//!   methods, not `&mut self`.** You cannot borrow mutably through a call's
-//!   result. Route to a field instead, or write the method by hand.
+//! - **A route that ends in a method call hands over what the method
+//!   returns**, so one method serves one way of borrowing. A getter pair
+//!   takes two routes: `#[dispatch(via = .source(), via_mut =
+//!   .source_mut())]`. A method that borrows the target mutably (`&mut
+//!   self`, `self: Pin<&mut Self>` or a `&mut Self` argument) follows
+//!   `via_mut`, every other method follows `via`, and each `Self` argument
+//!   takes the route of its own borrow. Without `via_mut`, such a method
+//!   through a method route is an error that names it. What the route's
+//!   method returns is rustc's to judge, at the method's name in the route:
+//!   a method returning its target by value under `&self` is "expected
+//!   `&_`" there, and is written by hand.
 //! - **A method returning `Self` cannot use a routed variant**, `deref`
 //!   included, nor a variant with other fields beside the marked one. The
 //!   result is a new target, and the rest of the payload is gone, so there
@@ -1013,8 +1039,8 @@
 //!
 //! ## Partial impl blocks: write some methods yourself
 //!
-//! Forwarding does not fit every trait method. A method without a receiver,
-//! such as a constructor, has no variant to forward to. And sometimes the
+//! Forwarding does not fit every trait method. On an enum, a method without
+//! a receiver, such as a constructor, has no variant to forward to. And sometimes the
 //! enum should return something different from every payload.
 //!
 //! For these, write a *partial impl block*: a trait impl block with
@@ -1076,10 +1102,12 @@
 //!   is the impl. If you list the trait in both places, you get an error on
 //!   the block.
 //! - **The trait's options go on the block's attribute**: overrides such as
-//!   `Name = Type`, and `mismatch`.
+//!   `Name = Type`, and `mismatch`. On the enum's own attribute, which lists
+//!   no trait, they are an error, since no impl would read them there.
 //! - **An associated type written in the block is an override too**, as if
 //!   you had written `Name = Type` on the attribute.
-//! - **A generic associated type is declared here.** No first variant can
+//! - **An enum's generic associated type is declared here**, and so is a
+//!   struct's whose field is reached through a route. No first variant can
 //!   supply one, so you declare it in the block,
 //!   `type Item<'a> = AnyItem<'a> where Self: 'a;`, and each payload's own
 //!   type converts into it through `Into`, as for any override.
@@ -1148,7 +1176,9 @@
 //!   lifetime, `impl<'r> Renderable<'r> for Node {}`;
 //! - one instantiation of a generic enum;
 //! - a bound on a type parameter beyond the `Param: Trait` the impl gets on
-//!   its own.
+//!   its own. That bound comes only from a payload that is the parameter
+//!   itself; a payload that mentions it, `Boxed<T>`, needs the block's
+//!   `impl<T: Shape> Shape for AnyShape<T> {}`.
 //!
 //! ### Names, attributes and what the block cannot hold
 //!
@@ -1298,6 +1328,10 @@
 //!   rules and the language refuse both for a type from another crate.
 //! - For a partial impl block, import the real enum under the restatement's
 //!   name and write the block on it.
+//! - A struct from another crate is restated the same way, with `remote` on
+//!   its attribute. The restatement lists only the fields its impls forward
+//!   to: the real struct may have more, and the impl's pattern ends in `..`.
+//!   It gets no inherent impl either, and no conversions, as no struct does.
 //!
 //! ## Forwarding from a struct field
 //!
@@ -1380,6 +1414,15 @@
 //! - **A struct gets no `From` impls.**
 //! - **`Self` arguments need no `mismatch`.** Two values of the struct always
 //!   hold the same field, and the argument is unwrapped to it.
+//! - **What needs no value comes from the field's type**, where the struct
+//!   names it: the one field or the marked one, directly or through
+//!   `deref`. A trait method without a receiver is
+//!   `<Square as Shape>::kind()`, the provided ones included; a generic
+//!   associated type is `<Square as Shape>::Side<'a>`; and an inherent
+//!   method without a receiver, marked in a block, is a path call such as
+//!   `#[dispatch(*, call = from)] pub fn from_u64(v: u64) -> Self;`. A
+//!   function with a `Self` argument, a field holding a trait object and a
+//!   field reached through a route stay as on an enum.
 //!
 //! # Reference
 //!
@@ -1399,13 +1442,15 @@
 //! | [`try_from = true`, `ref`, `ref_mut`](#conversions) | on the enum, after the trait path | Adds `TryFrom<Enum> for Payload`, and the by-reference forms. |
 //! | [`into = Target`](#conversions) | on the enum, after the trait path | Adds `From<Enum> for Target`. |
 //! | [`via(Variant = route)`](#where-you-write-a-route) | on the enum, after the trait path | A route through `Variant` for this trait only. |
+//! | [`via_mut(Variant = route)`](#where-you-write-a-route) | on the enum, after the trait path | The same, for the methods that borrow the target mutably. |
 //! | [`from = false`](#conversions) | on a variant | Leaves the variant out of `From` and `TryFrom`. |
 //! | [`try_from = true`](#conversions) | on a variant | Adds `TryFrom` for this variant's payload alone. |
 //! | [`deref`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | Calls the trait on what the payload dereferences to. |
 //! | [`via = route`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | Calls the trait on a field of the payload, or on what a method returns. |
+//! | [`via_mut = route`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | The route the methods that borrow the target mutably take instead. |
 //! | [`#[dispatch]`](#where-you-write-a-route) | on one field of a variant | Picks the field to forward to, in a variant with several fields or a named one. |
 //! | [`#[dispatch(Trait)]`](#forwarding-from-a-struct-field) | on a struct's field | Makes the field the target of that trait. |
-//! | [`#[dispatch(remote = path)]`](#enums-from-other-crates) | on an enum, as an attribute of its own | Restates an enum another crate defines. |
+//! | [`#[dispatch(remote = path)]`](#enums-from-other-crates) | on an enum or a struct, as an attribute of its own | Restates an enum or a struct another crate defines. |
 //!
 //! Four options go on a variant: `from = false`, `try_from = true`, `deref`
 //! and `via = route`.
@@ -1435,7 +1480,7 @@
 //! | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`. Different variants return the `mismatch` expression. |
 //! | return `Self` | Wrapped back into the same variant. |
 //! | return `Self::X` with `X` overridden | Converted with `Into`. |
-//! | method without a receiver | Left to the trait's default body, or written by you in a partial impl block. An error if it has neither. |
+//! | method without a receiver | On an enum, left to the trait's default body, or written by you in a partial impl block; an error if it has neither. On a struct, `<Target as Trait>::method(args..)`. |
 //! | `#[cfg]` on a method or an associated item | Decided in the trait's crate. |
 //! | `#[cfg]` on a variant | Carried onto the variant's arm, and decided where the enum is. |
 //! | `#[deprecated]` on a variant | Arms and conversions written under `#[allow(deprecated)]`. |
@@ -1458,8 +1503,10 @@
 //!   it is forwarded as it is. When `T` is rewrapped or converted, every arm
 //!   is awaited in one `async move` block, which is boxed and pinned again
 //!   with the `Box` the signature names, as `#[async_trait]` itself does.
-//! - **Other `impl Trait`.** On an enum, each arm would return a different
-//!   opaque type. A struct's one arm returns one.
+//! - **Other `impl Trait`.** An error on an enum: a `match` returns one
+//!   type, and the attribute cannot tell that the variants' opaque types are
+//!   one, even where every variant reaches a target of one type. A struct's
+//!   one arm returns one.
 //! - **Overridden types.** A return of `Self::X` is converted with `Into`;
 //!   inside `Option` or `Result` with `map(Into::into)`, and
 //!   `Result<_, Self::X>` with `map_err(Into::into)`. See
@@ -1572,8 +1619,11 @@
 //!   `self: Pin<&mut Self>` when every payload is `Unpin`.** `Rc<Self>`,
 //!   `Arc<Self>` and `Pin<Box<Self>>` would need a refcount or an
 //!   allocation, so they are not supported.
-//! - **A method without a receiver needs a default body or an
-//!   implementation of your own.** It has no value to match on. Give it a
+//! - **On an enum, a method without a receiver needs a default body or an
+//!   implementation of your own.** It has no value to match on. A struct
+//!   forwards it to its field's type, except where the method takes a
+//!   `Self` argument, the field holds a trait object or the field is reached
+//!   through a route. Give it a
 //!   default body, which the enum uses, or write it in a
 //!   [partial impl block](#partial-impl-blocks-write-some-methods-yourself).
 //!
@@ -1595,11 +1645,14 @@
 //! ### `impl Trait` in return types
 //!
 //! - **An enum cannot forward a method that returns `impl Trait`**, at any
-//!   depth of the return type. Every variant would return a different
-//!   opaque type, and a `match` needs one. `impl Future<Output = T>` is the
+//!   depth of the return type. A `match` returns one type, and the attribute
+//!   cannot tell that the variants' opaque types are one, even where every
+//!   variant reaches a target of one type. `impl Future<Output = T>` is the
 //!   exception; it is awaited like an `async fn`. Otherwise, return a
-//!   concrete type or a boxed trait object. A struct forwards any
-//!   `impl Trait`.
+//!   concrete type or a boxed trait object, or write the method in a
+//!   partial impl block. A struct forwards any `impl Trait`. A provided
+//!   method with a `Self` argument may be left to the trait's default with
+//!   `#[dispatch(default)]` there, instead of a `mismatch`.
 //!
 //! ### Routes and trait objects
 //!
@@ -1609,8 +1662,9 @@
 //!   `#[dispatch(default)]` in a partial impl block. Where the pointer
 //!   implements the trait itself, as `Box<dyn Iterator>` does, hold it
 //!   without `deref`.
-//! - **A route that ends in a method call cannot serve `&mut self`**, and a
-//!   method returning `Self` cannot use a routed variant. See
+//! - **A route that ends in a method call serves a mutable borrow only
+//!   through `via_mut`**, or a method's own route, and a method returning
+//!   `Self` cannot use a routed variant. See
 //!   [what a route cannot do](#what-a-route-cannot-do).
 //! - **A value cannot be moved out of a `deref` variant holding anything but
 //!   a `Box`.** A trait method taking `self` gives an error there, and so
@@ -1624,9 +1678,10 @@
 //!   closure over it, compiles only where every payload's own `Name` is the
 //!   override's. Restate the trait with only the methods to forward, or
 //!   leave such a method to the default with `#[dispatch(default)]`.
-//! - **A generic associated type is declared by the enum or the struct, in a
-//!   partial impl block.** It cannot come from the first variant or from the
-//!   struct's field, and no option on the attribute gives it.
+//! - **An enum's generic associated type is declared in a partial impl
+//!   block.** It cannot come from the first variant, and no option on the
+//!   attribute gives it. A struct takes it from its field's type, except
+//!   through a route.
 //! - **An associated const is checked only in some cases.** A const of a
 //!   type other than an integer, a float, `bool`, `char` or `&str`, or on
 //!   an enum with a type or const parameter, is taken from the first
@@ -1656,6 +1711,10 @@
 //!   `Catalog` and `traits::Catalog` or `Encoder` and `Encoder<F>`, is an
 //!   error. Spell it as the home does, or import one of two traits of one
 //!   name under another name.
+//! - **A payload that is an associated type of a type parameter,
+//!   `Out(S::Out)`, gets no `From` and no `TryFrom`.** It may be any type,
+//!   the enum included, so the impls would overlap the ones `core` writes
+//!   for every type. Leave the variant out with `#[dispatch(from = false)]`.
 //! - **`from = true` on one of the enum's attributes and `from = false` on
 //!   another contradict each other**, and you get the error on the later
 //!   one. An `into` target listed twice gets the error on the second. The
@@ -1663,6 +1722,12 @@
 //!
 //! ### Names, lints and the carrier macro
 //!
+//! - **A mark cannot go under `cfg_attr`.** An attribute macro is handed its
+//!   item before a `cfg_attr` inside it is decided, so the mark would be
+//!   read in no build, and you get an error on it. A struct marks its field
+//!   in every build, with a bare `#[whichever::dispatch]` beside the
+//!   trait's attribute under `cfg_attr`. A variant or a method whose mark
+//!   differs between builds is written twice under `#[cfg(..)]`.
 //! - **A lint attribute on the enum does not reach the impls written next
 //!   to it**, as it would not reach a hand-written one. Put `#[allow]` on
 //!   the trait method, on a partial impl block, or on the module.

@@ -1,5 +1,6 @@
-//! A trait method without a receiver has no field to forward to on a
-//! struct.
+//! A trait method without a receiver is the struct's field's type's, where
+//! that type can be named; through a route it cannot, so a required one is
+//! reported, and so is an inherent one, each with its own way around.
 #[whichever::dispatchable]
 trait Shape {
     fn kind() -> &'static str;
@@ -17,7 +18,26 @@ impl Shape for Square {
     }
 }
 
+impl Square {
+    fn unit() -> Self {
+        Square(1)
+    }
+}
+
+struct Holder {
+    square: Square,
+}
+
 #[whichever::dispatch(Shape)]
-struct Wrapper(Square);
+struct Wrapper {
+    #[dispatch(via = .square)]
+    holder: Holder,
+}
+
+#[whichever::dispatch]
+impl Wrapper {
+    #[dispatch(*, call = unit)]
+    fn unit_square() -> Square;
+}
 
 fn main() {}

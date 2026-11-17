@@ -11,9 +11,12 @@ use syn::{
     ItemEnum, ItemStruct, Member, Path, Result, Type, Variant,
 };
 
-use crate::options::{is_dispatch_attribute, trait_key, Position, TargetOptions, TryFromForms};
+use crate::options::{
+    is_dispatch_attribute, recover_conditional_marks, trait_key, Carries, Position, TargetOptions,
+    TryFromForms,
+};
 use crate::route::Route;
-use crate::shape::{bare_ident, is_self, pointee, Pointer};
+use crate::shape::{bare_ident, is_self, pointee, Access, Pointer};
 use crate::site::Site;
 use crate::spelling;
 use crate::words::Words;
@@ -103,6 +106,35 @@ impl Subject {
             }
         }
         subject
+    }
+
+    /// Reads the marks written under `cfg_attr` on the variants, their
+    /// fields, or the struct's fields as they were meant, and returns the
+    /// sentence for each.
+    pub(crate) fn recover_conditional_marks(&mut self) -> Vec<Error> {
+        let mut errors = vec![];
+        match self {
+            Subject::Enum(item) => {
+                for variant in &mut item.variants {
+                    errors.extend(recover_conditional_marks(
+                        &mut variant.attrs,
+                        Carries::Variant,
+                    ));
+                    for field in &mut variant.fields {
+                        errors.extend(recover_conditional_marks(
+                            &mut field.attrs,
+                            Carries::Variant,
+                        ));
+                    }
+                }
+            }
+            Subject::Struct(item) => {
+                for field in &mut item.fields {
+                    errors.extend(recover_conditional_marks(&mut field.attrs, Carries::Field));
+                }
+            }
+        }
+        errors
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its
@@ -330,6 +362,21 @@ impl<'a> Entries<'a> {
         }
     }
 
+    /// Marks the entries as those of a restatement: a struct restated on
+    /// behalf of another crate lists the fields its impls forward to, and
+    /// the real struct may have more, which its patterns leave to `..`. An
+    /// enum's restatement lists every variant, as its `match` has to, and
+    /// each variant as it is.
+    pub(crate) fn restated(&mut self) {
+        for entry in &mut self.entries {
+            if let Holds::Payload { place, .. } = &mut entry.holds {
+                if matches!(place.holder, Holder::Struct) {
+                    place.open = true;
+                }
+            }
+        }
+    }
+
     /// Spells the payloads with the names `renaming` gives the subject's
     /// parameters: a partial block's header may name them as it likes,
     /// `impl<U> Trait for Kind<U>` over `enum Kind<T>`.
@@ -342,34 +389,59 @@ impl<'a> Entries<'a> {
     }
 
     /// Gives the variants `routes` name a trait's own routes, `via(Variant
-    /// = ..)`, over the ones they give themselves, and returns the error
-    /// for each route that names no variant.
-    pub(crate) fn route(&mut self, routes: &[(Ident, Route)]) -> Vec<Error> {
+    /// = ..)`, over the ones they give themselves, and the variants
+    /// `mutable` names the trait's own routes for a mutable borrow,
+    /// `via_mut(Variant = ..)`; returns the error for each route that names
+    /// no variant. A trait's route replaces both of a variant's own, so
+    /// that the two it follows are the trait's to say.
+    pub(crate) fn route(
+        &mut self,
+        routes: &[(Ident, Route)],
+        mutable: &[(Ident, Route)],
+    ) -> Vec<Error> {
         let mut errors = vec![];
         for (variant, route) in routes {
-            let own = self
-                .entries
-                .iter_mut()
-                .find_map(|entry| match &mut entry.holds {
-                    Holds::Payload { route, .. } if entry.ident == *variant => Some(route),
-                    _ => None,
-                });
-            match own {
-                Some(own) => *own = route.clone(),
-                None => {
-                    let subject = self.subject.ident();
-                    let message = match self.forwarded_elsewhere(variant) {
-                        Some(kept) => format!("`{variant}` is a field of `{subject}`, but this trait is forwarded to `{kept}`, which is the field its route goes through; name the trait on `{variant}`, `#[dispatch(Trait)]`, to forward it there"),
-                        None => format!(
-                            "`{subject}` has no {} `{variant}` to route through",
-                            self.subject.target_noun()
-                        ),
-                    };
-                    errors.push(Error::new(variant.span(), message));
+            match self.routes_of(variant) {
+                Some((own, own_mutable)) => {
+                    *own = route.clone();
+                    *own_mutable = None;
                 }
+                None => errors.push(self.no_such_target(variant)),
+            }
+        }
+        for (variant, route) in mutable {
+            match self.routes_of(variant) {
+                Some((_, own_mutable)) => *own_mutable = Some(route.clone()),
+                None => errors.push(self.no_such_target(variant)),
             }
         }
         errors
+    }
+
+    /// Returns the routes of the variant or field `name`, to set.
+    fn routes_of(&mut self, name: &Ident) -> Option<(&mut Route, &mut Option<Route>)> {
+        self.entries
+            .iter_mut()
+            .find_map(|entry| match &mut entry.holds {
+                Holds::Payload { route, mutable, .. } if entry.ident == *name => {
+                    Some((route, mutable))
+                }
+                _ => None,
+            })
+    }
+
+    /// Returns the error for a route keyed by `name`, which is no variant
+    /// or field the trait is forwarded to.
+    fn no_such_target(&self, name: &Ident) -> Error {
+        let subject = self.subject.ident();
+        let message = match self.forwarded_elsewhere(name) {
+            Some(kept) => format!("`{name}` is a field of `{subject}`, but this trait is forwarded to `{kept}`, which is the field its route goes through; name the trait on `{name}`, `#[dispatch(Trait)]`, to forward it there"),
+            None => format!(
+                "`{subject}` has no {} `{name}` to route through",
+                self.subject.target_noun()
+            ),
+        };
+        Error::new(name.span(), message)
     }
 
     /// Returns the field that names the trait of `home` in another
@@ -478,6 +550,9 @@ pub(crate) enum Holds {
         /// payload, as the variant or field says: the payload itself, what
         /// it dereferences to, a field, or what a method returns.
         route: Route,
+        /// How an arm that borrows that value mutably reaches it, where
+        /// the variant or field names another route for it, `via_mut`.
+        mutable: Option<Route>,
     },
     /// Another shape, which no method can forward to. Inherent methods
     /// leave it to their fallback body; a dispatched trait reports it,
@@ -501,11 +576,17 @@ impl Entry {
     /// or field gives; nothing for an entry that holds no payload.
     pub(crate) fn target(&self) -> Option<Target<'_>> {
         match &self.holds {
-            Holds::Payload { place, ty, route } => Some(Target {
+            Holds::Payload {
+                place,
+                ty,
+                route,
+                mutable,
+            } => Some(Target {
                 entry: self,
                 place,
                 payload: ty,
                 route,
+                mutable: mutable.as_ref(),
             }),
             Holds::Other(_) => None,
         }
@@ -562,6 +643,11 @@ pub(crate) struct Place {
     pub(crate) holder: Holder,
     /// Where the payload sits in it.
     pub(crate) field: PayloadField,
+    /// Whether the holder may have fields the subject does not list: a
+    /// struct restated on behalf of another crate, which says what its
+    /// impls forward to and is no declaration. Its pattern ends in `..`,
+    /// as a hand's does over a struct it does not own.
+    pub(crate) open: bool,
 }
 
 /// What holds a payload.
@@ -619,12 +705,41 @@ pub(crate) struct Target<'a> {
     pub(crate) place: &'a Place,
     pub(crate) payload: &'a Type,
     pub(crate) route: &'a Route,
+    /// The route a mutable borrow takes, where one is named for it: the
+    /// variant's or the trait's `via_mut`, or the method's own route, which
+    /// is that method's whatever it borrows.
+    pub(crate) mutable: Option<&'a Route>,
 }
 
 impl<'a> Target<'a> {
-    /// Returns the target reached through `route` instead.
+    /// Returns the target reached through `route` instead, a method's own:
+    /// written on the one method, it is the route of whatever that method
+    /// borrows.
     pub(crate) fn through(self, route: &'a Route) -> Self {
-        Target { route, ..self }
+        Target {
+            route,
+            mutable: Some(route),
+            ..self
+        }
+    }
+
+    /// Returns the route a value taken as `access` says is reached by: the
+    /// one named for a mutable borrow where there is one, and the route
+    /// otherwise.
+    pub(crate) fn route_for(&self, access: Access) -> &'a Route {
+        match (access, self.mutable) {
+            (Access::Exclusive, Some(mutable)) => mutable,
+            _ => self.route,
+        }
+    }
+
+    /// Returns whether a mutable borrow would go through a method call that
+    /// nothing says lends mutably: the route ends in one, and no route is
+    /// named for a mutable borrow. What a method returns is a value, which
+    /// is handed over as it is, and the attribute cannot see whether it is
+    /// a `&mut`; a field is a place, borrowed either way.
+    pub(crate) fn borrows_mutably_through_a_call(&self) -> bool {
+        self.mutable.is_none() && self.route.ends_in_a_method()
     }
 
     /// Returns the variant's name, or the field's.
@@ -669,18 +784,21 @@ impl<'a> Target<'a> {
         let holder = self.holder(prefix, site);
         // A rest pattern skips the fields after the payload's. The one
         // field of a variant or a struct, and an unnamed field that is the
-        // last, have none to skip, and a hand writes no `..` there.
+        // last, have none to skip, and a hand writes no `..` there; over a
+        // restated struct, which may have fields the restatement leaves
+        // out, it writes one.
+        let open = self.place.open.then(|| quote_spanned!(*site => , ..));
         match &self.place.field {
-            PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
+            PayloadField::Only => quote_spanned!(*site => #holder(#binding #open)),
             PayloadField::OnlyNamed(name) => {
-                quote_spanned!(*site => #holder { #name: #binding })
+                quote_spanned!(*site => #holder { #name: #binding #open })
             }
             PayloadField::Beside {
                 member: Member::Unnamed(index),
                 followed,
             } => {
                 let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
-                let rest = followed.then(|| quote_spanned!(*site => , ..));
+                let rest = (*followed || self.place.open).then(|| quote_spanned!(*site => , ..));
                 quote_spanned!(*site => #holder(#(#skipped,)* #binding #rest))
             }
             PayloadField::Beside { member, .. } => {
@@ -766,7 +884,13 @@ impl<'a> Target<'a> {
     /// the trait alone. The tokens carry the payload's span, so that an
     /// error about the type lands on the variant.
     pub(crate) fn target_type(&self) -> Option<TokenStream2> {
-        Self::routed_type(self.payload, self.route, Site::at(self.payload.span()))
+        self.type_through(self.route)
+    }
+
+    /// Returns the type `route` reaches, when it can be named from the
+    /// payload's; see `target_type`.
+    pub(crate) fn type_through(&self, route: &Route) -> Option<TokenStream2> {
+        Self::routed_type(self.payload, route, Site::at(self.payload.span()))
     }
 
     /// Returns the same type for a position outside the subject's own
@@ -856,6 +980,7 @@ pub(crate) fn allow_deprecated(site: Site) -> Attribute {
 fn variant_entry(variant: &Variant) -> Result<Entry> {
     let TargetOptions {
         route,
+        mutable,
         from,
         try_from,
         traits: _,
@@ -938,6 +1063,15 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
         }
         (route, field_route) => route.or(field_route).unwrap_or_default(),
     };
+    let mutable = match (mutable, field_options.mutable) {
+        (Some(_), Some(_)) => {
+            return Err(Error::new_spanned(
+                field,
+                format!("`{ident}` and its field both give a route for a mutable borrow; give one"),
+            ))
+        }
+        (mutable, field_mutable) => mutable.or(field_mutable),
+    };
     Ok(Entry {
         ident: ident.clone(),
         cfgs,
@@ -946,9 +1080,11 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
             place: Place {
                 holder: Holder::Variant(Conversions { from, try_from }),
                 field: payload_field,
+                open: false,
             },
             ty: field.ty.clone(),
             route,
+            mutable,
         },
     })
 }
@@ -981,9 +1117,11 @@ fn field_entry(member: Member, field: &Field, options: &TargetOptions, count: us
             place: Place {
                 holder: Holder::Struct,
                 field: field_in_struct,
+                open: false,
             },
             ty: field.ty.clone(),
             route: options.route.clone().unwrap_or_default(),
+            mutable: options.mutable.clone(),
         },
     }
 }
@@ -1489,13 +1627,85 @@ mod tests {
         let mut entries = subject.read().unwrap();
         let options: TraitOptions = syn::parse_str("via(Plain = .0, Wide = .1)").unwrap();
         let errors: Vec<String> = entries
-            .route(&options.routes)
+            .route(&options.routes, &options.mutable_routes)
             .into_iter()
             .map(|error| error.to_string())
             .collect();
         assert_eq!(errors, ["`Any` has no variant `Wide` to route through"]);
         assert_eq!(target(&entries, "Plain").route.spelled(), ".0");
         assert!(target(&entries, "Kept").route.is_direct());
+    }
+
+    #[test]
+    fn a_mutable_borrow_takes_the_route_named_for_it() {
+        let subject: Subject = parse_quote! {
+            enum Any {
+                #[dispatch(via = .get(), via_mut = .get_mut())]
+                Own(Holder),
+                #[dispatch(via = .get(), via_mut = .get_mut())]
+                Replaced(Holder),
+                #[dispatch(via = .get())]
+                Shared(Holder),
+                Tagged(#[dispatch(via_mut = .get_mut())] Holder, u32),
+                Plain(Circle),
+            }
+        };
+        let mut entries = subject.read().unwrap();
+        let routes = |entries: &Entries, name: &str| {
+            let target = target(entries, name);
+            [Access::Shared, Access::Exclusive, Access::Owned]
+                .map(|access| target.route_for(access).spelled())
+        };
+        assert_eq!(routes(&entries, "Own"), [".get()", ".get_mut()", ".get()"]);
+        assert!(!target(&entries, "Own").borrows_mutably_through_a_call());
+        assert!(
+            target(&entries, "Shared").borrows_mutably_through_a_call(),
+            "a getter that may lend shared, and nothing named for a mutable borrow"
+        );
+        assert_eq!(routes(&entries, "Tagged"), ["", ".get_mut()", ""]);
+        assert!(!target(&entries, "Plain").borrows_mutably_through_a_call());
+        let options: TraitOptions =
+            syn::parse_str("via(Replaced = .0), via_mut(Shared = .get_mut())").unwrap();
+        assert!(entries
+            .route(&options.routes, &options.mutable_routes)
+            .is_empty());
+        assert_eq!(
+            routes(&entries, "Replaced"),
+            [".0", ".0", ".0"],
+            "a trait's route replaces both of the variant's own"
+        );
+        assert_eq!(
+            routes(&entries, "Shared"),
+            [".get()", ".get_mut()", ".get()"]
+        );
+        let own: Route = syn::parse_str(".data_mut()").unwrap();
+        let marked = target(&entries, "Shared").through(&own);
+        assert_eq!(
+            [Access::Shared, Access::Exclusive].map(|access| marked.route_for(access).spelled()),
+            [".data_mut()", ".data_mut()"],
+            "a method's own route is followed whatever it borrows"
+        );
+        let unknown: TraitOptions = syn::parse_str("via_mut(Wide = .1)").unwrap();
+        let errors: Vec<String> = entries
+            .route(&unknown.routes, &unknown.mutable_routes)
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect();
+        assert_eq!(errors, ["`Any` has no variant `Wide` to route through"]);
+    }
+
+    #[test]
+    fn a_variant_and_its_field_give_one_route_for_a_mutable_borrow() {
+        let subject: Subject = parse_quote! {
+            enum Any {
+                #[dispatch(via_mut = .a())]
+                Tagged(#[dispatch(via_mut = .b())] Holder, u32),
+            }
+        };
+        assert_eq!(
+            message(subject.read()),
+            "`Tagged` and its field both give a route for a mutable borrow; give one"
+        );
     }
 
     #[test]

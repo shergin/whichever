@@ -1,0 +1,16 @@
+error: `mismatch(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/mismatch_on_the_enum_for_a_partial_block.rs:24:32
+   |
+24 | #[whichever::dispatch(mismatch(same = false))]
+   |                                ^^^^
+
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on this block's attribute
+  --> tests/ui/mismatch_on_the_enum_for_a_partial_block.rs:6:5
+   |
+ 6 |     fn same(&self, other: &Self) -> bool;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+31 | impl Same for Any {}
+   |      ---- in this macro invocation
+   |
+   = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)

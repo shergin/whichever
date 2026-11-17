@@ -1,0 +1,13 @@
+error: `other::Solo` is another crate's struct, which gets no inherent impl here; forward through a trait of this crate, or write free functions
+  --> tests/ui/restated_struct_inherent_block.rs:13:6
+   |
+13 | impl Solo {
+   |      ^^^^
+
+warning: unused import: `other::Solo`
+ --> tests/ui/restated_struct_inherent_block.rs:7:5
+  |
+7 | use other::Solo;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

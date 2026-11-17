@@ -4,6 +4,6 @@ expect: killed
 witness: s0=deref-rc recv=mut
 
 find:
-            borrows_mutably.filter(|_| route.starts_with_deref() && pointer == Pointer::Shared)
+            borrows_mutably.filter(|_| lent.starts_with_deref() && pointer == Pointer::Shared)
 replace:
-            borrows_mutably.filter(|_| route.starts_with_deref() && pointer == Pointer::Shared && false)
+            borrows_mutably.filter(|_| lent.starts_with_deref() && pointer == Pointer::Shared && false)

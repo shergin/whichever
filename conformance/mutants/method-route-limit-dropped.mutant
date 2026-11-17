@@ -4,8 +4,8 @@ expect: killed
 witness: s0=via-method recv=mut
 
 find:
-        if let Some(taken) = exclusive.filter(|_| route.ends_in_a_method()) {
+        if let Some(taken) = exclusive.filter(|_| target.borrows_mutably_through_a_call()) {
 replace:
         if let Some(taken) = exclusive
-            .filter(|taken| route.ends_in_a_method() && !matches!(taken, Taken::MutSelf))
+            .filter(|taken| target.borrows_mutably_through_a_call() && !matches!(taken, Taken::MutSelf))
         {

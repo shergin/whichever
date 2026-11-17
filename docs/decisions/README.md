@@ -19,24 +19,36 @@ the planning notes, the note holds the long form and the record names it.
 - [Receivers that would allocate are rejected](receivers-that-allocate-are-rejected.md)
 - [`impl Trait` returns: an enum forwards futures, a struct forwards them all](impl-trait-returns-are-forwarded-through-a-struct.md),
   superseding [`impl Trait` returns are rejected, except futures](impl-trait-returns-are-rejected-except-futures.md)
+- [Variants that reach one type are not told apart](variants-that-reach-one-type-are-not-told-apart.md),
+  completing the one above
 - [Associated consts are checked unless a type can change them](associated-consts-are-checked-unless-a-type-can-change-them.md),
   superseding [Associated consts are checked for four types](associated-consts-are-checked-for-four-types.md)
 - [A rejected enum is still emitted](a-rejected-enum-is-still-emitted.md)
 - [Foreign traits are restated, and the common ones ship](foreign-traits-are-restated.md)
 - [`From` is opt-out and `TryFrom` is opt-in](from-is-opt-out-and-try-from-is-opt-in.md)
+- [`From` reaches one level](from-reaches-one-level.md), completing the one
+  above
 - [A variant without a payload is left to the fallback](a-variant-without-a-payload-is-left-to-the-fallback.md)
 - [A struct's field may name its traits](a-structs-field-may-name-its-traits.md),
   superseding [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)
 - [A field's trait may be a partial block's](a-fields-trait-may-be-a-partial-blocks.md),
   completing the one above
+- [A struct takes what its field's type has](a-struct-takes-what-its-fields-type-has.md)
 - [Benchmarks are runtime only](benchmarks-are-runtime-only.md)
 - [The dispatch collection outlasts the predictor](the-dispatch-collection-outlasts-the-predictor.md)
 - [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)
+- [A required method's `#[inline]` is its forwarders'](a-required-methods-inline-is-its-forwarders.md)
+- [The automatic bound is a bare parameter's](the-automatic-bound-is-a-bare-parameters.md)
 - [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
+- [A mutable borrow takes a route of its own](a-mutable-borrow-takes-a-route-of-its-own.md),
+  completing the one above
 - [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)
 - [The subject can be restated](the-subject-can-be-restated.md)
+- [A restated struct lists the fields it forwards to](a-restated-struct-lists-the-fields-it-forwards-to.md),
+  completing the one above
 - [A boxed future is rewrapped by boxing](a-boxed-future-is-rewrapped-by-boxing.md)
 - [An enum that may be empty is matched by place](an-enum-that-may-be-empty-is-matched-by-place.md)
+- [A mark under `cfg_attr` is a sentence](a-mark-under-cfg-attr-is-a-sentence.md)
 - [The macro crate parses with `syn` 3](the-macro-crate-parses-with-syn-3.md)
 - [A place is handed over as the return type asks](a-place-is-handed-over-as-the-return-type-asks.md)
 - [Combinations are checked by a generated matrix](combinations-are-checked-by-a-generated-matrix.md)

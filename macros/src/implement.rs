@@ -88,6 +88,9 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         )
     };
     let mut entries = subject.read()?.for_trait(&spec_path)?;
+    if subject_remote.is_some() {
+        entries.restated();
+    }
     // A partial block's header may name the subject's parameters as it
     // likes, `impl<U> Trait for Kind<U>` over `enum Kind<T>`; the payloads
     // are spelled with the names the subject declared, and follow.
@@ -96,7 +99,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             entries.rename(&mut renaming);
         }
     }
-    let route_errors = entries.route(&options.routes);
+    let route_errors = entries.route(&options.routes, &options.mutable_routes);
     let variants = entries.targets();
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and

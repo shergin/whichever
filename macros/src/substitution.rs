@@ -282,11 +282,33 @@ impl Substitution {
     /// trait wrote against the method's parameters, its `mismatch`
     /// expression.
     pub(crate) fn distinguish(&self, signature: &mut Signature) -> Renaming {
+        let mut renaming = self.fresh_names(&signature.generics, signature.to_token_stream());
+        if !renaming.is_empty() {
+            renaming.visit_signature_mut(signature);
+        }
+        renaming
+    }
+
+    /// Does the same for `generics`, the parameters of a generic
+    /// associated type, which the impl declares as the trait does: `type
+    /// Many<T>` over `struct Wrap<T>` is two parameters of one name there
+    /// as well.
+    pub(crate) fn distinguish_generics(&self, generics: &mut Generics) {
+        let mut renaming = self.fresh_names(generics, generics.to_token_stream());
+        if !renaming.is_empty() {
+            renaming.visit_generics_mut(generics);
+        }
+    }
+
+    /// Returns the names that keep the parameters `generics` declares
+    /// clear of what the impl names, where `written` is everything written
+    /// against them.
+    fn fresh_names(&self, generics: &Generics, written: proc_macro2::TokenStream) -> Renaming {
         let mut taken: HashSet<String> = self.in_scope.clone();
         taken.extend(self.written.iter().cloned());
-        named(signature.to_token_stream(), Which::Every, &mut taken);
+        named(written, Which::Every, &mut taken);
         let mut renaming = Renaming::default();
-        for param in &signature.generics.params {
+        for param in &generics.params {
             let name = parameter_name(param);
             if !self.in_scope.contains(&name) {
                 continue;
@@ -308,9 +330,6 @@ impl Substitution {
                     Lifetime::new(&fresh, param.lifetime.span()),
                 )),
             }
-        }
-        if !renaming.is_empty() {
-            renaming.visit_signature_mut(signature);
         }
         renaming
     }

@@ -5,14 +5,15 @@
 //! and differ in what each does with them, so the reading is one and the
 //! two paths decide.
 use proc_macro2::TokenStream as TokenStream2;
+use quote::quote_spanned;
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Expr, FnArg, Ident, ImplItem, ImplItemFn, Pat,
-    Result, Signature, Stmt, Token, Visibility,
+    parse_quote_spanned, Attribute, Block, Error, Expr, FnArg, Ident, ImplItem, ImplItemFn,
+    ItemImpl, Pat, Result, Signature, Stmt, Token, Visibility,
 };
 
 use crate::arm::receiver_scrutinee;
-use crate::options::{is_dispatch_attribute, ForwardingOptions};
+use crate::options::{self, is_dispatch_attribute, Carries, ForwardingOptions};
 use crate::selection::OwnArms;
 use crate::shape::{classify_receiver, ReceiverKind};
 use crate::site::Site;
@@ -184,6 +185,37 @@ pub(crate) fn standing_alone(function: &mut ImplItemFn, mark: &Attribute) {
             _ => #rest,
         });
     }
+}
+
+/// Reads the marks written under `cfg_attr` on the methods of `block` as
+/// they were meant, and returns the sentence for each.
+pub(crate) fn recover_conditional_marks(block: &mut ItemImpl) -> Vec<Error> {
+    let mut errors = vec![];
+    for item in &mut block.items {
+        match item {
+            ImplItem::Fn(function) => {
+                errors.extend(options::recover_conditional_marks(
+                    &mut function.attrs,
+                    Carries::Method,
+                ));
+            }
+            // A method without a body is verbatim to `syn`.
+            ImplItem::Verbatim(tokens) => {
+                let Ok(mut method) = syn::parse2::<BodylessMethod>(tokens.clone()) else {
+                    continue;
+                };
+                let found = options::recover_conditional_marks(&mut method.attrs, Carries::Method);
+                if found.is_empty() {
+                    continue;
+                }
+                errors.extend(found);
+                let BodylessMethod { attrs, vis, sig } = method;
+                *tokens = quote_spanned! { sig.ident.span() => #(#attrs)* #vis #sig; };
+            }
+            _ => {}
+        }
+    }
+    errors
 }
 
 /// A method declared without a body, which `syn` leaves as verbatim tokens.

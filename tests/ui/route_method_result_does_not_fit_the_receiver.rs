@@ -1,7 +1,8 @@
 //! A route ending in a method call whose result does not fit the receiver,
-//! `.copied()` under `&self`, is a forwarding no hand can write either; it
-//! is rustc's to reject, and its error stands on the enum's name, where
-//! the arm is, not on the trait's attribute.
+//! `.copied()` under `&self`, hands a value where a reference is asked
+//! for. A hand would borrow the temporary, `&inner.copied()`, which the
+//! attribute does not write; the arm is rustc's to reject, and its error
+//! stands on the method's name in the route, where the result comes from.
 #[whichever::dispatchable]
 pub trait Area {
     fn area(&self) -> u64;

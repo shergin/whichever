@@ -115,6 +115,11 @@ mod words;
 /// own attribute. A method with a `Self` argument that has neither is an
 /// error, unless the enum has only one variant.
 ///
+/// `#[inline(..)]` on a method without a body says how its forwarding
+/// methods are inlined. The carrier macro keeps it for them, and the trait's
+/// own method is emitted without it, since rustc rejects `#[inline]` on a
+/// method that has no body. One written under `cfg_attr` is not carried.
+///
 /// # Options
 ///
 /// - `remote = path`: the item is a restatement of another crate's trait,
@@ -215,7 +220,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// `#[dispatch(remote = path)]`, as an attribute of its own, makes the
 /// enum a restatement of another crate's enum at `path`. The impls are
-/// written for the real enum, with no conversions.
+/// written for the real enum, with no conversions. A struct is restated
+/// the same way; it lists only the fields its impls forward to, and the
+/// pattern ends in `..`.
 ///
 /// ## On a struct
 ///
@@ -232,7 +239,10 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// marked `#[dispatch]`. The field may be any type that implements the
 /// trait. A struct gets no `From` impls and needs no `mismatch`, and it
 /// forwards a method that returns `impl Trait` as it is, because its
-/// `match` has one arm.
+/// `match` has one arm. What needs no value comes from the field's type,
+/// where the struct names it: a trait method without a receiver,
+/// `<Square as Shape>::kind()`, a generic associated type, and an inherent
+/// method without a receiver marked in a block.
 ///
 /// ## On an inherent block
 ///
@@ -279,8 +289,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// - The enum does not list the trait in its own attribute: the block is
 ///   the impl. The trait's options go on the block's attribute.
-/// - An associated type written in the block is an override. A generic
-///   associated type is declared here.
+/// - An associated type written in the block is an override. An enum's
+///   generic associated type is declared here.
 /// - The block's header, generics and bounds included, becomes the impl's
 ///   header. An empty block gives the impl a header the enum's attribute
 ///   cannot write.
@@ -302,10 +312,14 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `try_from = ref` | Also adds `TryFrom<&Enum> for &Payload`. |
 /// | `try_from = ref_mut` | Also adds `TryFrom<&mut Enum> for &mut Payload`. |
 /// | `into = Target` | Adds `From<Enum> for Target`, through each payload's `Into<Target>`. |
-/// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only. |
+/// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only; it replaces both of the variant's routes. |
+/// | `via_mut(Variant = route, ..)` | The route through `Variant` for the methods that borrow the target mutably, for this trait only. |
 ///
 /// The conversion options (`from`, `try_from`, `into`) belong to the enum,
-/// not to one trait, so they apply whichever attribute they are on.
+/// not to one trait, so they apply whichever attribute they are on. The
+/// other options belong to the trait they follow: on an attribute that
+/// lists no trait, they are an error. They go on a partial impl block's
+/// attribute when the block is the impl.
 ///
 /// ## On a variant
 ///
@@ -315,11 +329,12 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `try_from = true` | Adds `TryFrom` for this variant's payload alone. |
 /// | `deref` | Calls the trait on what the payload dereferences to (`Box`, `Rc`, `Arc`, `&`, `&mut`). |
 /// | `via = route` | Calls the trait on what the route reaches: `.field`, `.0`, `.method()`, `*`, chained. |
+/// | `via_mut = route` | The route the methods that borrow the target mutably take instead: `&mut self`, `self: Pin<&mut Self>`, a `&mut Self` argument. |
 ///
 /// A variant takes `deref` or `via`, not both. A variant with several
 /// fields, or with one named field, marks the field to forward to:
-/// `Tagged(#[dispatch] Square, u32)`. The marked field takes `deref` or
-/// `via = route`, and nothing else.
+/// `Tagged(#[dispatch] Square, u32)`. The marked field takes `deref`,
+/// `via = route` or `via_mut = route`, and nothing else.
 ///
 /// ## On a struct's field
 ///
@@ -329,6 +344,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `#[dispatch(Trait)]` | The field this trait goes to, spelled as the trait's impl spells it. |
 /// | `#[dispatch(deref)]` | Calls the trait on what the field dereferences to. |
 /// | `#[dispatch(via = route)]` | Calls the trait on what the route reaches from the field. |
+/// | `#[dispatch(via_mut = route)]` | The route the methods that borrow the target mutably take instead. |
 ///
 /// ## On a method of an inherent block
 ///
@@ -341,7 +357,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `call = name` | Calls the payload's method `name` instead. |
 /// | `field = name` | The arm is the field `inner.name`, borrowed or read. |
 /// | `value` | The arm is the target itself, borrowed or read. |
-/// | `via = route` | Reaches the target by a route, for this method alone. |
+/// | `via = route` | Reaches the target by a route, for this method alone, whatever it borrows. |
 ///
 /// On a struct, a field's name takes the place of the variant list, and
 /// `*` is the field marked `#[dispatch]`, or the only field.

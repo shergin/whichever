@@ -175,3 +175,81 @@ fn a_field_is_read_by_value_and_borrowed_by_reference() {
     assert_eq!(slot.handle(), Handle(8));
     assert_eq!(Wrapped(Handle(9)).get(), Handle(9));
 }
+
+/// An inherent method without a receiver is a path call on the field's
+/// type, `<u128>::from(v)`, which finds an inherent function before a
+/// trait's; dash-num's constructors over `Arith256(U256)` are this.
+#[derive(Debug, PartialEq)]
+#[whichever::dispatch]
+pub struct Arith256(u128);
+
+#[whichever::dispatch]
+impl Arith256 {
+    #[dispatch(*, call = from)]
+    pub fn from_u64(v: u64) -> Self;
+
+    #[dispatch(*, call = from)]
+    pub fn from_u32(v: u32) -> Self;
+
+    /// An inherent function of `u128` itself, and not the trait's of the
+    /// same name.
+    #[dispatch(*, call = from_str_radix, with = Some)]
+    pub fn parsed(text: &str, radix: u32) -> Option<Result<u128, std::num::ParseIntError>>;
+}
+
+pub struct Gauge(pub u32);
+
+impl Gauge {
+    pub fn zero() -> Self {
+        Gauge(0)
+    }
+    pub async fn loaded(level: u32) -> u32 {
+        level * 2
+    }
+    /// # Safety
+    ///
+    /// Nothing to uphold; the function is `unsafe` to show that the call
+    /// is wrapped.
+    pub unsafe fn raw() -> u32 {
+        3
+    }
+    pub fn widened<T: From<u32>>(level: u32) -> T {
+        T::from(level)
+    }
+}
+
+/// The field named, a generic function, an `async fn` and an `unsafe fn`.
+#[whichever::dispatch]
+pub struct Panel {
+    #[dispatch]
+    gauge: Gauge,
+}
+
+#[whichever::dispatch]
+impl Panel {
+    #[dispatch(gauge, call = zero)]
+    pub fn empty() -> Self;
+
+    #[dispatch(*)]
+    pub async fn loaded(level: u32) -> u32;
+
+    /// # Safety
+    ///
+    /// As `Gauge::raw`.
+    #[dispatch(*)]
+    pub unsafe fn raw() -> u32;
+
+    #[dispatch(*)]
+    pub fn widened<T: From<u32>>(level: u32) -> T;
+}
+
+#[test]
+fn a_function_without_a_receiver_is_the_field_types() {
+    assert_eq!(Arith256::from_u64(7), Arith256(7));
+    assert_eq!(Arith256::from_u32(8), Arith256(8));
+    assert_eq!(Arith256::parsed("ff", 16).map(Result::ok), Some(Some(255)));
+    assert_eq!(Panel::empty().gauge.0, 0);
+    assert_eq!(pollster::block_on(Panel::loaded(4)), 8);
+    assert_eq!(unsafe { Panel::raw() }, 3);
+    assert_eq!(Panel::widened::<u64>(5), 5u64);
+}

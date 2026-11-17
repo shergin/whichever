@@ -1,0 +1,12 @@
+error: `kind` has no receiver, and `Wrapper` holds a trait object, which has no function to call without a value; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
+  --> tests/ui/struct_method_without_receiver_over_a_trait_object.rs:5:5
+   |
+ 5 | /     fn kind() -> &'static str
+ 6 | |     where
+ 7 | |         Self: Sized;
+   | |___________________^
+...
+22 |   #[whichever::dispatch(Shape)]
+   |                         ----- in this macro invocation
+   |
+   = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)

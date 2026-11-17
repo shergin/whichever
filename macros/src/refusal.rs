@@ -153,9 +153,10 @@ pub(crate) enum Refusal<'a> {
     /// The method returns `Self`, which cannot be wrapped back through the
     /// target's route.
     RewrapThroughRoute,
-    /// The method borrows mutably, and the route ends in a method call:
-    /// what a method returns is a value, which cannot be borrowed through;
-    /// a field is a place, which can.
+    /// The method borrows mutably, and the route ends in a method call,
+    /// with no route named for a mutable borrow: what a method returns is
+    /// a value, handed over as it is, which is a `&mut` only where the
+    /// method lends one; a field is a place, borrowed either way.
     MethodRouteBorrowedMutably(Taken<'a>),
     /// The method borrows mutably, and the route dereferences a pointer
     /// that lends what it points at shared and never exclusively.
@@ -203,7 +204,7 @@ impl Refusal<'_> {
                 format!("`{method}` returns `Self`, which cannot be wrapped back through the route `{}` of `{ident}`, whose other fields are gone; drop `via` on it or {}", route.spelled(), way_out.of_variant(ident))
             }
             Refusal::MethodRouteBorrowedMutably(taken) => {
-                format!("`{method}` takes {taken}, and the route `{}` of `{ident}` ends in a method call, whose result cannot be borrowed mutably; route to a field, or {}", route.spelled(), way_out.of_variant(ident))
+                format!("`{method}` takes {taken}, and the route `{}` of `{ident}` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or {}", route.spelled(), way_out.of_variant(ident))
             }
             Refusal::SharedPointerBorrowedMutably(does) => {
                 format!("`{method}` {does}, and `{ident}` dereferences a `{spelled}`, which cannot be borrowed mutably; hold a `Box` or a `&mut`, or {}", way_out.of_variant(ident))
@@ -341,6 +342,29 @@ mod tests {
                 "write the arm of `Circle` in the method's body"
             );
         }
+    }
+
+    #[test]
+    fn a_mutable_borrow_through_a_method_route_names_the_route_it_takes() {
+        let subject: crate::subject::Subject = parse_quote! {
+            enum Any {
+                #[dispatch(via = .base())]
+                Module(Account),
+            }
+        };
+        let entries = subject.read().unwrap();
+        let target = entries.targets().into_iter().next().unwrap();
+        let method: Ident = parse_quote!(grow);
+        let error = Refusal::MethodRouteBorrowedMutably(Taken::MutSelf).error(
+            &method,
+            &target,
+            subject.ident(),
+            way_out(true, false),
+        );
+        assert_eq!(
+            error.to_string(),
+            "`grow` takes `&mut self`, and the route `.base()` of `Module` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or implement the method by hand"
+        );
     }
 
     #[test]

@@ -1,0 +1,9 @@
+file: macros/src/subject.rs
+breaks: A method that borrows its target mutably follows the route named for it, `via_mut` or the method's own, where the route of `via` ends in a method call, as `docs/routes.md` says.
+expect: killed
+witness: s0=via-getters recv=mut
+
+find:
+        self.mutable.is_none() && self.route.ends_in_a_method()
+replace:
+        self.route.ends_in_a_method()

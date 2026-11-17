@@ -1,0 +1,17 @@
+error: `SIDES = ..` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, SIDES = ..)]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/trait_option_on_an_enum_naming_no_trait.rs:41:23
+   |
+41 | #[whichever::dispatch(SIDES = 7)]
+   |                       ^^^^^
+
+error: `mismatch(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/trait_option_on_an_enum_naming_no_trait.rs:48:32
+   |
+48 | #[whichever::dispatch(mismatch(same = true))]
+   |                                ^^^^
+
+error: `via(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, via(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/trait_option_on_an_enum_naming_no_trait.rs:55:27
+   |
+55 | #[whichever::dispatch(via(Held = .shape))]
+   |                           ^^^^

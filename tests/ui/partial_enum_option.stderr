@@ -1,4 +1,4 @@
-error: `from`, `try_from`, `into` and `remote` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only
+error: `from`, `try_from` and `into` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only
   --> tests/ui/partial_enum_option.rs:19:23
    |
 19 | #[whichever::dispatch(from = false)]

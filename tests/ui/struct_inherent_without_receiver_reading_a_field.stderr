@@ -1,0 +1,5 @@
+error: `zero` has no receiver, so there is no field of a value to read; `field` and `value` hand over what a receiver holds
+ --> tests/ui/struct_inherent_without_receiver_reading_a_field.rs:9:5
+  |
+9 |     fn zero() -> u32;
+  |     ^^^^^^^^^^^^^^^^

@@ -66,7 +66,7 @@ one.
 **The fix.** Use the restatement that ships in `whichever::foreign`, such
 as `#[whichever::dispatch(whichever::foreign::Display)]`, or restate the
 trait yourself with `remote`. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ### "cannot find `Trait` in `other`"
 
@@ -188,6 +188,13 @@ not take part, leave it to a fallback in a
 [partial impl block][partial-impl-blocks], or reach a target that does
 implement the trait with a [route][routes].
 
+When the bound is on a type parameter, as in "the trait bound `T: Shape`
+is not satisfied" at a payload `Boxed<T>`, the payload's own impl needs a
+bound the impl does not have. The impl gets `T: Trait` only for a payload
+that is `T` itself. List no trait on the enum, and write the header in an
+empty partial impl block, `impl<T: Shape> Shape for AnyShape<T> {}`. See
+[The impl header][partial-impl-blocks-header].
+
 ### Two variants disagree on an associated type
 
 ```text
@@ -274,6 +281,45 @@ method by hand.
   every method is forwarded to the box, with no partial impl block. See
   [`Self: Sized` and boxed iterators][restatements-boxed-iterators].
 
+### "a `dispatch` under `cfg_attr` is not read"
+
+```text
+error: a `dispatch` under `cfg_attr` is not read, since an attribute macro is handed its item before a `cfg_attr` inside it is decided; mark the field in every build, with a bare `#[whichever::dispatch]` on the struct where its own attributes are under `cfg_attr`
+```
+
+On a variant, a variant's field or a method of a block, the end of the
+error reads:
+
+```text
+write the variant twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+```
+
+```text
+write the method twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it
+```
+
+**What it means.** You wrote a mark under `cfg_attr`, such as
+`#[cfg_attr(feature = "x", dispatch)]`. The attribute is handed its item
+before rustc decides the `cfg_attr` inside it, and it cannot decide the
+predicate itself, so the mark would be read in no build. The item is
+read as if the mark were plain, so this is the only error.
+
+**The fix.** As the error says. For a struct, mark the field plainly
+and add a bare attribute beside the trait's, as in
+[A trait in some builds only][structs-some-builds].
+For a variant or a method, write it twice:
+
+```rust
+#[whichever::dispatch(Shape)]
+pub enum Any {
+    #[cfg(feature = "x")]
+    #[dispatch(deref)]
+    Boxed(Box<Square>),
+    #[cfg(not(feature = "x"))]
+    Boxed(Square),
+}
+```
+
 ## On a trait method
 
 ### "takes `Self` arguments": a missing `mismatch`
@@ -305,7 +351,52 @@ pub enum Any {
 }
 ```
 
+When the trait gives the method a body, the error names a third way:
+
+```text
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on the enum, or leave the method to the trait's default with `#[dispatch(default)] fn same(..);` in a `#[whichever::dispatch] impl Same for Kind` block
+```
+
+The default calls the forwarded methods on both values, so it looks at
+them, where a `mismatch` expression cannot. That is often the right
+answer when every variant reaches a target of one type.
+
+For a trait implemented by a [partial impl block][partial-impl-blocks],
+the error says `mismatch(same = <expr>)` "on this block's attribute"
+instead (and, for a provided method, "in this block"), and the option
+goes there:
+
+```rust
+#[whichever::dispatch(mismatch(same = false))]
+impl Same for Any {}
+```
+
 See [`mismatch`][options-mismatch].
+
+### "is an option of a trait's impl, and this attribute names no trait"
+
+```text
+error: `mismatch(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+```
+
+The same error names `SIDES = ..`, `via(..)` or `via_mut(..)` for those
+options. A name close to one of the enum's own options gets this
+instead:
+
+```text
+error: unknown option `form`; did you mean `from = ..`?
+```
+
+**What it means.** An override, a `mismatch` or a route belongs to the
+trait it follows. You wrote it on an attribute that lists no trait, such
+as a bare `#[whichever::dispatch(mismatch(same = false))]` on the enum,
+so no impl would read it there. When the enum lists exactly one trait on
+its own attributes, the option is still read beside that trait, so this
+is the only error you see.
+
+**The fix.** Move the option after the trait,
+`#[whichever::dispatch(Same, mismatch(same = false))]`. If the trait is
+implemented by a partial impl block, put it on the block's attribute.
 
 ### "has no receiver, so there is no variant to dispatch on"
 
@@ -320,17 +411,75 @@ has no value to `match` on, so no variant to forward to.
 uses, or write it yourself in a
 [partial impl block][partial-impl-blocks].
 
-### "a return-position `impl Trait` cannot be dispatched"
+### "has no receiver, and the field of `Wrapper` is reached through a field or a method"
+
+On a struct, a method without a receiver is forwarded to the field's
+type. You get one of these where that type cannot be asked:
 
 ```text
-error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+error: `kind` has no receiver, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to call `kind` on; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
 ```
 
-**What it means.** Each payload's `impl Trait` is a different hidden
-type, and a `match` must return one type.
+```text
+error: `kind` has no receiver, and `Wrapper` holds a trait object, which has no function to call without a value; give it a default body, or write it in a `#[whichever::dispatch] impl Shape for Wrapper` block
+```
+
+```text
+error: `merged` has no receiver and takes `Self` arguments, which are forwarded beside a receiver only; give it a default body, or write it in a `#[whichever::dispatch] impl Merge for Wrapper` block
+```
+
+For an inherent method, the end reads "give it a body" instead. And a
+generic associated type over a routed field:
+
+```text
+error: `Item` is a generic associated type, and the field of `Wrapper` is reached through a field or a method, so its type cannot be named to supply `Item`; write `type Item<'a> = ..;` in a `#[whichever::dispatch] impl Lend for Wrapper` block
+```
+
+**What it means.** The struct forwards what needs no value to its field's
+type, and here it cannot: the field is reached through a route, whose
+type the struct does not say; or it holds a trait object; or the method
+takes a `Self` argument, which is unwrapped only beside a receiver.
+
+**The fix.** As the error says. See
+[What the field's type cannot be asked][structs-cannot-be-asked].
+
+### "has no receiver, so there is no field of a value to read"
+
+```text
+error: `zero` has no receiver, so there is no field of a value to read; `field` and `value` hand over what a receiver holds
+```
+
+**What it means.** `field` and `value` hand over part of the value the
+method is called on, and a method without a receiver has none.
+
+**The fix.** Drop `field` or `value`, so the method calls the field
+type's function, or give the method a body.
+
+### "a return-position `impl Trait` is not dispatched by a `match`"
+
+```text
+error: a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
+```
+
+**What it means.** A `match` must return one type, and each payload's
+`impl Trait` is usually a different hidden type. Where the variants do
+reach one type, say a `structure` field of the same type in each, the
+attribute still cannot tell, so it refuses all the same.
 
 **The fix.** Return a concrete type or a boxed trait object.
-`impl Future<Output = T>` is fine: it is awaited like an `async fn`.
+`impl Future<Output = T>` is fine: it is awaited like an `async fn`. If
+every variant reaches one type, write the method yourself in a
+[partial impl block][partial-impl-blocks], through a method of the
+enum that lends that one target:
+
+```rust
+#[whichever::dispatch]
+impl<S: TensorStructure> TensorStructure for DataTensor<S> {
+    fn external_dims_iter(&self) -> impl Iterator<Item = usize> {
+        self.structure().external_dims_iter()
+    }
+}
+```
 
 ### "this receiver type is not supported"
 
@@ -344,6 +493,61 @@ which hand-written code would not do.
 
 **The fix.** Use one of the receivers the error lists, or implement the
 method by hand. See [Receivers][limits-receivers].
+
+### "ends in a method call, which may not lend mutably"
+
+```text
+error: `grow` takes `&mut self`, and the route `.base()` of `Module` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or implement the method by hand
+```
+
+**What it means.** The variant's route ends in a method call, here
+`.base()`, and the trait method borrows mutably. The route's method
+returns a value that is handed over as it is, and nothing says that it
+lends mutably. Usually it does not: `fn base(&self) -> &Square` lends
+shared.
+
+**The fix.** If the payload has a getter that lends mutably, give it as
+the route for a mutable borrow:
+
+```rust
+#[dispatch(via = .base(), via_mut = .base_mut())]
+Module(Account),
+```
+
+See [A route for a mutable borrow][routes-mutable-borrow].
+The neighbouring errors about where `via_mut` goes:
+
+```text
+error: `via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`
+```
+
+```text
+error: `Tagged` and its field both give a route for a mutable borrow; give one
+```
+
+```text
+error: a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`
+```
+
+### "expected `&_`, found `Parsed`" on a route
+
+```text
+error[E0308]: mismatched types
+  --> src/lib.rs:30:23
+   |
+30 |     #[dispatch(via = .parsed())]
+   |                       ^^^^^^ expected `&_`, found `Parsed`
+```
+
+**What it means.** The route ends in a method that returns its target
+by value, and the trait method takes `&self` (or `&mut self`). The arm
+hands the method's result over as it is, where a reference is asked for.
+rustc puts the error on the method's name in the route.
+
+**The fix.** Route through a method that lends the target,
+`fn parsed(&self) -> &Parsed`, or write the method by hand, borrowing
+the temporary, `&self.raw.parsed()`; for a trait, do it in a
+[partial impl block][partial-impl-blocks].
 
 ### Other errors on a trait method
 
@@ -396,6 +600,12 @@ which variant to build, so that payload type gets no `From` impl at all.
 
 **The fix.** Build the variant you mean by name: `Any::Large(circle)`.
 
+The same error appears when `Circle` is a payload of an enum that a
+variant of `Any` holds, as in `Round(Round)` with `enum Round {
+Circle(Circle) }`. The `From` impls reach one level. See
+[An enum inside an enum][options-enum-inside-enum] for the one
+blanket impl that converts every leaf.
+
 ### A payload that is a type parameter: "`From<I>` would overlap"
 
 ```text
@@ -408,6 +618,28 @@ error: `I` is a type parameter of `Adapter`, so `From<I>` would overlap the othe
 **The fix.** As the error says: `from = false` on the enum, or
 `#[dispatch(from = false)]` on that variant. See
 [the limits on conversions][limits-conversions].
+
+### An associated type of a type parameter: "may be `Plain` itself"
+
+```text
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be `Plain` itself, so `From<S::Out>` would overlap `From<T> for T`; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+```
+
+and, under `try_from`:
+
+```text
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be any type, so `TryFrom<Plain> for S::Out` would overlap the `TryFrom` that `core` implements for every type; add `#[dispatch(try_from = false)]` on this variant
+```
+
+**What it means.** The payload is `S::Out` or `<S as Source>::Out`, where
+`S` is a type parameter of the enum. rustc cannot tell what that type is:
+it may be the enum itself, or any other type. So a `From` or a `TryFrom`
+for it would overlap the impls `core` writes for every type. You get the
+error even when this is the enum's only variant.
+
+**The fix.** As the error says: leave the variant out of the conversions.
+A projection from a concrete type, `<Fixed as Source>::Out`, gets its
+conversions as usual.
 
 ### "`Any` doesn't implement `Debug`" on `.unwrap()`
 
@@ -534,7 +766,7 @@ is, while the enum's module still needs them.
 **The fix.** Write the signature types in full in the restatement, such
 as `core::fmt::Formatter<'_>`, as `whichever::foreign` does. Or import
 them where the enum is, not where the restatement is. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ## In `Cargo.toml`
 
@@ -576,6 +808,11 @@ cycle.
 No error here. The enum compiles, but a provided method (a method with a
 default body) returns the trait's default, not what the payload's own
 version returns.
+
+(On a struct, a provided method without a receiver over a field reached
+through a route is left to the default too, because the field's type
+cannot be named. See
+[What the field's type cannot be asked][structs-cannot-be-asked].)
 
 **What it means.** The trait is a [restatement][restatements], and
 the restatement does not list that method. A restatement forwards
@@ -620,11 +857,13 @@ reproduces the error helps most.
 [limits]: limits.md
 [limits-conversions]: limits.md#conversions
 [limits-receivers]: limits.md#receivers
+[options-enum-inside-enum]: options.md#an-enum-inside-an-enum
 [options-from-false]: options.md#from--false-no-from-impls
 [options-mismatch]: options.md#mismatch-what-to-return-when-two-variants-differ
 [options-name-type]: options.md#name--type-override-an-associated-type
 [options-name-value]: options.md#name--value-override-an-associated-const
 [partial-impl-blocks]: partial-impl-blocks.md
+[partial-impl-blocks-header]: partial-impl-blocks.md#the-impl-header
 [partial-impl-blocks-names]: partial-impl-blocks.md#which-names-must-be-in-scope
 [restatements]: restatements.md
 [restatements-any-trait]: restatements.md#restate-any-other-trait
@@ -632,4 +871,7 @@ reproduces the error helps most.
 [restatements-enums]: restatements.md#enums-from-other-crates
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
+[structs-cannot-be-asked]: structs.md#what-the-fields-type-cannot-be-asked
+[structs-some-builds]: structs.md#a-trait-in-some-builds-only
+[routes-mutable-borrow]: routes.md#a-route-for-a-mutable-borrow
 [what-is-generated]: what-is-generated.md

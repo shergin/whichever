@@ -1,8 +1,10 @@
 # Partial impl blocks: write some methods yourself
 
-Forwarding does not fit every trait method. A method without a receiver,
-such as a constructor, has no variant to forward to. And sometimes the
-enum should return something different from every payload.
+Forwarding does not fit every trait method. On an enum, a method without
+a receiver, such as a constructor, has no variant to forward to. And
+sometimes the enum should return something different from every payload.
+(A struct forwards a method without a receiver to its field's type; see
+[Forwarding from a struct field](structs.md#functions-and-generic-associated-types).)
 
 For these, write a
 [partial impl block](glossary.md#partial-impl-block): a trait impl block
@@ -52,10 +54,14 @@ On this page:
   the block.
 - **The trait's options go on the block's attribute**:
   [overrides](glossary.md#override) such as `Name = Type`, and
-  [`mismatch`](options.md).
+  [`mismatch`](options.md), as in
+  `#[whichever::dispatch(mismatch(same = false))] impl Same for Any {}`.
+  On the enum's own attribute, which lists no trait, they are an error:
+  no impl would read them there.
 - **An associated type written in the block is an override too**, as if
   you had written `Name = Type` on the attribute.
-- **A generic associated type is declared here.** No first variant can
+- **An enum's generic associated type is declared here**, and so is a
+  struct's whose field is reached through a route. No first variant can
   supply one, so you declare it in the block, and each payload's own type
   converts into it through `Into`, as for any override:
 
@@ -223,6 +229,12 @@ method's own `#[cfg]` gives no error: in every build that has the
 method, the mark is on, and the method is never forwarded to every
 variant.
 
+A mark under `cfg_attr`, `#[cfg_attr(feature = "fancy", dispatch(Circle))]`,
+is an error. The attribute is handed the block before rustc decides a
+`cfg_attr` inside it, so the mark would be read in no build. Write the
+method twice instead, under `#[cfg(..)]` with the mark and under
+`#[cfg(not(..))]` without it.
+
 ## Attributes on the methods
 
 A method you write or mark in the block is yours, and so are its
@@ -235,7 +247,10 @@ attributes:
 
 Only the methods the block leaves to plain forwarding, whose signatures
 the attribute writes, carry the trait method's `#[inline(..)]` and
-`#[allow]`.
+`#[allow]`. That includes an `#[inline(..)]` written on a required trait
+method, which `#[dispatchable]` keeps for the forwarding methods and
+takes off the trait's own method, since rustc rejects it there. One
+written under `cfg_attr` is not carried.
 
 ## The impl header
 
@@ -261,6 +276,13 @@ The other cases:
   `impl ColNames for Lazy<Raw<'static>, Parsed> {}`.
 - A bound on a type parameter that the trait's own `Param: Trait` bound
   does not cover: `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
+- A bound for a payload that only mentions a parameter, such as
+  `Wrapped(Boxed<T>)`. The automatic bound is a bare parameter's alone:
+  `Raw(T)` gets `T: Trait`, and `Boxed<T>` gets nothing, since what its
+  own impl asks of `T` is not written in the enum. Write the header the
+  way you would by hand: `impl<T: Shape> Shape for AnyShape<T> {}`, or
+  `impl<T> Shape for Labelled<T> where Boxed<T>: Shape {}`. The enum then
+  lists no trait in its own attribute.
 
 ## Which names must be in scope
 

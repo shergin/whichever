@@ -7,6 +7,7 @@ use syn::{parse_quote, Error, GenericParam, Ident, Lifetime, Path, Type};
 use crate::options::{IntoTarget, TryFromForms};
 use crate::shape::bare_ident;
 use crate::site::Site;
+use crate::spelling;
 use crate::subject::{Conversions, Entries, SelfReplacer, Subject, Target};
 
 /// Writes the `From<Payload>`, `TryFrom<Enum>` and `From<Enum> for Target`
@@ -63,10 +64,21 @@ pub(crate) fn conversion_impls(
         let built = target.rebuild(&self_path, quote!(#value), site);
         let pattern = target.pattern(&prefix, &value, site);
         let parameter = type_parameter(subject, target);
+        let projected = projected_parameter(subject, target);
         if let (true, Some(ident)) = (overlapping, parameter) {
             errors.push(Error::new_spanned(
                 payload,
                 format!("`{ident}` is a type parameter of `{enum_ident}`, so `From<{ident}>` would overlap the other variants' `From` impls; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
+            ));
+        } else if let (true, Some(ident)) = (from, projected) {
+            // An associated type of a type parameter can be any type, the
+            // enum itself included, so its `From` overlaps `core`'s `impl<T>
+            // From<T> for T` whatever the other variants hold; rustc would
+            // only report conflicting implementations on the attribute.
+            let spelled = spelling::spelled(payload);
+            errors.push(Error::new_spanned(
+                payload,
+                format!("`{spelled}` is an associated type of `{ident}`, a type parameter of `{enum_ident}`, and may be `{enum_ident}` itself, so `From<{spelled}>` would overlap `From<T> for T`; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant"),
             ));
         } else if from {
             output.extend(quote! {
@@ -91,6 +103,17 @@ pub(crate) fn conversion_impls(
             errors.push(Error::new_spanned(
                 payload,
                 format!("`{ident}` is a type parameter of `{enum_ident}`, so `TryFrom<{enum_ident}> for {ident}` would implement a foreign trait for a type parameter, which the orphan rules forbid; add `#[dispatch(try_from = false)]` on this variant"),
+            ));
+            continue;
+        }
+        // An associated type of a type parameter can be any type, so the
+        // impl overlaps the `TryFrom` that `core` implements for every
+        // type through `Into`, as its `From` overlaps the reflexive one.
+        if let Some(ident) = projected {
+            let spelled = spelling::spelled(payload);
+            errors.push(Error::new_spanned(
+                payload,
+                format!("`{spelled}` is an associated type of `{ident}`, a type parameter of `{enum_ident}`, and may be any type, so `TryFrom<{enum_ident}> for {spelled}` would overlap the `TryFrom` that `core` implements for every type; add `#[dispatch(try_from = false)]` on this variant"),
             ));
             continue;
         }
@@ -207,11 +230,40 @@ pub(crate) fn conversion_impls(
 /// Returns the payload of `target` when it is a bare type parameter of the
 /// subject.
 fn type_parameter<'t>(subject: &Subject, target: &Target<'t>) -> Option<&'t Ident> {
-    bare_ident(target.payload).filter(|ident| {
-        subject
-            .generics()
-            .params
-            .iter()
-            .any(|param| matches!(param, GenericParam::Type(param) if &param.ident == *ident))
-    })
+    bare_ident(target.payload).filter(|ident| is_type_parameter(subject, ident))
+}
+
+/// Returns the type parameter of the subject that the payload of `target`
+/// is an associated type of: `S` for `S::Out` and for `<S as Source>::Out`.
+/// rustc cannot tell what such a type is, so it stands for any type, as
+/// the parameter itself does. A projection from any other type is one
+/// rustc can normalize, and is left to it.
+fn projected_parameter<'t>(subject: &Subject, target: &Target<'t>) -> Option<&'t Ident> {
+    let Type::Path(projection) = target.payload else {
+        return None;
+    };
+    let projected_from = match &projection.qself {
+        Some(qself) => bare_ident(&qself.ty)?,
+        None => {
+            let segments = &projection.path.segments;
+            if projection.path.leading_colon.is_some() || segments.len() < 2 {
+                return None;
+            }
+            let first = segments.first()?;
+            if !first.arguments.is_none() {
+                return None;
+            }
+            &first.ident
+        }
+    };
+    is_type_parameter(subject, projected_from).then_some(projected_from)
+}
+
+/// Returns whether `ident` names a type parameter of the subject.
+fn is_type_parameter(subject: &Subject, ident: &Ident) -> bool {
+    subject
+        .generics()
+        .params
+        .iter()
+        .any(|param| matches!(param, GenericParam::Type(param) if param.ident == *ident))
 }

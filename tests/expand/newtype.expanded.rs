@@ -114,4 +114,57 @@ impl Shape for Labelled {
         }
     }
 }
+/// What needs no value is the field's type's: a function, `-> Self` built
+/// around it, a provided function, and a generic associated type, whose
+/// own `T` is renamed beside the struct's.
+pub trait Kind {
+    type Paired<T>;
+    fn kind() -> &'static str;
+    fn unit() -> Self;
+    fn label() -> &'static str {
+        "kind"
+    }
+    fn paired<T>(&self, with: T) -> Self::Paired<T>;
+}
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub use __whichever_Kind_751754d095aa66bb_60_1 as Kind;
+pub struct Generic<T>(T);
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_dispatch_Generic_8894e68c2e17ea23_71_1 as Generic;
+#[automatically_derived]
+impl<T> Kind for Generic<T>
+where
+    T: Kind,
+{
+    type Paired<T2> = <T as Kind>::Paired<T2>;
+    #[inline]
+    fn kind() -> &'static str {
+        <T as Kind>::kind()
+    }
+    #[inline]
+    fn unit() -> Self {
+        Generic(<T as Kind>::unit())
+    }
+    #[inline]
+    fn label() -> &'static str {
+        <T as Kind>::label()
+    }
+    #[inline]
+    fn paired<T2>(&self, with: T2) -> Self::Paired<T2> {
+        match self {
+            Generic(__inner) => <T as Kind>::paired(__inner, with),
+        }
+    }
+}
+pub struct Number(u128);
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_dispatch_Number_7fcf2cba61e7f7cf_74_1 as Number;
+impl Number {
+    pub fn from_u64(v: u64) -> Self {
+        Self(<u128>::from(v))
+    }
+}
 fn main() {}

@@ -95,6 +95,13 @@ pub fn write(writer: &mut Writer, context: &Context) {
             writer.line("&self.payload");
             writer.close("}");
             writer.blank();
+            writer.line("/// Lends the payload mutably, and counts the loan, which a route to the");
+            writer.line("/// field in its place would skip.");
+            writer.open(format!("pub fn lend_mut(&mut self) -> &mut {payload} {{"));
+            writer.line("support::lend_mut();");
+            writer.line("&mut self.payload");
+            writer.close("}");
+            writer.blank();
             writer.open(format!("pub fn copied(&self) -> {payload} {{"));
             writer.line(format!(
                 "{payload} {{ state: self.payload.state, spare: self.payload.spare }}"

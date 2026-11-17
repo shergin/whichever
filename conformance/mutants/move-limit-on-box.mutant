@@ -4,6 +4,6 @@ expect: killed
 witness: s0=deref-box recv=value
 
 find:
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && pointer != Pointer::Box)
+            moved.filter(|_| moved_through.starts_with_deref() && pointer != Pointer::Box)
 replace:
-        if let Some(taken) = moved.filter(|_| route.starts_with_deref() && pointer == Pointer::Box)
+            moved.filter(|_| moved_through.starts_with_deref() && pointer == Pointer::Box)

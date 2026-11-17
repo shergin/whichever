@@ -7,7 +7,7 @@ use syn::{Error, Ident, ImplItem, ItemImpl, Meta, Path, Result, Type};
 
 use crate::combined;
 use crate::conversions::conversion_impls;
-use crate::marked::standing_alone;
+use crate::marked::{recover_conditional_marks, standing_alone};
 use crate::naming;
 use crate::options::{
     is_dispatch_attribute, trait_key, DispatchAttribute, IntoTarget, TraitOptions, TryFromForms,
@@ -36,6 +36,7 @@ pub(crate) fn expand_subject(
     column: usize,
 ) -> TokenStream2 {
     let (arguments, mut errors) = take_dispatch_attributes(&mut subject, attr);
+    errors.extend(subject.recover_conditional_marks());
     // The subject as the carriers hold it, variant and field options
     // included, and as it is emitted, without them.
     let captured = subject;
@@ -59,14 +60,36 @@ pub(crate) fn expand_subject(
             Ok(attribute)
         });
         match parsed {
-            Ok(attribute) => attributes.push(attribute),
+            Ok(attribute) => {
+                errors.extend(attribute.stray_options(captured.words()));
+                attributes.push(attribute);
+            }
             Err(error) => errors.push(error),
         }
     }
-    // A restatement of another crate's enum: nothing is emitted for it but
-    // its carrier and the impls, written for the real path, and it gets no
-    // conversions, which would implement a foreign trait for a foreign
-    // type.
+    // An option of a trait's impl written apart from the one trait the item
+    // dispatches was meant for that trait, and is read beside it.
+    let words = captured.words();
+    let dispatching = attributes
+        .iter()
+        .filter(|attribute| attribute.path.is_some())
+        .count();
+    if dispatching == 1 {
+        let mut stray = TraitOptions::default();
+        for attribute in &mut attributes {
+            stray.absorb(attribute.take_stray_options(words));
+        }
+        if let Some(home) = attributes
+            .iter_mut()
+            .find(|attribute| attribute.path.is_some())
+        {
+            home.options.absorb(stray);
+        }
+    }
+    // A restatement of another crate's enum or struct: nothing is emitted
+    // for it but its carrier and the impls, written for the real path, and
+    // an enum gets no conversions, which would implement a foreign trait
+    // for a foreign type.
     let mut remotes = attributes
         .iter()
         .filter_map(|attribute| attribute.subject.remote.as_ref());
@@ -74,8 +97,13 @@ pub(crate) fn expand_subject(
     if let Some((second, _)) = remotes.next() {
         errors.push(Error::new(second.span(), "`remote` is given twice"));
     }
+    // A struct gets no conversions wherever it is declared, and says so in
+    // its own words below.
+    let restated_enum = remote.is_some() && captured.has_conversions();
     if remote.is_some() {
         emitted = None;
+    }
+    if restated_enum {
         let conversion = attributes.iter().find_map(|attribute| {
             let options = &attribute.subject;
             options
@@ -92,7 +120,7 @@ pub(crate) fn expand_subject(
             ));
         }
     }
-    let conversions = if remote.is_some() {
+    let conversions = if restated_enum {
         TokenStream2::new()
     } else {
         conversions(&captured, &entries, &attributes, &mut errors)
@@ -216,7 +244,7 @@ fn conversions(
     if !subject.has_conversions() {
         if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.subject.first_span())
+            .find_map(|attribute| attribute.subject.conversions_span())
         {
             errors.push(Error::new(
                 span,
@@ -308,15 +336,18 @@ fn subject_carrier(
 /// that the methods it declares resolve and the one real error stands
 /// alone. A rejected trait impl block is incomplete without the forwarding,
 /// which rustc would report on top, so it is dropped.
-pub(crate) fn expand_block(attr: TokenStream2, item_impl: ItemImpl) -> TokenStream2 {
+pub(crate) fn expand_block(attr: TokenStream2, mut item_impl: ItemImpl) -> TokenStream2 {
+    let conditional =
+        combined(recover_conditional_marks(&mut item_impl)).map(|error| error.to_compile_error());
     let kept = item_impl
         .trait_
         .is_none()
         .then(|| without_method_attributes(item_impl.clone()));
-    expand_impl_invocation(attr, item_impl).unwrap_or_else(|error| {
+    let expanded = expand_impl_invocation(attr, item_impl).unwrap_or_else(|error| {
         let error = error.to_compile_error();
         quote! { #kept #error }
-    })
+    });
+    quote! { #expanded #conditional }
 }
 
 /// Returns the block without `#[dispatch]` on its methods, and without the

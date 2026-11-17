@@ -130,7 +130,7 @@ after the table.
 | any other `-> impl Trait` | An error on an enum. Forwarded as it is on a [struct](structs.md). |
 | argument `Self`, `&Self`, `&mut Self` | Matched on the same variant as `self`. Different variants return the `mismatch` expression; see [`Self` in arguments](#self-in-arguments). |
 | return `Self` | Wrapped back into the same variant; see [`Self` in return types](#self-in-return-types) for `Option<Self>`, `Result<Self, E>` and tuples. |
-| method without a receiver | Left to the trait's default body, or written by you in a partial impl block. An error if it has neither; see [methods without a receiver](#methods-without-a-receiver). |
+| method without a receiver | On an enum, left to the trait's default body, or written by you in a partial impl block; an error if it has neither. On a struct, `<Target as Trait>::method(args..)`. See [methods without a receiver](#methods-without-a-receiver). |
 | `#[cfg]` on a method or an associated item | Decided in the trait's crate; see [`#[cfg]` on trait items](#cfg-on-trait-items). |
 | `#[cfg]` on a variant | Carried onto the variant's arm, and decided where the enum is; see [`#[cfg]` on variants](#cfg-on-variants). |
 | `#[deprecated]` on a variant | Arms and conversions written under `#[allow(deprecated)]`. |
@@ -158,6 +158,18 @@ Every generated method gets `#[inline]`. If the trait method has its own
 one is used instead. If you write or mark the method in a
 [partial impl block](partial-impl-blocks.md), it carries the attributes
 you put on it there instead.
+
+You can write `#[inline(..)]` on a required trait method, one without a
+body, to choose how its forwarding methods are inlined. The carrier macro
+keeps it for them, and `#[dispatchable]` takes it off the trait's own
+method. That method has no body to inline, and rustc warns about the
+attribute there ("the `inline` attribute cannot be used on required trait
+methods", a future hard error that Clippy already denies). A provided
+method keeps its `#[inline(..)]`, which is its own body's too.
+
+One exception: an `#[inline(..)]` written under `cfg_attr` is not carried.
+Its predicate belongs to the trait's crate, and the forwarding method is
+written in the enum's crate, where it cannot be decided.
 
 The other attributes that are carried over:
 
@@ -288,9 +300,12 @@ converted, every arm is awaited in one `async move` block, which is
 boxed and pinned again with the `Box` the signature names, as
 `#[async_trait]` itself does.
 
-Any other `-> impl Trait` is an error on an enum, because each arm would
-return a different hidden type and a `match` needs one. A struct has one
-arm, so it forwards any `impl Trait`.
+Any other `-> impl Trait` is an error on an enum. A `match` needs one
+type, and each arm usually returns a different hidden type. Even where
+every variant reaches a target of one type, the attribute cannot tell
+that the hidden types are one, so it refuses; write such a method in a
+[partial impl block](partial-impl-blocks.md). A struct has one arm, so it
+forwards any `impl Trait`.
 
 ### `Self` in arguments
 
@@ -325,7 +340,9 @@ When they hold different variants, there is no payload method to call.
 The method returns the [mismatch](glossary.md#mismatch) expression
 instead, here `false`. You write it on the trait method, as above, or on
 the enum; [`mismatch`](options.md#mismatch-what-to-return-when-two-variants-differ)
-has the details.
+has the details. A provided method may instead be left to the trait's
+default with `#[dispatch(default)]` in a partial impl block. The default
+calls the forwarded methods on both values.
 
 ### `Self` in return types
 
@@ -366,10 +383,35 @@ the trait's default body with `#[dispatch(default)]` in a
 ### Methods without a receiver
 
 A method without `self`, such as `fn new() -> Self`, has no value to
-match on. It is left to the trait's default body if it has one. If it does
-not, write it yourself in a partial impl block,
+match on. On an enum, it is left to the trait's default body if it has
+one. If it does not, write it yourself in a partial impl block,
 `#[whichever::dispatch] impl Trait for Enum { .. }`. When a method has
 neither, you get an error.
+
+A struct has one target, and it names the target's type: the one field,
+or the marked one, directly or through `deref`. So on a struct the method
+is that type's, the provided ones included:
+
+```rust
+fn kind() -> &'static str {
+    <Square as Shape>::kind()
+}
+fn unit() -> Self {
+    Wrapper(<Square as Shape>::unit())
+}
+```
+
+`-> Self` and `Option<Self>` are built around the result where the
+struct has no other field. A generic associated type is the field type's
+as well, `type Side<'a> = <Square as Shape>::Side<'a> where Self: 'a;`,
+with a parameter named like one of the struct's renamed (`T2`). An
+inherent method without a receiver, marked in a block, is
+`<Square>::method(args..)`.
+
+A function that takes a `Self` argument, one over a field holding a
+trait object, and one over a field reached through a route stay as on
+an enum: left to the default, or an error. See
+[structs.md](structs.md#what-the-fields-type-cannot-be-asked).
 
 ### `#[cfg]` on trait items
 

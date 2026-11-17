@@ -1,0 +1,9 @@
+file: macros/src/items.rs
+breaks: A struct forwards a trait method without a receiver to its field's type, the provided ones included, so that what the field's type overrides is what the struct answers, as `docs/structs.md` says.
+expect: killed
+witness: s0=struct s1=none agree=function
+
+find:
+    if !has_receiver && !subject.has_one_target() {
+replace:
+    if !has_receiver && (!subject.has_one_target() || has_default) {

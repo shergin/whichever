@@ -224,22 +224,24 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::TwoFieldsNamed
         | Limit::BodilessInBlock
         | Limit::FromContradicted
-        | Limit::IntoRepeated => String::new(),
+        | Limit::IntoRepeated
+        | Limit::MarkUnderCfgAttr => String::new(),
     }
 }
 
 /// Returns the route a target is reached by, as the variant's option
-/// spells it, every step: `.payload`, `.lend()`, `*.payload`; `None` for
-/// `deref` alone, which a sentence names as `deref`.
+/// spells it, every step: `.payload`, `.lend()`, `*.payload`, the one
+/// named for a mutable borrow where the method borrows `exclusive`ly;
+/// `None` for `deref` alone, which a sentence names as `deref`.
 ///
 /// Open question: no snapshot holds a sentence about a route of several
 /// steps; it is read as naming the route as the option spells it.
-fn route(target: &TargetDescriptor) -> Option<String> {
+fn route(target: &TargetDescriptor, exclusive: bool) -> Option<String> {
     if target.route.is_empty() || target.is_deref() {
         return None;
     }
     let steps: Vec<String> = target
-        .route
+        .route_for(exclusive)
         .iter()
         .map(|step| match step {
             Step::Deref => String::from("*"),
@@ -281,7 +283,6 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     let mut push = |name: Option<String>| names.extend(name.map(Fragment::one));
     match limit {
         Limit::Receiver
-        | Limit::OpaqueReturn
         | Limit::StructConversion
         | Limit::TypeDisagreement
         | Limit::ArmsDisagree => {}
@@ -289,18 +290,44 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             push(variant.clone());
             push(slot.map(|slot| format!("`{}(Payload)`", slot.name())));
         }
+        // The option goes on the attribute that implements the trait: "For
+        // a trait implemented by a partial impl block, these options go on
+        // the block's attribute instead" (options.md). "If the trait gives
+        // the method a body, you can leave it to that default with
+        // `#[dispatch(default)]` in a partial impl block" (limits.md); a
+        // restatement does not see the real trait's body.
         Limit::SelfArgumentWithoutMismatch => {
             push(Some(format!("{method} takes `Self` arguments")));
-            push(Some(String::from("`mismatch(m = <expr>)`")));
+            let block = cell.path_descriptor().site == PathSite::Block;
+            push(Some(String::from(match block {
+                true => "`mismatch(m = <expr>)` on this block's attribute",
+                false => "`mismatch(m = <expr>)` on the enum",
+            })));
+            let provided = cell.qual.descriptor().provided && !cell.decl.descriptor().restated;
+            if provided {
+                push(Some(String::from(
+                    "or leave the method to the trait's default with `#[dispatch(default)] fn m(..);`",
+                )));
+                push(Some(String::from(match block {
+                    true => "in this block",
+                    false => "in a `#[whichever::dispatch] impl ",
+                })));
+            }
         }
+        // "Where every variant does reach one type, write the method in a
+        // partial impl block" (limits.md).
+        Limit::OpaqueReturn => push(Some(String::from("where every variant reaches one type"))),
         Limit::SelfInReturn => push(Some(String::from("back into `E`"))),
         Limit::DerefSelfReturn => {
             push(Some(format!("{method} returns `Self`")));
             push(variant.map(|variant| format!("payload of {variant}")));
         }
+        // The route the receiver takes, the one named for a mutable borrow
+        // where the receiver borrows mutably.
         Limit::RouteSelfReturn => {
             push(Some(format!("{method} returns `Self`")));
-            let route = target.and_then(|(_, target)| route(&target));
+            let exclusive = cell.recv.descriptor().lends == Lends::Exclusive;
+            let route = target.and_then(|(_, target)| route(&target, exclusive));
             push(
                 route
                     .zip(variant)
@@ -358,7 +385,7 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         }
         Limit::MethodRouteOnMutSelf => {
             push(Some(format!("{method} {}", takes(cell, limit))));
-            let route = target.and_then(|(_, target)| route(&target));
+            let route = target.and_then(|(_, target)| route(&target, false));
             push(
                 route
                     .zip(variant)
@@ -446,6 +473,15 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             any = Some(Fragment(held));
         }
         Limit::IntoOtherFields | Limit::RestatedConversions => {}
+        // The way around a variant's mark, and a struct's field's, as the
+        // snapshots `mark_under_cfg_attr_on_a_variant` and
+        // `mark_under_cfg_attr_on_a_struct_field` spell them.
+        Limit::MarkUnderCfgAttr => push(Some(String::from(
+            match cell.s0.descriptor().is_struct() {
+                true => "mark the field in every build, with a bare `#[whichever::dispatch]` on the struct",
+                false => "write the variant twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]` without it",
+            },
+        ))),
         // Open question: whether `into` reports each variant that holds no
         // payload or the first alone is not pinned; a sentence is read as
         // naming any of them.

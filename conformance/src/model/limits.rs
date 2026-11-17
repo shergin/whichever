@@ -49,7 +49,8 @@ pub enum Limit {
     /// A `mismatch` on the enum for a method a `#[cfg]` compiled out.
     MismatchForAbsentMethod,
 
-    /// A `&mut self` method on a route ending in a method call.
+    /// A method that borrows its target mutably over a route ending in a
+    /// method call, with no route named for a mutable borrow.
     MethodRouteOnMutSelf,
     /// An associated type taken from the first variant, where no variant's
     /// target has a type to take it from.
@@ -113,6 +114,8 @@ pub enum Limit {
     FromContradicted,
     /// An `into` target given a second time.
     IntoRepeated,
+    /// A `dispatch` mark under `cfg_attr`.
+    MarkUnderCfgAttr,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -205,6 +208,7 @@ impl Limit {
         Limit::BodilessInBlock,
         Limit::FromContradicted,
         Limit::IntoRepeated,
+        Limit::MarkUnderCfgAttr,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -240,7 +244,7 @@ impl Limit {
             ),
             Limit::OpaqueReturn => entry(
                 "opaque-return",
-                "cannot be dispatched by a `match` because every variant returns a different opaque type",
+                "is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one",
                 "rpitit",
             ),
             Limit::SelfInReturn => entry(
@@ -284,7 +288,7 @@ impl Limit {
                 keeps_impl: false,
                 ..entry(
                     "variant-field-option",
-                    "the options of a variant's field are `deref` and `via = route`",
+                    "the options of a variant's field are `deref`, `via = route` and `via_mut = route`",
                     "trait_named_on_a_variants_field",
                 )
             },
@@ -320,7 +324,7 @@ impl Limit {
             ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
-                "ends in a method call, whose result cannot be borrowed mutably",
+                "ends in a method call, which may not lend mutably",
                 "route_method_on_mut_self",
             ),
             Limit::DefaultWithoutDefault => entry(
@@ -461,6 +465,13 @@ impl Limit {
                 "but this trait is forwarded to",
                 "block_method_naming_another_field",
             ),
+            // The item is read as if the mark were plain, and the impl is
+            // written beside the sentence.
+            Limit::MarkUnderCfgAttr => entry(
+                "mark-under-cfg-attr",
+                "a `dispatch` under `cfg_attr` is not read",
+                "mark_under_cfg_attr_on_a_variant",
+            ),
             Limit::ArmsMatchedByPlace => entry(
                 "arms-matched-by-place",
                 "with `ref` bindings, which arms written for `match self` are not",
@@ -490,7 +501,7 @@ impl Limit {
             Limit::MovesThroughSharedPointer => ("which a value cannot be moved out of; hold a `Box`", true),
             Limit::MutableBorrowThroughSharedPointer => ("hold a `Box` or a `&mut`", true),
             Limit::MismatchForAbsentMethod => ("takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`", false),
-            Limit::MethodRouteOnMutSelf => ("route to a field", true),
+            Limit::MethodRouteOnMutSelf => ("give the route a mutable borrow takes, `via_mut = ..`", true),
             Limit::DefaultWithoutDefault => ("give it a body, or forward it", false),
             Limit::BodyNeverRuns => ("end the signature with `;` instead", false),
             // Where the method holds no arms of its own, its way out is
@@ -531,6 +542,12 @@ impl Limit {
             Limit::TwoFieldsNamed => ("name one, and write a method that needs both by hand", false),
             Limit::FromContradicted => ("so give `from` one value", false),
             Limit::IntoRepeated => ("so name a target once", false),
+            // The way around is the variant's, the method's or the field's,
+            // which `wording` names.
+            Limit::MarkUnderCfgAttr => (
+                "since an attribute macro is handed its item before a `cfg_attr` inside it is decided",
+                false,
+            ),
             Limit::BodilessInBlock => (
                 "or leave it to the trait's default with `#[dispatch(default)]`",
                 false,
@@ -568,7 +585,8 @@ impl Limit {
             | Limit::BlockTraitSpelt
             | Limit::BodilessInBlock
             | Limit::FromContradicted
-            | Limit::IntoRepeated => false,
+            | Limit::IntoRepeated
+            | Limit::MarkUnderCfgAttr => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -646,7 +664,8 @@ impl Limit {
             | Limit::BlockTraitSpelt
             | Limit::BodilessInBlock
             | Limit::FromContradicted
-            | Limit::IntoRepeated => false,
+            | Limit::IntoRepeated
+            | Limit::MarkUnderCfgAttr => false,
         }
     }
 

@@ -142,6 +142,11 @@ pub struct Slot {
     pub parameter: Option<&'static str>,
     /// Whether the variant is `#[deprecated]`.
     pub deprecated: bool,
+    /// Whether the subject restates another crate's type, whose pattern
+    /// over a struct ends in `..`: "The restatement lists only the fields
+    /// it forwards to. The real struct may have more: the pattern ends in
+    /// `..`" (restatements.md).
+    pub restated: bool,
 }
 
 impl Slot {
@@ -265,6 +270,7 @@ impl Cell {
                 (Owner::Local, false) => None,
             },
             deprecated: self.deprecated.slot() == Some(0),
+            restated: self.owner == Owner::Remote,
         }];
         for (index, later) in [(1, self.s1.slot()), (2, self.s2.slot())] {
             let variant = match later {
@@ -289,6 +295,7 @@ impl Cell {
                     }
                 },
                 deprecated: self.deprecated.slot() == Some(index),
+                restated: self.owner == Owner::Remote,
             });
         }
         slots
@@ -587,6 +594,17 @@ impl Cell {
     /// (partial-impl-blocks.md), where the cell writes the declaration.
     pub fn declares_gat(&self) -> bool {
         self.ret == Return::Gat && self.path_descriptor().site == path::Site::Block
+    }
+
+    /// Returns whether the subject takes the trait's generic associated
+    /// type from its field's type: "A struct's target has a type the struct
+    /// names: its one field, or the marked one, reached directly or through
+    /// `deref`. [..] A generic associated type is the field type's too"
+    /// (structs.md), where no block declares it. Every struct the model writes holds its field as it
+    /// is.
+    pub fn takes_gat_from_field(&self) -> bool {
+        let gat = matches!(self.ret, Return::Gat | Return::GatUndeclared);
+        gat && self.s0.descriptor().is_struct() && !self.declares_gat()
     }
 
     /// Returns whether the subject declares a variant that holds its

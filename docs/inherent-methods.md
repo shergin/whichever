@@ -62,7 +62,7 @@ The options change what each forwarding arm becomes:
 | `call = name` | `inner.name(args)` |
 | `field = name` | the field `inner.name`, borrowed or read |
 | `value` | the target itself, borrowed or read |
-| `via = route` | the call or place, on the target the route reaches |
+| `via = route` | the call or place, on the target the route reaches, whatever the method borrows |
 
 On this page:
 
@@ -244,7 +244,11 @@ fn handle(&self) -> Handle;
 
 `via = route` reaches the target for this method alone. The
 [route](routes.md) starts at the payload and wins over the variant's own
-route, if the variant has one:
+routes, if the variant has any. The method follows it whatever it
+borrows, so a `&mut self` method can route through a getter that lends
+mutably, `#[dispatch(*, via = .data_mut(), call = to_send)]`. A method
+that gives no route of its own follows the variant's: its `via_mut` when
+the method borrows mutably, and its `via` otherwise. For example:
 
 ```rust
 #[dispatch(Held, via = .boxed*, call = describe)]
@@ -358,6 +362,10 @@ If `Int::base` takes `&self`, the arm borrows the `Int`. If it takes
 - A method that cannot be forwarded gives its error under the method's
   own `#[cfg]`. A build that compiles the method out gives no error,
   since it would have no hand-written method there either.
+- A mark under `cfg_attr` is an error: the attribute is handed the block
+  before rustc decides the `cfg_attr`, so the mark would be read in no
+  build. Write the method twice, under `#[cfg(..)]` with the mark and
+  under `#[cfg(not(..))]` without it.
 
 ## Where the block goes
 

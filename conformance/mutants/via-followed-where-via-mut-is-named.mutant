@@ -1,0 +1,9 @@
+file: macros/src/subject.rs
+breaks: A method that borrows its target mutably follows `via_mut` where the variant names it, and everything else follows `via`, as `docs/routes.md` says.
+expect: killed
+witness: s0=via-getters recv=mut
+
+find:
+            (Access::Exclusive, Some(mutable)) => mutable,
+replace:
+            (Access::Exclusive, Some(_)) => self.route,

@@ -101,10 +101,12 @@ answers is a rejected cell, refused as the hand's call of it is.
 
 The `item` axis is the attributes on the trait's method: a `#[cfg]` that
 holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature
-trips, and its own `#[inline(..)]`; and `sized`, the bound `where Self:
-Sized`, which a trait object does not meet. Every impl that repeats the
-signature, a block's mark on `m` included, repeats the bound and carries
-the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
+trips, and its own `#[inline(..)]`, which on a required method is its
+forwarders' alone, the trait as emitted holding none for rustc to warn of;
+and `sized`, the bound `where Self: Sized`, which a trait object does not
+meet. Every impl that repeats the signature, a block's mark on `m`
+included, repeats the bound and carries the method's `#[cfg]` and its
+`#[allow]`, as a hand writes them. A method
 under a `#[cfg]` that does not hold exists in no build: its sentences and
 rejections are dropped, the hand writes none of it, and the law checks the
 control method alone. On an inherent path the method is the block's, and
@@ -134,14 +136,18 @@ has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
 `docs/structs.md` says. A sentence about a struct speaks of the struct and
 its field, never of an enum or a variant, and the wording checks it where
-the model reaches one: a generic associated type only the struct can
-declare, and a body beside a method forwarded to the struct's field. A
-struct's sentences the model does not reach stay with `tests/ui`: a trait
-method without a receiver, which the `recv` axis does not write; a field
-reached through a route, which no struct value takes, so none leaves an
-associated type to supply; and a method that names the field it forwards
-to, which the paths write only to name another field or two of them,
-below.
+the model reaches one: a body beside a method forwarded to the struct's
+field. A struct takes what its field's type has
+(`docs/structs.md`, "Functions and generic associated types"): a generic
+associated type no block declares, `type Item<'v> = <P0 as
+Probe>::Item<'v> where Self: 'v;`, whose loan the arm hands over as it
+is, and a method without a receiver, which the `agree` value `function`
+writes. A struct's sentences the model does not reach stay with
+`tests/ui`: a field reached through a route, which no struct value takes,
+so none leaves an associated type to supply; an inherent method without a
+receiver, which the `recv` axis does not write; and a method that names
+the field it forwards to, which the paths write only to name another field
+or two of them, below.
 
 Two values of `path`, `inherent-fields` and `block-fields`, mark the
 method on an inherent block or in a partial block `#[dispatch(held,
@@ -194,11 +200,36 @@ of what the attribute reports, and no impl is written beside it, whatever
 the method. Only the second and third variants depart from the neutral
 cell there.
 
+Two more values of `s0` write the mark under `cfg_attr`, which an
+attribute macro is handed undecided: `marked-cfg-attr` on a tuple
+variant's field, `A(#[cfg_attr(all(), dispatch)] P0, u64)`, and
+`struct-marked-cfg-attr` on a struct's field beside a label. The mark is
+one sentence on its line, naming the variant's way around or the field's,
+and the item is read as if the mark were plain, so the impl stands beside
+it, and the second variant's own sentences with it (`docs/limits.md`).
+Only the second variant departs from the neutral cell there; a mark under
+`cfg_attr` on a variant or a method is `tests/ui`'s.
+
 Four values of `s0` and `s1` reach their target by a route of several
 steps, which `docs/routes.md` allows in any sequence: `via = *.payload`
 behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
 holding a wrapper, and `via = .get().payload`, a field of what a method
 lends, which a hand can neither borrow mutably nor move out of.
+
+Two values of `s0` and one of `s1` reach their target through a getter
+pair, `#[dispatch(via = .lend(), via_mut = .lend_mut())]`, on a variant or
+on a marked field (`docs/routes.md`, "A route for a mutable borrow"):
+a method that borrows the target mutably, by `&mut self`, by `self:
+Pin<&mut Self>` or in a `&mut Self` argument, follows `via_mut`, anything
+else follows `via`, and each `Self` argument the route of its own borrow,
+in the hand as in the attribute. The mutable getter counts its loans in
+`support`, which the law reads after each call: one for `self` and one for
+a `Self` argument that borrow mutably through it, so that a route to the
+field in its place, which skips what the getter does besides lending,
+shows. `via-method` beside them names no `via_mut`, and a mutable borrow
+through it is still the sentence, which names `via_mut`. A route on a
+method's own mark and `via_mut(name = route)` beside a trait are
+`tests/ui`'s and the behaviour tests'.
 
 The `s1` value `deref-dyn` holds the second payload as a trait object,
 `#[dispatch(deref)] B(Box<dyn Probe>)`, the open set beside the sized
@@ -225,7 +256,8 @@ where Self: 'v;`, as `docs/partial-impl-blocks.md` and the golden
 where the cell has one; under `gat-undeclared` the block leaves it out.
 Without the declaration, on the enum's attribute or in such a block, it is
 the sentence of `generic_associated_type` and `gat_undeclared_in_block`
-on the trait's declaration.
+on the trait's declaration; a struct takes it from its field's type
+instead, and a body the block writes for it there is unmodelled.
 
 The `s2` axis is a third variant, `C` over `P2`, beside a second: a
 plain payload, a `Box` under `deref`, a field of a wrapper, or a unit
@@ -261,14 +293,19 @@ enum's attribute and a block silent about both.
 Under `unsafe` the trait is an `unsafe trait`, and every impl of it, the
 payloads', the hand's and a block's, is an `unsafe impl`.
 
-The `owner` axis says which crate declares the enum. Under `remote` the
-trait's crate shard declares `E` generic over what its variants hold, as
-another crate declares `either::Either`, and the subject's crate restates
-it with `#[whichever::dispatch(remote = path)]` beside the trait's
-attribute; the impl is written for the real path, with the bound `Tk:
-Probe` per payload parameter, the hand is the same generic enum with that
-bound, and the law takes both at the payloads, `type S = E<P0, P1>;`. A
-conversion option on a restated enum is its sentence.
+The `owner` axis says which crate declares the enum or the struct. Under
+`remote` the trait's crate shard declares `E` generic over what its
+variants or its field hold, as another crate declares `either::Either`,
+and the subject's crate restates it with `#[whichever::dispatch(remote =
+path)]` beside the trait's attribute; the impl is written for the real
+path, with the bound `Tk: Probe` per payload parameter, the hand is the
+same generic enum or struct with that bound, and the law takes both at the
+payloads, `type S = E<P0, P1>;`. A conversion option on a restated enum is
+its sentence, and on a restated struct the struct's. A restated struct
+lists the fields it forwards to and the real one may have more, so its
+pattern always ends in `..` (`docs/restatements.md`, "Structs from other
+crates"), and the hand's does too, naming its struct by a path, `self::E(inner,
+..)`, as the attribute names the real one.
 
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming
@@ -411,7 +448,14 @@ the subject. Under `type-returned` the type that differs is returned by a
 method every subject forwards as it forwards the control method, `fn
 kind(&self) -> Self::Kind`, whose arms are rustc's E0308 on the enum where
 two of them differ, beside the check's E0271 or alone where the variant
-takes no part in the check.
+takes no part in the check. Under `function` the trait declares a
+provided method without a receiver, `fn label() -> u64 { 7 }`, which
+every payload overrides: an enum leaves it to its default, and a struct
+forwards it to its field's type, `<P0 as Probe>::label()`, so that the
+field's override is what the struct answers
+(`docs/structs.md`); the law
+calls it through the subject. A second trait would declare one of the same
+name, and a restatement one without its body, so it stands beside neither.
 
 The `stack` axis dispatches a second trait, `Other`, a subtrait `Other:
 Probe`, or a supertrait the trait under test requires, `Probe: Other`, on
@@ -531,7 +575,11 @@ An outcome is `pass` or a list of findings:
   message lists the differences.
 
 An error whose span covers an attribute line of the cell is in the part
-`attribute`, whatever part the line is in.
+`attribute`, whatever part the line is in, unless it reaches a variant's
+route, `#[dispatch(via = ..)]`: rustc's judgement of what a route's method
+returns is located on the method's name in the route, the user's tokens,
+and the span may run there from the enum's name across the attributes
+between.
 
 The file is the cell as it was compiled; `show` prints it again from the
 model. A finding in the hand, in its law, or in the payloads blames the

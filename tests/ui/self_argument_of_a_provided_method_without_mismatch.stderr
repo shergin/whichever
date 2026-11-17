@@ -1,0 +1,21 @@
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on this block's attribute, or leave the method to the trait's default with `#[dispatch(default)] fn same(..);` in this block
+  --> tests/ui/self_argument_of_a_provided_method_without_mismatch.rs:8:5
+   |
+ 8 |     fn same(&self, other: &Self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+41 | impl Same for Other {}
+   |      ---- in this macro invocation
+   |
+   = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on the enum, or leave the method to the trait's default with `#[dispatch(default)] fn same(..);` in a `#[whichever::dispatch] impl Same for Kind` block
+  --> tests/ui/self_argument_of_a_provided_method_without_mismatch.rs:8:5
+   |
+ 8 |     fn same(&self, other: &Self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+28 | #[whichever::dispatch(Same)]
+   |                       ---- in this macro invocation
+   |
+   = note: this error originates in the macro `Same` (in Nightly builds, run with -Z macro-backtrace for more info)

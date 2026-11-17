@@ -1,0 +1,12 @@
+file: macros/src/dispatch.rs
+breaks: A `dispatch` under `cfg_attr` on a field or a variant is one sentence on the mark, and the item is read as if the mark were plain, as `docs/limits.md` says.
+expect: killed
+witness: s0=marked-cfg-attr s1=none
+witness: s0=struct-marked-cfg-attr s1=none
+
+find:
+    errors.extend(subject.recover_conditional_marks());
+replace:
+    if false {
+        errors.extend(subject.recover_conditional_marks());
+    }

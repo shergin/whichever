@@ -149,9 +149,15 @@ pub fn write_restatement(writer: &mut Writer, context: &Context) {
     writer.close("}");
 }
 
-/// Writes the enum another crate declares, which the subject restates:
-/// generic over what its variants hold, as `either::Either` is.
+/// Writes the enum or the struct another crate declares, which the subject
+/// restates: generic over what its variants or its field hold, as
+/// `either::Either` is, a struct's fields public.
 pub fn write_real(writer: &mut Writer, context: &Context) {
+    if is_struct(&context.slots) {
+        writer.line("/// The struct another crate declares, which the subject restates.");
+        write_struct(writer, &context.slots[0], &context.generics(), false, false);
+        return;
+    }
     writer.line("/// The enum another crate declares, which the subject restates.");
     writer.open(format!("pub enum E{} {{", context.generics()));
     for slot in &context.declared {

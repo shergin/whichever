@@ -37,6 +37,13 @@ pub struct Rendered {
     /// `#[dispatch(..)]`. A rustc error whose span covers one sits on an
     /// attribute, which `macros/ARCHITECTURE.md` 3.8 calls a defect.
     pub attributes: Vec<usize>,
+    /// The lines that hold a variant's or a field's route, `#[dispatch(via
+    /// = ..)]`: the user's tokens. "What the route's method returns is
+    /// rustc's to judge, and its error lands on the method's name in the
+    /// route" (routes.md), so that an error whose span reaches one is the
+    /// subject's, even where it spans an
+    /// attribute between the enum's name and the route.
+    pub routes: Vec<usize>,
     /// The shard the trait and the payloads are written in, where they
     /// live in a crate of their own, or the real enum a restatement names.
     pub trait_shard: Option<String>,
@@ -56,6 +63,10 @@ impl Rendered {
     /// Returns whether a span from `first` to `last` covers an attribute
     /// line.
     pub fn covers_attribute(&self, first: usize, last: usize) -> bool {
+        let covers = |line: &usize| first <= *line && *line <= last;
+        if self.routes.iter().any(covers) {
+            return false;
+        }
         self.attributes
             .iter()
             .any(|line| first <= *line && *line <= last)
@@ -352,11 +363,18 @@ fn finish(writer: Writer) -> Rendered {
         })
         .map(|(index, _)| index + 1)
         .collect();
+    let routes = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("#[dispatch(via"))
+        .map(|(index, _)| index + 1)
+        .collect();
     Rendered {
         source,
         sections,
         anchors,
         attributes,
+        routes,
         trait_shard: None,
         foreign_parts: Vec::new(),
     }

@@ -1213,6 +1213,7 @@ pub fn variant(slot: &Slot, attributes: bool) -> (Option<String>, String) {
     let stored = storage(slot, &target);
     let field_option = match (attributes, target.option) {
         (false, _) => String::new(),
+        (true, _) if target.under_cfg_attr => String::from("#[cfg_attr(all(), dispatch)] "),
         (true, Some(option)) => format!("#[dispatch({option})] "),
         (true, None) => String::from("#[dispatch] "),
     };
@@ -1269,6 +1270,9 @@ pub fn write_struct(
             // field every other trait goes to.
             let (label, mark) = match (attributes, target.trait_on_field()) {
                 (false, _) => ("", String::new()),
+                (true, _) if target.under_cfg_attr => {
+                    ("", String::from("#[cfg_attr(all(), dispatch)] "))
+                }
                 (true, Some(named)) => ("#[dispatch] ", format!("#[dispatch({named})] ")),
                 (true, None) => ("", String::from("#[dispatch] ")),
             };
@@ -1320,18 +1324,26 @@ pub fn write_struct(
 /// `Self::Tagged(__inner, ..)`, and a marked field that is the last has
 /// none after it to skip, so a hand writes `A(_, inner)` (rule 1 of
 /// `docs/vision.md`; no document shows the form).
+///
+/// A restated struct's pattern always ends in `..`: "The real struct may
+/// have more: the pattern ends in `..`, as yours would over a struct you do
+/// not own, `other::Pair { left: inner, .. }`" (restatements.md).
 pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str) -> String {
     let name = slot.name();
+    let rest = match slot.restated {
+        true => ", ..",
+        false => "",
+    };
     match target.form {
         Form::Single => format!("{path}::{name}({binding})"),
         Form::MarkedTuple => format!("{path}::{name}({binding}, ..)"),
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
         Form::MarkedNamed => format!("{path}::{name} {{ held: {binding} }}"),
-        Form::Struct => format!("{path}({binding})"),
+        Form::Struct => format!("{path}({binding}{rest})"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
-        Form::StructNamed => format!("{path} {{ held: {binding} }}"),
+        Form::StructNamed => format!("{path} {{ held: {binding}{rest} }}"),
         Form::MarkedLast => format!("{path}::{name}(_, {binding})"),
-        Form::StructMarkedLast => format!("{path}(_, {binding})"),
+        Form::StructMarkedLast => format!("{path}(_, {binding}{rest})"),
     }
 }
 

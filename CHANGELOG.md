@@ -5,6 +5,227 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `docs/limits.md`, `docs/options.md`, `docs/partial-impl-blocks.md`,
+  `docs/troubleshooting.md` and the crate docs say that the automatic bound is a bare parameter's: a
+  payload that only mentions a parameter, `Wrapped(Boxed<T>)`, gives the
+  impl no bound, since what its own impl asks of `T` is not written in the
+  enum, and an empty partial impl block writes the header, `impl<T: Shape>
+  Shape for AnyShape<T> {}` or `where Boxed<T>: Shape`. The behaviour test
+  `bounds_for_type_parameter_payloads` runs that block over an enum and a
+  struct, and a recursive enum that keeps the automatic bound alone.
+- `docs/options.md`, `docs/limits.md`, `docs/troubleshooting.md` and the
+  crate docs say that the `From` impls reach one level: an enum held by
+  another gives the outer enum `From<Inner>` and nothing for the inner
+  enum's payloads, and one
+  blanket impl by hand, `impl<T> From<T> for Outer where Inner: From<T>`,
+  with `#[dispatch(from = false)]` on the variant, converts every leaf,
+  through as many levels as are written that way. The behaviour test
+  `from_impls` converts every leaf through two and through three levels.
+- Before, rustc's error about what a route's method returns, such as a
+  method that returns its target by value forwarded under `&self`,
+  "expected `&_`, found `Parsed`", stood on the enum's or the struct's
+  name, away from the route. The route's method call is now located at
+  the method's name in the route, so the error lands on `via =
+  .parsed()`. No new syntax: the attribute hands the method's result over
+  as it is and does not borrow the temporary, `&inner.parsed()`, as a hand
+  may, so such a method is written by hand. `docs/routes.md`,
+  `docs/limits.md`, `docs/troubleshooting.md` and the crate docs say so; the snapshot
+  `route_method_result_does_not_fit_the_receiver` changed.
+- Before, a dispatch struct took nothing from its field's type that needs
+  no value, though its declaration names that type: a trait method without
+  a receiver and a generic associated type were refused with an enum's
+  reason, "no field to forward to", an inherent method without a receiver
+  likewise, and a provided method without a receiver was left to the
+  trait's default, which hid the field's override of it. Where the struct
+  names its target's type, the one field or the marked one, directly or
+  through `deref`, a trait method without a receiver is now `<Target as
+  Trait>::name(args)`, `-> Self` and `Option<Self>` built around it where
+  the struct has no other field; a generic associated type is `type
+  Name<..> = <Target as Trait>::Name<..> where ..;`, a parameter named
+  like one of the struct's renamed, `T2`; and an inherent method without a
+  receiver marked in a block is `<Target>::name(args)`, with `call` and
+  `with`, so dash-num's `#[dispatch(*, call = from)] pub fn from_u64(v:
+  u64) -> Self;` is `Self(<U256>::from(v))`. This changes what existing
+  structs answer: a provided method without a receiver that the field's
+  type overrides now answers with the override, where it answered with
+  the trait's default. A method that takes a `Self` argument, a field
+  holding a trait object and a field reached through a field or a method
+  are left as before, a provided method to the default and a required or
+  an inherent one by a sentence of its own; `field` or `value` on an
+  inherent method without a receiver is a sentence. An enum is unchanged.
+  `docs/structs.md`, `docs/partial-impl-blocks.md`,
+  `docs/what-is-generated.md`, `docs/limits.md`, `docs/troubleshooting.md`,
+  the crate docs and the docs of `#[dispatch]` say so.
+  The snapshots `struct_generic_associated_type` and
+  `struct_trait_method_without_receiver` now pin a field reached through a
+  route, where a generic associated type says "the field of `Wrapper` is
+  reached through a field or a method, so its type cannot be named to
+  supply `Item`"; `struct_method_without_receiver_taking_self`,
+  `struct_method_without_receiver_over_a_trait_object`,
+  `struct_method_without_receiver_beside_other_fields` and
+  `struct_inherent_without_receiver_reading_a_field` are new. The
+  behaviour tests `newtype_delegation` and `inherent_block_on_a_struct` and
+  the golden `newtype` cover a tuple struct, a named field, a marked field
+  beside others, a `deref` field, a generic struct, async, unsafe and
+  generic functions and an inherent constructor.
+- Before, a route ending in a method call was refused for every method
+  that borrows mutably, "whose result cannot be borrowed mutably; route to
+  a field", though a getter that lends mutably, `fn data_mut(&mut self) ->
+  &mut Data`, returns the mutable borrow itself and the hand's arm
+  `inner.data_mut().to_send(version)` compiles; and the field route the
+  sentence advised skipped what the getter does besides lending, such as
+  confluent-kafka's `MetadataResponse::data_mut`, which drops a cache. A
+  mutable borrow now takes a route of its own: `via_mut = route` on a
+  variant, a variant's marked field or a struct's field, and
+  `via_mut(name = route)` beside a trait, on the enum's or the struct's
+  attribute or on a partial block's. A method that borrows the target
+  mutably, by `&mut self`, by `self: Pin<&mut Self>` or in a `&mut Self`
+  argument, follows it, and every other method follows `via`; each `Self`
+  argument takes the route of its own borrow, so `fn absorb(&mut self,
+  other: &Self)` is `absorb(inner.source_mut(), other.source())`. A route
+  on a method's own mark, an inherent method's or a marked method's in a
+  partial block, is followed whatever the method borrows, so
+  `#[dispatch(*, via = .data_mut(), call = to_send)]` on a `&mut self`
+  method is the hand's arm. A trait's `via(Variant = ..)` replaces both of
+  the variant's own routes, and its `via_mut(Variant = ..)` given alone
+  the variant's `via_mut` only. An inherent method's place arm, `value`,
+  through a route ending in a method hands that method's result over as
+  it is. A
+  mutable borrow through a method route with no route named for it is
+  still one sentence, which now names the option: ".. ends in a method
+  call, which may not lend mutably; give the route a mutable borrow takes,
+  `via_mut = ..`, or implement the method by hand". `via_mut` on a
+  method's own mark, `via_mut = route` after a trait, and a route for a
+  mutable borrow on both a variant and its field are each one sentence,
+  and the option lists of the "unknown option" sentences name `via_mut`.
+  `docs/routes.md`, `docs/options.md`, `docs/structs.md`,
+  `docs/inherent-methods.md`, `docs/limits.md`, `docs/troubleshooting.md`,
+  `docs/glossary.md`, the crate docs and the docs of `#[dispatch]` say
+  so.
+  The snapshots `route_method_on_mut_self`,
+  `route_method_under_a_pinned_receiver_or_a_mut_argument`,
+  `unknown_option`, `struct_unknown_option`, `block_unknown_option`,
+  `variant_option` and `trait_named_on_a_variants_field` changed;
+  `via_mut_on_the_attribute`, `via_mut_on_a_variant_and_its_field` and
+  `via_mut_on_a_methods_mark` are new, and so is the behaviour test
+  `mutable_routes`; the golden `routes` gained an enum over a getter pair.
+- Before, the sentence for a return-position `impl Trait` on an enum said
+  that "every variant returns a different opaque type", which is not true
+  of variants that reach a target of one type, such as spenso's
+  `DataTensor`, whose dense and sparse variants are both routed to a
+  `structure` of one type; and the sentence for a `Self` argument asked
+  for a `mismatch` where the trait's own default would have looked at the
+  two values. The limits stay, and the sentences say what holds: "a
+  return-position `impl Trait` is not dispatched by a `match`: the arms of
+  a `match` must return one type, and the attribute cannot tell that the
+  variants' opaque types are one; .. or implement the method by hand
+  where every variant reaches one type", and, for a provided method, ".., or leave the method
+  to the trait's default with `#[dispatch(default)] fn same(..);` in a
+  `#[whichever::dispatch] impl Same for Kind` block", or "in this block"
+  for a partial block's. `docs/limits.md`, `docs/what-is-generated.md`,
+  `docs/options.md`, `docs/troubleshooting.md`, the tour in
+  `docs/tutorial.md` and the crate docs say so. The snapshots `rpitit`,
+  `rpitit_nested`, `impl_into_future`, `rejected_method_keeps_the_impl`
+  and `two_unsupported_methods` changed;
+  `self_argument_of_a_provided_method_without_mismatch` is new, and the
+  behaviour test `variants_reaching_one_type` writes spenso's shape the
+  way the sentences say.
+- Before, a mark written under `cfg_attr`, `#[cfg_attr(feature = "x",
+  dispatch)]` on a struct's field, a variant, a variant's field or a
+  method of a block, was read in no build, since an attribute macro is
+  handed its item before a `cfg_attr` inside it is decided: the struct was
+  told to mark the field it had marked, and rustc then reported "cannot
+  find attribute `dispatch`". It is now one sentence on the mark, naming
+  the way around for its place: "a `dispatch` under `cfg_attr` is not
+  read, since an attribute macro is handed its item before a `cfg_attr`
+  inside it is decided; mark the field in every build, with a bare
+  `#[whichever::dispatch]` on the struct where its own attributes are
+  under `cfg_attr`", or "write the variant twice" or "write the method
+  twice, under `#[cfg(..)]` with the mark and under `#[cfg(not(..))]`
+  without it". The item is read as if the mark were plain, and the
+  `cfg_attr` is kept without it, so the sentence stands alone.
+  `docs/structs.md` shows a struct whose trait is forwarded in some builds
+  only, and `docs/limits.md`, `docs/troubleshooting.md`,
+  `docs/partial-impl-blocks.md`, `docs/inherent-methods.md` and the crate
+  docs say so; the snapshots
+  `mark_under_cfg_attr_on_a_struct_field`,
+  `mark_under_cfg_attr_on_a_variant` and `mark_under_cfg_attr_on_a_method`
+  and the behaviour test `marks_in_some_builds` are new.
+- Before, `remote = path` on a struct's attribute restated another crate's
+  struct, as it restates an enum, and nothing said so; three sentences it
+  can reach called it an enum, and a restatement that left out a field of
+  the real struct compiled or not by how many fields it listed, with
+  rustc's "pattern requires `..` due to inaccessible fields" and a
+  suggestion that is not Rust when it listed one of two. A restated
+  struct now lists the fields its impls forward to, and its pattern always
+  ends in `..`, as a hand's does over a struct it does not own,
+  `other::Pair { left: __inner, .. }`; a field misspelt, or `-> Self`
+  around a struct with fields left out, still fails against the real
+  struct. The sentences speak of a struct: "`other::Solo` is another
+  crate's struct, which gets no inherent impl here", the struct's own
+  "`from`, `try_from` and `into` are options of an enum; a struct gets no
+  conversions" for a restated struct's conversions, and `remote` on a
+  block's attribute has a sentence of its own: "`remote` is an option of
+  the enum's or the struct's own `#[dispatch]` attribute, which restates
+  the type; a block's attribute takes the trait's options only", while
+  `from`, `try_from` and `into` there keep theirs without `remote`.
+  `docs/restatements.md`, under "Structs from other crates",
+  `docs/structs.md`, `docs/limits.md`, the README, the crate docs and
+  the docs of `#[dispatch]` say so. The
+  snapshot `partial_enum_option` changed; `restated_struct_inherent_block`,
+  `restated_struct_conversions` and `partial_block_remote_option` are new,
+  and so are the golden and the behaviour test `restated_struct` and a
+  cross-crate case in `smoke/enums`.
+- Before, an option of a trait's impl written on an enum's or a struct's
+  attribute that names no trait, an override `Unit = u8` or `SIDES = 7`,
+  `mismatch(same = false)` or `via(A = .0)`, was accepted and did nothing;
+  for a trait implemented by a partial impl block, the sentence for a
+  `Self` argument even sent the user to the enum, where the option was
+  read and dropped. Each is now one sentence on the option, and where the
+  enum or the struct dispatches one trait from its own attributes the
+  option is read beside it too, so the impl is the one meant and the
+  sentence stands alone: "`mismatch(..)`
+  is an option of a trait's impl, and this attribute names no trait; write
+  it after the trait, `#[whichever::dispatch(Trait, mismatch(..))]`, or on
+  the `#[whichever::dispatch] impl` block that implements the trait", and
+  a name close to one of the enum's or the struct's own options, `form =
+  false`, is "unknown option `form`; did you mean `from = ..`?". The
+  sentence for a `Self` argument of a partial block's method names
+  `mismatch(same = <expr>)` "on this block's attribute". `docs/limits.md`,
+  `docs/options.md`, `docs/partial-impl-blocks.md`,
+  `docs/troubleshooting.md`, the crate docs and the docs of `#[dispatch]`
+  say so; the
+  snapshots `trait_option_on_an_enum_naming_no_trait`,
+  `trait_option_on_a_struct_naming_no_trait`,
+  `misspelled_option_on_an_attribute_naming_no_trait` and
+  `mismatch_on_the_enum_for_a_partial_block` are new.
+- Before, a variant whose payload is an associated type of one of the
+  enum's type parameters, `Out(S::Out)` or `Out(<S as Source>::Out)`, got
+  a `From` impl that can never compile, reported by rustc as E0119 on the
+  attribute against `core`'s `From<T> for T`, naming neither the variant
+  nor the way around. It is now one sentence on the payload, with one
+  variant as with several: "`S::Out` is an associated type of `S`, a type
+  parameter of `Plain`, and may be `Plain` itself, so `From<S::Out>` would
+  overlap `From<T> for T`; add `from = false` on the enum, or
+  `#[dispatch(from = false)]` on this variant", and its `TryFrom` under
+  `try_from` has a sentence of its own naming `#[dispatch(try_from =
+  false)]`. A projection from a type that is not a type parameter,
+  `<Fixed as Source>::Out`, still gets its conversions.
+  `docs/limits.md`, `docs/options.md`, `docs/troubleshooting.md` and the
+  crate docs say so; the snapshots
+  `from_overlap_associated_type_of_a_parameter` and
+  `try_from_associated_type_of_a_parameter` are new, and the behaviour
+  test `from_impls` converts a concrete projection.
+- Before, an `#[inline(..)]` written on a required trait method, to ask
+  for it on the forwarders, stayed on the trait's own method as well,
+  where rustc 1.100 warns "the `inline` attribute cannot be used on
+  required trait methods", announced as a future hard error, and Clippy
+  denies it. `#[dispatchable]` now keeps the attribute in the carrier macro
+  for the forwarders and leaves it off a method without a body; a provided
+  method keeps its own, and one written under `cfg_attr` is not carried.
+  `docs/what-is-generated.md`, `docs/partial-impl-blocks.md` and the docs
+  of `#[dispatchable]` say so. The golden `carried_attributes` changed; the behaviour test
+  `carried_items` checks the trait under `#[deny(unused_attributes)]`.
 - The tutorial, the glossary and the troubleshooting page are on docs.rs
   too, as `whichever::docs::tutorial`, `docs::glossary` and
   `docs::troubleshooting`, so they read as they were at the version you
