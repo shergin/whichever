@@ -1,9 +1,14 @@
-# Methods the enum implements itself
+# Partial impl blocks: write some methods yourself
 
-A trait method without a receiver, such as a constructor, has no variant to
-dispatch on, and sometimes the enum's answer to a method differs from every
-payload's. Put `#[dispatch]` on a trait impl block holding just those
-items, and the rest of the trait is forwarded around them:
+Forwarding does not fit every trait method. A method without a receiver,
+such as a constructor, has no variant to forward to. And sometimes the
+enum should return something different from every payload.
+
+For these, write a
+[partial impl block](glossary.md#partial-impl-block): a trait impl block
+with `#[dispatch]` on it. You write the items the enum handles itself,
+and the rest of the trait is [forwarded](glossary.md#forwarding) around
+them:
 
 ```rust
 #[whichever::dispatch]
@@ -20,31 +25,62 @@ impl HandlerTrait for Handler {
 }
 ```
 
-The enum then does not name that trait in its own attribute, since the
-block is the impl; naming it in both is reported on the block. A block over
-a struct goes to the field that names the trait as the block's header
-spells it, `#[dispatch(Catalog)]` on the field for `impl<..> Catalog for
-Env<..> {}` and `#[dispatch(Encoder<F>)]` for `impl<F, ..> Encoder<F> for
-Env<..> {}`, or else to the bare field or the only one, as the struct's
-attribute does; see [Forwarding from a struct
-field](structs.md). Options for
-the trait, `Name = Type` and `mismatch`, go on the block's attribute; an
-associated type written in the block counts as an override too. A generic
-associated type is declared here, since no first variant can supply one,
-`type Item<'a> = AnyItem<'a> where Self: 'a;`, and each payload's own
-converts into it through `Into`, as for any override. A method written in
-the block replaces the forwarding for every variant, provided methods
-included, which is the way to leave a payload's method out on purpose; one
-written under `#[cfg]` replaces it where the `cfg` holds and is forwarded
-where it does not, as a hand writes the two arms. A method in the block
-may name the variants it forwards to, as an inherent method does, and its
-body is then the arm for every other variant, two different variants of a
-`Self` argument included; `*` with a bodiless method is the plain
-forwarding's arms written out, `*` with a body is the arms the enum answers
-itself, below, and `#[dispatch(default)]` on a bodiless method
-leaves it to the trait's default, neither forwarded nor written; over a
-restatement that is the real trait's default, which the restatement cannot
-see:
+`from_handler` is yours. Every other method of `HandlerTrait` is
+forwarded to `TextHandler` or `MapHandler`, as if the enum had
+`#[dispatch(HandlerTrait)]`.
+
+On this page:
+
+- [The basics](#the-basics)
+- [Write a method in full](#write-a-method-in-full),
+  or [mark it instead](#mark-a-method-instead-of-writing-it)
+- [Forward to every variant but a few](#forward-to-every-variant-but-a-few)
+- [Reach unit variants and variants without an impl](#reach-unit-variants-and-variants-without-an-impl)
+- [Marks under `#[cfg]`](#marks-under-cfg)
+- [Attributes on the methods](#attributes-on-the-methods)
+- [The impl header](#the-impl-header)
+- [Which names must be in scope](#which-names-must-be-in-scope),
+  [attributes on the block](#attributes-on-the-block),
+  [what the block cannot hold](#what-the-block-cannot-hold)
+- [Call the payloads from a method you wrote](#call-the-payloads-from-a-method-you-wrote)
+- [On a struct](#on-a-struct)
+
+## The basics
+
+- **The enum does not list the trait in its own attribute.** The block
+  is the impl. If you list the trait in both places, you get an error on
+  the block.
+- **The trait's options go on the block's attribute**:
+  [overrides](glossary.md#override) such as `Name = Type`, and
+  [`mismatch`](options.md).
+- **An associated type written in the block is an override too**, as if
+  you had written `Name = Type` on the attribute.
+- **A generic associated type is declared here.** No first variant can
+  supply one, so you declare it in the block, and each payload's own type
+  converts into it through `Into`, as for any override:
+
+  ```rust
+  type Item<'a> = AnyItem<'a> where Self: 'a;
+  ```
+- **The block has to be in the enum's crate**, as an
+  [inherent block](inherent-methods.md) does.
+
+## Write a method in full
+
+A method you write in the block replaces the forwarding for every
+variant. This includes provided methods, so it is also the way to leave
+out a payload's version of a method on purpose.
+
+A method written under `#[cfg]` replaces the forwarding where the `cfg`
+is on, and is forwarded where it is off. That is what you would write by
+hand: two versions of the method under opposite `cfg`s.
+
+## Mark a method instead of writing it
+
+A method in the block may list the variants it is forwarded to, as an
+[inherent method](inherent-methods.md) does. A [mark](glossary.md#mark)
+is `#[dispatch(..)]` on a method of the block, and a method with one is
+marked. Its body is then the arm for every other variant:
 
 ```rust
 #[whichever::dispatch]
@@ -57,11 +93,29 @@ impl whichever::foreign::Display for Category {
 }
 ```
 
-When the enum answers only a few variants itself, `#[dispatch(*)]` with a
+`Wep`, `Wpa` and `Wpa2` are forwarded; every other variant prints
+`Others`.
+
+The body also runs when `self` and a `Self` argument hold two different
+variants.
+
+There are three other marks:
+
+- **`#[dispatch(*)]` on a method without a body** is the plain
+  forwarding's arms, written out.
+- **`#[dispatch(*)]` on a method with a body** holds the arms the enum
+  handles itself. See the next section.
+- **`#[dispatch(default)]` on a method without a body** leaves the method
+  to the trait's default. It is neither forwarded nor written. Over a
+  [restatement](restatements.md), that is the real trait's default,
+  which the restatement cannot see.
+
+## Forward to every variant but a few
+
+When the enum handles only a few variants itself, `#[dispatch(*)]` with a
 body writes the list the other way round. The body is one `match self`
-holding the arms the enum answers itself, and every variant those arms do
-not name is forwarded; the method is the `match` a hand writes, without the
-arms that only forward:
+that holds the arms the enum handles itself, and every variant those
+arms do not name is forwarded:
 
 ```rust
 #[whichever::dispatch]
@@ -80,78 +134,199 @@ impl Encode for Codec {
 }
 ```
 
-The generated `match` is a forwarding arm for each other variant, in the
-enum's order, then these arms as written, with no wildcard, so a variant
-added to the enum later is forwarded with no second edit, and one that
-holds no payload is reported on the method, naming the arm to write. An
-arm names its variants by path, `Self::Unknown(..)`, through a guard, an
-or-pattern, a reference or a binding `name @ ..`, and a variant it names
-is not forwarded, guard or not; an arm that names none, `_` or a
-binding, is reported, since the form with a wildcard is the named list
-with a body. The arms are the method's own, written as they stand in the
-declared return type, and read the fields their pattern binds; in an
-`async fn` they sit where the forwarding arms sit, inside the future. An
-arm under `#[cfg]` answers where the `cfg` holds, and its variant is
-forwarded where it does not. A trait method with a `Self` argument, which
-is matched beside `self`, and a method over an enum whose every variant is
-under `#[cfg]`, which is matched as `match *self`, hold no arms the enum
-answers itself; the named list with a body writes both.
+The method is the `match` you would write by hand, minus the arms that
+only forward.
 
-That is how a trait reaches a unit variant, a variant whose payload has no
-impl, or a variant the enum answers itself whether it holds a payload or
-not: the method names the rest, or under `*` its body holds the arms of those
-variants. A mark under `#[cfg]` follows the rule of a method written under
-one, `#[dispatch(default)]` included: the method is left to the default,
-or forwarded as marked, where the `cfg` holds; where it does not, it is
-forwarded as a mark of the same name without a `#[cfg]` says, or else to
-every variant. A variant no method can forward to, such as a unit variant,
-is reported in the builds in which some method is forwarded to every
-variant and in no other, so a mark under the trait method's own `#[cfg]`,
-which leaves the forwarding no build that has the method, reports nothing.
-A method written or marked in the block is yours, and so are its
-attributes: it carries what you write on it, with `#[inline]` added where
-you write no `#[inline(..)]`, and nothing of the trait method's own, as a
-hand-written impl inherits nothing from the trait's declaration; only the
-methods the block leaves to the plain forwarding, whose signatures the
-attribute writes, carry the trait method's `#[inline(..)]` and `#[allow]`.
-The block's own header,
-generics and bounds included, becomes the impl's header, and may name the enum's parameters as it likes, `impl<T, Ty> Get<T>
-for ImmOrNode<Ty>`. The arms name the payload types as the enum spells
-them, so a block in another module needs them in scope there; the converse
-holds too, so when the trait's signature types are not in scope where the
-enum is, an empty block in a module where they are, such as one holding
-`use trait_crate::*;`, is the place to write the impl. Outer
-attributes on the block are carried onto the impl: `#[typetag::serde(name =
-"..")]` goes there, with `#[whichever::dispatchable]` above
-`#[typetag::serde]` on the trait, so that typetag's own methods are the
-block's and never forwarded. A macro invocation in the block is reported,
-since the items it writes cannot be told from the ones to forward; write
-them out in the block. One under `#[cfg]` is reported only where the `cfg`
-holds: where it does not, the invocation is not in the block, as it is not
-in a hand's, and the block is read without it, so a method the macro
-would have written is forwarded. The same goes for every other item the
-block cannot read, a method without a body or a mark, a mark that does
-not parse, names an inherent method's option or stands beside a second,
-and `#[dispatch(default)]` on a method with a body: under a `#[cfg]` that
-does not hold it is not in the block, and the method it names is
-forwarded. A method written in the block that still
-needs the payloads' answer calls an inherent `#[dispatch(*, call = name)]`
-method beside it. Like inherent blocks, it has to be in the enum's crate.
+### The generated `match`
+
+The generated `match` holds a forwarding arm for each other variant, in
+the enum's order, then your arms as you wrote them. It has no wildcard
+arm:
+
+- A variant you add to the enum later is forwarded, with no second edit.
+- A variant that holds no payload, and has no arm of yours, gives an
+  error on the method. The error names the arm to write.
+
+### Rules for your arms
+
+- **An arm names its variants by path**, as `Self::Unknown(..)`. It
+  may do so through a guard, an or-pattern, a reference or a binding
+  `name @ ..`.
+- **A variant an arm names is not forwarded**, whether the arm has a
+  guard or not.
+- **An arm that names no variant gives an error**, such as `_` or a
+  plain binding. A wildcard would mean "every other variant", and that
+  is what a method with a list of variants and a body already says.
+- **The arms are the method's own.** They are written as they stand, in
+  the declared return type, and read the fields their pattern binds.
+- **In an `async fn`**, your arms sit where the forwarding arms sit:
+  inside the future.
+- **An arm under `#[cfg]`** handles its variant where the `cfg` is on.
+  Where it is off, the variant is forwarded.
+
+### When you cannot write your own arms
+
+Two kinds of method cannot take arms of the enum's own under `*`:
+
+- A trait method with a `Self` argument, because the argument is matched
+  beside `self`, and your arm is written for `self` alone.
+- A method over an enum whose every variant is under `#[cfg]`, because
+  it is matched as `match *self`.
+
+For both, list the forwarded variants in `#[dispatch(..)]` and give the
+method a body for the rest.
+
+## Reach unit variants and variants without an impl
+
+This is how a trait reaches:
+
+- a unit variant,
+- a variant whose payload has no impl of the trait,
+- a variant the enum handles itself, whether it holds a payload or not.
+
+The method lists the other variants, or, under `*`, its body holds the
+arms for these ones.
+
+## Marks under `#[cfg]`
+
+A mark can sit under a `#[cfg]`:
+
+```rust
+#[whichever::dispatch]
+impl Shape for AnyShape {
+    #[cfg(feature = "fancy")]
+    #[dispatch(Circle)]
+    fn name(&self) -> &'static str {
+        "a shape"
+    }
+}
+```
+
+With the feature on, `name` is forwarded to `Circle`, and every other
+variant returns `"a shape"`. With it off, `name` is forwarded to every
+variant, as if the block did not mention it.
+
+This is the rule of a
+[method written under `#[cfg]`](#write-a-method-in-full), and
+`#[dispatch(default)]` follows it too:
+
+- Where the `cfg` is on, the mark applies: the method is forwarded as
+  marked, or, under `#[dispatch(default)]`, left to the trait's default.
+- Where it is off, a mark of the same name without `#[cfg]` applies, if
+  there is one. If there is none, the method is forwarded to every
+  variant.
+
+A variant that no method can be forwarded to, such as a unit variant,
+gives an error in the builds in which some method is forwarded to every
+variant. In other builds, it gives none. So a mark under the trait
+method's own `#[cfg]` gives no error: in every build that has the
+method, the mark is on, and the method is never forwarded to every
+variant.
+
+## Attributes on the methods
+
+A method you write or mark in the block is yours, and so are its
+attributes:
+
+- It carries what you write on it.
+- It gets `#[inline]` unless you wrote an `#[inline(..)]` yourself.
+- It carries nothing of the trait method's own attributes, just as a
+  hand-written impl inherits nothing from the trait's declaration.
+
+Only the methods the block leaves to plain forwarding, whose signatures
+the attribute writes, carry the trait method's `#[inline(..)]` and
+`#[allow]`.
 
 ## The impl header
 
-The block's header is the impl's header, so an empty block is how the impl
-gets a header the enum's attribute cannot write: generics the enum does not
-have, bounds, or one instantiation. A trait generic over its own parameter
-is implemented for every `F`:
+The block's header, generics and bounds included, becomes the impl's
+header. It may refer to the enum's parameters however it likes:
+`impl<T, Ty> Get<T> for ImmOrNode<Ty>`.
+
+So an empty block is how the impl gets a header that the enum's
+attribute cannot write: generics the enum does not have, bounds, or one
+instantiation. A trait generic over its own parameter is implemented for
+every `F`:
 
 ```rust
 #[whichever::dispatch]
 impl<F: Format> Encoder<F> for AnyEncoder {}
 ```
 
-A trait with a lifetime the enum lacks names it, `impl<'r> Renderable<'r>
-for Node {}`; a trait implemented for one instantiation of a generic enum
-names that, `impl ColNames for Lazy<Raw<'static>, Parsed> {}`; and a bound
-on a type parameter that the trait's own `Param: Trait` bound does not cover
-goes in the header, `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
+The other cases:
+
+- A trait with a lifetime the enum lacks:
+  `impl<'r> Renderable<'r> for Node {}`.
+- A trait implemented for one instantiation of a generic enum:
+  `impl ColNames for Lazy<Raw<'static>, Parsed> {}`.
+- A bound on a type parameter that the trait's own `Param: Trait` bound
+  does not cover: `impl<T: Shape + Clone> Shape for Wrapper<T> {}`.
+
+## Which names must be in scope
+
+The forwarding arms refer to the payload types as the enum spells them.
+So a block in another module needs those names in scope there.
+
+It also works the other way round. When the trait's signature types are
+not in scope where the enum is, write an empty block in a module where
+they are, such as one holding `use trait_crate::*;`. That is the place to
+write the impl.
+
+## Attributes on the block
+
+Outer attributes on the block are carried onto the impl. So
+`#[typetag::serde(name = "..")]` goes on the block. On the trait, put
+`#[whichever::dispatchable]` above `#[typetag::serde]`. Then `typetag`'s
+own methods belong to the block and are never forwarded.
+
+## What the block cannot hold
+
+These items give an error in the block:
+
+- **A macro invocation.** The attribute cannot tell the items the macro
+  would write from the ones to forward, so write those items out in the
+  block instead.
+- **A method without a body and without a mark.**
+- **A mark that does not parse.**
+- **A mark with an inherent method's option**, such as `call`.
+- **A second mark on a method that already has one.**
+- **`#[dispatch(default)]` on a method with a body.**
+
+Under `#[cfg]`, each of these gives an error only where the `cfg` is on.
+Where it is off, the item is not in the block, as it would not be in a
+hand-written one. The block is read without it, so the method a macro
+would have written, or the method the item names, is forwarded.
+
+## Call the payloads from a method you wrote
+
+A method you write in the block may still need the payloads' result.
+Have it call an inherent `#[dispatch(*, call = name)]` method beside it:
+
+```rust
+#[whichever::dispatch]
+impl AnyShape {
+    #[dispatch(*, call = describe)]
+    fn payload_describe(&self) -> String;
+}
+
+#[whichever::dispatch]
+impl Describe for AnyShape {
+    fn describe(&self) -> String {
+        format!("a shape: {}", self.payload_describe())
+    }
+}
+```
+
+## On a struct
+
+A partial impl block over a [dispatch struct](structs.md) goes to the
+field that lists the trait as the block's header spells it:
+
+- `#[dispatch(Catalog)]` on the field, for
+  `impl<..> Catalog for Env<..> {}`.
+- `#[dispatch(Encoder<F>)]` on the field, for
+  `impl<F, ..> Encoder<F> for Env<..> {}`.
+
+If no field lists the trait, the block goes to the field marked with a
+bare `#[dispatch]`, or to the only field, as the struct's attribute
+does. See [Forwarding from a struct field](structs.md).

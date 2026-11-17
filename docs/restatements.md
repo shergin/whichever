@@ -1,11 +1,76 @@
 # Traits and enums from other crates
 
-## Traits from `std` and other crates
+Often the trait you want on your enum is not yours. It is `Display`,
+`Error`, `Iterator`, `Read` or `Write`, and it lives in `std`.
+`whichever` ships ready-made restatements of these traits in
+`whichever::foreign`, so you can forward them with one line:
 
-`#[dispatch]` reads a trait's signatures from the carrier macro that
-`#[dispatchable]` leaves next to the trait, so a trait from `std` or from a
-crate you do not own cannot be dispatched as it is. Restate it once, with
-`remote` naming the real trait, and dispatch the restatement:
+```rust
+use std::io;
+use std::num::ParseIntError;
+
+#[derive(Debug)]
+#[whichever::dispatch(whichever::foreign::Display)]
+pub enum ClientError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    #[dispatch(from = false)]
+    BadUrl(String),
+}
+```
+
+This replaces the usual hand-written `match` in `impl Display`. Notice
+`#[dispatch(from = false)]` on the variant that holds a `String`: it keeps
+that variant out of the `From` impls.
+
+On this page:
+
+- [What ships in `whichever::foreign`](#what-ships-in-whicheverforeign)
+- [Why a trait from another crate needs this](#why-a-trait-from-another-crate-needs-this)
+- [Restate any other trait](#restate-any-other-trait)
+- [List the provided methods a payload overrides](#list-the-provided-methods-a-payload-overrides)
+- [`Iterator` in detail](#iterator-in-detail)
+- [`Error` in detail](#error-in-detail)
+- [Enums from other crates](#enums-from-other-crates)
+
+## What ships in `whichever::foreign`
+
+| Restatement | Implements | Forwarded |
+| --- | --- | --- |
+| `Display` | `core::fmt::Display` | `fmt` |
+| `Debug` | `core::fmt::Debug` | `fmt` |
+| `Error` | `core::error::Error` | `source` |
+| `PartialEq` | `core::cmp::PartialEq` | `eq` and `ne`; two different variants are never equal |
+| `Iterator` | `core::iter::Iterator` | `type Item`, `next`, `size_hint`, `count`, `last`, `nth`, `for_each`, `collect`, `partition`, `fold`, `reduce`, `all`, `any`, `find`, `find_map`, `position`, `max`, `min`, `max_by_key`, `max_by`, `min_by_key`, `min_by`, `sum`, `product`, `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_sorted`, `is_sorted_by`, `is_sorted_by_key` |
+| `DoubleEndedIterator` | `core::iter::DoubleEndedIterator` | `next_back`, `nth_back`, `rfold`, `rfind` |
+| `ExactSizeIterator` | `core::iter::ExactSizeIterator` | `len` |
+| `Read` | `std::io::Read` | `read`, `read_vectored`, `read_to_end`, `read_to_string`, `read_exact` |
+| `Write` | `std::io::Write` | `write`, `write_vectored`, `flush`, `write_all`, `write_fmt` |
+| `BufRead` | `std::io::BufRead` | `fill_buf`, `consume`, `read_until`, `skip_until`, `read_line` |
+| `Seek` | `std::io::Seek` | `seek`, `rewind`, `stream_position`, `seek_relative` |
+
+Each restatement forwards every provided method (a method with a default
+body) that a `match` can forward and that is stable on the crate's minimum Rust
+version. The one exception is `Error`, which leaves out its two deprecated
+methods (see [`Error` in detail](#error-in-detail)). The full API is on
+[docs.rs](https://docs.rs/whichever/latest/whichever/foreign/).
+
+## Why a trait from another crate needs this
+
+`#[dispatch]` does not look at a trait directly. It reads the trait's
+signatures from the [carrier macro](glossary.md#carrier-macro): a hidden
+macro that `#[dispatchable]` leaves next to the trait. A trait in `std`, or
+in any crate you do not own, never had `#[dispatchable]` on it, so it has
+no carrier macro, and `#[dispatch]` cannot forward it as it is.
+
+The fix is a [restatement](glossary.md#restatement): a copy of the trait's
+signatures, marked `remote`, that gives `#[dispatch]` something to read.
+Everything in `whichever::foreign` is a restatement written for you.
+
+## Restate any other trait
+
+For a trait that `whichever::foreign` does not cover, restate it once with
+`remote` set to the path of the real trait, and dispatch the restatement:
 
 ```rust
 #[whichever::dispatchable(remote = std::io::Write)]
@@ -23,104 +88,37 @@ pub enum Stream {
 }
 ```
 
-Nothing is emitted for the restatement but the macro, so the name is free
-for `use std::io::Write;` in the same module. Exactly the methods restated
-are forwarded, provided ones included; a changed signature fails to compile
-against the real trait. Write the signature types in full, as
-`whichever::foreign` does, or import them where the enum is: nothing but
-the macro reads the restatement, so its own imports count as unused. Bounds
-on a restated associated type may be left out. A restatement of an
-`#[async_trait]` trait carries `#[async_trait]` above
-`#[dispatchable(remote = ..)]`, as the trait itself does. The restatements an enum most often needs ship in
-[`whichever::foreign`](https://docs.rs/whichever/latest/whichever/foreign/):
-`Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
-`DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead` and
-`Seek`, each forwarding every provided method a `match` can forward and
-that is stable on the crate's minimum Rust version, but for `Error`'s two
-deprecated ones, below. The two iterator
-traits are dispatched beside `Iterator`, one attribute each, so that
-`len`, `rev` and `next_back` are the payload's.
+The impl you get is of the real `std::io::Write`. The rules:
 
-`Iterator` forwards `count`, `last`, `nth`, `for_each`, `collect`,
-`partition`, `fold`, `reduce`, `all`, `any`, `find`, `find_map`,
-`position`, `max`, `min`, the `_by` and `_by_key` forms of both, `sum`,
-`product`, the comparisons `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`,
-`gt` and `ge`, and `is_sorted` with its two forms, beside `next` and
-`size_hint`. So a payload's override is what runs: `core`'s slice
-iterators answer `any`, `all`, `find`, `find_map` and `position`
-themselves, a range answers `max`, `min` and `is_sorted`, and a
-`vec::IntoIter` collected into a `Vec` reuses its allocation. The
-defaults of `all`, `any`, `find` and `position` run through `try_fold`,
-which cannot be restated, so on the enum they would match once per item;
-forwarded, they are one `match`. Left out are the adapters that wrap
-`Self`, `map`, `filter`, `rev` and the rest, and `by_ref`, whose defaults
-call the forwarded methods; `unzip`, which a `match` cannot forward, since
-its bound `Self: Iterator<Item = (A, B)>` does not reach the payload;
-`rposition`, whose bound `Self: ExactSizeIterator + DoubleEndedIterator`
-holds only for an enum that is both; and `try_fold`, `try_for_each`,
-`advance_by` and the others that are unstable on that version.
+- **Nothing is emitted for the restatement but the carrier macro.** There
+  is no new trait called `Write`, so the name stays free for
+  `use std::io::Write;` in the same module.
+- **Exactly the restated methods are forwarded**, provided ones included.
+  A method you leave out keeps the real trait's default (see the next
+  section for why that matters).
+- **A changed signature fails to compile against the real trait**, because
+  the impl is written for the real trait.
+- **Write the signature types in full**, as `whichever::foreign` does, or
+  import them where the enum is. Nothing but the macro reads the
+  restatement, so the restatement's own imports count as unused.
+- **Bounds on a restated associated type may be left out.**
+- **An `#[async_trait]` trait**: put `#[async_trait]` above
+  `#[dispatchable(remote = ..)]` on the restatement, in the same order as
+  on the trait itself.
 
-Every method the `Iterator` declaration forwards but `next`, `size_hint`
-and `nth` requires `Self: Sized`, as `core` declares it. An enum that
-holds a `Box<dyn Iterator>` holds it as a plain payload, without `deref`: the box is itself
-an `Iterator`, so every method is forwarded to it, with no partial block.
-The same goes for a `Box<dyn DoubleEndedIterator>` under
-`DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
-`ExactSizeIterator`. An override such as `Item = Wide` converts what a
-method returns but hands an argument to the payload as it is, so the
-methods that take a closure over `Self::Item` compile only where every
-payload's `Item` is `Wide`. Where the payloads' items differ, restate the
-trait with the methods to forward, and the rest take the real trait's
-default, which calls them:
+## List the provided methods a payload overrides
 
-```rust
-#[whichever::dispatchable(remote = core::iter::Iterator)]
-trait Iterator {
-    type Item;
-    fn next(&mut self) -> Option<Self::Item>;
-    fn size_hint(&self) -> (usize, Option<usize>);
-}
+A restatement forwards only the methods it lists. A provided method you
+leave out gets the trait's default on the enum, whatever the payload does.
+So if a payload overrides a provided method, that method belongs in the
+restatement.
 
-#[whichever::dispatch(Iterator, Item = Wide)]
-pub enum Either {
-    Narrow(Range<u32>),
-    Broad(Range<u64>),
-}
-```
-
-
-`#[dispatch(whichever::foreign::Display)]` on an error enum
-replaces the usual hand-written `match`, and the variant that holds a
-`String` keeps `From` away with `#[dispatch(from = false)]`:
-
-```rust
-#[derive(Debug)]
-#[whichever::dispatch(whichever::foreign::Display)]
-pub enum ClientError {
-    Io(io::Error),
-    Parse(ParseIntError),
-    #[dispatch(from = false)]
-    BadUrl(String),
-}
-```
-
-`whichever::foreign::Error` forwards `source` the same way when every
-payload is an error type. It leaves out `description` and `cause`, which
-are deprecated: a hand does not forward them, and a block that answers
-`source` itself, as below, would then have to answer them too. When one is not, as the `String` above, or when
-the enum answers a method differently from every payload, that method goes
-in a [partial impl block](partial-impl-blocks.md) over the
-declaration: `#[dispatch] impl whichever::foreign::Error for ClientError
-{ fn source(&self) -> .. { None } }`.
-
-A restatement forwards only the methods it lists, so a provided method a
-payload overrides belongs in it; left out, the enum answers with the
-trait's default whatever its payload would. tokio's `AsyncWrite` is the
-common case. Its streams answer `true` to `is_write_vectored` and take
-every buffer in one `poll_write_vectored`, but a restatement of the three
-required methods alone, as a minimal example writes it, has the enum
-report `false`, and a caller such as hyper then copies every buffer into
-one. Restate the two provided methods with the rest:
+tokio's `AsyncWrite` is the common case. Its streams return `true` from
+`is_write_vectored` and take every buffer in one `poll_write_vectored`
+call. A restatement of only the three required methods, as a minimal
+example writes it, makes the enum report `false`. A caller such as hyper
+then copies every buffer into one before writing it. Restate the two
+provided methods with the rest:
 
 ```rust
 #[whichever::dispatchable(remote = tokio::io::AsyncWrite)]
@@ -151,26 +149,137 @@ where
 }
 ```
 
-A `self: Pin<&mut Self>` receiver needs every payload to be `Unpin`, and
-the empty partial block gives the impl a header that says so, as
-[the impl header](partial-impl-blocks.md#the-impl-header) describes.
-Payloads that are type parameters would get overlapping `From<A>` and
-`From<B>`, hence `from = false`. An enum over concrete streams,
-`Tcp(TcpStream)` and `Tls(TlsStream<TcpStream>)`, needs neither: the
-attribute `#[whichever::dispatch(AsyncWrite)]` on the enum is enough. The
-same holds for any trait with provided methods a payload overrides, such as
-the `futures` crate's `AsyncRead` and its `poll_read_vectored`.
+Two things in this example are there because the payloads are type
+parameters:
+
+- **The empty partial impl block.** A `self: Pin<&mut Self>` receiver
+  needs every payload to be `Unpin`. The empty
+  [partial impl block](partial-impl-blocks.md) gives the impl a header
+  that says so, as [the impl header](partial-impl-blocks.md#the-impl-header)
+  describes.
+- **`from = false`.** Payloads that are type parameters would get
+  overlapping `From<A>` and `From<B>` impls, so the enum turns them off.
+
+An enum over concrete streams, such as `Tcp(TcpStream)` and
+`Tls(TlsStream<TcpStream>)`, needs neither. The attribute
+`#[whichever::dispatch(AsyncWrite)]` on the enum is enough.
+
+The same advice applies to any trait with provided methods that a payload
+overrides, such as the `futures` crate's `AsyncRead` and its
+`poll_read_vectored`.
+
+## `Iterator` in detail
+
+### What is forwarded, and why it matters
+
+`whichever::foreign::Iterator` forwards `next` and `size_hint`, and also
+`count`, `last`, `nth`, `for_each`, `collect`, `partition`, `fold`,
+`reduce`, `all`, `any`, `find`, `find_map`, `position`, `max`, `min`, the
+`_by` and `_by_key` forms of both, `sum`, `product`, the comparisons
+`cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt` and `ge`, and
+`is_sorted` with its two forms.
+
+Because they are forwarded, a payload's own override is what runs:
+
+- `core`'s slice iterators implement `any`, `all`, `find`, `find_map` and
+  `position` themselves.
+- A range implements `max`, `min` and `is_sorted` itself.
+- A `vec::IntoIter` collected into a `Vec` reuses its allocation.
+
+There is a speed reason too. The defaults of `all`, `any`, `find` and
+`position` run through `try_fold`, which cannot be restated. On the enum,
+those defaults would `match` once per item. Forwarded, they are one
+`match`.
+
+### What is left out, and why
+
+- **The adapters that wrap `Self`**, such as `map`, `filter`, `rev` and
+  the rest, **and `by_ref`.** They keep their defaults, which call the
+  forwarded methods.
+- **`unzip`**, which a `match` cannot forward. Its bound
+  `Self: Iterator<Item = (A, B)>` does not reach the payload.
+- **`rposition`.** Its bound `Self: ExactSizeIterator +
+  DoubleEndedIterator` is true only for an enum that is both.
+- **`try_fold`, `try_for_each`, `advance_by`** and the others that are
+  unstable on the crate's minimum Rust version.
+
+### `Self: Sized` and boxed iterators
+
+Every method the `Iterator` restatement forwards, except `next`,
+`size_hint` and `nth`, needs `Self: Sized`, as `core` declares it.
+
+An enum that holds a `Box<dyn Iterator>` holds it as a plain payload,
+without `deref`. The box is itself an `Iterator`, so every method is
+forwarded to it, and you need no partial impl block. The same goes for a
+`Box<dyn DoubleEndedIterator>` under `DoubleEndedIterator` and a
+`Box<dyn ExactSizeIterator>` under `ExactSizeIterator`.
+
+### `DoubleEndedIterator` and `ExactSizeIterator`
+
+Dispatch these beside `Iterator`, one attribute each. Then `len`, `rev`
+and `next_back` run the payload's own code.
+
+### Payloads with different items
+
+An [override](glossary.md#override) such as `Item = Wide` converts what a
+method returns. It does not convert an argument: the argument goes to the
+payload as it is. So the methods that take a closure over `Self::Item`
+compile only when every payload's `Item` is `Wide`.
+
+When the payloads' items differ, restate the trait yourself with only the
+methods to forward. The rest take the real trait's default, which calls
+them:
+
+```rust
+#[whichever::dispatchable(remote = core::iter::Iterator)]
+trait Iterator {
+    type Item;
+    fn next(&mut self) -> Option<Self::Item>;
+    fn size_hint(&self) -> (usize, Option<usize>);
+}
+
+#[whichever::dispatch(Iterator, Item = Wide)]
+pub enum Either {
+    Narrow(Range<u32>),
+    Broad(Range<u64>),
+}
+```
+
+## `Error` in detail
+
+`whichever::foreign::Error` forwards `source` to the payload, the same way
+`Display` forwards `fmt`, when every payload is an error type.
+
+It leaves out `description` and `cause`, which are deprecated. You would
+not forward them by hand. And if they were in the restatement, a partial
+impl block that writes `source` itself would have to write them too.
+
+When one payload is not an error type, like the `String` in `ClientError`
+above, or when the enum handles a method differently from every payload,
+write that method in a [partial impl block](partial-impl-blocks.md) over
+the restatement:
+
+```rust
+#[whichever::dispatch]
+impl whichever::foreign::Error for ClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ClientError::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+```
+
+The block refers to the restatement, and the impl you get is of the real
+`core::error::Error`.
 
 ## Enums from other crates
 
-A trait of this crate may be forwarded over an enum another crate defines,
-as a hand-written `impl LocalTrait for other::Either<L, R>` may: restate
-the enum once, `remote` naming the real one, and dispatch the restatement.
-Nothing is emitted for the restatement but its carrier and the impls,
-written for the real path; a variant missing or misspelt fails against the
-real enum. A restated enum gets no conversions and no inherent impl, which
-the orphan rules and the language refuse; for a partial impl block, import
-the real enum under the restatement's name and write the block on it:
+The same trick works the other way round. You can forward a trait of your
+crate over an enum another crate defines, as a hand-written
+`impl LocalTrait for other::Either<L, R>` could. Restate the enum once,
+with `remote` set to the real one, and dispatch the restatement:
 
 ```rust
 use either::Either;
@@ -189,3 +298,15 @@ impl<L: Named, R: Named> Named for Either<L, R> {
     }
 }
 ```
+
+What you get:
+
+- **Nothing is emitted for the restatement but its carrier macro and the
+  impls**, and the impls are written for the real path, `either::Either`.
+- **A missing or misspelt variant fails to compile** against the real
+  enum.
+- **No conversions and no inherent impl.** The orphan rules and the
+  language refuse both for a type from another crate.
+- **For a partial impl block, import the real enum under the
+  restatement's name** and write the block on it, as the `use
+  either::Either;` and the `Named` block above do.
