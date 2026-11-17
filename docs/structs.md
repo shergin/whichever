@@ -88,7 +88,9 @@ ways is reported, at either home: a home whose trait no field names as it
 is spelled there, beside a field that names it with more or fewer path
 segments, `Catalog` and `traits::Catalog`, or with or without its generic
 arguments, `Encoder` and `Encoder<F>`, since the home would otherwise go
-to the bare field.
+to the bare field. The impl is then written for the field that was meant,
+so the sentence is the only error, and the calls of the trait's methods
+compile.
 
 `#[dispatch(deref)]` on the field reaches through a `Box` or another
 pointer. A method returning `Self` is rebuilt only around a struct with no

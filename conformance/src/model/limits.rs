@@ -416,22 +416,21 @@ impl Limit {
                 "which are matched beside `self`, and an arm of its own is written for `self` alone",
                 "own_arms_beside_a_self_argument",
             ),
-            // The field's sentence; the impl the attribute writes is the
-            // bare field's, beside it (a-fields-trait-may-be-a-partial-blocks.md).
+            // The field's sentence; the attribute's impl is written for the
+            // field that was meant, beside it.
             Limit::FieldTraitSpelt => entry(
                 "field-trait-spelt",
                 "on the struct spell one trait's name two ways",
                 "struct_trait_spelt_two_ways",
             ),
-            // The block is refused before it is read, so no impl is written.
-            Limit::BlockTraitSpelt => Entry {
-                keeps_impl: false,
-                ..entry(
-                    "block-trait-spelt",
-                    "here spell one trait's name two ways",
-                    "block_trait_spelt_two_ways_by_path",
-                )
-            },
+            // The home hands the struct on with the field naming the trait
+            // as the header spells it, so the impl is written for the field
+            // that was meant and the sentence stands alone.
+            Limit::BlockTraitSpelt => entry(
+                "block-trait-spelt",
+                "here spell one trait's name two ways",
+                "block_trait_spelt_two_ways_by_path",
+            ),
             // The block is not read, so the impl it would hold is not
             // written.
             Limit::BodilessInBlock => Entry {

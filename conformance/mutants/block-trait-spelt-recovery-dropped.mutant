@@ -1,0 +1,10 @@
+file: macros/src/block.rs
+breaks: A partial block that finds its trait named on a field in another spelling says so, and writes the impl for the field that was meant, so that the sentence stands alone, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `macros/ARCHITECTURE.md` 3.8 say.
+expect: killed
+witness: s0=struct-trait-spelt s1=none path=block
+
+find:
+        Some((subject.naming(field, trait_path), sentence.to_compile_error()))
+replace:
+        let _ = field;
+        Some((subject.clone(), sentence.to_compile_error()))

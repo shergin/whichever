@@ -304,9 +304,9 @@ impl Context {
     /// one more path segment, `self::Probe`, where the struct's field
     /// spells it as an impl names it, one name spelled two ways.
     pub fn home_path(&self) -> String {
-        match self.cell.s0.spells_trait_otherwise() {
-            true => format!("self::{}", self.trait_path()),
-            false => self.trait_path(),
+        match self.cell.s0.home_prefix() {
+            Some(prefix) => format!("{prefix}::{}", self.trait_path()),
+            None => self.trait_path(),
         }
     }
 
@@ -1213,7 +1213,7 @@ pub fn write_struct(
     attributes: bool,
     anchored: bool,
 ) {
-    let Some((kind, target)) = slot.target() else {
+    let Some((_, target)) = slot.target() else {
         unreachable!("a struct subject holds a live target");
     };
     let stored = storage(slot, &target);
@@ -1237,16 +1237,8 @@ pub fn write_struct(
                 (true, Some(named)) => ("#[dispatch] ", format!("#[dispatch({named})] ")),
                 (true, None) => ("", String::from("#[dispatch] ")),
             };
-            // Where the home spells the trait otherwise, the trait goes to
-            // the bare label, which then holds a payload, as the field a
-            // user leaves bare does; elsewhere it is a `u64`, which
-            // implements nothing, so a trait sent there is rustc's error.
-            let labelled = match kind.spells_trait_otherwise() {
-                true => stored.as_str(),
-                false => "u64",
-            };
             writer.open(format!("pub struct E{generics} {{"));
-            writer.line(format!("{label}pub label: {labelled},"));
+            writer.line(format!("{label}pub label: u64,"));
             if anchored {
                 writer.anchor(Anchor::Variant(slot.index).name());
             }

@@ -224,6 +224,10 @@ impl TargetDescriptor {
 /// it.
 pub const TRAIT_ON_FIELD: &str = "Probe";
 
+/// The module of the cell that re-exports the trait under test, so that a
+/// home can spell it with one more segment than the field.
+pub const SPELT_MODULE: &str = "spelt";
+
 const DEREF: &[Step] = &[Step::Deref];
 const FIELD: &[Step] = &[Step::Field("payload")];
 const INDEX: &[Step] = &[Step::Field("1")];
@@ -236,10 +240,19 @@ const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
 impl Target {
     /// Returns whether the struct's field names the trait under test as an
     /// impl names it while its home spells it with one more path segment,
-    /// `self::Probe`: one name spelled two ways. The field's option parses
-    /// no `self`, so the home takes the longer spelling.
+    /// `spelt::Probe` or `self::Probe`: one name spelled two ways.
     pub fn spells_trait_otherwise(self) -> bool {
-        self == Target::StructTraitSpelt
+        self.home_prefix().is_some()
+    }
+
+    /// Returns the segment the home spells the trait under test with in
+    /// front of its name, where it spells it otherwise than the field.
+    pub fn home_prefix(self) -> Option<&'static str> {
+        match self {
+            Target::StructTraitSpelt => Some(SPELT_MODULE),
+            Target::StructTraitSelf => Some("self"),
+            _ => None,
+        }
     }
 
     /// Returns the target kind's description.
@@ -373,7 +386,7 @@ impl Target {
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
             },
-            Target::StructTraitSpelt => TargetDescriptor {
+            Target::StructTraitSpelt | Target::StructTraitSelf => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::StructMarked,
                 route: &[],

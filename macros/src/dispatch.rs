@@ -106,7 +106,10 @@ pub(crate) fn expand_subject(
     // from here, so a field's trait no attribute names is a block's. A
     // field names its trait as the home spells it. One that spells an
     // attribute's trait another way is the target of nothing the attribute
-    // writes, which can be told, and is.
+    // writes, which can be told, and is; the attribute's impl is then
+    // written for the field that was meant, so that the sentence stands
+    // alone.
+    let mut respelt: Vec<(&Path, Subject)> = vec![];
     for home in &dispatched {
         if let Some((field, path)) = entries.spelt_otherwise(home, &dispatched) {
             let (on_field, on_struct) = (trait_key(path), trait_key(home));
@@ -114,6 +117,7 @@ pub(crate) fn expand_subject(
                 path,
                 format!("`{on_field}` on `{field}` and `{on_struct}` on the struct spell one trait's name two ways, so `{field}` is not the field `{on_struct}` is forwarded to; a field names a trait as the struct's attribute spells it"),
             ));
+            respelt.push((*home, captured.naming(field, home)));
         }
     }
     // Every variant must be forwardable when the item dispatches a trait.
@@ -132,9 +136,13 @@ pub(crate) fn expand_subject(
         let macro_path = carrier_path(path);
         // The switches stay behind: they were read above and the
         // implementation macro has no use for them.
+        let subject = respelt
+            .iter()
+            .find(|(home, _)| std::ptr::eq(*home, path))
+            .map_or(&captured, |(_, subject)| subject);
         let request = TraitRequest {
             facade: &facade,
-            subject: &captured,
+            subject,
             path,
             options: &attribute.options,
             remote: remote.as_ref(),

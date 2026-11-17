@@ -81,6 +81,30 @@ impl Subject {
         self.words().target()
     }
 
+    /// Returns the subject with `field` naming `home` as well, as `home`
+    /// spells its trait. A home that finds its trait on a field in another
+    /// spelling says so, and hands the struct on as it was meant, so that
+    /// the impl goes to that field and the sentence stands alone.
+    pub(crate) fn naming(&self, field: &Ident, home: &Path) -> Self {
+        let mut subject = self.clone();
+        if let Subject::Struct(item) = &mut subject {
+            let found = item
+                .fields
+                .iter_mut()
+                .enumerate()
+                .find(|(index, candidate)| match &candidate.ident {
+                    Some(ident) => ident == field,
+                    None => *field == format!("_{index}"),
+                });
+            if let Some((_, found)) = found {
+                found
+                    .attrs
+                    .push(parse_quote_spanned!(field.span() => #[dispatch(#home)]));
+            }
+        }
+        subject
+    }
+
     /// Returns the subject without the `#[dispatch]` attributes on its
     /// variants, their fields, or its fields.
     pub(crate) fn without_inner_attributes(mut self) -> Self {
@@ -1289,6 +1313,52 @@ mod tests {
             .unwrap()
             .spelt_otherwise(&parse_quote!(Shape), &[])
             .is_none());
+    }
+
+    #[test]
+    fn a_subject_named_as_meant_forwards_the_homes_trait_to_that_field() {
+        let subject: Subject = parse_quote! {
+            struct Env {
+                #[dispatch(Catalog)]
+                catalog: Books,
+                #[dispatch]
+                named: Label,
+            }
+        };
+        let home: Path = parse_quote!(traits::Catalog);
+        let target =
+            |subject: &Subject| names(&subject.read().unwrap().for_trait(&home).unwrap().targets());
+        assert_eq!(target(&subject), ["named"], "as written, the bare field");
+        let meant = subject.naming(&parse_quote!(catalog), &home);
+        assert_eq!(target(&meant), ["catalog"]);
+        let traits: Vec<String> = meant
+            .read()
+            .unwrap()
+            .field_traits()
+            .into_iter()
+            .map(|(field, path)| format!("{field}: {}", path.to_token_stream()))
+            .collect();
+        assert_eq!(
+            traits,
+            ["catalog: Catalog", "catalog: traits :: Catalog"],
+            "the field keeps its own spelling beside the home's"
+        );
+        let tuple: Subject = parse_quote!(
+            struct Pair(#[dispatch] Label, #[dispatch(Encoder)] Json);
+        );
+        let encoder: Path = parse_quote!(Encoder<F>);
+        let meant = tuple.naming(&parse_quote!(_1), &encoder);
+        assert_eq!(
+            names(&meant.read().unwrap().for_trait(&encoder).unwrap().targets()),
+            ["_1"]
+        );
+        let enum_subject = shapes();
+        let unchanged = enum_subject.naming(&parse_quote!(Circle), &home);
+        assert_eq!(
+            unchanged.to_token_stream().to_string(),
+            enum_subject.to_token_stream().to_string(),
+            "an enum has no field to name"
+        );
     }
 
     #[test]

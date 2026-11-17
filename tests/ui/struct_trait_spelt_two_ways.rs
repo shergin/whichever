@@ -1,6 +1,7 @@
 //! A field names a trait as the struct's attribute spells it; one name
-//! spelled with another path is told, since the attribute would forward
-//! to the bare field and the field's mark would be dead.
+//! spelled with another path is told, and the impl is written for the
+//! field that was meant, so the sentence stands alone: no error on the bare
+//! field, which does not implement the trait, and none at the call.
 mod traits {
     #[whichever::dispatchable]
     pub trait Catalog {
@@ -18,12 +19,18 @@ impl Catalog for Books {
     }
 }
 
+struct Label;
+
 #[whichever::dispatch(traits::Catalog)]
 struct Env {
     #[dispatch(Catalog)]
     catalog: Books,
     #[dispatch]
-    named: Books,
+    named: Label,
+}
+
+fn size(env: &Env) -> usize {
+    env.size()
 }
 
 fn main() {}

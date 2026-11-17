@@ -52,22 +52,28 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
             format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),
         ));
     }
-    // A struct forwards the block's trait to the field that names it as the
-    // header spells it; a field that spells it another way is not that
-    // field, and the block would go to the bare one.
-    let attributes: Vec<&Path> = dispatched.iter().collect();
-    if let Ok(entries) = subject.read() {
-        if let Some((field, path)) = entries.spelt_otherwise(trait_path, &attributes) {
-            let on_field = trait_key(path);
-            return Err(Error::new_spanned(
-                trait_path,
-                format!("`{on_field}` on `{field}` and `{trait_name}` here spell one trait's name two ways, so `{field}` is not the field this block is forwarded to; a field names a trait as the block's header spells it"),
-            ));
-        }
-    }
     // The invocation carries the block's trait path, so that an error rustc
     // finds in the impl is labelled on the block.
     let site = trait_path.span();
+    // A struct forwards the block's trait to the field that names it as the
+    // header spells it; a field that spells it another way is not that
+    // field, and the block would go to the bare one. It says so, and the
+    // impl is written for the field that was meant, so that the sentence
+    // stands alone.
+    let attributes: Vec<&Path> = dispatched.iter().collect();
+    let spelt_otherwise = subject.read().ok().and_then(|entries| {
+        let (field, path) = entries.spelt_otherwise(trait_path, &attributes)?;
+        let on_field = trait_key(path);
+        let sentence = Error::new_spanned(
+            trait_path,
+            format!("`{on_field}` on `{field}` and `{trait_name}` here spell one trait's name two ways, so `{field}` is not the field this block is forwarded to; a field names a trait as the block's header spells it"),
+        );
+        Some((subject.naming(field, trait_path), sentence.to_compile_error()))
+    });
+    let (subject, spelt_otherwise) = match spelt_otherwise {
+        Some((subject, sentence)) => (subject, Some(sentence)),
+        None => (subject, None),
+    };
     let (read_in, sentences) =
         without_unread_conditional_items(&mut item_impl, subject.words(), site);
     let read_where = read_in.attribute(site);
@@ -80,7 +86,11 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
         remote: remote.as_ref(),
         partial: Some(&item_impl),
     };
-    Ok(quote_spanned! { site => #read_where #macro_path! { #request } #sentences })
+    Ok(quote_spanned! { site =>
+        #read_where #macro_path! { #request }
+        #sentences
+        #spelt_otherwise
+    })
 }
 
 /// Takes the items under `#[cfg]` that a partial block cannot read out of

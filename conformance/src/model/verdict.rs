@@ -452,9 +452,12 @@ fn two_fields(cell: &Cell) -> Option<Verdict> {
 /// is rustc's error, and every other trait would go to it: the second
 /// trait, the inherent paths, whose `*` is the bare field, and generics,
 /// whose arguments a field would have to repeat, stay the plain struct's.
-/// Where the home spells the trait otherwise, the attribute still writes
-/// the impl, to the bare field, so the label holds a payload there, as the
-/// field a user leaves bare does.
+/// Where the home spells the trait otherwise, the sentence stands alone at
+/// either home: the home hands the struct on with the field naming the
+/// trait as the home spells it, so the impl is written for the field that
+/// was meant, and the probe through the trait resolves; were it written
+/// for the bare `u64`, that would be rustc's E0277, and were it withheld,
+/// the probe's error.
 fn field_trait(cell: &Cell) -> Option<Verdict> {
     let target = cell.s0.descriptor();
     target.trait_on_field()?;

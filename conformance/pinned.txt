@@ -447,3 +447,10 @@ conv=from-contradicted stack=second
 conv=into-repeated stack=second
 conv=into-twice
 conv=from-agreed stack=second
+
+# One name spelled two ways was reported beside an impl for the bare field
+# from the attribute, rustc's E0277 there, and beside a withheld impl from
+# a block; the home now writes the impl for the field that was meant.
+s0=struct-trait-spelt s1=none path=block home=crate
+s0=struct-trait-self s1=none
+s0=struct-trait-self s1=none path=block

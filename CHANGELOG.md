@@ -71,6 +71,9 @@ changes are expected and listed without apology.
   reported instead, at either home: "`Catalog` on `catalog` and
   `traits::Catalog` on the struct spell one trait's name two ways", and
   the same for `Encoder` beside `Encoder<F>`; spell it as the home does.
+  The impl is then written for the field that was meant, so the sentence
+  stands alone: no rustc error on a bare field that does not implement
+  the trait, and no impl withheld at a block, which would fail every call.
   A block's method naming another field than the trait's now says "`named`
   is a field of `Env`, but this trait is forwarded to `catalog`, ...; name
   the trait on `named`, `#[dispatch(Trait)]`, to forward it there", and a

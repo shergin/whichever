@@ -380,12 +380,12 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::ArmsBesideSelfArgument => push(Some(format!("{method} takes `Self` arguments"))),
         // The trait as the field spells it, the field, and the trait as
         // its home spells it.
-        Limit::FieldTraitSpelt => push(Some(format!(
-            "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` on the struct"
-        ))),
-        Limit::BlockTraitSpelt => push(Some(format!(
-            "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` here"
-        ))),
+        Limit::FieldTraitSpelt => push(cell.s0.home_prefix().map(|prefix| {
+            format!("`{TRAIT_ON_FIELD}` on `held` and `{prefix}::{TRAIT_ON_FIELD}` on the struct")
+        })),
+        Limit::BlockTraitSpelt => push(cell.s0.home_prefix().map(|prefix| {
+            format!("`{TRAIT_ON_FIELD}` on `held` and `{prefix}::{TRAIT_ON_FIELD}` here")
+        })),
         // The method, and the mark that forwards it in the subject's words
         // (#18).
         Limit::BodilessInBlock => {

@@ -164,6 +164,14 @@ pub fn write_real(writer: &mut Writer, context: &Context) {
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
+    // A home that spells the trait through a module of the cell reaches it
+    // re-exported there, the carrier macro with it.
+    if context.cell.s0.home_prefix() == Some(crate::model::target::SPELT_MODULE) {
+        writer.open(format!("mod {} {{", crate::model::target::SPELT_MODULE));
+        writer.line(format!("pub(super) use super::{};", super::context::TRAIT));
+        writer.close("}");
+        writer.blank();
+    }
     let mut arguments = vec![context.home_path()];
     arguments.extend(context.options());
     // A restated enum names the real one, and the attribute registers it

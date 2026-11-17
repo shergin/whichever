@@ -628,7 +628,11 @@ for a block's, and the trait's first use says when the impl is missing.
 What can be told from one expansion is: one name spelled two ways, reported
 at the struct's attribute on the field's mark (`expand_subject`) and at a
 partial block on its trait path (`expand_partial`), through
-`Entries::spelt_otherwise`.
+`Entries::spelt_otherwise`. The home then hands the struct on with that
+field naming the trait as the home spells it (`Subject::naming`), so the
+impl is written for the field that was meant and the calls around it
+resolve: the sentence stands alone, with no rustc error on a bare field
+that does not implement the trait and no impl withheld.
 
 A sentence speaks of the item the user wrote. It is written where the
 subject is known, at the subject's own attribute and inside `implement!`

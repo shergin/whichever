@@ -619,7 +619,7 @@ pub const ZONES: &[Zone] = &[
         name: "field-traits",
         summary: "a struct whose field names the trait beside a bare label, as its home spells it or with one more path segment, through the enum's attribute and the blocks, a block's method naming the label included, over the homes and a few receivers and returns",
         vary: &[
-            ("s0", &["struct-trait", "struct-trait-spelt"]),
+            ("s0", &["struct-trait", "struct-trait-spelt", "struct-trait-self"]),
             ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
             ("home", &[]),
             ("recv", &["ref", "mut", "value"]),

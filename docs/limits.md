@@ -87,8 +87,9 @@
   names. A home whose trait no field names as it is spelled there, beside a
   field that names one with the same name in another spelling, with more
   or fewer path segments, `Catalog` and `traits::Catalog`, or with or
-  without its generic arguments, `Encoder` and `Encoder<F>`, is reported:
-  spell it as the home does. Two traits of one name that the sentence
+  without its generic arguments, `Encoder` and `Encoder<F>`, is reported,
+  and the impl is written for that field so that the sentence stands
+  alone: spell it as the home does. Two traits of one name that the sentence
   takes for one, a `Named` and a `wire::Named`, are told apart by
   importing one under another name. A field's mark for a trait no home
   implements is not reported, as the struct does not see its blocks; the

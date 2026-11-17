@@ -5,3 +5,6 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
+s0=struct-trait-self path=attribute	error:"expected identifier  found keyword `self`"@attribute	The home's recovery writes `#[dispatch(self::Probe)]` on the field it meant (`Subject::naming`), and a field's trait option reads its first segment as an identifier, so a home spelling that begins with `self`, `super` or `crate` is a parse error instead of the impl for that field.
+s0=struct-trait-self path=block	error:"expected identifier  found keyword `self`"@subject	The home's recovery writes `#[dispatch(self::Probe)]` on the field it meant (`Subject::naming`), and a field's trait option reads its first segment as an identifier, so a home spelling that begins with `self`, `super` or `crate` is a parse error instead of the impl for that field.
+s0=struct-trait-self	error:E0277@probe	With the field's option unread, no impl of the trait is written, so a call through it fails beside the sentence.

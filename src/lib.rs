@@ -731,7 +731,8 @@
 //! Encoder<F> for ..`, so two instantiations of one generic trait, or two
 //! traits of one name from two modules, go to two fields; one name spelled
 //! two ways, `Catalog` on the field and `traits::Catalog` at the home, is
-//! reported.
+//! reported, and the impl is written for that field, so the sentence is the
+//! only error.
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on

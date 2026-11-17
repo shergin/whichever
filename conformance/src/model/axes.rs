@@ -92,10 +92,14 @@ axis! {
         /// otherwise go to (a-fields-trait-may-be-a-partial-blocks.md).
         StructTrait = "struct-trait",
         /// The same struct whose home, the attribute or the block's header,
-        /// spells the trait with one more path segment, `self::Probe`: one
-        /// name spelled two ways, the home's sentence
+        /// spells the trait with one more path segment, `spelt::Probe`
+        /// through a module of the cell that re-exports it: one name
+        /// spelled two ways, the home's sentence
         /// (a-fields-trait-may-be-a-partial-blocks.md).
         StructTraitSpelt = "struct-trait-spelt",
+        /// The same with the home spelling `self::Probe`, a path that
+        /// begins with a keyword.
+        StructTraitSelf = "struct-trait-self",
     }
 }
 
