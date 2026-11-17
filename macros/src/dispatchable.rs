@@ -42,6 +42,15 @@ pub(crate) fn expand_dispatchable(
             function
                 .attrs
                 .retain(|attribute| !is_dispatch_attribute(attribute));
+            // An `#[inline]` on a method without a body says nothing of
+            // the method, which has no code to inline, and rustc rejects
+            // it there; it is the forwarders', which the carrier holds it
+            // for, and stays off the trait's own method.
+            if function.default.is_none() {
+                function
+                    .attrs
+                    .retain(|attribute| !attribute.path().is_ident("inline"));
+            }
         }
     }
     // A trait with a bad attribute is still emitted, so that its impls
@@ -371,7 +380,11 @@ mod tests {
         assert_eq!(once("must_use"), 1);
         assert_eq!(once("Default"), 1, "the bound stays with the trait");
         assert_eq!(once("Clone"), 1, "so does the supertrait");
-        assert_eq!(once("inline"), 2, "the method's own `#[inline]` travels");
+        assert_eq!(
+            once("inline"),
+            1,
+            "a required method's `#[inline]` travels in the carrier and leaves the trait"
+        );
         assert_eq!(
             once("mismatch"),
             1,

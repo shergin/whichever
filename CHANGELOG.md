@@ -5,6 +5,16 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, an `#[inline(..)]` written on a required trait method, to ask
+  for it on the forwarders, stayed on the trait's own method as well,
+  where rustc 1.100 warns "the `inline` attribute cannot be used on
+  required trait methods", announced as a future hard error, and Clippy
+  denies it. `#[dispatchable]` now keeps the attribute in the carrier macro
+  for the forwarders and leaves it off a method without a body; a provided
+  method keeps its own, and one written under `cfg_attr` is not carried.
+  `docs/what-is-generated.md`, `docs/partial-impl-blocks.md` and the docs
+  of `#[dispatchable]` say so. The golden `carried_attributes` changed; the behaviour test
+  `carried_items` checks the trait under `#[deny(unused_attributes)]`.
 - The tutorial, the glossary and the troubleshooting page are on docs.rs
   too, as `whichever::docs::tutorial`, `docs::glossary` and
   `docs::troubleshooting`, so they read as they were at the version you

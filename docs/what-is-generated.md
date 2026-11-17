@@ -159,6 +159,18 @@ one is used instead. If you write or mark the method in a
 [partial impl block](partial-impl-blocks.md), it carries the attributes
 you put on it there instead.
 
+You can write `#[inline(..)]` on a required trait method, one without a
+body, to choose how its forwarding methods are inlined. The carrier macro
+keeps it for them, and `#[dispatchable]` takes it off the trait's own
+method. That method has no body to inline, and rustc warns about the
+attribute there ("the `inline` attribute cannot be used on required trait
+methods", a future hard error that Clippy already denies). A provided
+method keeps its `#[inline(..)]`, which is its own body's too.
+
+One exception: an `#[inline(..)]` written under `cfg_attr` is not carried.
+Its predicate belongs to the trait's crate, and the forwarding method is
+written in the enum's crate, where it cannot be decided.
+
 The other attributes that are carried over:
 
 - **`#[deprecated]` on a trait method or associated item.** The forwarding

@@ -115,6 +115,11 @@ mod words;
 /// own attribute. A method with a `Self` argument that has neither is an
 /// error, unless the enum has only one variant.
 ///
+/// `#[inline(..)]` on a method without a body says how its forwarding
+/// methods are inlined. The carrier macro keeps it for them, and the trait's
+/// own method is emitted without it, since rustc rejects `#[inline]` on a
+/// method that has no body. One written under `cfg_attr` is not carried.
+///
 /// # Options
 ///
 /// - `remote = path`: the item is a restatement of another crate's trait,

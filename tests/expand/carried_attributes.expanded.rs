@@ -4,9 +4,7 @@
 pub unsafe trait Marker {
     #[allow(clippy::disallowed_types)]
     type Tag;
-    #[inline(always)]
     fn tag(&self) -> u8;
-    #[inline(never)]
     fn slow(&self) -> u8;
     #[allow(clippy::too_many_arguments)]
     fn plain(&self) -> u8;

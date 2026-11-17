@@ -418,7 +418,9 @@ axis! {
         /// otherwise warn of.
         Allow = "allow",
         /// `#[inline(always)]`, which the forwarding takes instead of
-        /// `#[inline]`.
+        /// `#[inline]`; on a required method, "The carrier macro keeps it
+        /// for them, and `#[dispatchable]` takes it off the trait's own
+        /// method" (what-is-generated.md).
         Inline = "inline-always",
         /// `where Self: Sized`, which a trait object does not meet
         /// (limits.md).

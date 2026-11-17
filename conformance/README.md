@@ -101,10 +101,12 @@ answers is a rejected cell, refused as the hand's call of it is.
 
 The `item` axis is the attributes on the trait's method: a `#[cfg]` that
 holds or does not, `#[deprecated]`, an `#[allow]` of a lint its signature
-trips, and its own `#[inline(..)]`; and `sized`, the bound `where Self:
-Sized`, which a trait object does not meet. Every impl that repeats the
-signature, a block's mark on `m` included, repeats the bound and carries
-the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
+trips, and its own `#[inline(..)]`, which on a required method is its
+forwarders' alone, the trait as emitted holding none for rustc to warn of;
+and `sized`, the bound `where Self: Sized`, which a trait object does not
+meet. Every impl that repeats the signature, a block's mark on `m`
+included, repeats the bound and carries the method's `#[cfg]` and its
+`#[allow]`, as a hand writes them. A method
 under a `#[cfg]` that does not hold exists in no build: its sentences and
 rejections are dropped, the hand writes none of it, and the law checks the
 control method alone. On an inherent path the method is the block's, and

@@ -732,12 +732,6 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             );
         }
     }
-    // rustc warns of `#[inline]` on a method with no body in the trait
-    // itself, and is phasing it out, so the attribute is the provided
-    // method's.
-    if cell.item == Item::Inline && !qualifier.provided {
-        return Some("`#[inline]` on a required method, which rustc warns of in the trait");
-    }
     let path = cell.path_descriptor();
     if let Some(reason) = unpredicted_generics(cell) {
         return Some(reason);

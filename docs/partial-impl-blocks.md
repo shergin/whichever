@@ -235,7 +235,10 @@ attributes:
 
 Only the methods the block leaves to plain forwarding, whose signatures
 the attribute writes, carry the trait method's `#[inline(..)]` and
-`#[allow]`.
+`#[allow]`. That includes an `#[inline(..)]` written on a required trait
+method, which `#[dispatchable]` keeps for the forwarding methods and
+takes off the trait's own method, since rustc rejects it there. One
+written under `cfg_attr` is not carried.
 
 ## The impl header
 

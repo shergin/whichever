@@ -312,12 +312,11 @@ suite parameter-conversions
   malformed 0
 
 suite items
-  pass 695
-  limit 625
+  pass 749
+  limit 697
   rejected 0
   malformed 0
   never 1713 non-canonical
-  never 126 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 54 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
 suite agreements
@@ -625,31 +624,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 10136
+  pass 10171
   limit 0
   rejected 0
   malformed 0
-  rows 10136
-  covered 103437
-  unreached 96369
+  rows 10171
+  covered 103360
+  unreached 96446
 
 suite array-limits
   pass 0
-  limit 646
+  limit 643
   rejected 0
   malformed 0
-  rows 646
-  covered 13023
-  unreached 4534
+  rows 643
+  covered 13037
+  unreached 4520
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 996
+  rejected 1017
   malformed 0
-  rows 996
-  covered 12173
-  unreached 5384
+  rows 1017
+  covered 12193
+  unreached 5364
 
 suite known
   pass 0
