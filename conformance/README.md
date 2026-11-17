@@ -108,8 +108,9 @@ the method's type parameters, a parameter the converting block holds
 declared `Send`.
 
 Three values of `s0`, `struct`, `struct-marked` and `struct-named`, make
-the subject a struct: one field, a field marked `#[dispatch]` beside a
-label, or one named field, which the hand rebuilds by its braces and
+the subject a struct: one field, which the hand matches with no rest
+pattern, a field marked `#[dispatch]` beside a label, or one named field,
+which the hand rebuilds by its braces and
 which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
@@ -332,7 +333,9 @@ checked again rendered with its hand alone, so that its hand's law still
 runs and the divergence is known to be the macro's, and the check repeats
 until the passing shards are clean; then `cargo test` runs their laws.
 `--shape` expands every passing shard with `cargo expand` and compares the
-operations of each forwarded method with its hand's, and its attributes:
+operations of each forwarded method with its hand's, arm by arm, each
+arm's rest patterns `..` counted, so that a rest with nothing to skip
+shows while `ref` and binding names stay erased, and its attributes:
 `#[inline]` or the trait method's own, what the trait method passes on, and
 nothing on an inherent method the user did not write; and that the impl
 the subject's attribute writes is `#[automatically_derived]`; `--random N --seed S`

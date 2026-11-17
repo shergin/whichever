@@ -69,17 +69,23 @@
 //! inner, ..)`; `A A` for the tuple `(Enum::A(x), Enum::A(y))`; `A | B`
 //! for an or-pattern; `_` for a wildcard and for a binding such as
 //! `__other`, and for a tuple of those, `(_, __same0)`, which is as much a
-//! catch-all; `A _` for a tuple that names a variant beside one. A path of one segment, `Wrapped(inner, ..)`,
-//! `Self { field: inner, .. }` or `Labelled { field: inner, .. }`, names a
-//! struct, whose name the body alone cannot tell from `Self`, so the
-//! pattern names `Self`. A reference, parentheses, a type ascription, a
-//! binding `x @ ..` and a guard are seen through; `ref` and `ref mut` and
-//! binding names leave no trace.
+//! catch-all; `A _` for a tuple that names a variant beside one. A path of
+//! one segment, `Wrapped(inner)`, `Self { field: inner }` or `Labelled {
+//! field: inner, .. }`, names a struct, whose name the body alone cannot
+//! tell from `Self`, so the pattern names `Self`. A reference, parentheses,
+//! a type ascription, a binding `x @ ..` and a guard are seen through;
+//! `ref` and `ref mut` and binding names leave no trace.
+//!
+//! A pattern also counts its rest patterns, the `..` of a tuple-struct
+//! pattern and of a struct pattern, which skip the fields it does not
+//! bind: `Enum::A(inner, ..)` has one and `Enum::A(inner)` none, so a rest
+//! with nothing to skip, which no hand writes, shows. A `_` in a field's
+//! place is no rest: `Enum::A(inner, _)` binds every field by position.
 //!
 //! # Comparison
 //!
 //! Two shapes agree when their operations around the `match`, their bare
-//! operations, and their arms agree. Arms are paired by variant and by
+//! operations, and their arms agree, an arm's rest patterns included. Arms are paired by variant and by
 //! occurrence, so a missing or extra arm, a missing or extra fallback arm
 //! `_`, and arms in a different order are each reported on the arm they
 //! concern.
@@ -104,6 +110,9 @@ use syn::{
 pub struct ArmShape {
     /// The variant the pattern names, as the module docs spell it.
     pub variant: String,
+    /// How many rest patterns `..` the pattern holds in its tuple-struct
+    /// and struct patterns.
+    pub rests: usize,
     /// The operations of the arm's value, in evaluation order.
     pub operations: Vec<String>,
 }
@@ -145,6 +154,7 @@ pub fn method_shape(body: &Block) -> MethodShape {
             arm_operations(arm, &mut operations);
             ArmShape {
                 variant: pattern_variant(&arm.pat),
+                rests: pattern_rests(&arm.pat),
                 operations,
             }
         })
@@ -666,6 +676,50 @@ fn pattern_variant(pattern: &Pat) -> String {
     }
 }
 
+/// Returns how many rest patterns a pattern holds: the `..` of each
+/// tuple-struct pattern and each struct pattern in it, through the
+/// patterns `pattern_variant` sees through and the fields it binds.
+fn pattern_rests(pattern: &Pat) -> usize {
+    match pattern {
+        Pat::TupleStruct(tuple) => tuple
+            .elems
+            .iter()
+            .map(|element| match element {
+                Pat::Rest(_) => 1,
+                element => pattern_rests(element),
+            })
+            .sum(),
+        Pat::Struct(fields) => {
+            let own = usize::from(fields.rest.is_some());
+            own + fields
+                .fields
+                .iter()
+                .map(|field| pattern_rests(&field.pat))
+                .sum::<usize>()
+        }
+        Pat::Tuple(tuple) => tuple.elems.iter().map(pattern_rests).sum(),
+        Pat::Or(cases) => cases.cases.iter().map(pattern_rests).sum(),
+        Pat::Ident(binding) => binding
+            .subpat
+            .as_ref()
+            .map_or(0, |(_, inner)| pattern_rests(inner)),
+        Pat::Reference(inner) => pattern_rests(&inner.pat),
+        Pat::Paren(inner) => pattern_rests(&inner.pat),
+        Pat::Type(inner) => pattern_rests(&inner.pat),
+        Pat::Guard(inner) => pattern_rests(&inner.pat),
+        _ => 0,
+    }
+}
+
+/// Returns a count of rest patterns as a difference line spells it.
+fn rests(count: usize) -> String {
+    match count {
+        0 => "none".to_owned(),
+        1 => "one".to_owned(),
+        count => count.to_string(),
+    }
+}
+
 /// Returns the variant a pattern's path names: its last segment, or
 /// `Self` for a path of one segment, which names a struct.
 fn path_variant(path: &Path) -> String {
@@ -710,6 +764,14 @@ fn arm_differences(subject: &[ArmShape], hand: &[ArmShape], lines: &mut Vec<Stri
                 hand_index + 1,
                 list(&arm.operations),
                 list(&hand_arm.operations)
+            ));
+        }
+        if arm.rests != hand_arm.rests {
+            lines.push(format!(
+                "arm {}: rest patterns `..` in the pattern, the subject {}, the hand {}",
+                arm.variant,
+                rests(arm.rests),
+                rests(hand_arm.rests)
             ));
         }
         if arm.operations != hand_arm.operations {
@@ -934,7 +996,7 @@ mod tests {
             match self {
                 Self::Module(account) => <Square as Area>::grow(&mut account.base, by),
                 Self::Pair(pair) => <Square as Area>::grow(&mut pair.1, by),
-                Self::Tagged(square, _) => <Square as Area>::grow(square, by),
+                Self::Tagged(square, ..) => <Square as Area>::grow(square, by),
                 Self::Row { cell, .. } => <Square as Area>::grow(cell, by),
                 Self::Plain(square) => <Square as Area>::grow(square, by),
             }
@@ -958,7 +1020,7 @@ mod tests {
         let hand = r#"{
             match self {
                 Any::Module(account) => account.base.0,
-                Any::Tagged(square, _) => square.0,
+                Any::Tagged(square, ..) => square.0,
                 _ => 0,
             }
         }"#;
@@ -978,7 +1040,7 @@ mod tests {
         let hand = r#"{
             match self {
                 Object::Dictionary(dictionary) => dictionary.handle,
-                Object::Tagged(handle, _) => *handle,
+                Object::Tagged(handle, ..) => *handle,
                 Object::Unknown { handle, .. } => *handle,
             }
         }"#;
@@ -993,7 +1055,7 @@ mod tests {
         let hand = r#"{
             match self {
                 Object::Dictionary(dictionary) => Some(&dictionary.handle),
-                Object::Tagged(handle, _) => Some(handle),
+                Object::Tagged(handle, ..) => Some(handle),
                 Object::Unknown { handle, .. } => Some(handle),
             }
         }"#;
@@ -1463,7 +1525,7 @@ mod tests {
     fn a_struct_newtype_and_a_struct_with_a_named_field() {
         let subject = r#"{
             match self {
-                Wrapped(__inner, ..) => Wrapped(<AnyShape as Shape>::grown(__inner)),
+                Wrapped(__inner) => Wrapped(<AnyShape as Shape>::grown(__inner)),
             }
         }"#;
         let hand = r#"{
@@ -1493,7 +1555,7 @@ mod tests {
     fn a_struct_forwarding_an_opaque_type() {
         let subject = r#"{
             match self {
-                Wrapped(__inner, ..) => <Few as Source>::items(__inner),
+                Wrapped(__inner) => <Few as Source>::items(__inner),
             }
         }"#;
         let hand = r#"{
@@ -1505,7 +1567,7 @@ mod tests {
         let subject = r#"{
             async move {
                 match self {
-                    Wrapped(__inner, ..) => Wrapped(<Few as Source>::reloaded(__inner).await),
+                    Wrapped(__inner) => Wrapped(<Few as Source>::reloaded(__inner).await),
                 }
             }
         }"#;
@@ -1797,6 +1859,40 @@ mod tests {
             "{ match self { E::A(x) => <A as T>::m(x), __other => 0 } }",
             "{ match self { E::A(x) => <A as T>::m(x) } }",
             "arm _",
+        );
+    }
+
+    #[test]
+    fn a_rest_pattern_with_nothing_to_skip_differs() {
+        let line = compare(
+            "{ match self { Wrapped(__inner, ..) => <A as T>::m(__inner) } }",
+            "{ match self { Self(inner) => <A as T>::m(inner) } }",
+        );
+        assert_eq!(
+            line,
+            vec![String::from(
+                "arm Self: rest patterns `..` in the pattern, the subject one, the hand none"
+            )]
+        );
+        assert_differs(
+            "{ match self { Self::A { held: x, .. } => <A as T>::m(x) } }",
+            "{ match self { E::A { held } => <A as T>::m(held) } }",
+            "arm A",
+        );
+        assert_differs(
+            "{ match self { Self::A(_, x) => <A as T>::m(x) } }",
+            "{ match self { E::A(_, x, ..) => <A as T>::m(x) } }",
+            "arm A",
+        );
+        assert_differs(
+            "{ match self { (Self::A(x, ..), Self::A(y, ..)) => <A as T>::m(x, y), _ => 0 } }",
+            "{ match self { (E::A(x, ..), E::A(y)) => <A as T>::m(x, y), _ => 0 } }",
+            "arm A A",
+        );
+        // The binding mode and the names stay erased.
+        assert_same(
+            "{ match self { Self::A(ref mut x, ..) => <A as T>::m(x) } }",
+            "{ match *self { E::A(y, ..) => <A as T>::m(y) } }",
         );
     }
 

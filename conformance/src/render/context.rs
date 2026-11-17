@@ -1203,7 +1203,10 @@ pub fn write_struct(
 }
 
 /// Returns the pattern that binds a slot's forwarded field to `binding`,
-/// with the subject's path `path`.
+/// with the subject's path `path`. A sole field, of a variant or a struct,
+/// named or not, is bound with no rest pattern, which would skip nothing;
+/// a marked field beside others skips them with `..`, as the goldens
+/// `marked_field_by_value` and `routes` write `Self::Tagged(__inner, ..)`.
 pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str) -> String {
     let name = slot.name();
     match target.form {
@@ -1211,7 +1214,7 @@ pub fn pattern(path: &str, slot: &Slot, target: &TargetDescriptor, binding: &str
         Form::MarkedTuple => format!("{path}::{name}({binding}, ..)"),
         Form::MarkedStruct => format!("{path}::{name} {{ held: {binding}, .. }}"),
         Form::MarkedNamed => format!("{path}::{name} {{ held: {binding} }}"),
-        Form::Struct => format!("{path}({binding}, ..)"),
+        Form::Struct => format!("{path}({binding})"),
         Form::StructMarked => format!("{path} {{ held: {binding}, .. }}"),
         Form::StructNamed => format!("{path} {{ held: {binding} }}"),
     }
