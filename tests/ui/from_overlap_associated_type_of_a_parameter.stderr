@@ -1,0 +1,11 @@
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be `Plain` itself, so `From<S::Out>` would overlap `From<T> for T`; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+  --> tests/ui/from_overlap_associated_type_of_a_parameter.rs:23:9
+   |
+23 |     Out(S::Out),
+   |         ^^^^^^
+
+error: `<S as Source>::Out` is an associated type of `S`, a type parameter of `Qualified`, and may be `Qualified` itself, so `From<<S as Source>::Out>` would overlap `From<T> for T`; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+  --> tests/ui/from_overlap_associated_type_of_a_parameter.rs:29:9
+   |
+29 |     Out(<S as Source>::Out),
+   |         ^^^^^^^^^^^^^^^^^^

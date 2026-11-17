@@ -1,0 +1,5 @@
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be any type, so `TryFrom<Plain> for S::Out` would overlap the `TryFrom` that `core` implements for every type; add `#[dispatch(try_from = false)]` on this variant
+  --> tests/ui/try_from_associated_type_of_a_parameter.rs:23:9
+   |
+23 |     Out(S::Out),
+   |         ^^^^^^

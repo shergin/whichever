@@ -412,6 +412,19 @@ once, whatever attributes it has. See [options.md](options.md).
 - **Nor does it get `TryFrom` under `try_from`.** `TryFrom<Enum> for T`
   would implement a foreign trait for a type parameter, which the orphan
   rules forbid. Add `#[dispatch(try_from = false)]` on that variant.
+- **A payload that is an associated type of a type parameter,
+  `Out(S::Out)` or `Out(<S as Source>::Out)`, gets no `From`, even when
+  it is the only variant.** `S::Out` may be any type, the enum itself
+  included, so `From<S::Out>` would overlap `core`'s `From<T> for T`. A
+  hand cannot write that impl either. Add `from = false` on the enum, or
+  `#[dispatch(from = false)]` on that variant.
+- **Nor does it get `TryFrom` under `try_from`.** For the same reason,
+  `TryFrom<Enum> for S::Out` would overlap the `TryFrom` that `core`
+  implements for every type. Add `#[dispatch(try_from = false)]` on that
+  variant.
+- Not a limit: a projection from a type that is not a type parameter,
+  such as `<Fixed as Source>::Out`. rustc can name that type, so the
+  payload gets its `From` and `TryFrom` like any other.
 - **`into = Target` needs every variant to hold a payload.** It converts
   every variant's payload, so a variant without one, or with other
   fields beside its payload, is an error. Write the `From<Enum> for

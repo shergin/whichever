@@ -201,6 +201,14 @@ pub enum AnyShape {
   variant instead (see [Options on a variant](#options-on-a-variant)). Do
   this when you write that `From` by hand or a derive supplies it, because
   a second impl of the same `From` is a conflict.
+- Some payloads cannot have a `From` at all, and you get an error that
+  asks for `from = false`. A payload that is a type parameter of the
+  enum, `Iter(I)`, would overlap the other variants' `From` impls. A
+  payload that is an associated type of a type parameter, `Out(S::Out)`
+  or `Out(<S as Source>::Out)`, may be any type, the enum included, so its
+  `From` would overlap `From<T> for T`, even with one variant. A
+  projection from a concrete type, `<Fixed as Source>::Out`, is fine: it
+  gets its `From`.
 
 ## `try_from`: get the payload back out
 

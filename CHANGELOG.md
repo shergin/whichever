@@ -5,6 +5,23 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a variant whose payload is an associated type of one of the
+  enum's type parameters, `Out(S::Out)` or `Out(<S as Source>::Out)`, got
+  a `From` impl that can never compile, reported by rustc as E0119 on the
+  attribute against `core`'s `From<T> for T`, naming neither the variant
+  nor the way around. It is now one sentence on the payload, with one
+  variant as with several: "`S::Out` is an associated type of `S`, a type
+  parameter of `Plain`, and may be `Plain` itself, so `From<S::Out>` would
+  overlap `From<T> for T`; add `from = false` on the enum, or
+  `#[dispatch(from = false)]` on this variant", and its `TryFrom` under
+  `try_from` has a sentence of its own naming `#[dispatch(try_from =
+  false)]`. A projection from a type that is not a type parameter,
+  `<Fixed as Source>::Out`, still gets its conversions.
+  `docs/limits.md`, `docs/options.md`, `docs/troubleshooting.md` and the
+  crate docs say so; the snapshots
+  `from_overlap_associated_type_of_a_parameter` and
+  `try_from_associated_type_of_a_parameter` are new, and the behaviour
+  test `from_impls` converts a concrete projection.
 - Before, an `#[inline(..)]` written on a required trait method, to ask
   for it on the forwarders, stayed on the trait's own method as well,
   where rustc 1.100 warns "the `inline` attribute cannot be used on

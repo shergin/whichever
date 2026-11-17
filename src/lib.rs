@@ -198,7 +198,11 @@
 //! would be two impls of the same `From`, one per variant. Neither does a
 //! payload that is a type parameter of the enum, because `From<T>` would
 //! overlap the other variants' impls; the error asks for `from = false`, on
-//! the enum or on that variant.
+//! the enum or on that variant. A payload that is an associated type of a
+//! type parameter, `Out(S::Out)`, may be any type, the enum included, so
+//! its `From` would overlap `From<T> for T`; you get an error asking for
+//! `#[dispatch(from = false)]` on it. A projection from a concrete type,
+//! `<Fixed as Source>::Out`, gets its `From`.
 //!
 //! Some variants and types get no conversions at all: a variant with other
 //! fields beside the payload
@@ -1656,6 +1660,10 @@
 //!   `Catalog` and `traits::Catalog` or `Encoder` and `Encoder<F>`, is an
 //!   error. Spell it as the home does, or import one of two traits of one
 //!   name under another name.
+//! - **A payload that is an associated type of a type parameter,
+//!   `Out(S::Out)`, gets no `From` and no `TryFrom`.** It may be any type,
+//!   the enum included, so the impls would overlap the ones `core` writes
+//!   for every type. Leave the variant out with `#[dispatch(from = false)]`.
 //! - **`from = true` on one of the enum's attributes and `from = false` on
 //!   another contradict each other**, and you get the error on the later
 //!   one. An `into` target listed twice gets the error on the second. The

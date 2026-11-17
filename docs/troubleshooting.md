@@ -409,6 +409,28 @@ error: `I` is a type parameter of `Adapter`, so `From<I>` would overlap the othe
 `#[dispatch(from = false)]` on that variant. See
 [the limits on conversions][limits-conversions].
 
+### An associated type of a type parameter: "may be `Plain` itself"
+
+```text
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be `Plain` itself, so `From<S::Out>` would overlap `From<T> for T`; add `from = false` on the enum, or `#[dispatch(from = false)]` on this variant
+```
+
+and, under `try_from`:
+
+```text
+error: `S::Out` is an associated type of `S`, a type parameter of `Plain`, and may be any type, so `TryFrom<Plain> for S::Out` would overlap the `TryFrom` that `core` implements for every type; add `#[dispatch(try_from = false)]` on this variant
+```
+
+**What it means.** The payload is `S::Out` or `<S as Source>::Out`, where
+`S` is a type parameter of the enum. rustc cannot tell what that type is:
+it may be the enum itself, or any other type. So a `From` or a `TryFrom`
+for it would overlap the impls `core` writes for every type. You get the
+error even when this is the enum's only variant.
+
+**The fix.** As the error says: leave the variant out of the conversions.
+A projection from a concrete type, `<Fixed as Source>::Out`, gets its
+conversions as usual.
+
 ### "`Any` doesn't implement `Debug`" on `.unwrap()`
 
 ```text
