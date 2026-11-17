@@ -376,9 +376,7 @@ impl Context {
     /// Returns the name of the crate the trait and the payloads live in
     /// where they live in a crate of their own.
     pub fn trait_crate(&self) -> String {
-        crate::run::workspace::crate_name(
-            &crate::run::workspace::ShardKind::Traits.shard(self.cell.hash()),
-        )
+        crate::run::workspace::crate_name(&crate::run::workspace::traits_shard(self.cell.hash()))
     }
 
     /// Returns the signature of the method under test as a restatement

@@ -438,6 +438,31 @@ cargo run -p whichever-conformance --release -- census
 A run writes a workspace of shard crates under `target/conformance/ws`, one
 file per cell, and builds it in `target/conformance/target`. A file is
 written only when it changed, so a second run rebuilds only what moved.
+The shards are named by kind, `pass-NNN`, `limit-NNN`, `rejected-NNN`,
+`malformed-NNN` and `traits-NNN`, and a cell's shard is its hash modulo
+the number of shards of its kind. That number follows the run's cells: as
+many as hold each shard to about 500 passing cells, or 1,500 of the other
+kinds, and no fewer than 16 passing shards, 24 of limits, 8 rejected and
+1 malformed, so a run of a few thousand cells still builds on several
+cores and a run of one cell builds one shard. A cell moves only when its
+kind's count changes. The traits shards are always 8, since a cell's
+source names its trait's crate before the run's cells are counted; they
+hold traits and payloads alone.
+
+The bound is the runner's memory. One compiler builds a shard, and its
+memory grows about linearly with the shard's cells: on macOS arm64 with
+stable, the test build of a passing shard peaked at 1.35 GB resident over
+500 cells, 2.45 GB over 1,000 and 5.2 GB over 2,150, the size the matrix
+had grown to under a fixed 16 shards, while a limit shard of 1,179 cells
+is checked in 0.6 GB. CI's runner, `ubuntu-latest`, has 4 cores and 16 GB
+and builds four shards at once; four passing shards of 2,150 cells
+starved it, and the runner was lost. On 2026-11-17, over 64,943 cells, a
+run with `--jobs 4` wrote 70 passing shards of at most 547 cells, whose
+test build peaked at 1.24 GB, and the `rustc` processes it ran at once
+never held more than 4.3 GB together; it took 8 minutes. The job needs a
+runner with 4 cores and 8 GB of memory, and about 1.5 GB of disk for the
+workspace and its build beside the outer build.
+
 The nested cargo runs with none of the outer cargo's environment but
 `CARGO_HOME` and `CARGO_INCREMENTAL`: a run that starts cold, as CI's does,
 sets `CARGO_INCREMENTAL=0`, since an incremental cache no later run reads
