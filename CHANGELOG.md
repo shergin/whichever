@@ -5,6 +5,27 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, the sentence for a return-position `impl Trait` on an enum said
+  that "every variant returns a different opaque type", which is not true
+  of variants that reach a target of one type, such as spenso's
+  `DataTensor`, whose dense and sparse variants are both routed to a
+  `structure` of one type; and the sentence for a `Self` argument asked
+  for a `mismatch` where the trait's own default would have looked at the
+  two values. The limits stay, and the sentences say what holds: "a
+  return-position `impl Trait` is not dispatched by a `match`: the arms of
+  a `match` must return one type, and the attribute cannot tell that the
+  variants' opaque types are one; .. or implement the method by hand
+  where every variant reaches one type", and, for a provided method, ".., or leave the method
+  to the trait's default with `#[dispatch(default)] fn same(..);` in a
+  `#[whichever::dispatch] impl Same for Kind` block", or "in this block"
+  for a partial block's. `docs/limits.md`, `docs/what-is-generated.md`,
+  `docs/options.md`, `docs/troubleshooting.md`, the tour in
+  `docs/tutorial.md` and the crate docs say so. The snapshots `rpitit`,
+  `rpitit_nested`, `impl_into_future`, `rejected_method_keeps_the_impl`
+  and `two_unsupported_methods` changed;
+  `self_argument_of_a_provided_method_without_mismatch` is new, and the
+  behaviour test `variants_reaching_one_type` writes spenso's shape the
+  way the sentences say.
 - Before, a mark written under `cfg_attr`, `#[cfg_attr(feature = "x",
   dispatch)]` on a struct's field, a variant, a variant's field or a
   method of a block, was read in no build, since an attribute macro is

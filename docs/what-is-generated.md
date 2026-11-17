@@ -300,9 +300,12 @@ converted, every arm is awaited in one `async move` block, which is
 boxed and pinned again with the `Box` the signature names, as
 `#[async_trait]` itself does.
 
-Any other `-> impl Trait` is an error on an enum, because each arm would
-return a different hidden type and a `match` needs one. A struct has one
-arm, so it forwards any `impl Trait`.
+Any other `-> impl Trait` is an error on an enum. A `match` needs one
+type, and each arm usually returns a different hidden type. Even where
+every variant reaches a target of one type, the attribute cannot tell
+that the hidden types are one, so it refuses; write such a method in a
+[partial impl block](partial-impl-blocks.md). A struct has one arm, so it
+forwards any `impl Trait`.
 
 ### `Self` in arguments
 
@@ -337,7 +340,9 @@ When they hold different variants, there is no payload method to call.
 The method returns the [mismatch](glossary.md#mismatch) expression
 instead, here `false`. You write it on the trait method, as above, or on
 the enum; [`mismatch`](options.md#mismatch-what-to-return-when-two-variants-differ)
-has the details.
+has the details. A provided method may instead be left to the trait's
+default with `#[dispatch(default)]` in a partial impl block. The default
+calls the forwarded methods on both values.
 
 ### `Self` in return types
 

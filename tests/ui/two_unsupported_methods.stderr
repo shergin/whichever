@@ -9,7 +9,7 @@ error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut
    |
    = note: this error originates in the macro `Shape` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+error: a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
   --> tests/ui/two_unsupported_methods.rs:8:25
    |
  8 |     fn points(&self) -> impl Iterator<Item = u32>;

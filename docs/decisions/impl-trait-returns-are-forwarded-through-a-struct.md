@@ -2,7 +2,10 @@
 
 Status: accepted, 2026-11-02. Supersedes
 [`impl Trait` returns are rejected, except futures](impl-trait-returns-are-rejected-except-futures.md),
-whose reopening condition it met. Serves rules 1 and 3 of the
+whose reopening condition it met. Completed on 2026-11-17 by
+[Variants that reach one type are not told apart](variants-that-reach-one-type-are-not-told-apart.md),
+which weighed the condition below against spenso and kept the decision.
+Serves rules 1 and 3 of the
 [vision](../vision.md), the output is the hand's and what earns a shape.
 Reopen when a second return-position `impl Trait` shape has a single-block
 spelling on an enum that a hand would write, and a surveyed project writes

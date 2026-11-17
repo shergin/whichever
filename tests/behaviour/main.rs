@@ -74,4 +74,5 @@ mod trait_objects_in_deref_variants;
 mod tuple_const_override;
 mod tuple_returns;
 mod uninferred_generics;
+mod variants_reaching_one_type;
 mod variants_without_payloads;

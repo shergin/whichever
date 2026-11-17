@@ -656,9 +656,17 @@ impl MethodPlan {
             } else {
                 "on this block's attribute"
             };
+            // A provided method has a third answer, which looks at both
+            // values where an expression cannot: the trait's default,
+            // which calls the forwarded methods on each.
+            let default = match (method.has_default, method.derived) {
+                (false, _) => String::new(),
+                (true, true) => format!(", or leave the method to the trait's default with `#[dispatch(default)] fn {name}(..);` in a `#[whichever::dispatch] {}` block", method.block_header),
+                (true, false) => format!(", or leave the method to the trait's default with `#[dispatch(default)] fn {name}(..);` in this block"),
+            };
             return Err(Error::new_spanned(
                 method.declared,
-                format!("`{name}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({name} = <expr>)` {beside_the_trait}"),
+                format!("`{name}` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch({name} = <expr>)` {beside_the_trait}{default}"),
             ));
         };
         Ok(Fallback {

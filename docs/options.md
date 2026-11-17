@@ -149,6 +149,12 @@ pub enum AnyShape {
 }
 ```
 
+When the trait gives the method a body, there is a third way: leave it
+to that default with `#[dispatch(default)]` in a
+[partial impl block](partial-impl-blocks.md). The default calls the
+forwarded methods on both values, so it looks at them, where a fixed
+expression cannot.
+
 Without either, you get an error naming the method. An enum with one
 variant is the exception: it has no second variant to meet, and gets no
 mismatch arm.

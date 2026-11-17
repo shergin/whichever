@@ -344,9 +344,20 @@ pub enum Any {
 }
 ```
 
+When the trait gives the method a body, the error names a third way:
+
+```text
+error: `same` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(same = <expr>)` on the enum, or leave the method to the trait's default with `#[dispatch(default)] fn same(..);` in a `#[whichever::dispatch] impl Same for Kind` block
+```
+
+The default calls the forwarded methods on both values, so it looks at
+them, where a `mismatch` expression cannot. That is often the right
+answer when every variant reaches a target of one type.
+
 For a trait implemented by a [partial impl block][partial-impl-blocks],
 the error says `mismatch(same = <expr>)` "on this block's attribute"
-instead, and the option goes there:
+instead (and, for a provided method, "in this block"), and the option
+goes there:
 
 ```rust
 #[whichever::dispatch(mismatch(same = false))]
@@ -393,17 +404,31 @@ has no value to `match` on, so no variant to forward to.
 uses, or write it yourself in a
 [partial impl block][partial-impl-blocks].
 
-### "a return-position `impl Trait` cannot be dispatched"
+### "a return-position `impl Trait` is not dispatched by a `match`"
 
 ```text
-error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+error: a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
 ```
 
-**What it means.** Each payload's `impl Trait` is a different hidden
-type, and a `match` must return one type.
+**What it means.** A `match` must return one type, and each payload's
+`impl Trait` is usually a different hidden type. Where the variants do
+reach one type, say a `structure` field of the same type in each, the
+attribute still cannot tell, so it refuses all the same.
 
 **The fix.** Return a concrete type or a boxed trait object.
-`impl Future<Output = T>` is fine: it is awaited like an `async fn`.
+`impl Future<Output = T>` is fine: it is awaited like an `async fn`. If
+every variant reaches one type, write the method yourself in a
+[partial impl block][partial-impl-blocks], through a method of the
+enum that lends that one target:
+
+```rust
+#[whichever::dispatch]
+impl<S: TensorStructure> TensorStructure for DataTensor<S> {
+    fn external_dims_iter(&self) -> impl Iterator<Item = usize> {
+        self.structure().external_dims_iter()
+    }
+}
+```
 
 ### "this receiver type is not supported"
 

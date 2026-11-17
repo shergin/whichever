@@ -1,0 +1,9 @@
+file: macros/src/forwarding.rs
+breaks: The sentence for a `Self` argument without a mismatch names the trait's default as the third way around where the trait gives the method a body, as `docs/limits.md` says.
+expect: killed
+witness: arg=ref-bare qual=provided
+
+find:
+            let default = match (method.has_default, method.derived) {
+replace:
+            let default = match (false, method.derived) {

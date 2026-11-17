@@ -134,10 +134,23 @@ a limit: see [options.md](options.md).
 ## Methods that return `impl Trait`
 
 - **An enum cannot forward a method that returns `impl Trait`**, at any
-  depth of the return type. Each variant returns a different hidden
-  type, and a `match` needs one. The exception is
+  depth of the return type. A `match` must return one type, and the
+  variants' hidden types are usually different ones. Even where every
+  variant reaches a target of one type, as variants routed to fields of
+  the same type do, the attribute cannot tell: the type of a field or of
+  a method's result cannot be read off the payload. The exception is
   `impl Future<Output = T>`, which is awaited like an `async fn`.
-  Otherwise, return a concrete type or a boxed trait object.
+  Otherwise, return a concrete type or a boxed trait object. Where every
+  variant does reach one type, write the method in a
+  [partial impl block](partial-impl-blocks.md), through an accessor that
+  lends the common target.
+- **A method with a `Self` argument over several variants needs a
+  `mismatch`, even where every variant reaches one type** and a hand would
+  forward the two values. The attribute cannot tell that the targets
+  agree. If the trait gives the method a body, you can leave it to that
+  default with `#[dispatch(default)]` in a partial impl block. The
+  default calls the forwarded methods on both values, so it looks at
+  them, where a `mismatch` expression cannot.
 - **A struct forwards any `impl Trait`.** It forwards to one field, so
   there is only one hidden type.
 

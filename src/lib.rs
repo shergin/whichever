@@ -1467,8 +1467,10 @@
 //!   it is forwarded as it is. When `T` is rewrapped or converted, every arm
 //!   is awaited in one `async move` block, which is boxed and pinned again
 //!   with the `Box` the signature names, as `#[async_trait]` itself does.
-//! - **Other `impl Trait`.** On an enum, each arm would return a different
-//!   opaque type. A struct's one arm returns one.
+//! - **Other `impl Trait`.** An error on an enum: a `match` returns one
+//!   type, and the attribute cannot tell that the variants' opaque types are
+//!   one, even where every variant reaches a target of one type. A struct's
+//!   one arm returns one.
 //! - **Overridden types.** A return of `Self::X` is converted with `Into`;
 //!   inside `Option` or `Result` with `map(Into::into)`, and
 //!   `Result<_, Self::X>` with `map_err(Into::into)`. See
@@ -1604,11 +1606,14 @@
 //! ### `impl Trait` in return types
 //!
 //! - **An enum cannot forward a method that returns `impl Trait`**, at any
-//!   depth of the return type. Every variant would return a different
-//!   opaque type, and a `match` needs one. `impl Future<Output = T>` is the
+//!   depth of the return type. A `match` returns one type, and the attribute
+//!   cannot tell that the variants' opaque types are one, even where every
+//!   variant reaches a target of one type. `impl Future<Output = T>` is the
 //!   exception; it is awaited like an `async fn`. Otherwise, return a
-//!   concrete type or a boxed trait object. A struct forwards any
-//!   `impl Trait`.
+//!   concrete type or a boxed trait object, or write the method in a
+//!   partial impl block. A struct forwards any `impl Trait`. A provided
+//!   method with a `Self` argument may be left to the trait's default with
+//!   `#[dispatch(default)]` there, instead of a `mismatch`.
 //!
 //! ### Routes and trait objects
 //!

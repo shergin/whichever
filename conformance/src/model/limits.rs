@@ -243,7 +243,7 @@ impl Limit {
             ),
             Limit::OpaqueReturn => entry(
                 "opaque-return",
-                "cannot be dispatched by a `match` because every variant returns a different opaque type",
+                "is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one",
                 "rpitit",
             ),
             Limit::SelfInReturn => entry(

@@ -282,7 +282,6 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
     let mut push = |name: Option<String>| names.extend(name.map(Fragment::one));
     match limit {
         Limit::Receiver
-        | Limit::OpaqueReturn
         | Limit::StructConversion
         | Limit::TypeDisagreement
         | Limit::ArmsDisagree => {}
@@ -290,17 +289,33 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             push(variant.clone());
             push(slot.map(|slot| format!("`{}(Payload)`", slot.name())));
         }
-        // The option goes on the attribute that implements the trait: the
-        // enum's, or a partial block's (#36).
+        // The option goes on the attribute that implements the trait: "For
+        // a trait implemented by a partial impl block, these options go on
+        // the block's attribute instead" (options.md). "If the trait gives
+        // the method a body, you can leave it to that default with
+        // `#[dispatch(default)]` in a partial impl block" (limits.md); a
+        // restatement does not see the real trait's body.
         Limit::SelfArgumentWithoutMismatch => {
             push(Some(format!("{method} takes `Self` arguments")));
-            push(Some(String::from(
-                match cell.path_descriptor().site == PathSite::Block {
-                    true => "`mismatch(m = <expr>)` on this block's attribute",
-                    false => "`mismatch(m = <expr>)` on the enum",
-                },
-            )));
+            let block = cell.path_descriptor().site == PathSite::Block;
+            push(Some(String::from(match block {
+                true => "`mismatch(m = <expr>)` on this block's attribute",
+                false => "`mismatch(m = <expr>)` on the enum",
+            })));
+            let provided = cell.qual.descriptor().provided && !cell.decl.descriptor().restated;
+            if provided {
+                push(Some(String::from(
+                    "or leave the method to the trait's default with `#[dispatch(default)] fn m(..);`",
+                )));
+                push(Some(String::from(match block {
+                    true => "in this block",
+                    false => "in a `#[whichever::dispatch] impl ",
+                })));
+            }
         }
+        // "Where every variant does reach one type, write the method in a
+        // partial impl block" (limits.md).
+        Limit::OpaqueReturn => push(Some(String::from("where every variant reaches one type"))),
         Limit::SelfInReturn => push(Some(String::from("back into `E`"))),
         Limit::DerefSelfReturn => {
             push(Some(format!("{method} returns `Self`")));

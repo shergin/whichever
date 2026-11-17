@@ -512,11 +512,11 @@ pub trait Edges {
 }
 ```
 
-Each variant would return a different hidden type, and a `match` needs
-one. The error, on the return type:
+A `match` must return one type, and each variant would return its own
+hidden type. The error, on the return type:
 
 ```text
-error: a return-position `impl Trait` cannot be dispatched by a `match` because every variant returns a different opaque type; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`
+error: a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
 ```
 
 Follow its advice and return a concrete type:
