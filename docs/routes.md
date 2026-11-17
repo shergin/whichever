@@ -219,6 +219,13 @@ Who follows which route:
   Use it for the receivers that result fits, and a second route,
   `via_mut`, for a mutable borrow, as
   [above](#a-route-for-a-mutable-borrow).
+- **What the route's method returns is rustc's to judge**, and its error
+  lands on the method's name in the route. A method that returns its
+  target by value, `fn parsed(&self) -> Parsed`, under a `&self` trait
+  method is rustc's "expected `&_`, found `Parsed`" on `via = .parsed()`:
+  the arm hands the value over and does not borrow it. By hand you could
+  borrow the temporary, `&inner.parsed()`; the attribute does not write
+  that, so write such a method by hand.
 - **`deref` over an `Rc`, an `Arc` or a `&T` cannot lend mutably**, because
   those only lend what they point at as shared. You get an error on the
   payload for:

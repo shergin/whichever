@@ -522,6 +522,26 @@ error: `Tagged` and its field both give a route for a mutable borrow; give one
 error: a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`
 ```
 
+### "expected `&_`, found `Parsed`" on a route
+
+```text
+error[E0308]: mismatched types
+  --> src/lib.rs:30:23
+   |
+30 |     #[dispatch(via = .parsed())]
+   |                       ^^^^^^ expected `&_`, found `Parsed`
+```
+
+**What it means.** The route ends in a method that returns its target
+by value, and the trait method takes `&self` (or `&mut self`). The arm
+hands the method's result over as it is, where a reference is asked for.
+rustc puts the error on the method's name in the route.
+
+**The fix.** Route through a method that lends the target,
+`fn parsed(&self) -> &Parsed`, or write the method by hand, borrowing
+the temporary, `&self.raw.parsed()`; for a trait, do it in a
+[partial impl block][partial-impl-blocks].
+
 ### Other errors on a trait method
 
 The other one-sentence errors on a method, about `Self` in a return

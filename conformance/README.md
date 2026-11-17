@@ -575,7 +575,11 @@ An outcome is `pass` or a list of findings:
   message lists the differences.
 
 An error whose span covers an attribute line of the cell is in the part
-`attribute`, whatever part the line is in.
+`attribute`, whatever part the line is in, unless it reaches a variant's
+route, `#[dispatch(via = ..)]`: rustc's judgement of what a route's method
+returns is located on the method's name in the route, the user's tokens,
+and the span may run there from the enum's name across the attributes
+between.
 
 The file is the cell as it was compiled; `show` prints it again from the
 model. A finding in the hand, in its law, or in the payloads blames the

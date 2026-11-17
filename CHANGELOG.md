@@ -5,6 +5,16 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, rustc's error about what a route's method returns, such as a
+  method that returns its target by value forwarded under `&self`,
+  "expected `&_`, found `Parsed`", stood on the enum's or the struct's
+  name, away from the route. The route's method call is now located at
+  the method's name in the route, so the error lands on `via =
+  .parsed()`. No new syntax: the attribute hands the method's result over
+  as it is and does not borrow the temporary, `&inner.parsed()`, as a hand
+  may, so such a method is written by hand. `docs/routes.md`,
+  `docs/limits.md`, `docs/troubleshooting.md` and the crate docs say so; the snapshot
+  `route_method_result_does_not_fit_the_receiver` changed.
 - Before, a dispatch struct took nothing from its field's type that needs
   no value, though its declaration names that type: a trait method without
   a receiver and a generic associated type were refused with an enum's

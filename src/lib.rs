@@ -730,7 +730,10 @@
 //!   self`, `self: Pin<&mut Self>` or a `&mut Self` argument) follows
 //!   `via_mut`, every other method follows `via`, and each `Self` argument
 //!   takes the route of its own borrow. Without `via_mut`, such a method
-//!   through a method route is an error that names it.
+//!   through a method route is an error that names it. What the route's
+//!   method returns is rustc's to judge, at the method's name in the route:
+//!   a method returning its target by value under `&self` is "expected
+//!   `&_`" there, and is written by hand.
 //! - **A method returning `Self` cannot use a routed variant**, `deref`
 //!   included, nor a variant with other fields beside the marked one. The
 //!   result is a new target, and the rest of the payload is gone, so there

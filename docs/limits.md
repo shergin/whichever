@@ -190,6 +190,12 @@ A [route](routes.md) is the steps from the payload to the target: `*`
 - **A method's own mark takes `via`, not `via_mut`.** The method follows
   its own route whatever it borrows, and its receiver is beside the mark,
   so a second route would say nothing.
+- **A route's method that returns its target by value serves `self`
+  alone.** Under `&self` or `&mut self`, the arm hands the value where a
+  reference is asked for, and rustc's mismatch ("expected `&_`") lands on
+  the method's name in the route. By hand you could borrow the temporary,
+  `&inner.parsed()`, which the attribute does not write. Implement the
+  method by hand, in a partial impl block for a trait.
 - **A `deref` variant over an `Rc`, an `Arc` or a `&T` cannot serve a
   method that borrows mutably.** Those pointers lend what they point at
   shared only. Hold a `Box` or a `&mut`.
