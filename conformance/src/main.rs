@@ -9,10 +9,15 @@
 //! show <id>
 //! axes
 //! mutants [--only NAME]... [--baseline PATH] [--suite NAME]... [--no-shape]
+//! census [--bless]
 //! ```
 //!
 //! `run` exits 0 when nothing diverged and the ledger agrees, 1 on a
 //! divergence or a ledger mismatch, and 2 on a usage or harness error.
+//! `census` selects the cells and compares `census.txt` with what the
+//! selection counts, or rewrites it with `--bless`, building nothing: it
+//! exits 0 when the two agree or the file was rewritten, 1 when they
+//! differ.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -31,7 +36,8 @@ commands:
   list [--suite NAME]...
   show <id>
   axes
-  mutants [--only NAME]... [--baseline PATH] [--suite NAME]... [--no-shape]";
+  mutants [--only NAME]... [--baseline PATH] [--suite NAME]... [--no-shape]
+  census [--bless]";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -89,6 +95,7 @@ fn command(arguments: &[String]) -> Result<ExitCode, RunError> {
             Ok(ExitCode::SUCCESS)
         }
         "mutants" => whichever_conformance::mutants::command(rest),
+        "census" => census(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -144,6 +151,33 @@ fn options(arguments: &[String]) -> Result<Options, RunError> {
         }
     }
     Ok(options)
+}
+
+/// Compares `census.txt` with the selection, or rewrites it.
+fn census(arguments: &[String]) -> Result<ExitCode, RunError> {
+    let bless = match arguments {
+        [] => false,
+        [flag] if flag == "--bless" => true,
+        _ => {
+            return Err(RunError::Usage(String::from(
+                "`census` takes `--bless` alone",
+            )))
+        }
+    };
+    let files = Files::at(&run::repository().join("conformance"));
+    let (selections, _) = run::suites(&files)?;
+    let differences = run::census(&files, &selections, bless)?;
+    if differences.is_empty() {
+        if !bless {
+            println!("census.txt agrees with the model");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!("census.txt differs from the model; rerun with `--bless` if the change is meant:");
+    for line in &differences {
+        println!("  {line}");
+    }
+    Ok(ExitCode::from(1))
 }
 
 fn list(options: &Options) -> Result<(), RunError> {

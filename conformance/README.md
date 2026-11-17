@@ -327,6 +327,7 @@ cargo run -p whichever-conformance --release -- run --suite boxed --filter recv=
 cargo run -p whichever-conformance --release -- run --whichever ../another-checkout
 cargo run -p whichever-conformance --release -- list --suite pinned
 cargo run -p whichever-conformance --release -- show 's0=via-field recv=mut'
+cargo run -p whichever-conformance --release -- census
 ```
 
 A run writes a workspace of shard crates under `target/conformance/ws`, one
@@ -453,8 +454,11 @@ documents and the goldens best support and says so in a comment beginning
   naming where the shape came from.
 - `census.txt` counts, for every suite, the cells by verdict and the
   combinations never selected by reason. A run compares it exactly, so a
-  rule that silently empties a suite shows as a difference. `run --bless`
-  rewrites it, and never touches `known.tsv`.
+  rule that silently empties a suite shows as a difference. The census is
+  a function of the selection alone, so `census` compares it without
+  building anything, in seconds, and `census --bless` rewrites it; `run
+  --bless` rewrites it too, and runs the matrix besides. Neither touches
+  `known.tsv`.
 
 ## Adding a value to an axis
 
@@ -468,7 +472,7 @@ receiver through how the enum is unwrapped and the target handed over
 value is one variant and its descriptor. Every `match` over an axis or a
 descriptor is exhaustive, so the compiler names every place that needs to
 know about the new value, the verdict among them. Then run the suite, settle
-what diverges, and bless the census.
+what diverges, and bless the census with `census --bless`.
 
 A new axis is one more line in the `cell!` invocation in `src/cell.rs`, its
 neutral value first, so no id changes. A new zone is one more entry in

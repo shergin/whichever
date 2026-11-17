@@ -1,6 +1,6 @@
 # The cells each suite holds, by verdict, and the combinations it spans
-# but never selects, by reason. A run compares this file exactly;
-# `run --bless` rewrites it.
+# but never selects, by reason. A run and `census` compare this file
+# exactly; `census --bless` and `run --bless` rewrite it.
 
 suite shapes
   pass 680

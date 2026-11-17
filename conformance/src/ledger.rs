@@ -153,8 +153,8 @@ pub fn parse_pinned(text: &str) -> Result<Vec<Pinned>, LedgerError> {
 pub fn census(selections: &[Selection]) -> String {
     let mut text = String::from(
         "# The cells each suite holds, by verdict, and the combinations it spans\n\
-         # but never selects, by reason. A run compares this file exactly;\n\
-         # `run --bless` rewrites it.\n",
+         # but never selects, by reason. A run and `census` compare this file\n\
+         # exactly; `census --bless` and `run --bless` rewrite it.\n",
     );
     for selection in selections {
         text.push('\n');

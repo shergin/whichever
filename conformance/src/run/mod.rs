@@ -181,6 +181,25 @@ pub fn suites(files: &Files) -> Result<(Vec<Selection>, Vec<Known>), RunError> {
     Ok((selections, known))
 }
 
+/// Compares the census of `selections` with `census.txt`, returning the
+/// lines that differ, or with `bless` rewrites the file and returns none.
+/// The census is a function of the selection alone, so it needs nothing
+/// built.
+pub fn census(
+    files: &Files,
+    selections: &[Selection],
+    bless: bool,
+) -> Result<Vec<String>, RunError> {
+    let census = ledger::census(selections);
+    if bless {
+        std::fs::write(&files.census, &census).map_err(harness)?;
+        progress("census.txt rewritten");
+        return Ok(Vec::new());
+    }
+    let pinned = std::fs::read_to_string(&files.census).unwrap_or_default();
+    Ok(ledger::differences(&pinned, &census))
+}
+
 /// Runs the suites and reports.
 pub fn run(options: &Options) -> Result<Status, RunError> {
     let started = Instant::now();
@@ -201,18 +220,7 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
         }
     }
 
-    let census = ledger::census(&selections);
-    let census_differences = match options.bless {
-        true => {
-            std::fs::write(&files.census, &census).map_err(harness)?;
-            progress("census.txt rewritten");
-            Vec::new()
-        }
-        false => {
-            let pinned = std::fs::read_to_string(&files.census).unwrap_or_default();
-            ledger::differences(&pinned, &census)
-        }
-    };
+    let census_differences = census(&files, &selections, options.bless)?;
 
     let mut selections = selections;
     if let Some(count) = options.random {
