@@ -45,6 +45,10 @@ any default.
   Unreleased section of `CHANGELOG.md`, and the guide when a measurement
   it quotes moves. `docs/tutorial.md` shows code from `examples/tour.rs`,
   and the two change together.
+- Three pages are in the crate docs as well, through `src/docs.rs`: the
+  tutorial, the glossary and troubleshooting. Their links to files are
+  reference-style, and a label a page defines gets a line in
+  `src/docs.rs` that says where it goes on docs.rs.
 - Settled stays settled. A choice among real alternatives is recorded in
   `docs/decisions/` with the condition that reopens it. Do not relitigate
   without new evidence; when evidence arrives, supersede the record rather
@@ -103,6 +107,7 @@ any default.
   `cargo test --workspace`,
   `cargo test --test expand -- --ignored`,
   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p whichever -p whichever-macros`,
+  `python3 scripts/check_doc_links.py`, which reads what that built,
   `cargo check -p whichever --no-default-features --tests`,
   `cargo check -p smoke-no-std --target thumbv7em-none-eabi`,
   `python3 smoke/mixed/check.py`,

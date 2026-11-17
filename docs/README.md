@@ -46,7 +46,9 @@ New to `whichever`? Read these in order:
   exports.
 - **Where is the API reference?**
   On [docs.rs](https://docs.rs/whichever). It carries the same material
-  as these pages, with runnable examples.
+  as these pages, with runnable examples. The tutorial, the glossary and
+  troubleshooting are there too, as they were at the version you depend
+  on.
 
 ## Choosing and comparing
 

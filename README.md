@@ -243,7 +243,8 @@ The footprint is small:
 - [Troubleshooting](docs/troubleshooting.md): an error message, its
   cause and the fix.
 - The API reference on [docs.rs](https://docs.rs/whichever), with
-  runnable examples.
+  runnable examples. The tutorial, the glossary and troubleshooting are
+  there too, at the version you depend on.
 - [When enum dispatch pays](docs/when-to-use-enum-dispatch.md): enum,
   trait object or generic, with the measurements.
 - The [vision](docs/vision.md) and the [decisions](docs/decisions/): why

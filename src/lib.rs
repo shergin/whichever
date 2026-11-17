@@ -67,7 +67,8 @@
 //! An enum with `#[dispatch]` on it is a *dispatch enum*. Passing a method
 //! call on to the payload is *forwarding*. The rest of this page is a
 //! [tour of the features](#a-tour-of-the-features), then a
-//! [reference](#reference) you can jump into from the sidebar.
+//! [reference](#reference) you can jump into from the sidebar. New to the
+//! crate? [The tutorial](docs::tutorial) takes it one step at a time.
 //!
 //! # What is generated
 //!
@@ -194,9 +195,14 @@
 //!   variant's payload alone.
 //!
 //! A payload type that two variants hold gets no `From` either way: there
-//! would be two impls of the same `From`, one per variant. Some variants and
-//! types get no conversions at all: a variant with other fields beside the
-//! payload ([routes](#reaching-the-target-pointers-fields-and-methods)), a
+//! would be two impls of the same `From`, one per variant. Neither does a
+//! payload that is a type parameter of the enum, because `From<T>` would
+//! overlap the other variants' impls; the error asks for `from = false`, on
+//! the enum or on that variant.
+//!
+//! Some variants and types get no conversions at all: a variant with other
+//! fields beside the payload
+//! ([routes](#reaching-the-target-pointers-fields-and-methods)), a
 //! [struct](#forwarding-from-a-struct-field), and an
 //! [enum from another crate](#enums-from-other-crates). When an enum
 //! dispatches several traits, the conversions are still written once; see
@@ -1714,14 +1720,15 @@
 //!
 //! # More documentation
 //!
-//! The pages in the repository cover each topic at length:
+//! Three long-form pages ship with the crate, in the [`docs`] module:
 //!
-//! - [The tutorial](https://github.com/shergin/whichever/blob/main/docs/tutorial.md):
-//!   a guided tour, start to finish.
-//! - [The glossary](https://github.com/shergin/whichever/blob/main/docs/glossary.md):
-//!   the words these docs use.
-//! - [Troubleshooting](https://github.com/shergin/whichever/blob/main/docs/troubleshooting.md):
-//!   an error message, its cause and the fix.
+//! - [The tutorial](docs::tutorial): a guided tour, start to finish.
+//! - [The glossary](docs::glossary): the words these docs use.
+//! - [Troubleshooting](docs::troubleshooting): an error message, its cause
+//!   and the fix.
+//!
+//! The pages in the repository cover the rest at length:
+//!
 //! - [Limits](https://github.com/shergin/whichever/blob/main/docs/limits.md):
 //!   everything the attributes refuse, with the fix.
 //! - [When enum dispatch pays](https://github.com/shergin/whichever/blob/main/docs/when-to-use-enum-dispatch.md):
@@ -1734,6 +1741,11 @@
 
 pub use whichever_macros::{dispatch, dispatchable};
 
+// The pages are written for reading, and their code is checked where it
+// lives, in `examples/tour.rs` and `tests/ui`, so the module is left out
+// when rustdoc collects doctests.
+#[cfg(all(doc, not(doctest)))]
+pub mod docs;
 pub mod foreign;
 
 #[doc(hidden)]

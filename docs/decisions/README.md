@@ -45,3 +45,4 @@ the planning notes, the note holds the long form and the record names it.
 - [An option names an item of every build](an-option-names-an-item-of-every-build.md)
 - [A borrow a shared pointer cannot lend is a sentence](a-borrow-a-shared-pointer-cannot-lend-is-a-sentence.md)
 - [Under `*`, a method's body holds the enum's own arms](under-star-a-methods-body-holds-the-enums-own-arms.md)
+- [Three pages ship in the crate docs](three-pages-ship-in-the-crate-docs.md)

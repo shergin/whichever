@@ -108,6 +108,8 @@ jobs:
       - run: cargo doc --no-deps -p whichever -p whichever-macros
         env:
           RUSTDOCFLAGS: -D warnings
+      # Every link in the rendered crate docs reaches a page and an anchor.
+      - run: python3 scripts/check_doc_links.py
       # Every number the README and the guide quote is one RESULTS.md holds.
       - run: python3 benchmarks/scripts/check_numbers.py
       # Every relative link in the Markdown docs reaches a file and a heading.

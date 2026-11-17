@@ -6,7 +6,7 @@ Find the message below; each entry gives the cause and the fix.
 How errors work in this crate:
 
 - When you ask for something `whichever` cannot forward (a
-  [limit](limits.md)), you get a one-sentence error on the item at fault,
+  [limit][limits]), you get a one-sentence error on the item at fault,
   usually saying what to do instead.
 - Everything else is rustc reporting on the generated impl, exactly as it
   would on the same impl written by hand.
@@ -37,7 +37,7 @@ error: cannot find macro `Shape` in this scope
 ```
 
 **What it means.** `#[dispatch(Shape)]` reads the trait's signatures from
-its [carrier macro](glossary.md#carrier-macro), a hidden macro with the
+its [carrier macro][glossary-carrier-macro], a hidden macro with the
 trait's name. rustc cannot find that macro where the enum is, for one of
 two reasons:
 
@@ -65,7 +65,8 @@ one.
 
 **The fix.** Use the restatement that ships in `whichever::foreign`, such
 as `#[whichever::dispatch(whichever::foreign::Display)]`, or restate the
-trait yourself with `remote`. See [restatements.md](restatements.md).
+trait yourself with `remote`. See
+[Traits and enums from other crates][restatements].
 
 ### "cannot find `Trait` in `other`"
 
@@ -87,16 +88,16 @@ a trait of another crate.
 
 **The fix.** Restate the trait with `remote`:
 `#[whichever::dispatchable(remote = other::Trait)]`. See
-[restatements.md](restatements.md#restate-any-other-trait).
+[Restate any other trait][restatements-any-trait].
 
-The same words on a [partial impl block](partial-impl-blocks.md) over
+The same words on a [partial impl block][partial-impl-blocks] over
 another crate's enum, `#[whichever::dispatch] impl Local for other::Enum
 {}`, mean one of two things:
 
 - the enum has no `#[whichever::dispatch]`, and only its own crate can
   add it;
 - or the enum is another crate's, and you restate it with `remote`
-  ([Enums from other crates](restatements.md#enums-from-other-crates)).
+  ([Enums from other crates][restatements-enums]).
 
 ### "written by a newer `whichever` than the one dispatching it"
 
@@ -122,7 +123,7 @@ newer `whichever` that the older carrier macro does not match.
 
 **The fix.** Build both crates with the same minor version of
 `whichever`, as the error says. See
-[compatibility.md](compatibility.md#versions-across-crates).
+[Versions across crates][compatibility-versions].
 
 ## Inside the generated impl
 
@@ -168,7 +169,7 @@ the payload types there by name:
 impl Client for ClientWrapper {}
 ```
 
-See [Which names must be in scope](partial-impl-blocks.md#which-names-must-be-in-scope).
+See [Which names must be in scope][partial-impl-blocks-names].
 
 ### "the trait bound `B: Value` is not satisfied"
 
@@ -179,13 +180,13 @@ error[E0277]: the trait bound `B: Value` is not satisfied
 It points at the variant's payload.
 
 **What it means.** A payload does not implement the trait. Every
-[target](glossary.md#target) must implement it, since the arm calls the
+[target][glossary-target] must implement it, since the arm calls the
 trait method on it.
 
 **The fix.** Implement the trait for that payload. If the variant should
 not take part, leave it to a fallback in a
-[partial impl block](partial-impl-blocks.md), or reach a target that does
-implement the trait with a [route](routes.md).
+[partial impl block][partial-impl-blocks], or reach a target that does
+implement the trait with a [route][routes].
 
 ### Two variants disagree on an associated type
 
@@ -196,11 +197,11 @@ error[E0271]: type mismatch resolving `<Wide as Store>::Item == u32`
 
 **What it means.** The enum takes each associated type from its first
 variant, and checks that every other variant has the same one (the
-[agreement check](glossary.md#agreement-check)). Here one payload says
+[agreement check][glossary-agreement-check]). Here one payload says
 `type Item = u32;` and another says `type Item = u64;`.
 
 **The fix.** Give the enum its own type with an
-[override](options.md#name--type-override-an-associated-type), as in
+[override][options-name-type], as in
 `#[whichever::dispatch(Store, Item = u64)]`. The forwarded methods
 convert each payload's result into it (here, a `u32` into a `u64`).
 
@@ -215,7 +216,7 @@ has a different value from the first.
 
 **The fix.** Set the value on the enum, as in
 `#[whichever::dispatch(Proof, KIND = "any")]`. See
-[options.md](options.md#name--value-override-an-associated-const).
+[`Name = value`][options-name-value].
 
 ## On a variant
 
@@ -237,11 +238,11 @@ value.
 - write the variant as `Name(Payload)`;
 - mark the field to forward to with `#[dispatch]`, as in
   `Node { id: u32, #[dispatch] data: Data }`;
-- or forward [inherent methods](inherent-methods.md) instead, where the
+- or forward [inherent methods][inherent-methods] instead, where the
   method's body handles such variants.
 
 The error follows the variant's `#[cfg]`, so a test-only mock that is
-compiled out is no error. See [limits.md](limits.md).
+compiled out is no error. See [Limits][limits].
 
 ### "requires `Self: Sized`, and `Boxed` holds a trait object"
 
@@ -257,7 +258,7 @@ on a trait object, so it cannot be forwarded to that variant.
 method by hand.
 
 - Leave the method to the trait's default in a
-  [partial impl block](partial-impl-blocks.md). The other methods are
+  [partial impl block][partial-impl-blocks]. The other methods are
   still forwarded.
 
   ```rust
@@ -271,7 +272,7 @@ method by hand.
 - If the pointer implements the trait itself, hold it as a plain
   payload, without `deref`. `Box<dyn Iterator>` is an `Iterator`, so
   every method is forwarded to the box, with no partial impl block. See
-  [`Self: Sized` and boxed iterators](restatements.md#self-sized-and-boxed-iterators).
+  [`Self: Sized` and boxed iterators][restatements-boxed-iterators].
 
 ## On a trait method
 
@@ -304,7 +305,7 @@ pub enum Any {
 }
 ```
 
-See [`mismatch`](options.md#mismatch-what-to-return-when-two-variants-differ).
+See [`mismatch`][options-mismatch].
 
 ### "has no receiver, so there is no variant to dispatch on"
 
@@ -317,7 +318,7 @@ has no value to `match` on, so no variant to forward to.
 
 **The fix.** Give the method a default body in the trait, which the enum
 uses, or write it yourself in a
-[partial impl block](partial-impl-blocks.md).
+[partial impl block][partial-impl-blocks].
 
 ### "a return-position `impl Trait` cannot be dispatched"
 
@@ -342,13 +343,13 @@ error: this receiver type is not supported; a receiver is `self`, `&self`, `&mut
 which hand-written code would not do.
 
 **The fix.** Use one of the receivers the error lists, or implement the
-method by hand. See [Receivers](limits.md#receivers).
+method by hand. See [Receivers][limits-receivers].
 
 ### Other errors on a trait method
 
 The other one-sentence errors on a method, about `Self` in a return
 type, routes, `deref` variants and the arms the enum handles itself, are
-each on [limits.md](limits.md), grouped by topic, with the fix.
+each in [Limits][limits], grouped by topic, with the fix.
 
 ## Conversions
 
@@ -381,7 +382,7 @@ impl From<Circle> for Any {
 ```
 
 Or turn all of them off with `from = false` on the enum. See
-[options.md](options.md#from--false-no-from-impls).
+[`from = false`][options-from-false].
 
 ### "the trait bound `Any: From<Circle>` is not satisfied"
 
@@ -406,7 +407,7 @@ error: `I` is a type parameter of `Adapter`, so `From<I>` would overlap the othe
 
 **The fix.** As the error says: `from = false` on the enum, or
 `#[dispatch(from = false)]` on that variant. See
-[Payloads that are type parameters](options.md#payloads-that-are-type-parameters).
+[the limits on conversions][limits-conversions].
 
 ### "`Any` doesn't implement `Debug`" on `.unwrap()`
 
@@ -460,7 +461,7 @@ Forwarding them would serialise the enum under its payload's tag.
 
 **The fix.** Put `#[whichever::dispatchable]` above `#[typetag::serde]`,
 and `#[typetag::serde(name = "..")]` on the enum's
-[partial impl block](partial-impl-blocks.md).
+[partial impl block][partial-impl-blocks].
 
 ### "the name `__whichever_Shape_...` is defined multiple times"
 
@@ -526,14 +527,14 @@ warning: unused imports: `Formatter` and `Result`
 ```
 
 **What it means.** Only the carrier macro reads a
-[restatement](glossary.md#restatement); nothing else is emitted for it.
+[restatement][glossary-restatement]; nothing else is emitted for it.
 So the imports its signatures use count as unused where the restatement
 is, while the enum's module still needs them.
 
 **The fix.** Write the signature types in full in the restatement, such
 as `core::fmt::Formatter<'_>`, as `whichever::foreign` does. Or import
 them where the enum is, not where the restatement is. See
-[restatements.md](restatements.md).
+[Traits and enums from other crates][restatements].
 
 ## In `Cargo.toml`
 
@@ -556,7 +557,7 @@ Errors about missing trait methods on the enum follow it.
 feature `renamed-dependency`. That feature is what looks the new name up.
 
 **The fix.** Keep the default features on. See
-[compatibility.md](compatibility.md#dependencies-and-the-renamed-dependency-feature).
+[Compatibility][compatibility-renamed-dependency].
 
 ### A dependency cycle through `proc-macro-crate`
 
@@ -576,7 +577,7 @@ No error here. The enum compiles, but a provided method (a method with a
 default body) returns the trait's default, not what the payload's own
 version returns.
 
-**What it means.** The trait is a [restatement](restatements.md), and
+**What it means.** The trait is a [restatement][restatements], and
 the restatement does not list that method. A restatement forwards
 exactly the methods it lists. A method left out falls back to the
 trait's default on the enum, whatever the payload would do.
@@ -588,7 +589,7 @@ every buffer into one.
 
 **The fix.** List the provided methods a payload overrides in the
 restatement. See
-[List the provided methods a payload overrides](restatements.md#list-the-provided-methods-a-payload-overrides).
+[List the provided methods a payload overrides][restatements-provided-methods].
 
 ## Still stuck?
 
@@ -600,10 +601,35 @@ impl that rustc is complaining about:
 cargo expand --lib path::to::module
 ```
 
-[what-is-generated.md](what-is-generated.md) explains what to expect in
+[What is generated][what-is-generated] explains what to expect in
 it.
 
 If the error still makes no sense, or `whichever` gives an error for code
 you think it should accept, open an issue at
 <https://github.com/shergin/whichever/issues>. A small example that
 reproduces the error helps most.
+
+<!-- The links are reference-style because src/docs.rs includes this page in the crate docs and gives each label a target there. -->
+[compatibility-renamed-dependency]: compatibility.md#dependencies-and-the-renamed-dependency-feature
+[compatibility-versions]: compatibility.md#versions-across-crates
+[glossary-agreement-check]: glossary.md#agreement-check
+[glossary-carrier-macro]: glossary.md#carrier-macro
+[glossary-restatement]: glossary.md#restatement
+[glossary-target]: glossary.md#target
+[inherent-methods]: inherent-methods.md
+[limits]: limits.md
+[limits-conversions]: limits.md#conversions
+[limits-receivers]: limits.md#receivers
+[options-from-false]: options.md#from--false-no-from-impls
+[options-mismatch]: options.md#mismatch-what-to-return-when-two-variants-differ
+[options-name-type]: options.md#name--type-override-an-associated-type
+[options-name-value]: options.md#name--value-override-an-associated-const
+[partial-impl-blocks]: partial-impl-blocks.md
+[partial-impl-blocks-names]: partial-impl-blocks.md#which-names-must-be-in-scope
+[restatements]: restatements.md
+[restatements-any-trait]: restatements.md#restate-any-other-trait
+[restatements-boxed-iterators]: restatements.md#self-sized-and-boxed-iterators
+[restatements-enums]: restatements.md#enums-from-other-crates
+[restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
+[routes]: routes.md
+[what-is-generated]: what-is-generated.md
