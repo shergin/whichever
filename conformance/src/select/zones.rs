@@ -234,6 +234,29 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("lift", "into")],
     },
     Zone {
+        name: "inherent-borrows",
+        summary: "a payload's method that borrows its receiver, called by an inherent method taking `self` by value, over the pointers it is called through and for the subject's own lifetime",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("s0", &["plain", "deref-box", "deref-rc", "deref-arc", "deref-ref", "deref-mut", "via-field", "deref-rc-field", "marked-tuple"]),
+            ("s1", &["plain", "none", "deref-ref", "deref-rc"]),
+            ("ret", &["u64", "self", "future", "lent"]),
+        ],
+        fixed: &[("recv", "value"), ("callee", "borrowing")],
+    },
+    Zone {
+        name: "inherent-items",
+        summary: "an inherent method under a `#[cfg]` that holds or does not, over the shapes a sentence about the method itself meets: a body that never runs, `*` over a variant without a payload, a lift over a wrapped `Self`",
+        vary: &[
+            ("path", &["inherent", "inherent-some", "inherent-arms"]),
+            ("item", &["none", "cfg-on", "cfg-off"]),
+            ("s1", &["plain", "none", "unit", "pair"]),
+            ("ret", &["u64", "self", "option-self"]),
+            ("lift", &["none", "some"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "inherent-shared",
         summary: "`value` over two variants that hold one payload type, reached by different target kinds",
         vary: &[
@@ -295,12 +318,13 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "block-invocations",
-        summary: "a macro invocation in a partial impl block, over a few subjects",
+        summary: "a macro invocation in a partial impl block, bare or under a `#[cfg]` that holds or does not, over a few subjects",
         vary: &[
+            ("path", &["block-macro", "block-macro-on", "block-macro-off"]),
             ("s0", &["plain", "deref-box", "marked-struct", "marked-named", "struct", "struct-named"]),
             ("s1", &["plain", "none", "unit"]),
         ],
-        fixed: &[("path", "block-macro")],
+        fixed: &[],
     },
     Zone {
         name: "cfg",

@@ -76,7 +76,16 @@ trait and the payloads.
 
 The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
-target or a field of it, and what `with` wraps the result in. An inherent
+target or a field of it, and what `with` wraps the result in. Under
+`borrowing` the payload's method of the same name takes `&self` where the
+inherent method takes `self` by value, the one receiver under which it
+differs from `method`, so the arm, `(*inner).m(x)`, borrows the target
+behind whatever pointer holds it; its answer for the subject's own
+lifetime, `lent`, is the place the payload's own call answers, over a first
+variant holding `&'a P0`, and a borrow of a target the arm owns and drops
+is rustc's E0515 for the hand as well. Under `method` a payload's method
+that takes `self` moves its target out from behind a pointer that does not
+own it, rustc's E0507 for the hand's arm too. An inherent
 method's `Self` argument is the enum, handed over as it is, which the
 payload's method takes as any implementor of the trait and whose control
 method its answer reads, so the law calls it with the argument holding the
@@ -98,7 +107,14 @@ signature, a block's mark on `m` included, repeats the bound and carries
 the method's `#[cfg]` and its `#[allow]`, as a hand writes them. A method
 under a `#[cfg]` that does not hold exists in no build: its sentences and
 rejections are dropped, the hand writes none of it, and the law checks the
-control method alone.
+control method alone. On an inherent path the method is the block's, and
+of these attributes only its `#[cfg]` is modelled, on the block's method
+and the hand's: a method the block cannot forward is reported under it, so
+a build that compiles the method out reports nothing, its sentence about
+the method itself included. The sentences an inherent method gets for a
+signature the model does not write, no receiver, a mark that does not
+parse or a second mark, are not modelled; `tests/ui` and the behaviour
+tests hold them, under a `#[cfg]` and without.
 
 A boxed future is spelled as `#[async_trait]` writes it, as the golden
 `boxed_futures` does: `Pin<Box<dyn Future<Output = T> + Send +
@@ -211,7 +227,11 @@ block writes, or what the trait's default answers. Under `block-macro` the
 block, silent about `m`, also invokes a macro of the cell that writes
 nothing; the block is not read, so the invocation's sentence is all it
 reports and no impl is written, whatever the method, and only the variants
-depart from the neutral cell.
+depart from the neutral cell. Under `block-macro-on` the invocation is
+under `#[cfg(all())]`, which holds, and is the same sentence; under
+`block-macro-off` it is under `#[cfg(any())]`, so it is not in the block in
+this build, the block is read without it, and the cell is judged as
+`block`, its hand the hand's block in that build.
 
 Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
 `#[dispatch(*)]` with a body that is one `match self` holding the arms the

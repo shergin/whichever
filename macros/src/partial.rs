@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use proc_macro2::Span;
 use syn::spanned::Spanned;
 use syn::{
-    Attribute, Block, Error, Generics, Ident, ImplItem, ItemImpl, Result, Signature, Token, Type,
+    Attribute, Block, Error, Generics, Ident, ImplItem, ImplItemMacro, ItemImpl, Result, Signature,
+    Token, Type,
 };
 
 use crate::builds::Builds;
@@ -53,7 +54,7 @@ impl PartialBlock {
                         .push(BlockMethod::read(method)?);
                     continue;
                 }
-                BlockItem::Bodyless(sig) => {
+                BlockItem::Bodyless { sig, .. } => {
                     return Err(Error::new_spanned(
                         &sig,
                         format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
@@ -74,12 +75,7 @@ impl PartialBlock {
                 ImplItem::Const(constant) => Some((&constant.ident, &constant.attrs)),
                 // What a macro writes is not seen here, so an item it
                 // writes would be forwarded as well and defined twice.
-                ImplItem::Macro(invocation) => {
-                    return Err(Error::new_spanned(
-                        invocation,
-                        "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
-                    ));
-                }
+                ImplItem::Macro(invocation) => return Err(unread_invocation(invocation)),
                 _ => None,
             };
             if let Some((name, attrs)) = named {
@@ -117,6 +113,15 @@ impl PartialBlock {
     pub(crate) fn marked(&self, name: &str) -> &[BlockMethod] {
         self.marked.get(name).map(Vec::as_slice).unwrap_or_default()
     }
+}
+
+/// Returns the sentence about a macro invocation in a partial impl block,
+/// on the invocation.
+pub(crate) fn unread_invocation(invocation: &ImplItemMacro) -> Error {
+    Error::new_spanned(
+        invocation,
+        "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
+    )
 }
 
 /// The builds in which a partial block writes the items of one name: where

@@ -283,18 +283,16 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
                 match entry.target() {
                     Some(target) => arms.push(plan.arm(&target, &context)),
                     // The variant is reported elsewhere, under its `cfg`;
-                    // this arm only keeps the `match` exhaustive while that
-                    // error stands, which the fallback arm does when there
-                    // is one.
-                    None if !plan.has_same_variant() => {
-                        arms.push(Arm::unforwardable(
-                            &context.prefix,
-                            entry,
-                            plan.standing_in(site),
-                            site,
-                        ));
-                    }
-                    None => {}
+                    // this arm keeps the `match` exhaustive while that
+                    // error stands, and reads the arguments, which the
+                    // arm for two different variants does not: in a build
+                    // that leaves no forwarding arm nothing else would.
+                    None => arms.push(plan.beside_arguments(Arm::unforwardable(
+                        &context.prefix,
+                        entry,
+                        plan.standing_in(site),
+                        site,
+                    ))),
                 }
             }
         }

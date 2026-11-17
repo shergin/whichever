@@ -5,6 +5,55 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a method of an inherent `#[dispatch]` impl block that cannot be
+  forwarded was reported in every build, whatever `#[cfg]` it carried:
+  `#[cfg(feature = "off")] #[dispatch(*)] pub fn make(side: f64) -> Self;`
+  failed the build without the feature with "`make` has no receiver, so
+  there is no variant to forward to", where a hand's method under the same
+  `cfg` is simply absent. The same held for a mark that cannot be read,
+  `#[dispatch(*, Circle)]`, a second mark, a variant the enum lacks, and a
+  method without a body or a mark, on an enum or a struct. The sentence is
+  now under the method's own `#[cfg]`, so a build that compiles the method
+  out reports nothing, and one where the `cfg` holds reports as before.
+  Tokens in the block that are no method are still reported in every
+  build. dash-num 0.3.0-beta's constructors behind a feature are the shape.
+  `docs/limits.md`, `docs/inherent-methods.md` and the crate docs say so.
+  The `tests/ui` case `block_method_under_a_cfg_that_holds` is new, and
+  the behaviour test `cfg_on_variants_and_methods` is extended; no other
+  snapshot and no golden changed.
+- Before, a partial impl block that leaves a trait method with a `Self`
+  argument to the plain forwarding, `fn f(&self, other: Self, n: u64)`,
+  over an enum whose only variant in the build cannot be forwarded to,
+  `B(P1, u64)` beside `#[cfg(any())] A(P0)`, reported the variant's
+  sentence and, beside it, rustc's unused variable: `n`. The arm that
+  stands in for the variant was left out where a `Self` argument is
+  matched beside `self`, and the arm for two different variants does not
+  read `n`. That arm is now written beside the `Self` argument too, `(E::B
+  { .. }, ..) => { let _ = (&n,); ::core::unreachable!() }`, and reads the
+  arguments the `match` does not hold, so the sentence stands alone. The
+  `tests/ui` case
+  `block_over_an_unforwardable_variant_beside_a_self_argument` is new; no
+  other snapshot and no golden changed.
+- Before, an inherent method taking `self` by value and forwarded by name
+  to a `deref` variant holding a `&'a T`, an `Rc`, an `Arc` or a `&mut T`,
+  `#[dispatch(*)] pub fn base(self) -> &'a Base;` over
+  `#[dispatch(deref)] Int(&'a Int)`, was refused: "`base` takes `self` by
+  value, and `Int` dereferences a `&'a Int`, which a value cannot be moved
+  out of; hold a `Box`, or give it a body". Nothing moves there when the
+  payload's method takes `&self`, and the hand's arm beside it compiles.
+  This was a regression: 0.5.2 compiled the shape, 0.6.0 gave rustc's
+  E0308, and 0.7.0 to 0.8.0 gave the sentence. The arm is now the hand's,
+  `Self::Int(inner) => (*inner).base()`, under `*`, a named list and `call
+  = name` alike, and rustc judges it: a payload method taking `&self`
+  borrows what the variant points at, one that consumes its receiver is
+  rustc's E0507, and a reference returned out of an `Rc` the arm drops is
+  rustc's E0515, as in a hand's arm. A trait method taking `self` or a
+  `Self` argument by value over such a variant, and an inherent `value` or
+  `field` the return type does not borrow, are reported as before.
+  cameleon-genapi 0.1.14's `node_base_precise` is the shape.
+  `docs/limits.md`, `docs/inherent-methods.md` and the crate docs say so.
+  The behaviour test `inherent_methods_on_dereferenced_payloads` is
+  extended; no golden and no `tests/ui` snapshot changed.
 - Before, `#[dispatch(*)]` with a body was an error, and the only way to
   forward to every variant but a few was to name every forwarded variant
   on the method, with the body as the arm for the rest: a list as long as
@@ -80,7 +129,13 @@ changes are expected and listed without apology.
 - Before, a macro invocation in a partial impl block was dropped without a
   word, and the forwarding stood in place of the items it would have
   written. It is now one sentence on the invocation; write the items out
-  in the block. The `tests/ui` case `macro_in_a_partial_block` is new.
+  in the block. One under `#[cfg]` is reported only where the `cfg` holds:
+  where it does not, the invocation is not in the block, as it is not in a
+  hand's, and the block is read without it, so a method the macro would
+  have written is forwarded. The `tests/ui` cases
+  `macro_in_a_partial_block` and
+  `macro_in_a_partial_block_under_a_cfg_that_holds` are new, and the
+  behaviour test `conditional_methods_in_a_partial_block` is extended.
 - Before, a second `#[dispatch(..)]` after `#[dispatch(default)]` on a
   method of a partial impl block was ignored. It is now reported, "one
   `#[dispatch(..)]` per method", as a second mark in any other order

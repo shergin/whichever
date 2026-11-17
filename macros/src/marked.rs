@@ -24,8 +24,11 @@ pub(crate) enum BlockItem {
     /// A method carrying `#[dispatch(..)]`, with or without a body.
     Marked(Marked),
     /// A method without a body and without a mark, which nothing gives a
-    /// body.
-    Bodyless(Signature),
+    /// body, with the attributes it is written under.
+    Bodyless {
+        attrs: Vec<Attribute>,
+        sig: Signature,
+    },
     /// Tokens `syn` left verbatim that are no method.
     Unread(TokenStream2),
     /// Any other item, the user's, as written.
@@ -61,7 +64,7 @@ impl BlockItem {
                     sig,
                 } = method;
                 let Some(position) = attrs.iter().position(is_dispatch_attribute) else {
-                    return BlockItem::Bodyless(sig);
+                    return BlockItem::Bodyless { attrs, sig };
                 };
                 let attribute = attrs.remove(position);
                 BlockItem::Marked(Marked {
@@ -233,7 +236,7 @@ mod tests {
         assert!(without_body.body.is_none() && without_body.attrs.is_empty());
         assert!(matches!(
             BlockItem::read(parse_quote!(fn area(&self) -> u32;)),
-            BlockItem::Bodyless(sig) if sig.ident == "area"
+            BlockItem::Bodyless { sig, .. } if sig.ident == "area"
         ));
         assert!(matches!(
             BlockItem::read(ImplItem::Verbatim(quote!(

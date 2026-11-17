@@ -40,7 +40,7 @@ impl Method {
     fn callee_name(&self) -> &'static str {
         match self.callee {
             Callee::Renamed => "answer",
-            Callee::Method | Callee::Value | Callee::Field => "m",
+            Callee::Method | Callee::Value | Callee::Field | Callee::Borrowing => "m",
         }
     }
 
@@ -484,12 +484,18 @@ pub fn write(writer: &mut Writer, context: &Context) {
             )),
             PathForm::Forwarded | PathForm::Default | PathForm::Written | PathForm::Arms => None,
         };
-        // An inherent method carries what the user wrote and the allowance
-        // over an enum that may be empty, and no `#[inline]`.
-        let attributes = match quiet {
-            true => vec![String::from("#[allow(unused_variables)]")],
-            false => Vec::new(),
-        };
+        // An inherent method carries what the user wrote, its `#[cfg]`
+        // included, and the allowance over an enum that may be empty, and
+        // no `#[inline]`.
+        let mut attributes: Vec<String> = context
+            .item
+            .cfg
+            .map(|predicate| format!("#[cfg({predicate})]"))
+            .into_iter()
+            .collect();
+        if quiet {
+            attributes.push(String::from("#[allow(unused_variables)]"));
+        }
         // A function lift's declared type is its own, `u64`, which names
         // no `Self` and no future, so its arms are neither rewrapped nor
         // awaited: the function is handed the payload's answer as it is.
@@ -925,10 +931,10 @@ fn inherent_value(
             Place::Binding(_, _) | Place::Field(_, _) | Place::Call(_, _) => own.text(),
         },
         Callee::Field => field.text(),
-        Callee::Method | Callee::Renamed => String::new(),
+        Callee::Method | Callee::Renamed | Callee::Borrowing => String::new(),
     };
     let value = match method.callee {
-        Callee::Method | Callee::Renamed => {
+        Callee::Method | Callee::Renamed | Callee::Borrowing => {
             // A receiver that is a pinned reference or the box is built as
             // the trait's forwarding hands it over; any other is the target
             // the call autorefs.
@@ -975,7 +981,7 @@ fn inherent_value(
         Callee::Field => read(&field),
     };
     let handed = match method.callee {
-        Callee::Method | Callee::Renamed => value.clone(),
+        Callee::Method | Callee::Renamed | Callee::Borrowing => value.clone(),
         Callee::Value | Callee::Field => standing,
     };
     match method.lift {

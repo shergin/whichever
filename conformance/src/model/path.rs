@@ -47,6 +47,19 @@ pub struct PathDescriptor {
     /// Whether the block holds a macro invocation, which the block's
     /// reader cannot see into and reports (limits.md).
     pub invocation: bool,
+    /// The predicate of the `#[cfg]` the invocation is under, if any. "A
+    /// macro invocation under `#[cfg]` is reported only where the `cfg`
+    /// holds; where it does not, the invocation is not in the block, the
+    /// block is read without it" (limits.md).
+    pub invocation_cfg: Option<&'static str>,
+}
+
+impl PathDescriptor {
+    /// Returns whether the block holds a macro invocation in this build,
+    /// which it is then not read for.
+    pub fn reads_invocation(&self) -> bool {
+        self.invocation && self.invocation_cfg != Some("any()")
+    }
 }
 
 impl Path {
@@ -58,6 +71,7 @@ impl Path {
             mark,
             in_block,
             invocation: false,
+            invocation_cfg: None,
         };
         match self {
             Path::Attribute => with(Site::Attribute, Form::Forwarded, None, false),
@@ -72,6 +86,16 @@ impl Path {
             Path::InherentArms => with(Site::Inherent, Form::Arms, Some("*"), true),
             Path::BlockMacro => PathDescriptor {
                 invocation: true,
+                ..with(Site::Block, Form::Forwarded, None, false)
+            },
+            Path::BlockMacroOn => PathDescriptor {
+                invocation: true,
+                invocation_cfg: Some("all()"),
+                ..with(Site::Block, Form::Forwarded, None, false)
+            },
+            Path::BlockMacroOff => PathDescriptor {
+                invocation: true,
+                invocation_cfg: Some("any()"),
                 ..with(Site::Block, Form::Forwarded, None, false)
             },
         }

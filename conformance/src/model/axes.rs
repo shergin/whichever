@@ -291,6 +291,13 @@ axis! {
         /// A partial impl block that says nothing about `m` and holds a
         /// macro invocation, which is not read (limits.md).
         BlockMacro = "block-macro",
+        /// The same invocation under `#[cfg(all())]`, a `cfg` that holds:
+        /// in the block, and reported, in this build (limits.md).
+        BlockMacroOn = "block-macro-on",
+        /// The same invocation under `#[cfg(any())]`, a `cfg` that does not
+        /// hold: not in the block in this build, which is read without it
+        /// and forwards as `block` does (limits.md).
+        BlockMacroOff = "block-macro-off",
         /// `#[dispatch(*)] fn m(..) { match self { .. } }` in the block: the
         /// arms the enum answers itself, every other variant forwarded
         /// (partial-impl-blocks.md).
@@ -312,6 +319,12 @@ axis! {
         Value = "value",
         /// A field of the target, `field = state`.
         Field = "field",
+        /// The payload's own method of the same name, taking `&self` where
+        /// the method takes `self` by value, so that the arm borrows the
+        /// target whatever holds it (the cameleon-genapi survey: a `Copy`
+        /// enum over `&'a T` forwarding `fn base(self) -> &'a Base` to
+        /// `T::base(&self)`).
+        Borrowing = "borrowing",
     }
 }
 

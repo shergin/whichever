@@ -204,18 +204,20 @@ impl MethodPlan {
         // unless the return type borrows it. By value as well, an arm that
         // is a place moves its target out unless the return type borrows
         // it: `&*inner` on a `&'a T` payload is the reference the variant
-        // holds, and moves nothing.
+        // holds, and moves nothing. A trait's method takes its target as
+        // the signature says, by value. A call by name hands the target to
+        // a method of the payload's own, which borrows or moves it as that
+        // method's receiver says, and the signature here does not: the arm
+        // is the hand's, `(*inner).name()`, and rustc's to judge.
         let is_place = matches!(context.kind, ArmKind::Place { .. });
-        let moves_the_place = !matches!(
-            context.kind,
-            ArmKind::Place {
-                borrow: PlaceBorrow::Reference(_),
-                ..
-            }
-        );
+        let moves_the_target = match &context.kind {
+            ArmKind::QualifiedCall { .. } => true,
+            ArmKind::MethodCall { .. } => false,
+            ArmKind::Place { borrow, .. } => !matches!(borrow, PlaceBorrow::Reference(_)),
+        };
         let moved = match self.receiver {
-            ReceiverKind::Boxed if is_place && moves_the_place => Some(Taken::BoxedSelf),
-            ReceiverKind::Value(Access::Owned) if moves_the_place => Some(Taken::SelfByValue),
+            ReceiverKind::Boxed if is_place && moves_the_target => Some(Taken::BoxedSelf),
+            ReceiverKind::Value(Access::Owned) if moves_the_target => Some(Taken::SelfByValue),
             ReceiverKind::Value(_) | ReceiverKind::Pinned(_) | ReceiverKind::Boxed => {
                 self.taken(Access::Owned).map(Taken::ArgumentByValue)
             }
@@ -402,10 +404,19 @@ impl MethodPlan {
     /// Returns the result of an arm that only keeps the `match` exhaustive
     /// beside a variant's own error. It reads the arguments first: in a
     /// build where no other arm is left nothing else uses them, and the
-    /// lint about them would stand beside that error. The arm is under its
-    /// variant's `cfg`, so a build without the variant has none of this.
+    /// lint about them would stand beside that error. A `Self` argument
+    /// matched beside the receiver is read by the `match` itself, and one
+    /// taken by value was moved into it, so the arm reads the others. The
+    /// arm is under its variant's `cfg`, so a build without the variant
+    /// has none of this.
     pub(crate) fn standing_in(&self, site: Site) -> TokenStream2 {
-        let arguments = &self.arguments;
+        let arguments: Vec<&Ident> = self
+            .arguments
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !self.same_variant.iter().any(|(same, _)| same == index))
+            .map(|(_, argument)| argument)
+            .collect();
         if arguments.is_empty() {
             return quote_spanned!(*site => ::core::unreachable!());
         }

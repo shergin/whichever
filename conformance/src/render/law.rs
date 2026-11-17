@@ -576,9 +576,9 @@ fn base_expectation(context: &Context, slot: &Slot) -> Expect {
 fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
     let lift = context.cell.lift;
     match context.cell.callee {
-        Callee::Method | Callee::Renamed => {
+        Callee::Method | Callee::Renamed | Callee::Borrowing => {
             let other = context.argument.kind.map(|_| "other_twin");
-            let answer = call(context, payload, "twin", other, "x");
+            let answer = call(&context.payload_side(), payload, "twin", other, "x");
             match lift {
                 Lift::Bare | Lift::Into => format!("observe_p{index}({answer})"),
                 Lift::Some => format!("format!(\"Some({{}})\", observe_p{index}({answer}))"),
@@ -590,7 +590,9 @@ fn inherent_expected(context: &Context, index: usize, payload: &str) -> String {
         Callee::Value | Callee::Field => {
             let place = match context.cell.callee {
                 Callee::Value => "twin",
-                Callee::Field | Callee::Method | Callee::Renamed => "twin.state",
+                Callee::Field | Callee::Method | Callee::Renamed | Callee::Borrowing => {
+                    "twin.state"
+                }
             };
             let read = match context.cell.target_node() {
                 Node::PayloadShared | Node::PayloadLent | Node::Shared | Node::Lent => {
@@ -790,9 +792,12 @@ fn write_method_checks(
     // variant holds, or the place behind it, not a copy of its value.
     if matches!(context.node, Node::Lent) && twin_needed {
         write_subject(writer, &value_path(context), slot, "lent", seed, exclusive);
+        // A payload's method that borrows its receiver answers a place of
+        // the payload the variant holds, the one its own call answers.
         let place = match context.cell.callee {
-            Callee::Field => "&lent_held.state",
-            Callee::Value | Callee::Method | Callee::Renamed => "&lent_held",
+            Callee::Field => String::from("&lent_held.state"),
+            Callee::Value | Callee::Method | Callee::Renamed => String::from("&lent_held"),
+            Callee::Borrowing => call(&context.payload_side(), &payload, "lent_held", None, "x"),
         };
         writer.line(format!(
             "assert!(core::ptr::eq({}, {place}), \"m on {name} hands over the place itself\");",

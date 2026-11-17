@@ -94,14 +94,21 @@ by value, and so is a method returning a raw pointer or, on a dispatch
 struct, an `impl Trait`. The return type is read as written, so a type
 alias for a reference reads as a value. `via = route` reaches the target
 for this method alone, over the variant's own route. A value cannot be
-moved out of a `deref` variant holding anything but a `Box`, so a method
-taking `self` is reported there, and so is a place under `self` or `self:
-Box<Self>` unless the return type borrows it: `#[dispatch(*, value)] fn
-name(self) -> &'a Name;` over `Borrowed(&'a Name)` hands over the
-reference the variant holds. A `Self` argument is
+moved out of a `deref` variant holding anything but a `Box`, so a place
+under `self` or `self: Box<Self>` is reported there unless the return type
+borrows it: `#[dispatch(*, value)] fn name(self) -> &'a Name;` over
+`Borrowed(&'a Name)` hands over the reference the variant holds. A method
+forwarded by name under `self` is the arm a hand writes, `(*inner).base()`,
+and the payload's method decides what moves: `#[dispatch(*)] fn base(self)
+-> &'a Base;` over `Int(&'a Int)` borrows the `Int` when `Int::base` takes
+`&self`, and one that takes `self` is rustc's error, as in a hand's arm.
+A `Self` argument is
 the enum itself and is handed to
 the payload's method as it is. A variant under `#[cfg]` may be named; where
-it is compiled out, the method takes its body. The `impl` block has to be
+it is compiled out, the method takes its body. A method that cannot be
+forwarded is reported under its own `#[cfg]`, so a build that compiles the
+method out reports nothing, as it would have no hand-written method there.
+The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
 on an enum registers it for this without dispatching a trait. A block on a
 dispatch struct forwards the same way: `*` is the field marked bare, or the

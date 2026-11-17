@@ -360,3 +360,40 @@ s0=marked-last path=inherent
 s0=marked-last recv=value ret=self
 s0=struct-marked-last s1=none
 s0=struct-marked-last s1=none path=inherent
+
+# An inherent call under `self` by value over a `deref` variant that holds
+# no `Box` was refused with the sentence on the payload, though the hand's
+# arm, `(*inner).m(x)`, compiles where the payload's method borrows its
+# receiver (#15, the cameleon-genapi survey): over two `&'a T` returning
+# for `'a`, and over an `Rc` returning a value, each passing; a borrow
+# returned for `'a` out of an `Rc` the arm drops, and a payload's method
+# that takes `self`, each rustc's error for the hand and the macro alike.
+s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=borrowing
+s0=deref-rc recv=value path=inherent callee=borrowing
+s0=deref-mut recv=value path=inherent-some callee=borrowing
+s0=deref-ref s1=deref-rc recv=value ret=lent path=inherent callee=borrowing
+s0=deref-rc recv=value path=inherent
+s0=deref-ref recv=value path=inherent
+
+# A method a partial block forwards whose live arms are a variant's
+# sentence and the mismatch left its `u64` argument unread, so a warning
+# stood beside the sentence: the arm standing in for the variant was not
+# written beside a `Self` argument (#13).
+s1=pair arg=value path=block cfg=first-off decl=remote
+
+# A method of an inherent block that cannot be forwarded was reported in a
+# build that compiles it out, its sentence written beside the block rather
+# than under the method's `#[cfg]` (#17, the dash-num survey): a body that
+# never runs and `*` over a variant without a payload, each under a `cfg`
+# that does not hold and one that does.
+s1=none path=inherent-some item=cfg-off
+s1=none path=inherent-some item=cfg-on
+s1=unit path=inherent item=cfg-off
+s1=unit path=inherent item=cfg-on
+
+# A macro invocation in a partial block under a `#[cfg]` that does not
+# hold was reported, and the impl withheld, in the build that compiles it
+# out (#20, the portgraph survey); under one that holds it is the sentence.
+path=block-macro-off
+s0=struct s1=none path=block-macro-off
+path=block-macro-on

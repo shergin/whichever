@@ -248,6 +248,10 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
     writer.line("#[whichever::dispatch]");
     let generics = context.generics();
     writer.open(format!("impl{generics} E{generics} {{"));
+    // The method's own `#[cfg]`, under which it is forwarded or reported.
+    if let Some(predicate) = context.item.cfg {
+        writer.line(format!("#[cfg({predicate})]"));
+    }
     writer.anchor(Anchor::BlockMethod.name());
     if let Some(mark) = context.path.mark {
         writer.line(format!("#[dispatch({mark}{})]", context.inherent_options()));
@@ -315,6 +319,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
     // is the sentence (limits.md).
     let invocation = context.path.invocation;
     if invocation {
+        // Unused where its invocation is compiled out.
         writer.line("#[allow(unused_macros)]");
         writer.line("macro_rules! written {");
         writer.line("    () => {};");
@@ -340,7 +345,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         writer.line(Associated::Item.definition(super::context::VIEW));
     }
     if invocation {
+        // The invocation is the item from its first attribute on, and its
+        // sentence is spanned on all of it.
         writer.anchor(Anchor::BlockInvocation.name());
+        if let Some(predicate) = context.path.invocation_cfg {
+            writer.line(format!("#[cfg({predicate})]"));
+        }
         writer.line("written!();");
     }
     if !context.cell.base_reaches_all() && !context.foreign() {

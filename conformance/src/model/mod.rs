@@ -364,6 +364,17 @@ impl Cell {
         converts && !self.s0.descriptor().is_struct()
     }
 
+    /// Returns whether the method under test is an inherent method that
+    /// calls the payload's own method by name, as method-call syntax does,
+    /// rather than reading a place (inherent-methods.md).
+    pub fn inherent_call(&self) -> bool {
+        self.path_descriptor().site == path::Site::Inherent
+            && matches!(
+                self.callee,
+                Callee::Method | Callee::Renamed | Callee::Borrowing
+            )
+    }
+
     /// Returns whether the two variants hold one payload type: an inherent
     /// method that answers the target itself, `value`, declares one type
     /// for every arm, so the targets of different variants have to be one

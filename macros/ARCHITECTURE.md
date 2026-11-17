@@ -287,7 +287,14 @@ takes and the target cannot give, as the signature has it (`Taken`,
 `Self` rewrapped through a route, a mutable borrow through a route ending
 in a method call, a mutable borrow through a `Pointer::Shared`, a move out
 of a pointer that is no `Box`, `self: Box<Self>` with no box to hand over,
-and a `Self` the target cannot be rebuilt around. `Refusal::error` words it
+and a `Self` the target cannot be rebuilt around. A move is a trait's
+call, `ArmKind::QualifiedCall`, under `self` by value, which takes its
+target as the signature says; a place under `self` by value or `self:
+Box<Self>` that the return type does not borrow; and a `Self` argument
+by value. An inherent call by name, `ArmKind::MethodCall`, is not judged:
+it hands the target to a method of the payload's own, whose receiver
+borrows or moves it as the signature here cannot say, so the arm is the
+hand's, `(*inner).name()`, and rustc's to judge. `Refusal::error` words it
 in `refusal.rs`, on the payload, with the way out the `WayOut` offers: an
 impl by hand on the trait path, a body on the inherent path, the body
 itself where the method has one for the variants it does not name, and an
@@ -299,7 +306,13 @@ sentence as its result, under the variant's own attributes, so a build
 without the variant forwards the rest and every variant the method cannot
 reach is named. Writing an arm cannot fail. `MethodPlan::beside_arguments`
 gives that arm, and the unforwardable ones the selection writes, the
-tuple's shape where `Self` arguments are matched beside the receiver.
+tuple's shape where `Self` arguments are matched beside the receiver. An
+entry without a target, a variant reported elsewhere under its own `cfg`,
+gets its unforwardable arm, `Arm::unforwardable` with `standing_in` as its
+result, beside `Self` arguments as well, though the arm for two different
+variants already keeps that `match` exhaustive: that arm does not read the
+other arguments, and in a build that leaves no forwarding arm nothing else
+would.
 What fails a whole method is what `forward` returns as an error: a
 signature the plan cannot read, a mark naming a variant the subject
 lacks or one without a payload, a body where none would run or none
@@ -339,8 +352,9 @@ expression names it, an identifier at any depth or a name inside a literal,
 which a format string captures (`names`); one it does not name stays in the
 scrutinee, as a hand leaves it. `MethodPlan::standing_in` is the result of
 an arm that only keeps the `match` exhaustive beside a variant's own error,
-and reads the arguments, so that no lint about them stands beside that
-error. Every token the engine writes carries the context's `Site`, the
+and reads the arguments the `match` does not hold, so that no lint about
+them stands beside that error: a `Self` argument is read by the scrutinee,
+and one taken by value was moved into it, so the arm reads the others. Every token the engine writes carries the context's `Site`, the
 subject's or the method's own span, the generated bindings and a
 turbofish's angle brackets included: a proc macro's call site inside a
 carrier's expansion is the trait's attribute, which may be in another
@@ -600,7 +614,11 @@ path whose generic arguments do not fit the trait's parameters, or bind an
 associated item inside the path (`Substitution::of_trait`). In
 `PartialBlock::read`: a method of the block without a body and without a
 mark, a macro invocation, whose items cannot be told from the ones to
-forward, a mark that does not parse or names an inherent method's option,
+forward (one under `#[cfg]` never reaches it: `expand_partial` takes such
+invocations out of the block, writes the trait's carrier invocation under
+the complement of their `cfg`s, so the block is read without them where
+none holds, and writes each sentence under its invocation's own `cfg`), a
+mark that does not parse or names an inherent method's option,
 a second mark on one method, and `#[dispatch(default)]` on a method with a
 body. In `ItemWriter::write`: a macro invocation inside the trait, an
 associated type or const the block writes under `#[cfg]`, an override that
@@ -619,7 +637,11 @@ variant, is reported beside the impl, which is right without it, and a
 `#[dispatch(default)]` on a method without a default is written with the
 sentence as its body. The inherent path keeps the block and the methods it could
 forward, for the same reason, and a method it cannot forward stays as
-written, without its mark, or is dropped when it has no body. At the subject the unit of rejection is the
+written, without its mark, or is dropped when it has no body; its sentence
+stands under the method's own `cfg` attributes, written beside the block
+in `expand_inherent`, so a build that compiles the method out has neither,
+as it would have no hand-written method. Tokens that are no method are
+reported in every build. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors

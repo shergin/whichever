@@ -1,0 +1,10 @@
+file: macros/src/arm.rs
+breaks: An inherent method taking `self` by value calls the payload's own method on a `deref` variant's target as the hand does, `(*inner).name(..)`, and leaves the move to rustc, as `docs/inherent-methods.md` and `docs/limits.md` say.
+expect: killed
+witness: s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=borrowing
+witness: s0=deref-rc recv=value path=inherent
+
+find:
+            ArmKind::MethodCall { .. } => false,
+replace:
+            ArmKind::MethodCall { .. } => true,

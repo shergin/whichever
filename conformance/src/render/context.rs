@@ -545,8 +545,24 @@ impl Context {
     pub fn callee_name(&self) -> &'static str {
         match self.cell.callee {
             Callee::Renamed => "answer",
-            Callee::Method | Callee::Value | Callee::Field => "m",
+            Callee::Method | Callee::Value | Callee::Field | Callee::Borrowing => "m",
         }
+    }
+
+    /// Returns the context the payload's own method is written and called
+    /// in: the cell's, except that a method that borrows its receiver takes
+    /// `&self`, and answers for its own borrow where the subject's method
+    /// answers for the subject's lifetime, which the payload cannot name.
+    pub fn payload_side(&self) -> Context {
+        let mut context = self.clone();
+        if self.cell.callee != Callee::Borrowing {
+            return context;
+        }
+        context.receiver = Receiver::Shared.descriptor();
+        if self.node == Node::Lent {
+            context.node = Node::Shared;
+        }
+        context
     }
 
     /// Returns the signature the subject's inherent method declares: the
@@ -664,7 +680,7 @@ impl Context {
     /// after the variants it names.
     pub fn inherent_options(&self) -> String {
         let callee = match self.cell.callee {
-            Callee::Method => "",
+            Callee::Method | Callee::Borrowing => "",
             Callee::Renamed => ", call = answer",
             Callee::Value => ", value",
             Callee::Field => ", field = state",
