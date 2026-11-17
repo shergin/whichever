@@ -39,7 +39,8 @@ struct's attribute, which names every trait whose impl it writes, or a
 [partial impl block](partial-impl-blocks.md), and a trait goes to the field
 that names it whichever home writes the impl. A field names a trait as its
 home spells it, the attribute or the block's header, arguments included,
-so two instantiations of one generic trait, `Encoder<Json>` and
+and from `crate`, `self`, `super` or the root where the home's path
+begins there, `#[dispatch(crate::traits::Catalog)]`, so two instantiations of one generic trait, `Encoder<Json>` and
 `Encoder<Xml>`, or two traits of one name from two modules, go to two
 fields:
 

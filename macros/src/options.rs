@@ -99,9 +99,20 @@ fn parse_options(
     input: ParseStream,
     mut option: impl FnMut(Ident, ParseStream) -> Result<()>,
 ) -> Result<()> {
-    while !input.is_empty() {
+    parse_separated(input, |input| {
         let key: Ident = input.parse()?;
-        option(key, input)?;
+        option(key, input)
+    })
+}
+
+/// Parses what `element` reads, separated by commas, a trailing comma
+/// allowed.
+fn parse_separated(
+    input: ParseStream,
+    mut element: impl FnMut(ParseStream) -> Result<()>,
+) -> Result<()> {
+    while !input.is_empty() {
+        element(input)?;
         if input.is_empty() {
             break;
         }
@@ -778,7 +789,31 @@ impl TargetOptions {
                 continue;
             }
             attribute.parse_args_with(|input: ParseStream| {
-                parse_options(input, |key, input| {
+                parse_separated(input, |input| {
+                    // A trait's path may begin where no option's name
+                    // does, `crate::Rom`, `self::Rom`, `super::Rom` or
+                    // `::rom::Rom`: a field names a trait as its home
+                    // spells it.
+                    let rooted = input.peek(Token![::])
+                        || input.peek(Token![crate])
+                        || input.peek(Token![self])
+                        || input.peek(Token![super]);
+                    if rooted {
+                        let path: Path = input.parse()?;
+                        let first = &path.segments[0].ident;
+                        if on_variant {
+                            return Err(Error::new(
+                                first.span(),
+                                format!("unknown option `{first}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                            ));
+                        }
+                        if position == Position::VariantField {
+                            return Err(variant_field_option(first));
+                        }
+                        options.traits.push(path);
+                        return Ok(());
+                    }
+                    let key: Ident = input.parse()?;
                     // A name that is no option and takes no value is a
                     // trait the field is the target of.
                     let is_option = key == "deref"
@@ -1264,6 +1299,53 @@ mod tests {
         match result {
             Ok(_) => panic!("expected an error"),
             Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_structs_field_names_a_trait_from_crate_self_super_or_the_root() {
+        let rooted: Vec<Attribute> = vec![parse_quote!(#[dispatch(
+            crate::Rom,
+            self::Rom,
+            super::io::Write,
+            ::rom::Rom,
+            crate::Encoder<Json>,
+            deref,
+        )])];
+        let field = TargetOptions::read(&rooted, Position::StructField).unwrap();
+        let traits: Vec<String> = field
+            .traits
+            .iter()
+            .map(|path| path.to_token_stream().to_string().replace(' ', ""))
+            .collect();
+        assert_eq!(
+            traits,
+            [
+                "crate::Rom",
+                "self::Rom",
+                "super::io::Write",
+                "::rom::Rom",
+                "crate::Encoder<Json>"
+            ]
+        );
+        assert!(field.route.is_some_and(|route| route.is_deref()));
+        for (attribute, first) in [
+            (parse_quote!(#[dispatch(crate::Rom)]), "crate"),
+            (parse_quote!(#[dispatch(self::Rom)]), "self"),
+            (parse_quote!(#[dispatch(super::io::Write)]), "super"),
+            (parse_quote!(#[dispatch(::rom::Rom)]), "rom"),
+        ] {
+            let attributes: Vec<Attribute> = vec![attribute];
+            assert_eq!(
+                message(TargetOptions::read(&attributes, Position::Variant)),
+                format!("unknown option `{first}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                "a variant names no trait"
+            );
+            let on_field = message(TargetOptions::read(&attributes, Position::VariantField));
+            assert!(
+                on_field.starts_with(&format!("unknown option `{first}`")),
+                "a variant's field names no trait: {on_field}"
+            );
         }
     }
 

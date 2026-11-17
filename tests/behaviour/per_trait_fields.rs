@@ -403,3 +403,83 @@ mod partial_blocks {
         }
     }
 }
+
+/// A field names a trait as its home spells it, from `crate`, `self`,
+/// `super` or the root as well.
+mod rooted_paths {
+    pub mod traits {
+        #[whichever::dispatchable]
+        pub trait Named {
+            fn name(&self) -> &'static str;
+        }
+
+        #[whichever::dispatchable]
+        pub trait Catalog {
+            fn size(&self) -> usize;
+        }
+    }
+
+    pub struct Label;
+    pub struct Books(pub Vec<u8>);
+
+    impl traits::Named for Label {
+        fn name(&self) -> &'static str {
+            "label"
+        }
+    }
+
+    impl traits::Catalog for Books {
+        fn size(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    #[whichever::dispatch(crate::per_trait_fields::rooted_paths::traits::Named)]
+    #[whichever::dispatch(self::traits::Catalog)]
+    #[whichever::dispatch(::whichever::foreign::Display)]
+    pub struct Env {
+        #[dispatch(crate::per_trait_fields::rooted_paths::traits::Named)]
+        pub label: Label,
+        #[dispatch(self::traits::Catalog)]
+        pub books: Books,
+        #[dispatch(::whichever::foreign::Display)]
+        pub shown: u32,
+    }
+
+    #[test]
+    fn each_attributes_trait_reaches_the_field_spelling_it_alike() {
+        use traits::{Catalog, Named};
+        let env = Env {
+            label: Label,
+            books: Books(vec![1, 2, 3]),
+            shown: 42,
+        };
+        assert_eq!(env.name(), "label");
+        assert_eq!(env.size(), 3);
+        assert_eq!(env.to_string(), "42");
+    }
+
+    /// A block in a nested module spells the trait from `super`, and so
+    /// does the field it goes to.
+    pub mod deep {
+        #[whichever::dispatch]
+        pub struct Deep<C> {
+            #[dispatch(super::traits::Catalog)]
+            pub books: C,
+            pub other: u8,
+        }
+
+        #[whichever::dispatch]
+        impl<C: super::traits::Catalog> super::traits::Catalog for Deep<C> {}
+
+        #[test]
+        fn a_blocks_trait_reaches_the_field_spelling_it_from_super() {
+            use super::traits::Catalog;
+            let deep = Deep {
+                books: super::Books(vec![1, 2]),
+                other: 0,
+            };
+            assert_eq!(deep.size(), 2);
+        }
+    }
+}

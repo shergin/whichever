@@ -453,11 +453,11 @@ suite foreign-conversions
   never 56 non-canonical
 
 suite field-traits
-  pass 162
-  limit 138
+  pass 324
+  limit 240
   rejected 0
   malformed 0
-  never 672 non-canonical
+  never 408 non-canonical
 
 suite struct-fields
   pass 6
@@ -619,28 +619,28 @@ suite own-arms-refusals
   never 40 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite pinned
-  pass 124
-  limit 62
+  pass 127
+  limit 60
   rejected 8
   malformed 0
 
 suite array
-  pass 10039
+  pass 10136
   limit 0
   rejected 0
   malformed 0
-  rows 10039
-  covered 102778
-  unreached 97028
+  rows 10136
+  covered 103437
+  unreached 96369
 
 suite array-limits
   pass 0
-  limit 634
+  limit 646
   rejected 0
   malformed 0
-  rows 634
-  covered 12923
-  unreached 4634
+  rows 646
+  covered 13023
+  unreached 4534
 
 suite array-rejected
   pass 0
@@ -656,4 +656,3 @@ suite known
   limit 0
   rejected 0
   malformed 0
-  never 3 non-canonical

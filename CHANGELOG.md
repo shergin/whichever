@@ -105,7 +105,12 @@ changes are expected and listed without apology.
   it whichever home writes the impl; the record "A field's trait may be a
   partial block's" says why. A field names a trait as its home spells it,
   generic arguments included, `#[dispatch(Encoder<F>)]` for `impl<F, ..>
-  Encoder<F> for Env<..> {}`. The struct does not see its blocks, so a
+  Encoder<F> for Env<..> {}`, and from `crate`, `self`, `super` or the
+  root where the home's path begins there. Before, a field's option list
+  was read by its first identifier, so `#[dispatch(crate::traits::Catalog)]`
+  on a field was "expected identifier, found keyword `crate`", in 0.8.0
+  as well, and a home spelling its trait so had no field that could name
+  it. The struct does not see its blocks, so a
   field's mark that no home claims is no longer reported; the trait's
   first use says that the impl is missing. One name spelled two ways is
   reported instead, at either home: "`Catalog` on `catalog` and
@@ -124,8 +129,8 @@ changes are expected and listed without apology.
   `field_names_an_undispatched_trait` is gone with its sentence, and
   `struct_trait_spelt_two_ways`, `block_trait_spelt_two_ways_by_path`,
   `block_trait_spelt_two_ways_by_arguments`,
-  `block_method_naming_another_field`, `route_keyed_by_another_field` and
-  `via_after_a_trait` are new.
+  `block_method_naming_another_field`, `route_keyed_by_another_field`,
+  `via_after_a_trait` and `struct_trait_spelt_two_ways_from_self` are new.
 - Before, several sentences about a dispatch struct spoke of variants and
   the enum: a struct whose field is reached through a method, under a
   trait with an associated type, read "every variant of `Wrapped` is under

@@ -224,6 +224,10 @@ impl TargetDescriptor {
 /// it.
 pub const TRAIT_ON_FIELD: &str = "Probe";
 
+/// The trait under test as a struct's field names it by a path from
+/// `self`, as its home spells it too.
+pub const ROOTED_TRAIT_ON_FIELD: &str = "self::Probe";
+
 /// The module of the cell that re-exports the trait under test, so that a
 /// home can spell it with one more segment than the field.
 pub const SPELT_MODULE: &str = "spelt";
@@ -240,13 +244,14 @@ const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
 impl Target {
     /// Returns whether the struct's field names the trait under test as an
     /// impl names it while its home spells it with one more path segment,
-    /// `spelt::Probe` or `self::Probe`: one name spelled two ways.
+    /// `spelt::Probe`: one name spelled two ways.
     pub fn spells_trait_otherwise(self) -> bool {
-        self.home_prefix().is_some()
+        self == Target::StructTraitSpelt
     }
 
     /// Returns the segment the home spells the trait under test with in
-    /// front of its name, where it spells it otherwise than the field.
+    /// front of its name: a module of the cell, where the field spells it
+    /// otherwise, or `self`, as the field spells it too.
     pub fn home_prefix(self) -> Option<&'static str> {
         match self {
             Target::StructTraitSpelt => Some(SPELT_MODULE),
@@ -386,11 +391,18 @@ impl Target {
                 option: Some(TRAIT_ON_FIELD),
                 refused: false,
             },
-            Target::StructTraitSpelt | Target::StructTraitSelf => TargetDescriptor {
+            Target::StructTraitSpelt => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::StructMarked,
                 route: &[],
                 option: Some(TRAIT_ON_FIELD),
+                refused: false,
+            },
+            Target::StructTraitSelf => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(ROOTED_TRAIT_ON_FIELD),
                 refused: false,
             },
         }

@@ -97,8 +97,9 @@ axis! {
         /// spelled two ways, the home's sentence
         /// (a-fields-trait-may-be-a-partial-blocks.md).
         StructTraitSpelt = "struct-trait-spelt",
-        /// The same with the home spelling `self::Probe`, a path that
-        /// begins with a keyword.
+        /// The same struct whose field names the trait by a path that
+        /// begins with a keyword, `#[dispatch(self::Probe)]`, as its home
+        /// spells it too: one spelling, so the trait goes to `held`.
         StructTraitSelf = "struct-trait-self",
     }
 }

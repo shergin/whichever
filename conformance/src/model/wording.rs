@@ -503,9 +503,14 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 .live_slots()
                 .iter()
                 .any(|(_, _, target)| target.borrows());
+            // The trait as the subject's attribute spells it.
+            let probe = match cell.s0.home_prefix() {
+                Some(prefix) => format!("{prefix}::Probe"),
+                None => String::from("Probe"),
+            };
             push(Some(match borrows {
-                true => String::from("impl<'a> Probe for E<'a>` block"),
-                false => String::from("impl Probe for E` block"),
+                true => format!("impl<'a> {probe} for E<'a>` block"),
+                false => format!("impl {probe} for E` block"),
             }));
         }
     }

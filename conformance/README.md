@@ -166,9 +166,9 @@ the field for the attribute and on the header for a block. It stands
 alone at both homes: the impl is written for the field that was meant, so
 the probe through the trait resolves, where an impl for the bare `u64`
 would be rustc's E0277 and a withheld one the probe's error. Under
-`struct-trait-self` the home spells it `self::Probe`, the same sentence,
-whose recovery is a line of `known.tsv`: the field's option does not read
-a path that begins with a keyword. Every other trait would go to the
+`struct-trait-self` the field and the home both spell the trait
+`self::Probe`, a path that begins with a keyword, one spelling, which
+passes as `struct-trait` does. Every other trait would go to the
 bare field, so a second trait, the inherent paths, whose `*` is the bare
 field, generics, whose arguments the field would repeat, and the
 conversions stay the plain struct's. A route keyed by another field, and a

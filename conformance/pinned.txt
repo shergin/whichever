@@ -464,3 +464,8 @@ qual=generic-named generic=payload
 qual=generic-named
 arg=ref-trait qual=generic-named generic=payload
 s0=deref-box qual=generic-named path=block home=crate
+
+# A struct's field could not name a trait by a path beginning with
+# `crate`, `self`, `super` or `::`, so it could not follow its home's
+# spelling, nor could the recovery for one name spelled two ways.
+s0=struct-trait-self s1=none path=block home=crate

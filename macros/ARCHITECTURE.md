@@ -647,7 +647,11 @@ and list the trait's options, the ones a block takes. `TargetOptions::read` read
 a variant's or a field's attributes at a `Position`: on a variant a route
 and the variant's say on the conversions, on a variant's field a route
 alone, `deref` or `via`, and on a struct's field a route and the traits the
-field is the target of. A method's mark is a `ForwardingOptions` in an
+field is the target of. An option is read by its first identifier, so a
+path that begins with `::`, `crate`, `self` or `super` is read as a whole
+before it: on a struct's field it is a trait, as its home may spell it,
+and on a variant or a variant's field it gets the unknown-option sentence
+any other trait name gets there, naming its first segment. A method's mark is a `ForwardingOptions` in an
 inherent block and a `TraitMark` in a partial block: `default`, or the
 variants and `via`, with the inherent options `call`, `with`, `field` and
 `value` refused; both are read in the subject's `Words`, since the carrier
