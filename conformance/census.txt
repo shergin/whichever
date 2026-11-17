@@ -75,7 +75,7 @@ suite paths
   limit 1481
   rejected 0
   malformed 7
-  never 3065 non-canonical
+  never 4217 non-canonical
   never 288 unmodelled: a block body for a future return
   never 72 unmodelled: a block body for a return type that needs a payload to make
   never 84 unmodelled: a default answering `Self` left to the default, whose twin is no enum
@@ -89,7 +89,7 @@ suite path-arguments
   limit 769
   rejected 0
   malformed 0
-  never 855 non-canonical
+  never 1287 non-canonical
   never 120 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 60 unmodelled: an inherent body for a return type that needs a payload to make
   never 120 unmodelled: arms of the method's own over an enum of one variant
@@ -273,7 +273,7 @@ suite homes
   limit 152
   rejected 0
   malformed 0
-  never 1044 non-canonical
+  never 1404 non-canonical
   never 72 unmodelled: a block body for a future return
   never 36 unmodelled: a block body for a return type that needs a payload to make
   never 156 unmodelled: a default body that would need a payload to make its answer
@@ -316,7 +316,7 @@ suite items
   limit 620
   rejected 0
   malformed 0
-  never 963 non-canonical
+  never 1341 non-canonical
   never 126 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 54 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
@@ -341,7 +341,7 @@ suite agreement-paths
   limit 296
   rejected 0
   malformed 0
-  never 1110 non-canonical
+  never 1488 non-canonical
   never 90 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 324 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
@@ -350,7 +350,7 @@ suite stacks
   limit 248
   rejected 48
   malformed 0
-  never 336 non-canonical
+  never 480 non-canonical
   never 42 unmodelled: a limit beside a rejection the limit does not replace
   never 12 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 48 unmodelled: an inherent method through a route whose method yields its target
@@ -367,7 +367,7 @@ suite deprecations
   limit 47
   rejected 0
   malformed 0
-  never 984 non-canonical
+  never 1176 non-canonical
   never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 98 unmodelled: a mismatch or a body of the user's naming the deprecated variant
   never 16 unmodelled: an arm of the user's naming the deprecated variant
@@ -406,7 +406,7 @@ suite route-paths
   limit 143
   rejected 51
   malformed 0
-  never 168 non-canonical
+  never 264 non-canonical
   never 18 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
 suite trait-shapes
@@ -459,6 +459,13 @@ suite field-traits
   malformed 0
   never 360 non-canonical
 
+suite struct-fields
+  pass 6
+  limit 2
+  rejected 0
+  malformed 0
+  never 4 non-canonical
+
 suite foreign-iterators
   pass 28
   limit 6
@@ -497,7 +504,7 @@ suite third-paths
   limit 405
   rejected 0
   malformed 0
-  never 312 non-canonical
+  never 472 non-canonical
 
 suite third-items
   pass 169
@@ -595,36 +602,36 @@ suite own-arms-refusals
 
 suite pinned
   pass 117
-  limit 52
+  limit 54
   rejected 8
   malformed 0
 
 suite array
-  pass 9709
+  pass 9692
   limit 0
   rejected 0
   malformed 0
-  rows 9709
-  covered 101957
-  unreached 74516
+  rows 9692
+  covered 101983
+  unreached 83828
 
 suite array-limits
   pass 0
-  limit 577
+  limit 581
   rejected 0
   malformed 0
-  rows 577
-  covered 12383
-  unreached 3414
+  rows 581
+  covered 12404
+  unreached 3737
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 978
+  rejected 992
   malformed 0
-  rows 978
-  covered 11914
-  unreached 3883
+  rows 992
+  covered 11975
+  unreached 4166
 
 suite known
   pass 0

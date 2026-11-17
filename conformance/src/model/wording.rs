@@ -219,7 +219,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::ArmsMatchedByPlace
         | Limit::FieldTraitSpelt
         | Limit::BlockTraitSpelt
-        | Limit::FieldElsewhere => String::new(),
+        | Limit::FieldElsewhere
+        | Limit::TwoFieldsNamed => String::new(),
     }
 }
 
@@ -380,6 +381,10 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         ))),
         Limit::BlockTraitSpelt => push(Some(format!(
             "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` here"
+        ))),
+        // The method and the two fields it names, in the mark's order.
+        Limit::TwoFieldsNamed => push(Some(format!(
+            "{method} names two fields, `held` and `label`"
         ))),
         // The field the method names, and the one the trait goes to.
         Limit::FieldElsewhere => push(Some(String::from(

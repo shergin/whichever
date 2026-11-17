@@ -493,9 +493,11 @@
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait. A block on a
 //! dispatch struct forwards the same way: `*` is the field marked bare, or
-//! the only field, and a field's name is that field, marked or not; there a
-//! `Self` argument is the other value's field, as in trait dispatch, and a
-//! return-position `impl Trait` is forwarded as it is.
+//! the only field, and a field's name is that field, marked or not. A
+//! method names one field, since every value holds them all; naming two is
+//! reported. There a `Self` argument is the other value's field, as in
+//! trait dispatch, and a return-position `impl Trait` is forwarded as it
+//! is.
 //!
 //! # Traits from `std` and other crates
 //!

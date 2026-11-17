@@ -130,6 +130,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
+    if let Some(verdict) = two_fields(cell) {
+        return verdict;
+    }
     if let Some(verdict) = field_trait(cell) {
         return verdict;
     }
@@ -398,6 +401,32 @@ fn unread(cell: &Cell) -> Option<Verdict> {
         false => (Limit::MacroInBlock, Anchor::BlockInvocation),
     };
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
+}
+
+/// A method that names two fields of a struct, or `None` where the path
+/// names none. "An inherent method of a dispatch struct names one field
+/// [..]: every value holds every field, so a second one named would be an
+/// arm no value reaches, and is reported" (limits.md). The fields are
+/// selected for a partial block's method as for an inherent one, so the
+/// block's is the same sentence. The struct is one whose held field is
+/// marked beside a label, which the mark names second.
+fn two_fields(cell: &Cell) -> Option<Verdict> {
+    if cell.path_descriptor().mark != Some(super::path::TWO_FIELDS) {
+        return None;
+    }
+    let neutral = Cell {
+        s0: Target::StructMarked,
+        s1: Second::Absent,
+        path: cell.path,
+        ..Cell::neutral()
+    };
+    if *cell != neutral {
+        return Some(Verdict::NonCanonical);
+    }
+    Some(Verdict::Limit(vec![Expected {
+        limit: Limit::TwoFieldsNamed,
+        anchor: Anchor::BlockMethod,
+    }]))
 }
 
 /// The shapes of a struct whose field names the trait under test beside a

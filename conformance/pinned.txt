@@ -426,3 +426,8 @@ s0=struct-trait s1=none
 s0=struct-trait-spelt s1=none
 s0=struct-trait-spelt s1=none path=block
 s0=struct-trait s1=none path=block-some
+
+# A struct's inherent method naming two fields compiled to two arms, the
+# second one no value reaches; it is the method's sentence.
+s0=struct-marked s1=none path=inherent-fields
+s0=struct-marked s1=none path=block-fields

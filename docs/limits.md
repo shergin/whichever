@@ -59,6 +59,10 @@
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- An inherent method of a dispatch struct names one field,
+  `#[dispatch(square)]`: every value holds every field, so a second one
+  named would be an arm no value reaches, and is reported. Write a method
+  that needs two fields by hand.
 - Under `with = Some` or `with = Ok` on an inherent method, the payload's
   result is rebuilt into the variant and lifted once: a declared return
   that wraps `Self` twice, `Option<Option<Self>>`, is reported. Drop the

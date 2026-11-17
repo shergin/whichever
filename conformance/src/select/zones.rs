@@ -629,6 +629,15 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("s1", "none")],
     },
     Zone {
+        name: "struct-fields",
+        summary: "a struct's method naming two of its fields, on an inherent block and a partial block, beside the plain struct's paths",
+        vary: &[
+            ("path", &["inherent", "block-star", "inherent-fields", "block-fields"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
+        ],
+        fixed: &[("s1", "none")],
+    },
+    Zone {
         name: "foreign-iterators",
         summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
         vary: &[

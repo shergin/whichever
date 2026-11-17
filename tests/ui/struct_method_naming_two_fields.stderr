@@ -1,0 +1,5 @@
+error: `side` names two fields, `square` and `circle`, and a struct forwards a method to one, since every value holds them all; name one, and write a method that needs both by hand
+  --> tests/ui/struct_method_naming_two_fields.rs:26:24
+   |
+26 |     #[dispatch(square, circle)]
+   |                        ^^^^^^

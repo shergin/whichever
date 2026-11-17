@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, an inherent method of a dispatch struct that named two fields,
+  `#[dispatch(square, circle)] pub fn side(&self) -> u32;`, compiled into a
+  `match` with two arms of which the second is never reached, so the
+  method was silently forwarded to the first field alone. It is now one
+  sentence: "`side` names two fields, `square` and `circle`, and a struct
+  forwards a method to one, since every value holds them all; name one,
+  and write a method that needs both by hand". The `tests/ui` case
+  `struct_method_naming_two_fields` is new.
 - Before, a struct's field could name only a trait the struct's own
   attribute dispatches, so a trait whose impl needs a header the attribute
   cannot write had no way to a field other than the bare one: the field's

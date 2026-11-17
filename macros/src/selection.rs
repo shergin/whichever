@@ -201,6 +201,17 @@ pub(crate) fn select_targets<'a>(
         Some(own) => own.leaves(variant),
         None => Builds::Every,
     };
+    // A struct holds every field in every value, so its `match` has one
+    // arm: a second field named beside the first would be an arm no value
+    // reaches.
+    if subject.has_one_target() {
+        if let [first, second, ..] = forwarding.variants.as_slice() {
+            return Err(Error::new(
+                second.span(),
+                format!("`{method}` names two fields, `{first}` and `{second}`, and a struct forwards a method to one, since every value holds them all; name one, and write a method that needs both by hand"),
+            ));
+        }
+    }
     let site = Site::at(method.span());
     let mut unforwardable_arms = vec![];
     let selected: Vec<Target> = if forwarding.all {
@@ -876,6 +887,28 @@ mod tests {
                 wrapper.words()
             )),
             "`encode` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"
+        );
+    }
+
+    #[test]
+    fn a_structs_method_names_one_field() {
+        let holder: Subject = parse_quote!(
+            struct Holder {
+                square: Square,
+                circle: Circle,
+            }
+        );
+        assert_eq!(
+            message(select(holder.clone(), quote!(square, circle), None)),
+            "`encode` names two fields, `square` and `circle`, and a struct forwards a method to one, since every value holds them all; name one, and write a method that needs both by hand"
+        );
+        let one = select(holder, quote!(circle), None).unwrap();
+        assert_eq!(target_names(&one), ["circle"]);
+        let two = select(codecs(), quote!(Avc1, Hev1), Some(parse_quote!({ 0 }))).unwrap();
+        assert_eq!(
+            target_names(&two),
+            ["Avc1", "Hev1"],
+            "an enum's method names as many variants as it forwards to"
         );
     }
 

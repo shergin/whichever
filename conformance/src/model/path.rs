@@ -54,6 +54,10 @@ pub struct PathDescriptor {
     pub invocation_cfg: Option<&'static str>,
 }
 
+/// The mark of a method that names two fields of a struct, the held field
+/// first and the label second.
+pub const TWO_FIELDS: &str = "held, label";
+
 impl PathDescriptor {
     /// Returns whether the block holds a macro invocation in this build,
     /// which it is then not read for.
@@ -84,6 +88,8 @@ impl Path {
             Path::InherentSome => with(Site::Inherent, Form::First, Some("A"), true),
             Path::BlockArms => with(Site::Block, Form::Arms, Some("*"), true),
             Path::InherentArms => with(Site::Inherent, Form::Arms, Some("*"), true),
+            Path::InherentFields => with(Site::Inherent, Form::Forwarded, Some(TWO_FIELDS), true),
+            Path::BlockFields => with(Site::Block, Form::Forwarded, Some(TWO_FIELDS), true),
             Path::BlockMacro => PathDescriptor {
                 invocation: true,
                 ..with(Site::Block, Form::Forwarded, None, false)

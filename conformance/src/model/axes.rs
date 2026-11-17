@@ -315,6 +315,12 @@ axis! {
         /// An inherent `#[dispatch(*)] pub fn m(..) { match self { .. } }`
         /// (inherent-methods.md).
         InherentArms = "inherent-arms",
+        /// A bodiless inherent `#[dispatch(held, label)] pub fn m(..);` on a
+        /// struct, naming two of its fields, which a struct forwards a
+        /// method to one of (limits.md).
+        InherentFields = "inherent-fields",
+        /// The same mark on the method in a partial block (limits.md).
+        BlockFields = "block-fields",
     }
 }
 

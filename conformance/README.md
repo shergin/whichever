@@ -139,8 +139,16 @@ declare, and a body beside a method forwarded to the struct's field. A
 struct's sentences the model does not reach stay with `tests/ui`: a trait
 method without a receiver, which the `recv` axis does not write; a field
 reached through a route, which no struct value takes, so none leaves an
-associated type to supply; and a method of a block that names the
-struct's field, which no path writes.
+associated type to supply; and a method that names the field it forwards
+to, which the paths write only to name another field or two of them,
+below.
+
+Two values of `path`, `inherent-fields` and `block-fields`, mark the
+method on an inherent block or in a partial block `#[dispatch(held,
+label)]`, over the struct whose `held` is marked beside a label: a struct
+holds every field in every value, so it forwards a method to one, and the
+second field named is the method's sentence, on the mark. They are limit
+cells of that struct alone.
 
 Two more values of `s0` make the subject a struct whose field names the
 trait, `E { #[dispatch] label: u64, #[dispatch(Probe)] held: P0 }`, as

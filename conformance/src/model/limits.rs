@@ -105,6 +105,8 @@ pub enum Limit {
     /// A partial block's method naming a field of the struct other than
     /// the one its trait is forwarded to.
     FieldElsewhere,
+    /// A struct's method naming two of its fields.
+    TwoFieldsNamed,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -193,6 +195,7 @@ impl Limit {
         Limit::FieldTraitSpelt,
         Limit::BlockTraitSpelt,
         Limit::FieldElsewhere,
+        Limit::TwoFieldsNamed,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -420,6 +423,11 @@ impl Limit {
                     "block_trait_spelt_two_ways_by_path",
                 )
             },
+            Limit::TwoFieldsNamed => entry(
+                "two-fields-named",
+                "and a struct forwards a method to one, since every value holds them all",
+                "struct_method_naming_two_fields",
+            ),
             Limit::FieldElsewhere => entry(
                 "field-elsewhere",
                 "but this trait is forwarded to",
@@ -492,6 +500,7 @@ impl Limit {
             Limit::FieldTraitSpelt => ("a field names a trait as the struct's attribute spells it", false),
             Limit::BlockTraitSpelt => ("a field names a trait as the block's header spells it", false),
             Limit::FieldElsewhere => ("`#[dispatch(Trait)]`, to forward it there", false),
+            Limit::TwoFieldsNamed => ("name one, and write a method that needs both by hand", false),
         };
         Entry {
             way_out,
@@ -525,6 +534,7 @@ impl Limit {
             | Limit::BlockTraitSpelt => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
+            | Limit::TwoFieldsNamed
             | Limit::ArmsBesideSelfArgument
             | Limit::ArmsMatchedByPlace
             | Limit::MutableBorrowThroughSharedPointer
@@ -563,7 +573,8 @@ impl Limit {
             | Limit::ArmNamingNoVariant
             | Limit::ArmsBesideSelfArgument
             | Limit::ArmsMatchedByPlace
-            | Limit::FieldElsewhere => true,
+            | Limit::FieldElsewhere
+            | Limit::TwoFieldsNamed => true,
             // The variants a mark of `*` names are forwarded, each arm
             // carrying a sentence of its own, beside the one on the mark.
             Limit::StarOverUnforwardable
