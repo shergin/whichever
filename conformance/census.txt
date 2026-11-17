@@ -28,16 +28,16 @@ suite arguments
   never 128 unmodelled: a reference return that borrows from the `Self` argument
 
 suite boxed
-  pass 648
-  limit 1148
+  pass 714
+  limit 1272
   rejected 0
   malformed 0
-  never 222 non-canonical
+  never 455 non-canonical
   never 97 unmodelled: a default body that would need a payload to make its answer
   never 54 unmodelled: a mismatch expression for a return type that needs a payload to make
   never 162 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 90 unmodelled: a reference return that borrows from the `Self` argument
-  never 108 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 117 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 63 unmodelled: an `async fn` that returns a future
 
 suite boxed-futures
@@ -50,13 +50,13 @@ suite boxed-futures
   never 36 unmodelled: a mismatch option on a struct, which has no second variant
 
 suite qualifiers
-  pass 1125
-  limit 1603
+  pass 1333
+  limit 1891
   rejected 0
   malformed 8
-  never 328 non-canonical
+  never 384 non-canonical
   never 152 unmodelled: a default body that would need a payload to make its answer
-  never 144 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 168 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 96 unmodelled: an `async fn` that returns a future
 
 suite value-method-route
@@ -71,11 +71,11 @@ suite value-method-route
   never 24 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite paths
-  pass 1345
-  limit 1481
+  pass 1347
+  limit 1485
   rejected 0
   malformed 7
-  never 3065 non-canonical
+  never 5363 non-canonical
   never 288 unmodelled: a block body for a future return
   never 72 unmodelled: a block body for a return type that needs a payload to make
   never 84 unmodelled: a default answering `Self` left to the default, whose twin is no enum
@@ -85,11 +85,11 @@ suite paths
   never 330 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite path-arguments
-  pass 884
-  limit 769
+  pass 886
+  limit 773
   rejected 0
   malformed 0
-  never 855 non-canonical
+  never 1713 non-canonical
   never 120 unmodelled: a mismatch on the trait answering `Self`, which the trait names no variant of
   never 60 unmodelled: an inherent body for a return type that needs a payload to make
   never 120 unmodelled: arms of the method's own over an enum of one variant
@@ -99,7 +99,7 @@ suite inherent
   limit 2638
   rejected 66
   malformed 0
-  never 2400 non-canonical
+  never 3264 non-canonical
   never 43 unmodelled: a limit beside a rejection the limit does not replace
   never 168 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 153 unmodelled: an `async fn` that returns a future
@@ -183,13 +183,13 @@ suite inherent-shared
   never 24 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
 
 suite structs
-  pass 1486
-  limit 2478
+  pass 1760
+  limit 2928
   rejected 0
   malformed 0
-  never 624 non-canonical
+  never 728 non-canonical
   never 236 unmodelled: a default body that would need a payload to make its answer
-  never 216 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
+  never 252 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
   never 144 unmodelled: an `async fn` that returns a future
 
 suite struct-arguments
@@ -228,11 +228,11 @@ suite field-options
   malformed 0
 
 suite block-invocations
-  pass 10
-  limit 32
+  pass 20
+  limit 50
   rejected 0
   malformed 0
-  never 12 non-canonical
+  never 20 non-canonical
 
 suite cfg
   pass 1446
@@ -273,7 +273,7 @@ suite homes
   limit 152
   rejected 0
   malformed 0
-  never 1044 non-canonical
+  never 1764 non-canonical
   never 72 unmodelled: a block body for a future return
   never 36 unmodelled: a block body for a return type that needs a payload to make
   never 156 unmodelled: a default body that would need a payload to make its answer
@@ -297,11 +297,11 @@ suite generics
 
 suite conversions
   pass 264
-  limit 150
+  limit 168
   rejected 0
   malformed 0
-  never 90 non-canonical
-  never 44 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 316 non-canonical
+  never 88 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 96 unmodelled: a variant's conversion option beside a variant option of its own
   never 4 unmodelled: a variant's conversion option on a struct, which has no variant
 
@@ -312,11 +312,11 @@ suite parameter-conversions
   malformed 0
 
 suite items
-  pass 694
-  limit 620
+  pass 695
+  limit 625
   rejected 0
   malformed 0
-  never 963 non-canonical
+  never 1713 non-canonical
   never 126 unmodelled: `#[inline]` on a required method, which rustc warns of in the trait
   never 54 unmodelled: an inherent method under a receiver that would need a refcount or an allocation
 
@@ -337,11 +337,11 @@ suite returned-types
   never 12 unmodelled: a returned associated type whose first arm is not the supplier's, a bare E0308
 
 suite agreement-paths
-  pass 637
-  limit 296
+  pass 638
+  limit 297
   rejected 0
   malformed 0
-  never 1110 non-canonical
+  never 1864 non-canonical
   never 90 unmodelled: a type-parameter payload through a partial block, whose header is the user's
   never 324 unmodelled: an associated type beside generics, which the model spells for the plain trait
 
@@ -350,7 +350,7 @@ suite stacks
   limit 248
   rejected 48
   malformed 0
-  never 336 non-canonical
+  never 624 non-canonical
   never 42 unmodelled: a limit beside a rejection the limit does not replace
   never 12 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 48 unmodelled: an inherent method through a route whose method yields its target
@@ -367,7 +367,7 @@ suite deprecations
   limit 47
   rejected 0
   malformed 0
-  never 984 non-canonical
+  never 1368 non-canonical
   never 6 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 98 unmodelled: a mismatch or a body of the user's naming the deprecated variant
   never 16 unmodelled: an arm of the user's naming the deprecated variant
@@ -402,11 +402,11 @@ suite route-pairs
   never 9 unmodelled: a limit beside a rejection the limit does not replace
 
 suite route-paths
-  pass 244
-  limit 143
+  pass 248
+  limit 147
   rejected 51
   malformed 0
-  never 168 non-canonical
+  never 352 non-canonical
   never 18 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
 
 suite trait-shapes
@@ -447,10 +447,48 @@ suite foreign
 
 suite foreign-conversions
   pass 54
-  limit 36
+  limit 46
   rejected 0
   malformed 0
-  never 18 non-canonical
+  never 56 non-canonical
+
+suite field-traits
+  pass 324
+  limit 240
+  rejected 0
+  malformed 0
+  never 408 non-canonical
+
+suite struct-fields
+  pass 6
+  limit 2
+  rejected 0
+  malformed 0
+  never 4 non-canonical
+
+suite repeated-conversions
+  pass 8
+  limit 13
+  rejected 0
+  malformed 0
+  never 12 non-canonical
+  never 5 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 10 unmodelled: conversion options beside a second attribute
+
+suite renamed-generics
+  pass 360
+  limit 0
+  rejected 0
+  malformed 0
+  never 96 non-canonical
+  never 120 unmodelled: a type-parameter payload through a partial block, whose header is the user's
+
+suite foreign-iterators
+  pass 28
+  limit 6
+  rejected 0
+  malformed 0
+  never 16 non-canonical
 
 suite restated-enums
   pass 77
@@ -479,11 +517,11 @@ suite thirds
   never 128 non-canonical
 
 suite third-paths
-  pass 323
-  limit 405
+  pass 326
+  limit 418
   rejected 0
   malformed 0
-  never 312 non-canonical
+  never 616 non-canonical
 
 suite third-items
   pass 169
@@ -493,10 +531,11 @@ suite third-items
 
 suite third-conversions
   pass 98
-  limit 102
+  limit 110
   rejected 0
   malformed 0
-  never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 72 non-canonical
+  never 32 unmodelled: `into` over a variant that stores more than its payload, or several fields
 
 suite trait-objects
   pass 180
@@ -580,37 +619,37 @@ suite own-arms-refusals
   never 40 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite pinned
-  pass 110
-  limit 45
+  pass 127
+  limit 60
   rejected 8
   malformed 0
 
 suite array
-  pass 9584
+  pass 10136
   limit 0
   rejected 0
   malformed 0
-  rows 9584
-  covered 101292
-  unreached 68130
+  rows 10136
+  covered 103437
+  unreached 96369
 
 suite array-limits
   pass 0
-  limit 565
+  limit 646
   rejected 0
   malformed 0
-  rows 565
-  covered 12239
-  unreached 3069
+  rows 646
+  covered 13023
+  unreached 4534
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 985
+  rejected 996
   malformed 0
-  rows 985
-  covered 11906
-  unreached 3402
+  rows 996
+  covered 12173
+  unreached 5384
 
 suite known
   pass 0

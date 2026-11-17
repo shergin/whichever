@@ -18,6 +18,7 @@
 
 use super::agreement::ItemKind;
 use super::argument::{ArgumentKind, MismatchSite};
+use super::declaration::Foreign;
 use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
@@ -26,7 +27,7 @@ use super::returns::{Associated, FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Arms, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home,
-    Item, Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Item, Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
@@ -88,6 +89,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
     }
+    // An option on the second trait's attribute needs that attribute.
+    let other_option = cell.conv.descriptor().other_option.is_some();
+    if other_option && cell.stack != Stack::Second {
+        return Verdict::NonCanonical;
+    }
     // A struct subject has its one field and no second variant.
     let is_struct = cell.s0.descriptor().is_struct();
     let later = cell.s1 != Second::Absent || cell.s2 != Third::Absent;
@@ -129,6 +135,29 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
+    // A method parameter named as the impl names something around the
+    // method is renamed in the impl the attribute writes; "a method the
+    // block writes or marks keeps the names written on it", and an
+    // inherent method is no trait's (what-is-generated.md). The names it
+    // meets are the subject's parameter and a payload's type, beside a
+    // trait-side `mismatch` that names it.
+    if cell.qual == Qualifier::GenericNamed {
+        let met = matches!(cell.path, Path::Attribute | Path::Block)
+            && matches!(cell.generic, Generics::Bare | Generics::Payload)
+            && matches!(cell.decl, Declaration::Dispatchable | Declaration::Unsafe)
+            && cell.owner == Owner::Local
+            && matches!(cell.arg, Argument::Absent | Argument::SharedOnTrait)
+            && (cell.arg == Argument::Absent || cell.ret == Return::Tag);
+        if !met {
+            return Verdict::NonCanonical;
+        }
+    }
+    if let Some(verdict) = two_fields(cell) {
+        return verdict;
+    }
+    if let Some(verdict) = field_trait(cell) {
+        return verdict;
+    }
     if let Some(verdict) = unread(cell) {
         return verdict;
     }
@@ -150,7 +179,7 @@ pub fn verdict(cell: &Cell) -> Verdict {
     let mut expected = limits(cell);
     let mut rejections = rejections(cell);
     // `whichever::foreign::Display` has no control method.
-    if cell.decl.descriptor().foreign {
+    if cell.decl.descriptor().foreign.is_some() {
         rejections.retain(|rejection| rejection.method == Forwarded::Method);
     }
     // A method the trait declares under a `#[cfg]` that does not hold has
@@ -247,7 +276,7 @@ fn own_arms(cell: &Cell) -> Option<Verdict> {
     }
     // `whichever::foreign::Display`'s `fmt` is written by the model as
     // the trait's attribute or a block names it, with no arms of its own.
-    if cell.decl.descriptor().foreign {
+    if cell.decl.descriptor().foreign.is_some() {
         return Some(Verdict::NonCanonical);
     }
     // In a build that leaves no variant, no arm reads the arguments the
@@ -293,7 +322,7 @@ fn object_canonical(cell: &Cell) -> bool {
         && cell.stack == Stack::Absent
         && cell.conv == Conversion::Unchecked;
     let place = cell.path_descriptor().site != PathSite::Inherent
-        && cell.decl != Declaration::Foreign
+        && cell.decl.descriptor().foreign.is_none()
         && cell.owner == Owner::Local;
     signature && trait_alone && place
 }
@@ -358,12 +387,15 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
 /// where it does not, the invocation is not in the block, the block is read
 /// without it, and the method the macro would have written is forwarded as
 /// usual" (limits.md): the cell is then judged as the block without it,
-/// `block`, whose hand is the hand's block in that build.
+/// `block`, whose hand is the hand's block in that build. So is a method of
+/// the block without a body and without a mark, the simplest of the items
+/// a block cannot read: "an item of a partial impl block that cannot be
+/// read [..] is reported under its own `#[cfg]`" (limits.md, #22).
 fn unread(cell: &Cell) -> Option<Verdict> {
     let refused = cell.s0.descriptor().refused;
     let path = cell.path.descriptor();
-    let invocation = path.reads_invocation();
-    let left_out = path.invocation && !invocation;
+    let invocation = path.reads_unread();
+    let left_out = path.holds_unread() && !invocation;
     if left_out {
         let neutral = Cell {
             s0: cell.s0,
@@ -389,11 +421,106 @@ fn unread(cell: &Cell) -> Option<Verdict> {
     if *cell != neutral || (refused && invocation) || path_departs {
         return Some(Verdict::NonCanonical);
     }
-    let (limit, anchor) = match refused {
-        true => (Limit::VariantFieldOption, Anchor::Variant(0)),
-        false => (Limit::MacroInBlock, Anchor::BlockInvocation),
+    let (limit, anchor) = match (refused, path.bodiless) {
+        (true, _) => (Limit::VariantFieldOption, Anchor::Variant(0)),
+        (false, false) => (Limit::MacroInBlock, Anchor::BlockInvocation),
+        (false, true) => (Limit::BodilessInBlock, Anchor::BlockMethod),
     };
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
+}
+
+/// A method that names two fields of a struct, or `None` where the path
+/// names none. "An inherent method of a dispatch struct names one field
+/// [..]: every value holds every field, so a second one named would be an
+/// arm no value reaches, and is reported" (limits.md). The fields are
+/// selected for a partial block's method as for an inherent one, so the
+/// block's is the same sentence. The struct is one whose held field is
+/// marked beside a label, which the mark names second.
+fn two_fields(cell: &Cell) -> Option<Verdict> {
+    if cell.path_descriptor().mark != Some(super::path::TWO_FIELDS) {
+        return None;
+    }
+    let neutral = Cell {
+        s0: Target::StructMarked,
+        s1: Second::Absent,
+        path: cell.path,
+        ..Cell::neutral()
+    };
+    if *cell != neutral {
+        return Some(Verdict::NonCanonical);
+    }
+    Some(Verdict::Limit(vec![Expected {
+        limit: Limit::TwoFieldsNamed,
+        anchor: Anchor::BlockMethod,
+    }]))
+}
+
+/// The shapes of a struct whose field names the trait under test beside a
+/// bare label, or `None` where the field names none. "A field names the
+/// traits it is the target of, whichever home implements them. A trait
+/// the struct's attributes do not name is a partial block's", and the
+/// field names it "as its home spells it"; "a trait whose home finds no
+/// field of its spelling, beside a field that names it with more or fewer
+/// path segments [..] is one sentence", at the home; and "a method of a
+/// partial block that names another field than the trait's is told where
+/// the trait goes" (a-fields-trait-may-be-a-partial-blocks.md).
+///
+/// The label is a `u64`, which implements nothing, so a trait sent to it
+/// is rustc's error, and every other trait would go to it: the second
+/// trait, the inherent paths, whose `*` is the bare field, and generics,
+/// whose arguments a field would have to repeat, stay the plain struct's.
+/// Where the home spells the trait otherwise, the sentence stands alone at
+/// either home: the home hands the struct on with the field naming the
+/// trait as the home spells it, so the impl is written for the field that
+/// was meant, and the probe through the trait resolves; were it written
+/// for the bare `u64`, that would be rustc's E0277, and were it withheld,
+/// the probe's error.
+fn field_trait(cell: &Cell) -> Option<Verdict> {
+    let target = cell.s0.descriptor();
+    target.trait_on_field()?;
+    let path = cell.path_descriptor();
+    let alone = path.site != PathSite::Inherent
+        && !path.holds_unread()
+        && cell.stack == Stack::Absent
+        && cell.generic == Generics::Bare
+        && cell.owner == Owner::Local
+        && matches!(cell.decl, Declaration::Dispatchable | Declaration::Unsafe)
+        && cell.conv == Conversion::Unchecked;
+    if !alone {
+        return Some(Verdict::NonCanonical);
+    }
+    let named = cell.s0.spells_trait_otherwise() || path.form == PathForm::First;
+    if !named {
+        return None;
+    }
+    // A sentence stands alone: the method's own axes stay neutral.
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: cell.s1,
+        path: cell.path,
+        home: cell.home,
+        decl: cell.decl,
+        ..Cell::neutral()
+    };
+    if *cell != neutral {
+        return Some(Verdict::NonCanonical);
+    }
+    let expected = match (cell.s0.spells_trait_otherwise(), path.site) {
+        (true, PathSite::Attribute) => Expected {
+            limit: Limit::FieldTraitSpelt,
+            anchor: Anchor::Variant(0),
+        },
+        (true, PathSite::Block) if cell.path == Path::Block => Expected {
+            limit: Limit::BlockTraitSpelt,
+            anchor: Anchor::BlockHeader,
+        },
+        (true, _) => return Some(Verdict::NonCanonical),
+        (false, _) => Expected {
+            limit: Limit::FieldElsewhere,
+            anchor: Anchor::BlockMethod,
+        },
+    };
+    Some(Verdict::Limit(vec![expected]))
 }
 
 /// The shapes a restated enum takes (restatements.md, "Enums from other
@@ -421,7 +548,7 @@ fn owned(cell: &Cell) -> Option<Verdict> {
             "a restated enum over a variant other than a payload, a boxed payload or a unit",
         ));
     }
-    if cell.home == Home::Crate || cell.decl == Declaration::Foreign {
+    if cell.home == Home::Crate || cell.decl.descriptor().foreign.is_some() {
         return Some(Verdict::Unmodelled(
             "a restated enum beside a trait of another crate, an impl the orphan rules refuse",
         ));
@@ -477,12 +604,44 @@ fn owned(cell: &Cell) -> Option<Verdict> {
 fn declared(cell: &Cell) -> Option<Verdict> {
     let declaration = cell.decl.descriptor();
     let path = cell.path.descriptor();
-    if declaration.foreign {
+    if let Some(foreign) = declaration.foreign {
         // `whichever::foreign::Display` has one method, `fmt(&self, f)`,
         // which the payloads implement for `core::fmt::Display`; the axes
         // of the method under test, of the trait's own items and of where
         // it lives are `Probe`'s, and a mark of `default` meets a method
         // with no default body in a trait of another crate.
+        //
+        // `whichever::foreign::Iterator` is there for one promise: each
+        // restated provided method is forwarded, so a payload's override
+        // is what runs through the enum (foreign-traits-are-restated.md).
+        // Its `next` and `any` take `&mut self`, which the `recv` axis
+        // does not say, so it is crossed only with the targets a `&mut`
+        // reaches through and with the enum's attribute and a block silent
+        // about both, beside a second variant that holds a payload, none
+        // or no payload. The first variant supplies `Item`, so it holds
+        // its target by a type.
+        if foreign == Foreign::Iterator {
+            let first = matches!(
+                cell.s0,
+                Target::Plain
+                    | Target::DerefBox
+                    | Target::MarkedTuple
+                    | Target::Struct
+                    | Target::StructNamed
+            );
+            let second = matches!(
+                cell.s1,
+                Second::Plain | Second::Absent | Second::DerefBox | Second::ViaField | Second::Unit
+            );
+            let plain = matches!(cell.path, Path::Attribute | Path::Block)
+                && cell.cfg == Cfg::Absent
+                && cell.conv == Conversion::Unchecked
+                && cell.deprecated == Deprecation::Absent
+                && cell.s2 == Third::Absent;
+            if !(first && second && plain) {
+                return Some(Verdict::NonCanonical);
+            }
+        }
         let neutral = cell.recv == Receiver::Shared
             && cell.ret == Return::Tag
             && cell.arg == Argument::Absent
@@ -831,11 +990,13 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
 /// The second trait and the deprecated variant the model writes.
 fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     let stack = cell.stack.descriptor();
-    // Open question: which of two attributes writes the conversions, and
-    // whose `from` decides them, is not documented; the model leaves the
-    // default to both, which writes them once (behaviour test
-    // `foreign_traits`, `ReadError`).
-    if stack.present && cell.conv != Conversion::Unchecked {
+    // "The conversions are the enum's, not a trait's: they are written
+    // once however many attributes the enum carries" (options.md); the
+    // values that spell an option on the second attribute check that, and
+    // an option on the first alone beside a second attribute is left to
+    // the cells without one.
+    let other_option = cell.conv.descriptor().other_option.is_some();
+    if stack.present && cell.conv != Conversion::Unchecked && !other_option {
         return Some("conversion options beside a second attribute");
     }
     // The type-parameter payload's `from = false` would have to be spelled
@@ -1522,6 +1683,22 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let conversion = cell.conv.descriptor();
     if one_arm && conversion.option.is_some() {
         expect(Limit::StructConversion, Anchor::Attribute);
+    }
+    // "Two attributes may give `from` the same value, and one that gives it
+    // the other value contradicts the first and is reported", and "one
+    // target named twice, on two attributes or on one, would be the same
+    // `From` written twice, and is reported" (options.md), on the later
+    // option. A struct's conversion options are its one sentence.
+    if conversion.repeated && !one_arm {
+        let anchor = match conversion.other_option {
+            Some(_) => Anchor::OtherAttribute,
+            None => Anchor::Attribute,
+        };
+        let limit = match conversion.into {
+            true => Limit::IntoRepeated,
+            false => Limit::FromContradicted,
+        };
+        expect(limit, anchor);
     }
     // "A restated enum gets no conversions, which the orphan rules [..]
     // refuse" (restatements.md), and an option asking for one, or for

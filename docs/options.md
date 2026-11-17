@@ -17,6 +17,21 @@ All options follow the trait path in `#[dispatch(..)]`.
   }
   ```
 
+  What a method returns is converted; an argument that names the type is
+  not. A method that takes `Self::Name`, or a closure over it, hands the
+  argument to the payload as it is, so it compiles only where every
+  payload's own `Name` is the override's type: `Item = u8` over payloads
+  whose `Item` is `u8` forwards every method, but `Item = Wide` over a
+  `Range<u32>` and a `Range<u64>` stops at the methods of
+  `foreign::Iterator` that take a closure over `Self::Item`, `fold`, `any`,
+  `max_by` and the rest, where rustc reports the arm. The hand's arm there
+  needs a closure that converts each item, which the attribute does not
+  write. Restate the trait with only the methods to forward, as
+  [Traits from `std` and other crates](restatements.md#traits-from-std-and-other-crates) shows for
+  `Iterator`, so that the rest take the trait's default, or, for a method
+  or two, leave each to the default in a
+  [partial impl block](partial-impl-blocks.md) with `#[dispatch(default)]`.
+
 - `Name = value` fixes the associated const `Name`, for a const that
   differs per payload by design, such as a kind discriminator:
 
@@ -44,7 +59,15 @@ All options follow the trait path in `#[dispatch(..)]`.
 
   An expression on the trait method or on the enum may use the method's
   parameters, a `Self` argument included, and `self` when the method
-  takes `&self`; `&mut self` and `self` are moved into the `match`.
+  takes `&self`; `&mut self` and `self` are moved into the `match`. An
+  expression on the trait method may also name the method's own generic
+  parameters, `#[dispatch(mismatch = T::default())]`, and follows them
+  where the impl renames them, `T2::default()`, inside a macro's
+  arguments and the placeholders of a format macro's format string as
+  well, `format!("{N}")`; any other string is text and stays as written,
+  and so is the input of `stringify!` and `cfg!`. A macro of your own
+  that quotes its input as text cannot be told from one that runs it, and
+  its input is renamed like code.
   A path in an expression on the trait method resolves where the enum is,
   as the signature types do, so a helper beside the trait is spelled from
   `crate::`. A method the trait declares under a `#[cfg]` takes its
@@ -111,11 +134,15 @@ pub enum AnyShape { /* .. */ }
 
 The conversions are the enum's, not a trait's: they are written once
 however many attributes the enum carries, and a conversion option on any
-one of the attributes applies to all of them. `from = false` on any
-attribute leaves the `From` impls out, whatever another says; the widest
-`try_from` form on any of them applies; and the `into` targets of all of
-them are collected, so one target named on two attributes is the same
-`From` written twice, a conflict.
+one of the attributes applies to all of them, so the attributes say one
+thing between them. `from = false` on any attribute leaves the `From`
+impls out; two attributes may give `from` the same value, and one that
+gives it the other value contradicts the first and is reported. The
+`try_from` forms add up, and the widest on any of them applies, so
+`try_from = false` beside another form cancels nothing and is not
+reported. The `into` targets of all of them are collected, and one target
+named twice, on two attributes or on one, would be the same `From` written
+twice, and is reported.
 
 A generic trait is dispatched at an instantiation named on the enum: a
 concrete one, `#[whichever::dispatch(Encoder<Json>)]`, or the enum's own
@@ -127,7 +154,12 @@ projection `F::Value` becomes `<Json as Format>::Value` when `F` has one
 bound, written with the bound's generic arguments and without a constraint
 on an associated type, so `F: Format<Text, Value = u64>` gives `<Json as
 Format<Text>>::Value`; with several bounds the trait has to spell `<F as
-Format>::Value` itself. A payload that is a type parameter of the enum,
+Format>::Value` itself. A method's own parameter whose name the impl
+gives a meaning, one of the enum's parameters, `fn encode<T>` beside
+`Encoder<T>` on `enum E<T>`, or an argument given to the trait, `fn
+encode<Json>` beside `Encoder<Json>`, is renamed first, with the first
+number that neither the impl nor the trait writes, `encode<T2>` and
+`encode<Json2>`, so the two stay apart. A payload that is a type parameter of the enum,
 `Raw(Raw)` on `enum Lazy<Raw, Parsed>`, or `Box<T>` under `deref`, gives
 the impl the bound `Raw: Trait`, which is the bound a hand writes; a
 struct's field the same, `impl<T: Shape> Shape for Wrapper<T>` for `struct

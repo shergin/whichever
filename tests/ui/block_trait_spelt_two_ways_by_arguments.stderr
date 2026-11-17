@@ -1,0 +1,5 @@
+error: `Encoder` on `encoder` and `Encoder<F>` here spell one trait's name two ways, so `encoder` is not the field this block is forwarded to; a field names a trait as the block's header spells it
+  --> tests/ui/block_trait_spelt_two_ways_by_arguments.rs:30:27
+   |
+30 | impl<F, E: Encoder<F>, N> Encoder<F> for Env<E, N> {}
+   |                           ^^^^^^^^^^

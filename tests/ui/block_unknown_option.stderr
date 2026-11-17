@@ -1,0 +1,5 @@
+error: unknown option `inline`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)`
+  --> tests/ui/block_unknown_option.rs:23:34
+   |
+23 | #[whichever::dispatch(Unit = u8, inline)]
+   |                                  ^^^^^^

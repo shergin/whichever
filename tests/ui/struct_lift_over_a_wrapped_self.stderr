@@ -1,0 +1,5 @@
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Labelled`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or drop its `#[dispatch(..)]`, and the body answers by itself
+  --> tests/ui/struct_lift_over_a_wrapped_self.rs:21:28
+   |
+21 |     pub fn grown(&self) -> Option<Option<Self>> {
+   |                            ^^^^^^^^^^^^^^^^^^^^

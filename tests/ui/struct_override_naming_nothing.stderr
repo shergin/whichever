@@ -1,0 +1,5 @@
+error: `Value` has no associated type or const `form`; it has none, and a struct's other option is a route, `via(field = route)`
+  --> tests/ui/struct_override_naming_nothing.rs:17:30
+   |
+17 | #[whichever::dispatch(Value, form = false)]
+   |                              ^^^^

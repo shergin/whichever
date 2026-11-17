@@ -21,6 +21,10 @@ pub struct QualifierDescriptor {
     pub unsafety: bool,
     /// The method's type parameter.
     pub generic: Option<Generic>,
+    /// Whether that parameter is named as the impl names something around
+    /// the method, the subject's parameter or a payload's type, so that
+    /// the impl renames it.
+    pub named: bool,
     /// Whether the trait gives the method a default body, which `P0`
     /// overrides and `P1` does not.
     pub provided: bool,
@@ -33,6 +37,7 @@ impl Qualifier {
             asyncness: false,
             unsafety: false,
             generic: None,
+            named: false,
             provided: false,
         };
         match self {
@@ -47,6 +52,11 @@ impl Qualifier {
             },
             Qualifier::Generic => QualifierDescriptor {
                 generic: Some(Generic::Fixed),
+                ..plain
+            },
+            Qualifier::GenericNamed => QualifierDescriptor {
+                generic: Some(Generic::Fixed),
+                named: true,
                 ..plain
             },
             Qualifier::Turbofish => QualifierDescriptor {

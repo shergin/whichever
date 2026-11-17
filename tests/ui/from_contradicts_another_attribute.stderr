@@ -1,0 +1,11 @@
+error: `from = false` contradicts `from = true` on another attribute of `OnThenOff`; the `From` impls are the enum's, written once whatever its attributes, so give `from` one value
+  --> tests/ui/from_contradicts_another_attribute.rs:29:29
+   |
+29 | #[whichever::dispatch(High, from = false)]
+   |                             ^^^^
+
+error: `from = true` contradicts `from = false` on another attribute of `OffThenOn`; the `From` impls are the enum's, written once whatever its attributes, so give `from` one value
+  --> tests/ui/from_contradicts_another_attribute.rs:35:29
+   |
+35 | #[whichever::dispatch(High, from = true)]
+   |                             ^^^^

@@ -1,0 +1,9 @@
+file: macros/src/selection.rs
+breaks: A sentence about a dispatch struct speaks of the struct and its field: a body beside the field's forwarding never runs because the method is forwarded to the struct's field, as `docs/limits.md` and `docs/structs.md` say.
+expect: killed
+witness: s0=struct s1=none path=block-arms
+
+find:
+                Words::Struct => format!("`{method}` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"),
+replace:
+                Words::Struct => format!("`{method}` is forwarded to every variant, so its body would never run; end the signature with `;` instead"),

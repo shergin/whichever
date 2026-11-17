@@ -4,7 +4,7 @@ error: `take` takes `self: Box<Self>`, and `Plain` holds a plain `Square`; hold 
 27 |     Plain(Square),
    |           ^^^^^^
 
-error: `take` requires `Self: Sized`, and `Object` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn take(..);` in a `#[whichever::dispatch] impl Shape for Both` block, or implement the method by hand
+error: `take` requires `Self: Sized`, and `Object` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn take(..);` in a `#[whichever::dispatch] impl Shape for Both` block, hold `Box<dyn Shape>` without `deref` where it implements the trait itself, or implement the method by hand
   --> tests/ui/trait_object_beside_a_plain_variant.rs:9:5
    |
  9 | /     fn take(self: Box<Self>) -> u32

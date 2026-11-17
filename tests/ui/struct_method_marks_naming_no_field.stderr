@@ -1,0 +1,20 @@
+error: name the field to forward to, `#[dispatch(field)]`, or `#[dispatch(*)]` for the one the struct forwards to
+  --> tests/ui/struct_method_marks_naming_no_field.rs:20:5
+   |
+20 |     #[dispatch]
+   |     ^^^^^^^^^^^
+
+error: name the field to forward to, or `*` for the one the struct forwards to
+  --> tests/ui/struct_method_marks_naming_no_field.rs:23:16
+   |
+23 |     #[dispatch()]
+   |                ^
+
+error: `side` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead
+  --> tests/ui/struct_method_marks_naming_no_field.rs:27:31
+   |
+27 |       pub fn side(&self) -> u32 {
+   |  _______________________________^
+28 | |         0
+29 | |     }
+   | |_____^

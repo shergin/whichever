@@ -1,0 +1,5 @@
+error: `into = u32` is given twice on `Kind`; `From<Kind> for u32` is the enum's, written once whatever its attributes, so name a target once
+  --> tests/ui/into_target_twice_on_two_attributes.rs:34:29
+   |
+34 | #[whichever::dispatch(High, into = u32)]
+   |                             ^^^^

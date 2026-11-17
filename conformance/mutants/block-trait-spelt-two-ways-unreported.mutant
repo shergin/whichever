@@ -1,0 +1,9 @@
+file: macros/src/block.rs
+breaks: A field that names a partial block's trait with more or fewer path segments than the block's header is one name spelled two ways, reported on the header, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `docs/limits.md` say.
+expect: killed
+witness: s0=struct-trait-spelt s1=none path=block
+
+find:
+entries.spelt_otherwise(trait_path, &attributes)
+replace:
+entries.spelt_otherwise(trait_path, &attributes).filter(|_| false)

@@ -4,7 +4,6 @@ expect: killed
 witness: path=block-macro
 
 find:
-                ImplItem::Macro(invocation) => return Err(unread_invocation(invocation)),
-                _ => None,
+        ImplItem::Macro(invocation) => Err(unread_invocation(invocation)),
 replace:
-                _ => None,
+        ImplItem::Macro(invocation) if false => Err(unread_invocation(invocation)),

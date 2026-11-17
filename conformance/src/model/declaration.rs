@@ -11,12 +11,51 @@ use super::axes::Declaration;
 /// `pinned_writers_with_provided_methods` declares its `io`.
 pub const REAL: &str = "real";
 
-/// The path `whichever::foreign`'s `Display` is dispatched by.
-pub const DISPLAY: &str = "whichever::foreign::Display";
+/// A restatement `whichever::foreign` ships that a cell dispatches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Foreign {
+    /// `whichever::foreign::Display`, whose one method is `fmt`.
+    Display,
+    /// `whichever::foreign::Iterator`, of whose methods the cell forwards
+    /// `next` and the provided `any`, which every payload overrides.
+    Iterator,
+}
 
-/// The trait `whichever::foreign::Display` implements, as the hand names
-/// it.
-pub const CORE_DISPLAY: &str = "core::fmt::Display";
+impl Foreign {
+    /// Returns the path the restatement is dispatched by.
+    pub fn path(self) -> &'static str {
+        match self {
+            Foreign::Display => "whichever::foreign::Display",
+            Foreign::Iterator => "whichever::foreign::Iterator",
+        }
+    }
+
+    /// Returns the trait the restatement implements, as the hand names it.
+    pub fn real(self) -> &'static str {
+        match self {
+            Foreign::Display => "core::fmt::Display",
+            Foreign::Iterator => "core::iter::Iterator",
+        }
+    }
+
+    /// Returns the last segment of the real trait's path, which an impl of
+    /// it is found by in the expansion.
+    pub fn name(self) -> &'static str {
+        match self {
+            Foreign::Display => "Display",
+            Foreign::Iterator => "Iterator",
+        }
+    }
+
+    /// Returns the name of the method under test, in backticks, as a
+    /// sentence names it.
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Foreign::Display => "`fmt`",
+            Foreign::Iterator => "`any`",
+        }
+    }
+}
 
 /// The declaration's description, which the renderers interpret.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,8 +66,9 @@ pub struct DeclarationDescriptor {
     /// Whether the restatement lists the method under test; one that does
     /// not leaves it to the real trait's default.
     pub lists_method: bool,
-    /// Whether the trait is `whichever::foreign::Display`.
-    pub foreign: bool,
+    /// The restatement `whichever::foreign` ships that the trait is, if
+    /// it is one.
+    pub foreign: Option<Foreign>,
     /// Whether the trait is an `unsafe trait`, whose impls are `unsafe
     /// impl`.
     pub unsafety: bool,
@@ -40,7 +80,7 @@ impl Declaration {
         let dispatchable = DeclarationDescriptor {
             restated: false,
             lists_method: true,
-            foreign: false,
+            foreign: None,
             unsafety: false,
         };
         match self {
@@ -55,7 +95,11 @@ impl Declaration {
                 ..dispatchable
             },
             Declaration::Foreign => DeclarationDescriptor {
-                foreign: true,
+                foreign: Some(Foreign::Display),
+                ..dispatchable
+            },
+            Declaration::ForeignIterator => DeclarationDescriptor {
+                foreign: Some(Foreign::Iterator),
                 ..dispatchable
             },
             Declaration::Unsafe => DeclarationDescriptor {

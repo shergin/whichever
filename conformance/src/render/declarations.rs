@@ -13,8 +13,8 @@ use crate::model::{Anchor, Arms};
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
 /// `base` and the method under test `m`.
 pub fn write_trait(writer: &mut Writer, context: &Context) {
-    if context.foreign() {
-        super::foreign::write_trait(writer);
+    if let Some(foreign) = context.foreign_trait() {
+        super::foreign::write_trait(writer, foreign);
         return;
     }
     // A trait in a sibling module is imported where the subject is, the
@@ -164,7 +164,15 @@ pub fn write_real(writer: &mut Writer, context: &Context) {
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
-    let mut arguments = vec![context.trait_path()];
+    // A home that spells the trait through a module of the cell reaches it
+    // re-exported there, the carrier macro with it.
+    if context.cell.s0.home_prefix() == Some(crate::model::target::SPELT_MODULE) {
+        writer.open(format!("mod {} {{", crate::model::target::SPELT_MODULE));
+        writer.line(format!("pub(super) use super::{};", super::context::TRAIT));
+        writer.close("}");
+        writer.blank();
+    }
+    let mut arguments = vec![context.home_path()];
     arguments.extend(context.options());
     // A restated enum names the real one, and the attribute registers it
     // for a block as the bare one does (restatements.md).
@@ -193,6 +201,7 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
         (false, stacked) => {
             writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));
             if stacked {
+                writer.anchor(Anchor::OtherAttribute.name());
                 writer.line(context.other_attribute());
             }
         }
@@ -331,11 +340,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         true => writer.line("#[whichever::dispatch]"),
         false => writer.line(format!("#[whichever::dispatch({})]", options.join(", "))),
     }
+    writer.anchor(Anchor::BlockHeader.name());
     writer.open(format!(
         "{}{} {} for E{} {{",
         context.impl_keyword(),
         context.impl_generics(),
-        context.trait_path(),
+        context.home_path(),
         context.impl_type_generics()
     ));
     // The block declares the generic associated type, which no first
@@ -348,7 +358,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         // The invocation is the item from its first attribute on, and its
         // sentence is spanned on all of it.
         writer.anchor(Anchor::BlockInvocation.name());
-        if let Some(predicate) = context.path.invocation_cfg {
+        if let Some(predicate) = context.path.unread_cfg {
             writer.line(format!("#[cfg({predicate})]"));
         }
         writer.line("written!();");
@@ -377,8 +387,14 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         if let Some(predicate) = context.item.cfg {
             writer.line(format!("#[cfg({predicate})]"));
         }
+        // A method the block cannot read is under a `cfg` of its own.
+        if context.path.bodiless {
+            if let Some(predicate) = context.path.unread_cfg {
+                writer.line(format!("#[cfg({predicate})]"));
+            }
+        }
         writer.anchor(Anchor::BlockMethod.name());
-        if let Some(mark) = context.path.mark {
+        if let Some(mark) = context.block_mark() {
             writer.line(format!("#[dispatch({mark})]"));
         }
         // The block's method is the user's item, which keeps the attributes
@@ -419,8 +435,8 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
 /// Writes a function that calls `base` through the trait on the subject,
 /// so that a cascade or a withheld impl shows as a second error.
 pub fn write_probe(writer: &mut Writer, context: &Context) {
-    if context.foreign() {
-        super::foreign::write_probe(writer);
+    if let Some(foreign) = context.foreign_trait() {
+        super::foreign::write_probe(writer, foreign);
         return;
     }
     writer.line("/// Calls the control method through the trait, so that a withheld impl");

@@ -1,6 +1,6 @@
 //! `implement!`: the forwarding impl of one trait for one subject.
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote_spanned;
+use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 use syn::{parse_quote_spanned, Error, Generics, Ident, Path, Result};
 
@@ -15,6 +15,7 @@ use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{Entries, Subject, Target};
 use crate::substitution::Substitution;
+use crate::words::Words;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
@@ -33,7 +34,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         .last()
         .expect("a path has at least one segment")
         .ident;
-    let block = partial.map(PartialBlock::read).transpose()?;
+    let words = subject.words();
+    let block = partial
+        .map(|block| PartialBlock::read(block, words))
+        .transpose()?;
     // An associated type written in the block is an override like the
     // `Name = Type` option.
     for (name, ty) in block.iter().flat_map(|block| &block.declared_types) {
@@ -139,12 +143,25 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         supplier: first,
         site,
     };
+    // What the impl names around a method's signature, in its header and in
+    // its arms: a method's own generic parameter keeps clear of these.
+    let mut substitution = Substitution::of_trait(item_trait, trait_path, generics)?;
+    substitution.names(generics.to_token_stream());
+    substitution.names(generics.where_clause.to_token_stream());
+    substitution.names(self_ty.to_token_stream());
+    substitution.names(subject_path.to_token_stream());
+    for target in &variants {
+        substitution.names(target.payload.to_token_stream());
+    }
+    for fixed in &options.overrides {
+        substitution.names(fixed.to_token_stream());
+    }
+    for (_, result) in &options.mismatch {
+        substitution.names(result.to_token_stream());
+    }
     // Every item of the trait is planned and written in turn; every item
     // that cannot be forwarded is reported, not only the first.
-    let mut writer = ItemWriter::new(
-        &of,
-        Substitution::of_trait(item_trait, trait_path, generics)?,
-    );
+    let mut writer = ItemWriter::new(&of, substitution);
     for item in &item_trait.items {
         writer.write(item);
     }
@@ -161,12 +178,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // is reported beside the impl, which is right without it; only an item
     // that cannot be written withholds the impl.
     let mut reported = route_errors;
-    reported.extend(options.unknown_names(
-        item_trait,
-        trait_ident,
-        subject.has_one_target(),
-        block.is_none(),
-    ));
+    reported.extend(options.unknown_names(item_trait, trait_ident, words, block.is_none()));
     // An item that withholds the impl is reported with the errors that
     // would have stood beside it, so that none waits for the next build.
     if !errors.is_empty() {
@@ -257,7 +269,12 @@ impl Impl<'_> {
         let Some(first) = self.supplier else {
             return Err(Error::new_spanned(
                 subject,
-                format!("every variant of `{subject}` is under `#[cfg]` or reached through a field or a method, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`"),
+                match self.subject.words() {
+                    Words::Enum => format!("every variant of `{subject}` is under `#[cfg]` or reached through a field or a method, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`"),
+                    // A struct has the one field, whose type a route
+                    // through a field or a method leaves unnamed.
+                    Words::Struct => format!("the field of `{subject}` is reached through a field or a method, so its type cannot be named to supply `{name}`; fix it on the struct with `{name} = ..`"),
+                },
             ));
         };
         let payload = first

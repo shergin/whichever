@@ -48,8 +48,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-expand
-      # The matrix builds some fifty crates from cold; the runner's own
-      # toolsets this job does not use make room for them.
+      # The matrix builds some hundred and ten crates from cold; the
+      # runner's own toolsets this job does not use make room for them.
       - run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       # A failure is a cell that diverged from the model, a line of
       # `known.tsv` that excuses nothing any more, or a census that moved.

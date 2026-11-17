@@ -5,6 +5,230 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a trait method whose own generic parameter is named like
+  something the impl gives a meaning around the method did not compile, or
+  meant something else. Named like a parameter of the enum or the struct,
+  or of a partial block's header, the impl declared two parameters of one
+  name, rustc's E0403 (E0496 for a lifetime), on the attribute: `struct
+  Tagged<I>` under `foreign::Iterator` failed at `eq<I>` and the other
+  methods taking an `I`, and `enum Either<A, B>` under `foreign::Iterator`
+  through a partial block's header failed on 0.8.0 too, at `fold<B, F>`.
+  Named like a type the impl writes into the method, a payload's in an arm
+  or an argument given to the trait, `fn pick<Square>` over a payload
+  `Square` or `fn encode<Json>` under `Encoder<Json>`, the parameter stood
+  for that type there. The method's parameter is now renamed as a hand
+  renames it, with the first number that neither the impl nor the trait
+  writes, in its declaration, its bounds, its `where` clause, its argument
+  and result types and the turbofish of the arms: `fn eq<I2>(self, other:
+  I2)`, `fn get<'a2>(&'a2 self, ..)`, `fn fill<const N2: usize>(..)`, `fn
+  pick<Square2>`, and `fn pick<T3>` where a type `T2` is in the signature
+  or among the payloads. It is renamed before the trait's parameters are
+  replaced, so a method's `T` stays apart from the enum's `T` that
+  `Encoder<T>` on `enum E<T>` puts in place of the trait's `F`. The trait
+  method's own `mismatch` expression follows the new names,
+  `#[dispatch(mismatch = T::default())]` giving `_ => T2::default()`,
+  inside a macro's arguments too, `vec![T::default()]`, and where a format
+  macro's format string captures a const parameter, `format!("{N}:{:N$}",
+  7)`; any other string is text and stays, `String::from("{N}")` and
+  `vec!["{N}"]` included, and so does the input of `stringify!` and
+  `cfg!`, while a user's macro that quotes its input as text is renamed
+  like code, since it cannot be told from one that runs it; the format
+  string is the argument at its
+  place, the arguments read as expressions, so a comma inside generic
+  arguments or a closure before it does not move it. A name the impl
+  writes is one that stands first in a path, which the
+  parameter would stand for, so `fn pick<IntoIter>` over a payload
+  `std::vec::IntoIter<u32>` keeps its name. A method a partial block
+  writes or marks keeps its signature as written.
+  `docs/what-is-generated.md` and `docs/options.md` say so. The behaviour
+  test `method_parameters_named_like_what_the_impl_names` and the golden
+  `method_parameters_named_like_what_the_impl_names` are new; the
+  behaviour test `iterator_provided_methods` names its generic struct
+  `Tagged<I>` again; no snapshot and no other golden changed.
+- Before, two conversion options that disagree went unreported: `from =
+  true` on one attribute of an enum and `from = false` on another wrote no
+  `From` impl and said nothing, so the first sign was rustc's E0308 at a
+  call of `E::from(payload)`, far from the attributes; and one `into`
+  target given twice, on two attributes or on one, wrote the impl twice,
+  rustc's E0119 with both labels on the first attribute. Each is now one
+  sentence on the later occurrence: "`from = false` contradicts `from =
+  true` on another attribute of `E`; the `From` impls are the enum's,
+  written once whatever its attributes, so give `from` one value", in
+  either order, and "`into = u32` is given twice on `E`; `From<E> for u32`
+  is the enum's, written once whatever its attributes, so name a target
+  once", with the impl written once. Two attributes that agree on `from`
+  are fine; the `try_from` forms still add up to the widest, so `try_from
+  = false` beside another form cancels nothing and is not reported; and
+  different `into` targets are collected (#12). `docs/options.md`,
+  `docs/limits.md` and the crate docs say so. The `tests/ui` cases
+  `from_contradicts_another_attribute`,
+  `into_target_twice_on_two_attributes` and
+  `into_target_twice_on_one_attribute` are new, and the behaviour test
+  `conversion_options_on_repeated_attributes` is extended with agreeing
+  `from` values and `try_from = false` beside `try_from = true`.
+- Before, an item of a partial impl block that cannot be read was
+  reported in every build, whatever `#[cfg]` it carried, and the impl was
+  withheld with it, so every call of the trait's methods was rustc's E0599
+  as well: `#[cfg(any())] #[dispatch(default)] fn name(&self) -> &'static
+  str { "x" }` failed every build with "`name` is left to the trait's
+  default, so it takes no body", where a hand's method under the same
+  `cfg` is simply absent. The same held for a method without a body and
+  without a mark, a mark that does not parse or carries an inherent
+  method's option, and a second mark on one method. Such an item is now in
+  the block only where its `cfg` holds, as a macro invocation already is,
+  below: where the `cfg` does not hold, the block is read without it and
+  the method is forwarded, and where it holds, each such item has its
+  sentence, where only the first was reported. Without a `#[cfg]` nothing
+  changed
+  (#22). `docs/limits.md`, `docs/partial-impl-blocks.md` and the crate
+  docs say so. The `tests/ui` case `block_items_under_a_cfg_that_holds` is
+  new, and the behaviour test `conditional_methods_in_a_partial_block` is
+  extended; no other snapshot and no golden changed.
+- Before, an inherent method of a dispatch struct that named two fields,
+  `#[dispatch(square, circle)] pub fn side(&self) -> u32;`, compiled into a
+  `match` with two arms of which the second is never reached, so the
+  method was silently forwarded to the first field alone. It is now one
+  sentence: "`side` names two fields, `square` and `circle`, and a struct
+  forwards a method to one, since every value holds them all; name one,
+  and write a method that needs both by hand". The `tests/ui` case
+  `struct_method_naming_two_fields` is new.
+- Before, a struct's field could name only a trait the struct's own
+  attribute dispatches, so a trait whose impl needs a header the attribute
+  cannot write had no way to a field other than the bare one: the field's
+  `#[dispatch(Catalog)]` beside `#[whichever::dispatch] impl<S: Sorts, C:
+  Catalog<Extractor = S::Extractor>, N> Catalog for Env<S, C, N> {}` read
+  "`Catalog` is named on `catalog` but not on the struct", naming it on the
+  struct as well was the second impl, and a method of the block marked
+  `#[dispatch(catalog)]` read "`Env` has no field `catalog`", which was
+  false. A trait's impl has one home, the struct's attribute or a partial
+  impl block, and the struct now forwards a trait to the field that names
+  it whichever home writes the impl; the record "A field's trait may be a
+  partial block's" says why. A field names a trait as its home spells it,
+  generic arguments included, `#[dispatch(Encoder<F>)]` for `impl<F, ..>
+  Encoder<F> for Env<..> {}`, and from `crate`, `self`, `super` or the
+  root where the home's path begins there. Before, a field's option list
+  was read by its first identifier, so `#[dispatch(crate::traits::Catalog)]`
+  on a field was "expected identifier, found keyword `crate`", in 0.8.0
+  as well, and a home spelling its trait so had no field that could name
+  it. The struct does not see its blocks, so a
+  field's mark that no home claims is no longer reported; the trait's
+  first use says that the impl is missing. One name spelled two ways is
+  reported instead, at either home: "`Catalog` on `catalog` and
+  `traits::Catalog` on the struct spell one trait's name two ways", and
+  the same for `Encoder` beside `Encoder<F>`; spell it as the home does.
+  The impl is then written for the field that was meant, so the sentence
+  stands alone: no rustc error on a bare field that does not implement
+  the trait, and no impl withheld at a block, which would fail every call.
+  A block's method naming another field than the trait's now says "`named`
+  is a field of `Env`, but this trait is forwarded to `catalog`, ...; name
+  the trait on `named`, `#[dispatch(Trait)]`, to forward it there", and a
+  trait's route keyed by another field says the same. `via = route` after
+  a trait, which read as an override named `via`, says where a route
+  goes. rsynko 0.1.2's `LawEnv` is the shape (#16). The behaviour test
+  `per_trait_fields` is extended; the `tests/ui` case
+  `field_names_an_undispatched_trait` is gone with its sentence, and
+  `struct_trait_spelt_two_ways`, `block_trait_spelt_two_ways_by_path`,
+  `block_trait_spelt_two_ways_by_arguments`,
+  `block_method_naming_another_field`, `route_keyed_by_another_field`,
+  `via_after_a_trait` and `struct_trait_spelt_two_ways_from_self` are new.
+- Before, several sentences about a dispatch struct spoke of variants and
+  the enum: a struct whose field is reached through a method, under a
+  trait with an associated type, read "every variant of `Wrapped` is under
+  `#[cfg]` or reached through a field or a method, ...; fix it on the enum
+  with `Unit = ..`". A sentence is now written in the words of the item the
+  attribute is on, so the same struct reads "the field of `Wrapped` is
+  reached through a field or a method, so its type cannot be named to
+  supply `Unit`; fix it on the struct with `Unit = ..`". The same holds
+  for a generic associated type ("which only the struct can declare"), a
+  trait method without a receiver ("no field to forward to"), an unknown
+  option (a struct's list has no conversion and no `mismatch`), an
+  override naming nothing in the trait (a struct's other option is a
+  route, `via(field = route)`), a method's mark that names nothing or
+  names `*` beside a field, a body under a forwarded mark ("forwarded to
+  the struct's field"), a bodiless method without a mark in an inherent or
+  a partial block, a return-type limit on a method with a body ("the body
+  answers by itself"), and a trait's route keyed by a name the struct has
+  no field of. A partial impl block's own attribute is read before the
+  enum or the struct is known, so its sentences name neither: a generic
+  associated type there is one "which the block declares and no option
+  gives", an unknown option
+  lists the trait's options, and a conversion option is "an option of an
+  enum's own `#[dispatch]` attribute; a block's attribute takes the
+  trait's options only". Three sentences that spoke of variants on either
+  item now speak of neither: a second mark on a method, arguments on an
+  inherent block's attribute, and an inherent option on a trait method's
+  mark. Only the words changed. The `tests/ui` cases
+  `struct_field_through_a_method_supplies_no_type`,
+  `struct_generic_associated_type`, `struct_gat_override_option`,
+  `gat_override_on_a_blocks_attribute`,
+  `struct_trait_method_without_receiver`, `struct_unknown_option`,
+  `block_unknown_option`, `struct_override_naming_nothing`,
+  `struct_method_marks_naming_no_field`,
+  `struct_inherent_bodiless_without_attribute`,
+  `struct_block_bodiless_without_attribute`,
+  `struct_lift_over_a_wrapped_self` and `struct_route_through_no_field`
+  are new; `block_default_marked_twice`,
+  `block_method_under_a_cfg_that_holds`, `block_method_with_call`,
+  `impl_attribute_error_keeps_block`,
+  `impl_attribute_error_keeps_own_arms_under_a_boxed_receiver`,
+  `inherent_all_with_body_on_a_struct`, `partial_enum_option`,
+  `two_inherent_attributes` and `unknown_option_names` moved with the
+  words.
+- Before, `whichever::foreign::Iterator` forwarded `next`, `size_hint`,
+  `count`, `last`, `nth` and `fold`, and every other provided method ran
+  the trait's default on the enum, so a payload's override was hidden:
+  through `#[dispatch(whichever::foreign::Iterator)]`, a payload's own
+  `any` was never called. It now forwards every provided method a `match`
+  can forward and that is stable on 1.88, 28 more: `for_each`, `collect`,
+  `partition`, `reduce`, `all`, `any`, `find`, `find_map`, `position`,
+  `max`, `min`, `max_by_key`, `max_by`, `min_by_key`, `min_by`, `sum`,
+  `product`, `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`,
+  `is_sorted`, `is_sorted_by` and `is_sorted_by_key`. `core`'s slice
+  iterators answer `any`, `all`, `find`, `find_map` and `position`
+  themselves, a range answers `max`, `min` and `is_sorted`, and `collect`
+  reaches the payload's own, so a `vec::IntoIter` collected into a `Vec`
+  reuses its allocation; the defaults of `all`, `any`, `find` and
+  `position` run through `try_fold`, which cannot be restated, and matched
+  the enum once per item where they are now one `match`. Left out:
+  `unzip`, which a `match` cannot forward; `rposition`, whose bound holds
+  only for an enum that is also double-ended and exact-size; the methods
+  unstable on 1.88, such as `try_fold`; and the adapters and `by_ref`, as
+  before. `DoubleEndedIterator` and `ExactSizeIterator` were complete
+  already. `Error` still leaves out `description` and `cause`, which are
+  deprecated, so that a block that answers `source` itself need not answer
+  them. Three things that compiled no longer do, each with its way around:
+  - Every added method requires `Self: Sized`, so a `deref` variant
+    holding a trait object, `#[dispatch(deref)] Dyn(Box<dyn Iterator<Item
+    = u32>>)`, is refused for each of them, 31 sentences where there were
+    3. `Box<dyn Iterator>` is itself an `Iterator`: hold it without
+    `deref`, and every method is forwarded to the box, with no partial
+    block. The same holds for a `Box<dyn DoubleEndedIterator>` under
+    `DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
+    `ExactSizeIterator`. The sentence now offers this way beside
+    `#[dispatch(default)]`: "hold `Box<dyn Iterator<Item = u32>>` without
+    `deref` where it implements the trait itself".
+  - A partial block over `foreign::Iterator` forwards every method it
+    leaves alone, so one whose enum holds a variant no method can be
+    forwarded to has 34 methods to answer or leave to the default, not 6.
+  - An override, `Item = Wide`, converts what a method returns and hands
+    an argument to the payload as it is, so over payloads whose items
+    differ, a `Range<u32>` and a `Range<u64>`, rustc reports every method
+    that takes a closure over `Self::Item`, where before it reported
+    `fold` alone (#23). An override of the payloads' own type, `Item =
+    u8` over payloads whose `Item` is `u8`, compiles as before.
+
+  The way around all three is a restatement of `Iterator` in your crate
+  listing the methods to forward, `next` and `size_hint`, since the rest
+  take the real trait's default; `docs/restatements.md` shows it, and
+  `docs/options.md` and `docs/limits.md` say what an override converts.
+  The behaviour tests `iterator_provided_methods` and
+  `item_override_through_a_narrower_restatement` are new;
+  `trait_objects_in_deref_variants` now shows `#[dispatch(default)]` over
+  such a restatement and the box held without `deref`, and
+  `double_ended_and_exact_size_iterators` the boxes held without `deref`.
+  The golden `foreign` shows `Iterator`, and the snapshots
+  `dyn_payload_under_sized_method` and `trait_object_beside_a_plain_variant`
+  moved with the sentence.
 - Before, a method of an inherent `#[dispatch]` impl block that cannot be
   forwarded was reported in every build, whatever `#[cfg]` it carried:
   `#[cfg(feature = "off")] #[dispatch(*)] pub fn make(side: f64) -> Self;`

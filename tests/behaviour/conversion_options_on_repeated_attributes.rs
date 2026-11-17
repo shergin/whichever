@@ -1,6 +1,10 @@
 //! The conversions are the enum's: they are written once however many
 //! attributes the enum carries, and an option on any one attribute applies
-//! to all of them.
+//! to all of them. Two attributes may give `from` the same value; the
+//! `try_from` forms add up, so `try_from = false` beside another form
+//! cancels nothing; and the `into` targets of every attribute are collected.
+//! A `from` that contradicts another and an `into` target named twice are
+//! reported, in `tests/ui`.
 
 use core::convert::TryFrom;
 
@@ -112,6 +116,39 @@ impl From<Two> for OffOnTheSecond {
     }
 }
 
+#[whichever::dispatch(Low, from = false)]
+#[whichever::dispatch(High, from = false)]
+enum OffOnBoth {
+    One(One),
+    Two(Two),
+}
+
+impl From<One> for OffOnBoth {
+    fn from(one: One) -> Self {
+        OffOnBoth::One(One(one.0 + 100))
+    }
+}
+
+impl From<Two> for OffOnBoth {
+    fn from(two: Two) -> Self {
+        OffOnBoth::Two(Two(two.0 + 100))
+    }
+}
+
+#[whichever::dispatch(Low, from = true)]
+#[whichever::dispatch(High, from = true)]
+enum OnOnBoth {
+    One(One),
+    Two(Two),
+}
+
+#[whichever::dispatch(Low, try_from = true)]
+#[whichever::dispatch(High, try_from = false)]
+enum TryBesideFalse {
+    One(One),
+    Two(Two),
+}
+
 #[whichever::dispatch(Low, try_from = true)]
 #[whichever::dispatch(High)]
 enum TryOnTheFirst {
@@ -195,4 +232,20 @@ fn into_targets_of_both_attributes_are_written() {
     assert_eq!(u32::from(IntoBoth::from(Two(5))), 10);
     assert_eq!(u64::from(IntoBoth::from(Two(5))), 20);
     assert_eq!(u64::from(IntoBoth::from(One(5))), 15);
+}
+
+#[test]
+fn two_attributes_that_agree_on_from_are_one_answer() {
+    assert_eq!(OffOnBoth::from(One(1)).high(), 111);
+    assert_eq!(OffOnBoth::from(Two(2)).low(), 102);
+    let on = OnOnBoth::from(Two(2));
+    assert_eq!((on.low(), on.high()), (2, 22));
+}
+
+#[test]
+fn try_from_false_beside_another_form_cancels_nothing() {
+    let Ok(one) = One::try_from(TryBesideFalse::from(One(1))) else {
+        panic!("`One` was not handed back");
+    };
+    assert_eq!(one.0, 1);
 }

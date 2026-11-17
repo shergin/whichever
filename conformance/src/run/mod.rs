@@ -436,8 +436,8 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                     // A foreign trait's impl is of the real trait, by its
                     // last segment.
                     let name = match cell.decl.descriptor().foreign {
-                        true => "Display",
-                        false => render::context::TRAIT,
+                        Some(foreign) => foreign.name(),
+                        None => render::context::TRAIT,
                     };
                     let mut traits = vec![(name, cell.path.descriptor().site != PathSite::Block)];
                     if cell.stack.descriptor().present {
@@ -568,9 +568,19 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
             listed.push(selection.suite.clone());
         }
     }
+    // A kind's shards are as many as its cells in this run need, so the
+    // cells are counted by kind before any is given a shard.
+    let verdicts: Vec<(Cell, Verdict)> = order
+        .into_iter()
+        .map(|cell| (cell, cell.verdict()))
+        .collect();
+    let mut cells_of: BTreeMap<ShardKind, usize> = BTreeMap::new();
+    for (_, verdict) in &verdicts {
+        *cells_of.entry(ShardKind::of(verdict)).or_default() += 1;
+    }
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
     let mut entries = Vec::new();
-    for cell in order {
+    for (cell, verdict) in verdicts {
         let id = cell.id();
         let module = cell.module();
         if let Some(other) = modules.insert(module.clone(), id.clone()) {
@@ -578,11 +588,10 @@ fn gather(selections: &[Selection], options: &Options) -> Result<Vec<Entry>, Run
                 "`{id}` and `{other}` hash to the same module `{module}`"
             )));
         }
-        let verdict = cell.verdict();
         let kind = ShardKind::of(&verdict);
         entries.push(Entry {
             rendered: render::render(&cell),
-            shard: kind.shard(cell.hash()),
+            shard: kind.shard(cell.hash(), kind.count(cells_of[&kind])),
             suites: suites.remove(&cell).unwrap_or_default(),
             cell,
             id,

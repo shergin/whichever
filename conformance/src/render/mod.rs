@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 
 use crate::cell::Cell;
 use crate::model::{Anchor, Verdict};
-use crate::run::workspace::{crate_name, ShardKind};
+use crate::run::workspace::{crate_name, traits_shard};
 use context::Context;
 use writer::{Part, Section, Writer};
 
@@ -281,8 +281,7 @@ fn write(context: &Context, mode: Mode, imports: &[&str]) -> Rendered {
     // A trait in another crate splits the cell into two files, whose
     // imports serve one or the other.
     let restated = cell.owner == crate::model::Owner::Remote;
-    let trait_shard =
-        (context.home.foreign || restated).then(|| ShardKind::Traits.shard(cell.hash()));
+    let trait_shard = (context.home.foreign || restated).then(|| traits_shard(cell.hash()));
     let foreign_parts = match (context.home.foreign, restated) {
         (true, _) => vec![Part::Trait, Part::Payloads],
         (false, true) => vec![Part::Real],

@@ -58,6 +58,7 @@ mod spans;
 mod spelling;
 mod subject;
 mod substitution;
+mod words;
 
 /// Makes a trait available to `#[dispatch]`, from this crate or any other.
 ///

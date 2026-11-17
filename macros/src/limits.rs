@@ -44,6 +44,30 @@ impl Sentences {
         })
     }
 
+    /// Records the message an error is written with: a string literal, or
+    /// each arm of a `match` that picks the sentence, such as one on the
+    /// subject's words. A `format!` arm is recorded where it is visited.
+    fn record_message(&mut self, message: &Expr) {
+        match message {
+            Expr::Lit(literal) => {
+                if let Lit::Str(text) = &literal.lit {
+                    self.record(Some(text.value()));
+                }
+            }
+            Expr::Match(choice) => {
+                for arm in &choice.arms {
+                    self.record_message(&arm.body);
+                }
+            }
+            Expr::Block(block) => {
+                if let [syn::Stmt::Expr(last, None)] = block.block.stmts.as_slice() {
+                    self.record_message(last);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn record(&mut self, text: Option<String>) {
         if let Some(text) = text {
             if text.len() >= 20 {
@@ -109,10 +133,8 @@ impl<'ast> Visit<'ast> for Sentences {
                 .last()
                 .map(|segment| segment.ident.to_string());
             if matches!(name.as_deref(), Some("new") | Some("new_spanned")) {
-                if let Some(Expr::Lit(literal)) = call.args.iter().nth(1) {
-                    if let Lit::Str(text) = &literal.lit {
-                        self.record(Some(text.value()));
-                    }
+                if let Some(message) = call.args.iter().nth(1) {
+                    self.record_message(message);
                 }
             }
         }
@@ -121,10 +143,8 @@ impl<'ast> Visit<'ast> for Sentences {
 
     fn visit_expr_method_call(&mut self, call: &'ast ExprMethodCall) {
         if call.method == "error" {
-            if let Some(Expr::Lit(literal)) = call.args.first() {
-                if let Lit::Str(text) = &literal.lit {
-                    self.record(Some(text.value()));
-                }
+            if let Some(message) = call.args.first() {
+                self.record_message(message);
             }
         }
         syn::visit::visit_expr_method_call(self, call);

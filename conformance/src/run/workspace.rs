@@ -49,22 +49,70 @@ impl ShardKind {
         }
     }
 
-    /// Returns how many shards the kind is spread over. A cell's shard is
-    /// its hash modulo this count, so adding a cell moves no other.
-    pub fn buckets(self) -> u64 {
+    /// Returns the fewest shards the kind is spread over, so that a run of
+    /// a few thousand cells still builds on several cores at once.
+    fn spread(self) -> u64 {
         match self {
             ShardKind::Pass => 16,
             ShardKind::Limit => 24,
             ShardKind::Malformed => 1,
             ShardKind::Rejected => 8,
-            ShardKind::Traits => 8,
+            ShardKind::Traits => TRAIT_SHARDS,
         }
     }
 
-    /// Returns the name of the shard a cell's hash falls in.
-    pub fn shard(self, hash: u64) -> String {
-        format!("{}-{:03}", self.name(), hash % self.buckets())
+    /// Returns the most cells a shard of the kind holds on average. One
+    /// compiler builds a shard, and its memory grows with the shard's
+    /// cells, about linearly: on 2026-11-17, on macOS arm64 with stable and
+    /// `CARGO_INCREMENTAL=0`, the test build of a passing shard of the
+    /// `array` suite peaked at 1.35 GB resident over 500 cells, 2.45 GB
+    /// over 1,000 and 5.2 GB over 2,150, and a check of a limit shard of
+    /// 1,179 cells at 0.6 GB. CI's runner has 16 GB and builds four shards
+    /// at once, which the passing shards of 2,150 cells starved. Limits,
+    /// rejected and malformed cells are only checked, and are held to about
+    /// the size measured for limits.
+    fn capacity(self) -> usize {
+        match self {
+            ShardKind::Pass => PASS_CAPACITY,
+            ShardKind::Limit | ShardKind::Malformed | ShardKind::Rejected => 1_500,
+            // A traits shard holds a trait and its payloads, which are small
+            // beside the cells that read them.
+            ShardKind::Traits => usize::MAX,
+        }
     }
+
+    /// Returns how many shards a run's `cells` cells of the kind are spread
+    /// over: as many as keep each to the kind's capacity, and no fewer than
+    /// its spread. A cell's shard is its hash modulo this count, so a cell
+    /// moves only when the count does, and a run of one cell builds one
+    /// shard. The traits shards are as many as their spread whatever the
+    /// run, since a cell's source names its traits crate before the run's
+    /// cells are counted.
+    pub fn count(self, cells: usize) -> u64 {
+        let needed = u64::try_from(cells.div_ceil(self.capacity())).unwrap_or(u64::MAX);
+        needed.max(self.spread())
+    }
+
+    /// Returns the name of the shard, among `count`, a cell's hash falls
+    /// in.
+    pub fn shard(self, hash: u64, count: u64) -> String {
+        format!("{}-{:03}", self.name(), hash % count)
+    }
+}
+
+/// The traits shards of every run; see [`ShardKind::count`].
+const TRAIT_SHARDS: u64 = 8;
+
+/// The most cells a passing shard holds on average. Over the matrix of
+/// 2026-11-17 the largest held 547 cells and its test build peaked at
+/// 1.24 GB, so four at once take about a third of CI's runner, with room
+/// for the matrix's cells growing costlier. See [`ShardKind::capacity`].
+const PASS_CAPACITY: usize = 500;
+
+/// Returns the name of the traits shard of a cell whose trait lives in a
+/// crate of its own.
+pub fn traits_shard(hash: u64) -> String {
+    ShardKind::Traits.shard(hash, TRAIT_SHARDS)
 }
 
 /// A shard crate and the modules it holds.
@@ -292,11 +340,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_shard_is_chosen_by_the_hash_alone() {
-        assert_eq!(ShardKind::Pass.shard(19), "pass-003");
-        assert_eq!(ShardKind::Limit.shard(25), "limit-001");
-        assert_eq!(ShardKind::Malformed.shard(13), "malformed-000");
+    fn a_shard_is_chosen_by_the_hash_among_the_count() {
+        assert_eq!(ShardKind::Pass.shard(19, 16), "pass-003");
+        assert_eq!(ShardKind::Pass.shard(19, 40), "pass-019");
+        assert_eq!(ShardKind::Limit.shard(25, 24), "limit-001");
+        assert_eq!(ShardKind::Malformed.shard(13, 1), "malformed-000");
+        assert_eq!(traits_shard(13), "traits-005");
         assert_eq!(toml_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn a_kind_has_its_spread_until_its_cells_outgrow_it() {
+        // A small run keeps the spread, and its cells fill a shard each at
+        // most: one cell is one shard.
+        assert_eq!(ShardKind::Pass.count(0), 16);
+        assert_eq!(ShardKind::Pass.count(1), 16);
+        assert_eq!(ShardKind::Pass.count(16 * PASS_CAPACITY), 16);
+        // Past it, the count follows the cells.
+        assert_eq!(ShardKind::Pass.count(16 * PASS_CAPACITY + 1), 17);
+        assert_eq!(ShardKind::Pass.count(34_505), 70);
+        assert_eq!(ShardKind::Limit.count(28_115), 24);
+        assert_eq!(ShardKind::Limit.count(60_000), 40);
+        assert_eq!(ShardKind::Malformed.count(27), 1);
+        assert_eq!(ShardKind::Rejected.count(2_296), 8);
+        // The traits shards are named before the run's cells are counted.
+        assert_eq!(ShardKind::Traits.count(1_000_000), TRAIT_SHARDS);
+    }
+
+    #[test]
+    fn hashing_holds_a_shard_near_its_capacity() {
+        // The cells' hashes spread them evenly: over a matrix of twice
+        // today's passing cells, hashed as a cell's id is, no shard holds
+        // more than a tenth over the capacity.
+        let cells = 70_000;
+        let count = ShardKind::Pass.count(cells);
+        let mut sizes = vec![0_usize; usize::try_from(count).unwrap()];
+        for index in 0..cells {
+            let hash = crate::cell::fnv1a(format!("cell {index}").as_bytes());
+            sizes[usize::try_from(hash % count).unwrap()] += 1;
+        }
+        let largest = sizes.iter().copied().max().unwrap();
+        assert!(largest <= PASS_CAPACITY * 11 / 10, "{largest}");
     }
 
     #[test]

@@ -142,6 +142,7 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
         on_trait: matches!(origin, Origin::Trait { .. }),
         has_body: mark.is_some_and(|mark| mark.body.is_some()),
         own_arms,
+        words: subject.words(),
     };
     let (kind, prefix, lift, declared) = match &origin {
         Origin::Trait {
@@ -257,7 +258,7 @@ pub(crate) fn forward(request: Forward) -> Result<Generated> {
                 &method,
                 subject,
             )?;
-            check_body(&selection, mark.body, &signature, subject.target_noun())?;
+            check_body(&selection, mark.body, &signature, subject.words())?;
             Some(selection)
         }
         None => None,
@@ -719,6 +720,7 @@ mod tests {
 
     use super::*;
     use crate::refusal::Refusal;
+    use crate::words::Words;
 
     fn site() -> Site {
         Site::at(Span::call_site())
@@ -753,6 +755,7 @@ mod tests {
             on_trait: true,
             has_body: false,
             own_arms: false,
+            words: Words::Enum,
         }
     }
 

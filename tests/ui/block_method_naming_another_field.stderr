@@ -1,0 +1,5 @@
+error: `named` is a field of `Env`, but this trait is forwarded to `catalog`, and a trait is forwarded to one field; name the trait on `named`, `#[dispatch(Trait)]`, to forward it there
+  --> tests/ui/block_method_naming_another_field.rs:27:16
+   |
+27 |     #[dispatch(named)]
+   |                ^^^^^

@@ -15,6 +15,8 @@ use crate::options::{is_dispatch_attribute, trait_key, Position, TargetOptions, 
 use crate::route::Route;
 use crate::shape::{bare_ident, is_self, pointee, Pointer};
 use crate::site::Site;
+use crate::spelling;
+use crate::words::Words;
 
 /// The item an impl is written for: an enum over implementors, or a struct
 /// wrapping one.
@@ -65,12 +67,42 @@ impl Subject {
         matches!(self, Subject::Struct(_))
     }
 
+    /// Returns the words a sentence about the subject speaks: an enum's,
+    /// with its variants, or a struct's, with its field.
+    pub(crate) fn words(&self) -> Words {
+        match self {
+            Subject::Enum(_) => Words::Enum,
+            Subject::Struct(_) => Words::Struct,
+        }
+    }
+
     /// Returns what the subject's targets are called in messages.
     pub(crate) fn target_noun(&self) -> &'static str {
-        match self {
-            Subject::Enum(_) => "variant",
-            Subject::Struct(_) => "field",
+        self.words().target()
+    }
+
+    /// Returns the subject with `field` naming `home` as well, as `home`
+    /// spells its trait. A home that finds its trait on a field in another
+    /// spelling says so, and hands the struct on as it was meant, so that
+    /// the impl goes to that field and the sentence stands alone.
+    pub(crate) fn naming(&self, field: &Ident, home: &Path) -> Self {
+        let mut subject = self.clone();
+        if let Subject::Struct(item) = &mut subject {
+            let found = item
+                .fields
+                .iter_mut()
+                .enumerate()
+                .find(|(index, candidate)| match &candidate.ident {
+                    Some(ident) => ident == field,
+                    None => *field == format!("_{index}"),
+                });
+            if let Some((_, found)) = found {
+                found
+                    .attrs
+                    .push(parse_quote_spanned!(field.span() => #[dispatch(#home)]));
+            }
         }
+        subject
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its
@@ -324,20 +356,76 @@ impl<'a> Entries<'a> {
                 });
             match own {
                 Some(own) => *own = route.clone(),
-                None => errors.push(Error::new(
-                    variant.span(),
-                    format!(
-                        "`{}` has no variant `{variant}` to route through",
-                        self.subject.ident()
-                    ),
-                )),
+                None => {
+                    let subject = self.subject.ident();
+                    let message = match self.forwarded_elsewhere(variant) {
+                        Some(kept) => format!("`{variant}` is a field of `{subject}`, but this trait is forwarded to `{kept}`, which is the field its route goes through; name the trait on `{variant}`, `#[dispatch(Trait)]`, to forward it there"),
+                        None => format!(
+                            "`{subject}` has no {} `{variant}` to route through",
+                            self.subject.target_noun()
+                        ),
+                    };
+                    errors.push(Error::new(variant.span(), message));
+                }
             }
         }
         errors
     }
 
+    /// Returns the field that names the trait of `home` in another
+    /// spelling, with the trait as the field spells it. A trait is forwarded
+    /// to the field that names it as its impl's home spells it, the
+    /// struct's attribute or a partial impl block's header, and a macro
+    /// cannot resolve names, so another spelling is another trait: the home
+    /// finds no field and the field's mark is the target of nothing. That
+    /// is undecidable in general, a field's trait the struct's attributes
+    /// do not name being a partial block's, which the struct does not see;
+    /// what can be told is one name spelled two ways. `dispatched` are the
+    /// traits the struct's own attributes name, whose fields are spoken
+    /// for.
+    pub(crate) fn spelt_otherwise(
+        &self,
+        home: &Path,
+        dispatched: &[&Path],
+    ) -> Option<(&Ident, &Path)> {
+        let traits = self.field_traits();
+        let key = trait_key(home);
+        if traits.iter().any(|(_, path)| trait_key(path) == key) {
+            return None;
+        }
+        traits.into_iter().find(|(_, path)| {
+            let spelled = trait_key(path);
+            !dispatched.iter().any(|known| trait_key(known) == spelled) && same_name(path, home)
+        })
+    }
+
+    /// Returns the field the trait is forwarded to when `name` is another
+    /// field of the struct, one `for_trait` left out: a sentence about it
+    /// says where the trait goes, where one about a name the struct lacks
+    /// says so.
+    pub(crate) fn forwarded_elsewhere(&self, name: &Ident) -> Option<&Ident> {
+        let Subject::Struct(item) = self.subject else {
+            return None;
+        };
+        if self.marks.is_some() {
+            return None;
+        }
+        let [kept] = self.entries.as_slice() else {
+            return None;
+        };
+        let is_field = item
+            .fields
+            .iter()
+            .enumerate()
+            .any(|(index, field)| match &field.ident {
+                Some(ident) => ident == name,
+                None => *name == format!("_{index}"),
+            });
+        (is_field && kept.ident != *name).then_some(&kept.ident)
+    }
+
     /// Returns the traits the struct's fields name, with the field each is
-    /// named on, so that one the struct does not dispatch can be reported.
+    /// named on.
     pub(crate) fn field_traits(&self) -> Vec<(&Ident, &Path)> {
         let Some(marks) = &self.marks else {
             return vec![];
@@ -900,6 +988,38 @@ fn field_entry(member: Member, field: &Field, options: &TargetOptions, count: us
     }
 }
 
+/// Returns whether `one` and `other`, two traits as written, may be one
+/// trait spelled two ways: one path is the other with more or fewer
+/// segments in front, `Catalog` and `traits::Catalog`, and their generic
+/// arguments are the same or one has none, `Encoder` and `Encoder<F>`.
+/// Two instantiations, `Encoder<Json>` and `Encoder<Xml>`, and two paths
+/// that part ways, `a::Named` and `b::Named`, are two traits.
+fn same_name(one: &Path, other: &Path) -> bool {
+    let names = |path: &Path| -> Vec<String> {
+        path.segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect()
+    };
+    let arguments = |path: &Path| -> Option<String> {
+        let last = path.segments.last()?;
+        (!last.arguments.is_none()).then(|| spelling::spelled(&last.arguments))
+    };
+    let (one_names, other_names) = (names(one), names(other));
+    let (shorter, longer) = if one_names.len() <= other_names.len() {
+        (&one_names, &other_names)
+    } else {
+        (&other_names, &one_names)
+    };
+    if !longer.ends_with(shorter) {
+        return false;
+    }
+    match (arguments(one), arguments(other)) {
+        (Some(one), Some(other)) => one == other,
+        _ => true,
+    }
+}
+
 pub(crate) fn cfg_attributes(attributes: &[Attribute]) -> Vec<Attribute> {
     attributes
         .iter()
@@ -1106,6 +1226,189 @@ mod tests {
             6,
             "an enum forwards every trait to every variant"
         );
+    }
+
+    #[test]
+    fn one_name_spelled_two_ways_is_told_from_two_traits() {
+        let same = |one: Path, other: Path| same_name(&one, &other) && same_name(&other, &one);
+        assert!(same(parse_quote!(Catalog), parse_quote!(Catalog)));
+        assert!(same(parse_quote!(Catalog), parse_quote!(traits::Catalog)));
+        assert!(same(
+            parse_quote!(crate::traits::Catalog),
+            parse_quote!(traits::Catalog)
+        ));
+        assert!(same(parse_quote!(Encoder), parse_quote!(Encoder<F>)));
+        assert!(same(
+            parse_quote!(Encoder<Json>),
+            parse_quote!(codec::Encoder<Json>)
+        ));
+        assert!(
+            !same(parse_quote!(Encoder<Json>), parse_quote!(Encoder<Xml>)),
+            "two instantiations are two traits"
+        );
+        assert!(
+            !same(parse_quote!(a::Named), parse_quote!(b::Named)),
+            "two paths that part ways are two traits"
+        );
+        assert!(!same(parse_quote!(Catalog), parse_quote!(Named)));
+        assert!(
+            !same(parse_quote!(Catalog), parse_quote!(Catalog::Inner)),
+            "the shorter path ends the longer one"
+        );
+    }
+
+    #[test]
+    fn a_home_finds_the_field_that_spells_its_trait_another_way() {
+        let subject: Subject = parse_quote! {
+            struct Env {
+                #[dispatch(Catalog)]
+                catalog: Books,
+                #[dispatch(Encoder)]
+                encoder: Json,
+                #[dispatch(Encoder<Xml>)]
+                xml: Xml,
+                #[dispatch(Named)]
+                label: Label,
+                #[dispatch]
+                named: Label,
+            }
+        };
+        let entries = subject.read().unwrap();
+        let found = |home: Path, dispatched: &[&Path]| {
+            entries
+                .spelt_otherwise(&home, dispatched)
+                .map(|(field, path)| format!("{field}: {}", path.to_token_stream()))
+        };
+        assert_eq!(
+            found(parse_quote!(traits::Catalog), &[]),
+            Some("catalog: Catalog".to_owned())
+        );
+        assert_eq!(
+            found(parse_quote!(Catalog), &[]),
+            None,
+            "a field that spells the home's trait as the home does is its field"
+        );
+        assert_eq!(
+            found(parse_quote!(Encoder<F>), &[]),
+            Some("encoder: Encoder".to_owned())
+        );
+        assert_eq!(
+            found(parse_quote!(Encoder<Json>), &[]),
+            Some("encoder: Encoder".to_owned()),
+            "`Encoder<Xml>` on `xml` is another instantiation"
+        );
+        let catalog: Path = parse_quote!(Catalog);
+        assert_eq!(
+            found(parse_quote!(traits::Catalog), &[&catalog]),
+            None,
+            "a field's trait an attribute names is that attribute's"
+        );
+        assert_eq!(found(parse_quote!(Unrelated), &[]), None);
+        assert_eq!(
+            found(parse_quote!(wire::Named), &[]),
+            Some("label: Named".to_owned())
+        );
+        assert!(shapes()
+            .read()
+            .unwrap()
+            .spelt_otherwise(&parse_quote!(Shape), &[])
+            .is_none());
+    }
+
+    #[test]
+    fn a_subject_named_as_meant_forwards_the_homes_trait_to_that_field() {
+        let subject: Subject = parse_quote! {
+            struct Env {
+                #[dispatch(Catalog)]
+                catalog: Books,
+                #[dispatch]
+                named: Label,
+            }
+        };
+        let home: Path = parse_quote!(traits::Catalog);
+        let target =
+            |subject: &Subject| names(&subject.read().unwrap().for_trait(&home).unwrap().targets());
+        assert_eq!(target(&subject), ["named"], "as written, the bare field");
+        let meant = subject.naming(&parse_quote!(catalog), &home);
+        assert_eq!(target(&meant), ["catalog"]);
+        let traits: Vec<String> = meant
+            .read()
+            .unwrap()
+            .field_traits()
+            .into_iter()
+            .map(|(field, path)| format!("{field}: {}", path.to_token_stream()))
+            .collect();
+        assert_eq!(
+            traits,
+            ["catalog: Catalog", "catalog: traits :: Catalog"],
+            "the field keeps its own spelling beside the home's"
+        );
+        let tuple: Subject = parse_quote!(
+            struct Pair(#[dispatch] Label, #[dispatch(Encoder)] Json);
+        );
+        let encoder: Path = parse_quote!(Encoder<F>);
+        let meant = tuple.naming(&parse_quote!(_1), &encoder);
+        assert_eq!(
+            names(&meant.read().unwrap().for_trait(&encoder).unwrap().targets()),
+            ["_1"]
+        );
+        let enum_subject = shapes();
+        let unchanged = enum_subject.naming(&parse_quote!(Circle), &home);
+        assert_eq!(
+            unchanged.to_token_stream().to_string(),
+            enum_subject.to_token_stream().to_string(),
+            "an enum has no field to name"
+        );
+    }
+
+    #[test]
+    fn a_name_left_out_of_a_trait_is_another_field_or_none() {
+        let subject: Subject = parse_quote! {
+            struct Env {
+                #[dispatch(Catalog)]
+                catalog: Books,
+                #[dispatch]
+                named: Label,
+                plain: u32,
+            }
+        };
+        let entries = subject.read().unwrap();
+        assert!(
+            entries.forwarded_elsewhere(&parse_quote!(named)).is_none(),
+            "before `for_trait` keeps one field, no field is the trait's"
+        );
+        let catalog = subject
+            .read()
+            .unwrap()
+            .for_trait(&parse_quote!(Catalog))
+            .unwrap();
+        let elsewhere = |name: Ident| catalog.forwarded_elsewhere(&name).map(Ident::to_string);
+        assert_eq!(elsewhere(parse_quote!(named)), Some("catalog".to_owned()));
+        assert_eq!(elsewhere(parse_quote!(plain)), Some("catalog".to_owned()));
+        assert_eq!(elsewhere(parse_quote!(catalog)), None, "the kept field");
+        assert_eq!(elsewhere(parse_quote!(missing)), None, "no such field");
+        let tuple: Subject = parse_quote!(
+            struct Pair(#[dispatch] A, B);
+        );
+        let pair = tuple
+            .read()
+            .unwrap()
+            .for_trait(&parse_quote!(Shape))
+            .unwrap();
+        assert_eq!(
+            pair.forwarded_elsewhere(&parse_quote!(_1))
+                .map(Ident::to_string),
+            Some("_0".to_owned())
+        );
+        let enum_subject = shapes();
+        let enum_entries = enum_subject
+            .read()
+            .unwrap()
+            .for_trait(&parse_quote!(Shape))
+            .unwrap();
+        assert!(enum_entries
+            .forwarded_elsewhere(&parse_quote!(Circle))
+            .is_none());
     }
 
     #[test]

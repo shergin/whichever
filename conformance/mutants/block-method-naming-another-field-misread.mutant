@@ -1,0 +1,9 @@
+file: macros/src/selection.rs
+breaks: A partial block's method that names another field of the struct than the one its trait is forwarded to is told where the trait goes, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `docs/limits.md` say.
+expect: killed
+witness: s0=struct-trait s1=none path=block-some
+
+find:
+                    None => match entries.forwarded_elsewhere(name) {
+replace:
+                    None => match None::<&syn::Ident> {

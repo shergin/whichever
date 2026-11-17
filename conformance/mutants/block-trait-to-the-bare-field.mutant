@@ -1,0 +1,10 @@
+file: macros/src/subject.rs
+breaks: A struct forwards a trait to the field that names it, whichever home implements it, a partial block included, and not to the bare field beside it, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `docs/structs.md` say.
+expect: killed
+witness: s0=struct-trait s1=none path=block
+
+find:
+            (_, Some(named), _) => Ok(*named),
+replace:
+            (_, Some(_), Some(bare)) => Ok(*bare),
+            (_, Some(named), _) => Ok(*named),

@@ -3,17 +3,18 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Result, Signature, Visibility};
+use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Path, Result, Signature, Visibility};
 
 use crate::builds::Builds;
 use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
-use crate::partial::unread_invocation;
+use crate::partial::read_item;
 use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
 use crate::subject::{cfg_attributes, Entries, Subject};
+use crate::words::Words;
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
@@ -21,10 +22,11 @@ use crate::subject::{cfg_attributes, Entries, Subject};
 /// block is emitted as written; its one error is the missing items. A block
 /// of a trait the subject's own attribute dispatches would be a second impl,
 /// which rustc reports as conflicting on the trait's attribute; it is
-/// reported here instead, and the attribute's impl stands. A macro
-/// invocation under `#[cfg]` is in the block only where the `cfg` holds,
-/// and so is its sentence: the block is handed on without it, for the
-/// builds that leave it out.
+/// reported here instead, and the attribute's impl stands. An item
+/// under `#[cfg]` that the block cannot read, a macro invocation among
+/// them, is in the block only where the `cfg` holds, and so is its
+/// sentence: the block is handed on without it, for the builds that leave
+/// it out.
 pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result<TokenStream2> {
     let BlockInput {
         rejected,
@@ -53,7 +55,27 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
     // The invocation carries the block's trait path, so that an error rustc
     // finds in the impl is labelled on the block.
     let site = trait_path.span();
-    let (read_in, sentences) = without_conditional_invocations(&mut item_impl, site);
+    // A struct forwards the block's trait to the field that names it as the
+    // header spells it; a field that spells it another way is not that
+    // field, and the block would go to the bare one. It says so, and the
+    // impl is written for the field that was meant, so that the sentence
+    // stands alone.
+    let attributes: Vec<&Path> = dispatched.iter().collect();
+    let spelt_otherwise = subject.read().ok().and_then(|entries| {
+        let (field, path) = entries.spelt_otherwise(trait_path, &attributes)?;
+        let on_field = trait_key(path);
+        let sentence = Error::new_spanned(
+            trait_path,
+            format!("`{on_field}` on `{field}` and `{trait_name}` here spell one trait's name two ways, so `{field}` is not the field this block is forwarded to; a field names a trait as the block's header spells it"),
+        );
+        Some((subject.naming(field, trait_path), sentence.to_compile_error()))
+    });
+    let (subject, spelt_otherwise) = match spelt_otherwise {
+        Some((subject, sentence)) => (subject, Some(sentence)),
+        None => (subject, None),
+    };
+    let (read_in, sentences) =
+        without_unread_conditional_items(&mut item_impl, subject.words(), site);
     let read_where = read_in.attribute(site);
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
@@ -64,28 +86,36 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
         remote: remote.as_ref(),
         partial: Some(&item_impl),
     };
-    Ok(quote_spanned! { site => #read_where #macro_path! { #request } #sentences })
+    Ok(quote_spanned! { site =>
+        #read_where #macro_path! { #request }
+        #sentences
+        #spelt_otherwise
+    })
 }
 
-/// Takes the macro invocations under `#[cfg]` out of `block`, and returns
-/// the builds that hold none of them with the sentence of each, under its
-/// own `#[cfg]`. What an invocation writes is not seen, so the block cannot
-/// be read where one stands; where its `cfg` does not hold it is not in
-/// the block, which is then read as a hand's is compiled, without it. An
-/// invocation of every build stays, for `PartialBlock::read` to refuse.
-fn without_conditional_invocations(block: &mut ItemImpl, site: Span) -> (Builds, TokenStream2) {
+/// Takes the items under `#[cfg]` that a partial block cannot read out of
+/// `block`, and returns the builds that hold none of them with the sentence
+/// of each, under its own `#[cfg]`. Such an item is in the block only where
+/// its `cfg` holds, and a hand's block compiles where it does not; so the
+/// block is read without it there, and forwards as usual. An item of every
+/// build stays, for `PartialBlock::read` to refuse.
+fn without_unread_conditional_items(
+    block: &mut ItemImpl,
+    words: Words,
+    site: Span,
+) -> (Builds, TokenStream2) {
     let mut unread = Builds::Never;
     let mut sentences = TokenStream2::new();
     block.items.retain(|item| {
-        let ImplItem::Macro(invocation) = item else {
-            return true;
-        };
-        let builds = Builds::of(&invocation.attrs);
+        let (cfgs, read) = read_item(item.clone(), words);
+        let builds = Builds::of(&cfgs);
         if builds.is_every() {
             return true;
         }
-        let cfgs = cfg_attributes(&invocation.attrs);
-        let sentence = unread_invocation(invocation).to_compile_error();
+        let Err(error) = read else {
+            return true;
+        };
+        let sentence = error.to_compile_error();
         sentences.extend(quote_spanned! { site => #(#cfgs)* #sentence });
         unread = std::mem::replace(&mut unread, Builds::Never).or(builds);
         false
@@ -123,6 +153,7 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         Some(subject.read()?)
     };
     let mut items = Vec::with_capacity(item_impl.items.len());
+    let words = subject.words();
     let site = Site::at(item_impl.impl_token.span);
     let mut sentences = TokenStream2::new();
     let mut report = |cfgs: &[Attribute], error: Error| {
@@ -137,7 +168,10 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
                     &cfg_attributes(&attrs),
                     Error::new_spanned(
                         &sig,
-                        "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                        match words {
+                            Words::Enum => "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                            Words::Struct => "a method without a body needs `#[dispatch(*)]` to be forwarded to the struct's field",
+                        },
                     ),
                 );
                 continue;
@@ -164,17 +198,19 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
             continue;
         };
         let cfgs = cfg_attributes(&method.attrs);
-        let forwarded = method.mark(ForwardingOptions::read).and_then(|forwarding| {
-            forward_method(
-                &method.attrs,
-                &method.vis,
-                &method.sig,
-                method.body.as_ref(),
-                forwarding,
-                variants,
-                &subject,
-            )
-        });
+        let forwarded = method
+            .mark(|mark| ForwardingOptions::read(mark, words))
+            .and_then(|forwarding| {
+                forward_method(
+                    &method.attrs,
+                    &method.vis,
+                    &method.sig,
+                    method.body.as_ref(),
+                    forwarding,
+                    variants,
+                    &subject,
+                )
+            });
         match forwarded {
             Ok(generated) => items.push(ImplItem::Verbatim(generated)),
             Err(error) => {

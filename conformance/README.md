@@ -132,7 +132,47 @@ named field is the one the hand rebuilds by its braces and
 which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
-`docs/structs.md` says.
+`docs/structs.md` says. A sentence about a struct speaks of the struct and
+its field, never of an enum or a variant, and the wording checks it where
+the model reaches one: a generic associated type only the struct can
+declare, and a body beside a method forwarded to the struct's field. A
+struct's sentences the model does not reach stay with `tests/ui`: a trait
+method without a receiver, which the `recv` axis does not write; a field
+reached through a route, which no struct value takes, so none leaves an
+associated type to supply; and a method that names the field it forwards
+to, which the paths write only to name another field or two of them,
+below.
+
+Two values of `path`, `inherent-fields` and `block-fields`, mark the
+method on an inherent block or in a partial block `#[dispatch(held,
+label)]`, over the struct whose `held` is marked beside a label: a struct
+holds every field in every value, so it forwards a method to one, and the
+second field named is the method's sentence, on the mark. They are limit
+cells of that struct alone.
+
+Two more values of `s0` make the subject a struct whose field names the
+trait, `E { #[dispatch] label: u64, #[dispatch(Probe)] held: P0 }`, as
+`docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` has it: a field
+names the traits it is the target of, whichever home implements them, the
+struct's attribute or a partial block, and names each as that home spells
+it. Under `struct-trait` the trait goes to `held` from either home, and the
+bare `label`, a `u64` that implements nothing, is where it would go
+otherwise, so a trait sent there is rustc's error; under a block's method
+that names its field, `block-some`, the method names `label`, which is told
+where the trait goes. Under `struct-trait-spelt` the home spells the trait
+`spelt::Probe`, through a module of the cell that re-exports it, one name
+spelled two ways, which is the home's sentence, on
+the field for the attribute and on the header for a block. It stands
+alone at both homes: the impl is written for the field that was meant, so
+the probe through the trait resolves, where an impl for the bare `u64`
+would be rustc's E0277 and a withheld one the probe's error. Under
+`struct-trait-self` the field and the home both spell the trait
+`self::Probe`, a path that begins with a keyword, one spelling, which
+passes as `struct-trait` does. Every other trait would go to the
+bare field, so a second trait, the inherent paths, whose `*` is the bare
+field, generics, whose arguments the field would repeat, and the
+conversions stay the plain struct's. A route keyed by another field, and a
+trait spelled with and without its generic arguments, are `tests/ui`'s.
 
 The `s0` value `marked-last` marks the last field of a tuple variant,
 `A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as
@@ -206,6 +246,18 @@ is `whichever::foreign::Display`: the payloads implement
 `core::fmt::Display`, beside an inherent `fmt` that prints a poison, the
 hand implements `core::fmt::Display` with the same `match`, and the law
 compares what the subject prints with what a twin of its payload prints.
+Under `foreign-iterator` the trait is `whichever::foreign::Iterator`, there
+for the promise that each restated provided method is forwarded: every
+payload implements `core::iter::Iterator` over `u64`, yields its state
+once from `next`, and overrides `any` to ask the predicate about a number
+`next` never yields while taking nothing, so the override answers `true`
+where the default, which runs `next`, answers `false` and leaves nothing to
+yield. The law calls `any` and then `next` through the trait on the
+subject and a twin, and the hand forwards the two; the other restated
+methods are the behaviour tests'. `next` and `any` take `&mut self`, which
+the `recv` axis does not say, so the value is crossed only with the targets
+a `&mut` reaches through, a first variant that supplies `Item`, and the
+enum's attribute and a block silent about both.
 Under `unsafe` the trait is an `unsafe trait`, and every impl of it, the
 payloads', the hand's and a block's, is an `unsafe impl`.
 
@@ -231,7 +283,14 @@ depart from the neutral cell. Under `block-macro-on` the invocation is
 under `#[cfg(all())]`, which holds, and is the same sentence; under
 `block-macro-off` it is under `#[cfg(any())]`, so it is not in the block in
 this build, the block is read without it, and the cell is judged as
-`block`, its hand the hand's block in that build.
+`block`, its hand the hand's block in that build. The same holds for every
+item a block cannot read, and two more values write the simplest of them,
+`m` without a body and without a mark: under `block-bodiless-on` it is
+under `#[cfg(all())]` and is its sentence, the block withheld; under
+`block-bodiless-off` it is under `#[cfg(any())]` and the cell is judged as
+`block`. A mark that does not parse, names an inherent method's option or
+stands beside a second, and `#[dispatch(default)]` on a method with a
+body, are the other items, `tests/ui`'s and the behaviour tests'.
 
 Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
 `#[dispatch(*)]` with a body that is one `match self` holding the arms the
@@ -277,6 +336,22 @@ declares at its root, so the rewrite of `crate::` paths to the trait's
 crate is exercised: left as written, the path names nothing in the
 subject's crate.
 
+The `qual` value `generic-named` is the method's own type parameter named
+as the impl names something around the method: `fn m<T: Into<u64>>` over
+the subject's parameter `T` under `generic=payload`, and `fn m<P0:
+Into<u64>>` over the payload `P0`, which an arm names, elsewhere. The impl
+the attribute writes renames it as a hand does, `T2` or `P02`, the first
+number neither the impl nor the trait writes (`docs/what-is-generated.md`),
+and so do the hand and the payloads' impls; the trait keeps the name. A
+trait-side `mismatch` names it, `<T as Into<u64>>::into(x) * 0` added to
+the constant, and follows the rename. It is crossed with the enum's
+attribute and a silent block only, since a method a block writes or marks
+keeps its names, and with no other generics. Not modelled: a lifetime or a
+const parameter renamed, a name the impl header's bounds or an argument
+given to the trait or an override's type brings, a turbofish that follows
+a renamed parameter, and a `mismatch` naming it inside a macro's arguments
+or a format string, which `tests/ui` and the behaviour tests hold.
+
 The `generic` axis is a payload that is the enum's type parameter, a trait
 generic over a format dispatched at `support::Json`, a trait generic over
 a const dispatched at the enum's own parameter, a defaulted parameter
@@ -310,7 +385,17 @@ beside a variant with other fields, on a struct or under `from = false`, is
 written by hand beside the subject, which compiles only if the attribute
 wrote none. A payload that is the enum's type parameter takes the
 conversions too: its `From` beside another variant's, and its `TryFrom`,
-are each a sentence on the variant.
+are each a sentence on the variant. The conversions are the enum's and
+written once, so four more values spell them across the subject's two
+attributes, the second trait's beside the first under `stack=second`:
+`from-agreed`, `from = false` on both, which is `from-off`;
+`from-contradicted`, `from = true` on the first and `from = false` on the
+second, which is the sentence on the second; `into-repeated`, `into =
+support::Sink` on both, and `into-twice`, the target twice on the first,
+each the sentence on the later. A conversion option on the first
+attribute alone beside a second stays unmodelled, and so do `try_from`
+forms that add up and different `into` targets, which need a second
+target type.
 
 The `agree` axis gives the trait associated items of its own beside those
 the return types name: a type the payloads give differently, consts of
@@ -353,6 +438,31 @@ cargo run -p whichever-conformance --release -- census
 A run writes a workspace of shard crates under `target/conformance/ws`, one
 file per cell, and builds it in `target/conformance/target`. A file is
 written only when it changed, so a second run rebuilds only what moved.
+The shards are named by kind, `pass-NNN`, `limit-NNN`, `rejected-NNN`,
+`malformed-NNN` and `traits-NNN`, and a cell's shard is its hash modulo
+the number of shards of its kind. That number follows the run's cells: as
+many as hold each shard to about 500 passing cells, or 1,500 of the other
+kinds, and no fewer than 16 passing shards, 24 of limits, 8 rejected and
+1 malformed, so a run of a few thousand cells still builds on several
+cores and a run of one cell builds one shard. A cell moves only when its
+kind's count changes. The traits shards are always 8, since a cell's
+source names its trait's crate before the run's cells are counted; they
+hold traits and payloads alone.
+
+The bound is the runner's memory. One compiler builds a shard, and its
+memory grows about linearly with the shard's cells: on macOS arm64 with
+stable, the test build of a passing shard peaked at 1.35 GB resident over
+500 cells, 2.45 GB over 1,000 and 5.2 GB over 2,150, the size the matrix
+had grown to under a fixed 16 shards, while a limit shard of 1,179 cells
+is checked in 0.6 GB. CI's runner, `ubuntu-latest`, has 4 cores and 16 GB
+and builds four shards at once; four passing shards of 2,150 cells
+starved it, and the runner was lost. On 2026-11-17, over 64,943 cells, a
+run with `--jobs 4` wrote 70 passing shards of at most 547 cells, whose
+test build peaked at 1.24 GB, and the `rustc` processes it ran at once
+never held more than 4.3 GB together; it took 8 minutes. The job needs a
+runner with 4 cores and 8 GB of memory, and about 1.5 GB of disk for the
+workspace and its build beside the outer build.
+
 The nested cargo runs with none of the outer cargo's environment but
 `CARGO_HOME` and `CARGO_INCREMENTAL`: a run that starts cold, as CI's does,
 sets `CARGO_INCREMENTAL=0`, since an incremental cache no later run reads

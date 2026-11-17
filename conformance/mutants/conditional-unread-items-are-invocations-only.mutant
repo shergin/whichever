@@ -1,0 +1,13 @@
+file: macros/src/block.rs
+breaks: Every item of a partial impl block that cannot be read, a method without a body and without a mark among them, is reported under its own `#[cfg]`, and where the `cfg` does not hold the block is read without it and forwards as usual, as `docs/limits.md` and `docs/partial-impl-blocks.md` say.
+expect: killed
+witness: path=block-bodiless-off
+witness: s0=struct s1=none path=block-bodiless-off
+
+find:
+        let (cfgs, read) = read_item(item.clone(), words);
+replace:
+        if !matches!(item, ImplItem::Macro(_)) {
+            return true;
+        }
+        let (cfgs, read) = read_item(item.clone(), words);

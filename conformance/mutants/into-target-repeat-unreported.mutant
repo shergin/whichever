@@ -1,0 +1,10 @@
+file: macros/src/dispatch.rs
+breaks: One `into` target named twice, on two attributes or on one, would be the same `From` written twice, and is reported on the later, as `docs/options.md` says.
+expect: killed
+witness: conv=into-twice
+witness: conv=into-repeated stack=second
+
+find:
+            .any(|known| spelling::spelled(&known.target) == spelled)
+replace:
+            .any(|known| spelling::spelled(&known.target) == spelled && false)

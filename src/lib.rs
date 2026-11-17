@@ -97,7 +97,10 @@
 //!   converted with [`Into`], one returning `Result<_, Self::Name>` with
 //!   `map_err(Into::into)`, and `Option<Self::Name>`, `Result<Self::Name, E>`
 //!   and `Result<Self, Self::Name>` are mapped the same way, so variants
-//!   whose own type converts into the named one can share the enum. See
+//!   whose own type converts into the named one can share the enum. An
+//!   argument that names the type is handed to the payload as it is, so a
+//!   method taking `Self::Name`, or a closure over it, compiles only where
+//!   every payload's own `Name` is the override's type. See
 //!   [associated types](#associated-types).
 //! - `Name = value` fixes the associated const `Name` instead of taking it
 //!   from the first variant, for a const that differs per payload by
@@ -144,10 +147,12 @@
 //! The conversions are the enum's, not a trait's: they are written once
 //! however many attributes the enum carries, and a conversion option on any
 //! one of the attributes applies to all of them. `from = false` on any
-//! attribute leaves the `From` impls out, whatever another says; the widest
-//! `try_from` form on any of them applies; and the `into` targets of all of
-//! them are collected, so one target named on two attributes is the same
-//! `From` written twice, a conflict.
+//! attribute leaves the `From` impls out; two attributes may agree on
+//! `from`, and one that contradicts another is reported. The widest
+//! `try_from` form on any of them applies, so `try_from = false` beside
+//! another form cancels nothing. The `into` targets of all of them are
+//! collected, and one target named twice is reported, since it would be the
+//! same `From` written twice.
 //!
 //! # Semantics
 //!
@@ -292,6 +297,9 @@
 //! with `where Self: Sized` cannot be called on it, and is reported in one
 //! sentence, so a partial block leaves that method to the trait's default
 //! with `#[dispatch(default)]`, as a hand does, and the rest is forwarded.
+//! A pointer that implements the trait itself, as `Box<dyn Iterator>`
+//! implements `Iterator`, is held without `deref`, and every method is
+//! forwarded to it.
 //!
 //! A variant marked `#[dispatch(deref)]` holds its value behind a pointer or
 //! a reference. The trait is called on `<Payload as Deref>::Target`, with
@@ -487,9 +495,11 @@
 //! in the enum's crate, which inherent impls are anyway. A bare `#[dispatch]`
 //! on an enum registers it without dispatching a trait. A block on a
 //! dispatch struct forwards the same way: `*` is the field marked bare, or
-//! the only field, and a field's name is that field, marked or not; there a
-//! `Self` argument is the other value's field, as in trait dispatch, and a
-//! return-position `impl Trait` is forwarded as it is.
+//! the only field, and a field's name is that field, marked or not. A
+//! method names one field, since every value holds them all; naming two is
+//! reported. There a `Self` argument is the other value's field, as in
+//! trait dispatch, and a return-position `impl Trait` is forwarded as it
+//! is.
 //!
 //! # Traits from `std` and other crates
 //!
@@ -540,9 +550,12 @@
 //! The restatements an enum most often needs ship in [`foreign`]:
 //! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
 //! `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead`
-//! and `Seek`. `#[dispatch(whichever::foreign::Display)]` on an error enum
-//! replaces the hand-written `match`, and a variant holding a `String`
-//! stays out of the `From` impls with `#[dispatch(from = false)]`.
+//! and `Seek`, each forwarding the provided methods a `match` can forward,
+//! as the module lists them, so `foreign::Iterator` reaches a payload's
+//! own `any`, `find`, `max` or `collect`.
+//! `#[dispatch(whichever::foreign::Display)]` on an error enum replaces the
+//! hand-written `match`, and a variant holding a `String` stays out of the
+//! `From` impls with `#[dispatch(from = false)]`.
 //!
 //! # Enums from other crates
 //!
@@ -651,7 +664,10 @@
 //! forwarded. A macro invocation in the block is reported, since the items
 //! it writes cannot be told from the ones to forward; one under `#[cfg]` is
 //! reported only where the `cfg` holds, and elsewhere the block is read
-//! without it. A method written in
+//! without it. So is every item the block cannot read: a method without a
+//! body or a mark, a mark that does not parse, names an inherent method's
+//! option or stands beside a second, and `#[dispatch(default)]` on a
+//! method with a body. A method written in
 //! the block that still needs the payloads'
 //! answer calls an inherent `#[dispatch(*, call = name)]` method beside it.
 //! Like inherent blocks, it has to be in the enum's crate.
@@ -706,11 +722,17 @@
 //!
 //! A field may name the traits it is the target of, `#[dispatch(Rom)] rom:
 //! Cartridge` beside `#[dispatch(Interrupt)] signals: Signals`, and the
-//! field marked bare takes every trait not named elsewhere; the struct's
-//! attribute still names every trait it dispatches. A field names a trait as
-//! the struct's attribute spells it, arguments included, so two
-//! instantiations of one generic trait, or two traits of one name from two
-//! modules, go to two fields.
+//! field marked bare takes every trait not named elsewhere. The trait's impl
+//! is the struct's attribute's, or a partial impl block's when it needs a
+//! header of its own, such as `impl<S: Sorts, C: Catalog<Extractor =
+//! S::Extractor>, N> Catalog for Env<S, C, N> {}`, and the field that names
+//! the trait is its target either way. A field names a trait as that home
+//! spells it, arguments included, `#[dispatch(Encoder<F>)]` for `impl<F, ..>
+//! Encoder<F> for ..`, so two instantiations of one generic trait, or two
+//! traits of one name from two modules, go to two fields; one name spelled
+//! two ways, `Catalog` on the field and `traits::Catalog` at the home, is
+//! reported, and the impl is written for that field, so the sentence is the
+//! only error.
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on
@@ -776,7 +798,14 @@
 //!   `async fn`. A struct forwards any.
 //! - A method that requires `Self: Sized` cannot be forwarded to a `deref`
 //!   variant holding a trait object; a partial block leaves it to the trait's
-//!   default with `#[dispatch(default)]`.
+//!   default with `#[dispatch(default)]`, or, where the pointer implements
+//!   the trait itself, as `Box<dyn Iterator>` does, the variant holds it
+//!   without `deref`.
+//! - An override, `Name = Type`, converts what a method returns, not an
+//!   argument that names the type: a method taking `Self::Name`, or a
+//!   closure over it, compiles only where every payload's own `Name` is the
+//!   override's. Restate the trait with only the methods to forward, or
+//!   leave such a method to the default with `#[dispatch(default)]`.
 //! - A method whose return type wraps `Self` in anything but `Option`,
 //!   `Result` or a tuple, such as a combinator
 //!   `fn buffered(self) -> Buffered<Self>`, cannot be forwarded: the
@@ -793,8 +822,14 @@
 //!   `from` and `try_from` go on the variant, and a trait named on the
 //!   field is reported, since the variant is the target of every trait its
 //!   enum dispatches.
-//! - A generic associated type is declared by the enum, in a partial impl
-//!   block; it cannot come from the first variant.
+//! - A generic associated type is declared by the enum or the struct, in a
+//!   partial impl block; it cannot come from the first variant or from the
+//!   struct's field, and no option on the attribute gives it.
+//! - A struct's field names a trait as the struct's attribute or a partial
+//!   block's header spells it; one name spelled two ways, `Catalog` and
+//!   `traits::Catalog` or `Encoder` and `Encoder<F>`, is reported. Spell it
+//!   as the home does, or import one of two traits of one name under
+//!   another name.
 //! - A projection through a trait parameter with several bounds,
 //!   `F::Value` with `F: Format + Clone`, cannot be qualified at the enum;
 //!   the trait writes `<F as Format>::Value`.
@@ -805,7 +840,12 @@
 //! - A macro invocation in a partial impl block is not read, so the items
 //!   it writes could not be told from the ones to forward. It is reported;
 //!   write the items out in the block. One under `#[cfg]` is reported where
-//!   the `cfg` holds, and where it does not the block is read without it.
+//!   the `cfg` holds, and where it does not the block is read without it, as
+//!   is any item of the block under `#[cfg]` that cannot be read.
+//! - `from = true` on one of the enum's attributes and `from = false` on
+//!   another contradict each other, and the later is reported; an `into`
+//!   target named twice is reported on the second. The conversions are the
+//!   enum's and written once.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

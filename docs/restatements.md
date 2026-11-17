@@ -35,9 +35,60 @@ on a restated associated type may be left out. A restatement of an
 [`whichever::foreign`](https://docs.rs/whichever/latest/whichever/foreign/):
 `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
 `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead` and
-`Seek`, each forwarding every provided method a `match` can forward. The
-two iterator traits are dispatched beside `Iterator`, one attribute each,
-so that `len`, `rev` and `next_back` are the payload's.
+`Seek`, each forwarding every provided method a `match` can forward and
+that is stable on the crate's minimum Rust version, but for `Error`'s two
+deprecated ones, below. The two iterator
+traits are dispatched beside `Iterator`, one attribute each, so that
+`len`, `rev` and `next_back` are the payload's.
+
+`Iterator` forwards `count`, `last`, `nth`, `for_each`, `collect`,
+`partition`, `fold`, `reduce`, `all`, `any`, `find`, `find_map`,
+`position`, `max`, `min`, the `_by` and `_by_key` forms of both, `sum`,
+`product`, the comparisons `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`,
+`gt` and `ge`, and `is_sorted` with its two forms, beside `next` and
+`size_hint`. So a payload's override is what runs: `core`'s slice
+iterators answer `any`, `all`, `find`, `find_map` and `position`
+themselves, a range answers `max`, `min` and `is_sorted`, and a
+`vec::IntoIter` collected into a `Vec` reuses its allocation. The
+defaults of `all`, `any`, `find` and `position` run through `try_fold`,
+which cannot be restated, so on the enum they would match once per item;
+forwarded, they are one `match`. Left out are the adapters that wrap
+`Self`, `map`, `filter`, `rev` and the rest, and `by_ref`, whose defaults
+call the forwarded methods; `unzip`, which a `match` cannot forward, since
+its bound `Self: Iterator<Item = (A, B)>` does not reach the payload;
+`rposition`, whose bound `Self: ExactSizeIterator + DoubleEndedIterator`
+holds only for an enum that is both; and `try_fold`, `try_for_each`,
+`advance_by` and the others that are unstable on that version.
+
+Every method the `Iterator` declaration forwards but `next`, `size_hint`
+and `nth` requires `Self: Sized`, as `core` declares it. An enum that
+holds a `Box<dyn Iterator>` holds it as a plain payload, without `deref`: the box is itself
+an `Iterator`, so every method is forwarded to it, with no partial block.
+The same goes for a `Box<dyn DoubleEndedIterator>` under
+`DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
+`ExactSizeIterator`. An override such as `Item = Wide` converts what a
+method returns but hands an argument to the payload as it is, so the
+methods that take a closure over `Self::Item` compile only where every
+payload's `Item` is `Wide`. Where the payloads' items differ, restate the
+trait with the methods to forward, and the rest take the real trait's
+default, which calls them:
+
+```rust
+#[whichever::dispatchable(remote = core::iter::Iterator)]
+trait Iterator {
+    type Item;
+    fn next(&mut self) -> Option<Self::Item>;
+    fn size_hint(&self) -> (usize, Option<usize>);
+}
+
+#[whichever::dispatch(Iterator, Item = Wide)]
+pub enum Either {
+    Narrow(Range<u32>),
+    Broad(Range<u64>),
+}
+```
+
+
 `#[dispatch(whichever::foreign::Display)]` on an error enum
 replaces the usual hand-written `match`, and the variant that holds a
 `String` keeps `From` away with `#[dispatch(from = false)]`:
@@ -54,7 +105,9 @@ pub enum ClientError {
 ```
 
 `whichever::foreign::Error` forwards `source` the same way when every
-payload is an error type. When one is not, as the `String` above, or when
+payload is an error type. It leaves out `description` and `cause`, which
+are deprecated: a hand does not forward them, and a block that answers
+`source` itself, as below, would then have to answer them too. When one is not, as the `String` above, or when
 the enum answers a method differently from every payload, that method goes
 in a [partial impl block](partial-impl-blocks.md) over the
 declaration: `#[dispatch] impl whichever::foreign::Error for ClientError

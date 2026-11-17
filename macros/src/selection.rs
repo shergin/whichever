@@ -14,6 +14,7 @@ use crate::builds::Builds;
 use crate::options::ForwardingOptions;
 use crate::site::Site;
 use crate::subject::{Entries, Subject, Target};
+use crate::words::Words;
 
 /// What a method's `#[dispatch(..)]` selects: the targets, with the
 /// method's own route when it gives one; the arms for the variants `*`
@@ -200,6 +201,17 @@ pub(crate) fn select_targets<'a>(
         Some(own) => own.leaves(variant),
         None => Builds::Every,
     };
+    // A struct holds every field in every value, so its `match` has one
+    // arm: a second field named beside the first would be an arm no value
+    // reaches.
+    if subject.has_one_target() {
+        if let [first, second, ..] = forwarding.variants.as_slice() {
+            return Err(Error::new(
+                second.span(),
+                format!("`{method}` names two fields, `{first}` and `{second}`, and a struct forwards a method to one, since every value holds them all; name one, and write a method that needs both by hand"),
+            ));
+        }
+    }
     let site = Site::at(method.span());
     let mut unforwardable_arms = vec![];
     let selected: Vec<Target> = if forwarding.all {
@@ -253,7 +265,12 @@ pub(crate) fn select_targets<'a>(
                         "`{name}` {}, so nothing can be forwarded to it",
                         unforwardable.reason
                     ),
-                    None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                    None => match entries.forwarded_elsewhere(name) {
+                        // A partial block's method on a struct: the trait
+                        // goes to one field, and this is another.
+                        Some(kept) => format!("`{name}` is a field of `{subject_ident}`, but this trait is forwarded to `{kept}`, and a trait is forwarded to one field; name the trait on `{name}`, `#[dispatch(Trait)]`, to forward it there"),
+                        None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                    },
                 };
                 Err(Error::new(name.span(), message))
             })
@@ -288,14 +305,19 @@ pub(crate) fn check_body(
     selection: &Selection,
     body: Option<&Block>,
     sig: &Signature,
-    noun: &str,
+    words: Words,
 ) -> Result<()> {
     let method = &sig.ident;
     match (selection.covers_all, body) {
         (true, Some(_)) if selection.own.is_some() => Ok(()),
         (true, Some(body)) => Err(Error::new_spanned(
             body,
-            format!("`{method}` is forwarded to every {noun}, so its body would never run; end the signature with `;` instead"),
+            match words {
+                Words::Enum => format!("`{method}` is forwarded to every variant, so its body would never run; end the signature with `;` instead"),
+                // A struct holds its field in every value, so the one
+                // field a method is forwarded to leaves a body nothing.
+                Words::Struct => format!("`{method}` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"),
+            },
         )),
         (false, None) => Err(Error::new_spanned(
             sig,
@@ -862,9 +884,31 @@ mod tests {
                 &selection,
                 Some(&body),
                 &signature,
-                wrapper.target_noun()
+                wrapper.words()
             )),
-            "`encode` is forwarded to every field, so its body would never run; end the signature with `;` instead"
+            "`encode` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"
+        );
+    }
+
+    #[test]
+    fn a_structs_method_names_one_field() {
+        let holder: Subject = parse_quote!(
+            struct Holder {
+                square: Square,
+                circle: Circle,
+            }
+        );
+        assert_eq!(
+            message(select(holder.clone(), quote!(square, circle), None)),
+            "`encode` names two fields, `square` and `circle`, and a struct forwards a method to one, since every value holds them all; name one, and write a method that needs both by hand"
+        );
+        let one = select(holder, quote!(circle), None).unwrap();
+        assert_eq!(target_names(&one), ["circle"]);
+        let two = select(codecs(), quote!(Avc1, Hev1), Some(parse_quote!({ 0 }))).unwrap();
+        assert_eq!(
+            target_names(&two),
+            ["Avc1", "Hev1"],
+            "an enum's method names as many variants as it forwards to"
         );
     }
 
@@ -890,7 +934,7 @@ mod tests {
             &subject,
         )
         .unwrap();
-        assert!(check_body(&selection, Some(&body), &signature, subject.target_noun()).is_ok());
+        assert!(check_body(&selection, Some(&body), &signature, subject.words()).is_ok());
         let every: ForwardingOptions = parse_quote!(Avc1, Hev1);
         let two: Subject = parse_quote!(
             enum Codec {
@@ -910,7 +954,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            message(check_body(&listed, Some(&body), &signature, two.target_noun())),
+            message(check_body(&listed, Some(&body), &signature, two.words())),
             "`encode` is forwarded to every variant, so its body would never run; end the signature with `;` instead",
             "a named list that names every variant leaves its body nothing"
         );

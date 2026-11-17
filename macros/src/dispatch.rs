@@ -15,6 +15,7 @@ use crate::options::{
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
+use crate::spelling;
 use crate::subject::{Entries, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
@@ -53,7 +54,7 @@ pub(crate) fn expand_subject(
     };
     let mut attributes = vec![];
     for tokens in arguments {
-        let parsed = syn::parse2::<DispatchAttribute>(tokens).and_then(|attribute| {
+        let parsed = DispatchAttribute::read(tokens, captured.words()).and_then(|attribute| {
             attribute.check_path()?;
             Ok(attribute)
         });
@@ -100,17 +101,24 @@ pub(crate) fn expand_subject(
         .iter()
         .filter_map(|attribute| attribute.path.as_ref())
         .collect();
-    // A trait a field names is one the struct's attribute dispatches; a
-    // field's mark for any other is dead, and says so.
-    for (field, path) in entries.field_traits() {
-        let spelled = trait_key(path);
-        if dispatched.iter().any(|known| trait_key(known) == spelled) {
-            continue;
+    // A trait a field names is forwarded to that field by its impl's home:
+    // the struct's attribute, or a partial impl block, which is not seen
+    // from here, so a field's trait no attribute names is a block's. A
+    // field names its trait as the home spells it. One that spells an
+    // attribute's trait another way is the target of nothing the attribute
+    // writes, which can be told, and is; the attribute's impl is then
+    // written for the field that was meant, so that the sentence stands
+    // alone.
+    let mut respelt: Vec<(&Path, Subject)> = vec![];
+    for home in &dispatched {
+        if let Some((field, path)) = entries.spelt_otherwise(home, &dispatched) {
+            let (on_field, on_struct) = (trait_key(path), trait_key(home));
+            errors.push(Error::new_spanned(
+                path,
+                format!("`{on_field}` on `{field}` and `{on_struct}` on the struct spell one trait's name two ways, so `{field}` is not the field `{on_struct}` is forwarded to; a field names a trait as the struct's attribute spells it"),
+            ));
+            respelt.push((*home, captured.naming(field, home)));
         }
-        errors.push(Error::new_spanned(
-            path,
-            format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
-        ));
     }
     // Every variant must be forwardable when the item dispatches a trait.
     // The error carries the variant's `cfg`, so a variant that is compiled
@@ -128,9 +136,13 @@ pub(crate) fn expand_subject(
         let macro_path = carrier_path(path);
         // The switches stay behind: they were read above and the
         // implementation macro has no use for them.
+        let subject = respelt
+            .iter()
+            .find(|(home, _)| std::ptr::eq(*home, path))
+            .map_or(&captured, |(_, subject)| subject);
         let request = TraitRequest {
             facade: &facade,
-            subject: &captured,
+            subject,
             path,
             options: &attribute.options,
             remote: remote.as_ref(),
@@ -190,7 +202,11 @@ fn take_dispatch_attributes(
 
 /// Writes the `From` and `TryFrom` impls the attributes ask for: an enum's,
 /// switched by `from` and `try_from` on any of its attributes; a struct has
-/// none, and a switch on one is an error.
+/// none, and a switch on one is an error. The conversions are the enum's
+/// and written once, so the attributes say one thing between them: `from`
+/// is on or off, and a second attribute that gives it the other value
+/// contradicts the first; the `try_from` forms and the `into` targets add
+/// up, and a target named a second time would be the same impl twice.
 fn conversions(
     subject: &Subject,
     entries: &Entries,
@@ -209,6 +225,18 @@ fn conversions(
         }
         return TokenStream2::new();
     }
+    let enum_ident = subject.ident();
+    let mut switches = attributes
+        .iter()
+        .filter_map(|attribute| attribute.subject.from.as_ref());
+    if let Some(first) = switches.next() {
+        for other in switches.filter(|other| other.value() != first.value()) {
+            errors.push(Error::new(
+                other.span(),
+                format!("`from = {}` contradicts `from = {}` on another attribute of `{enum_ident}`; the `From` impls are the enum's, written once whatever its attributes, so give `from` one value", other.value(), first.value()),
+            ));
+        }
+    }
     let from = !attributes
         .iter()
         .filter_map(|attribute| attribute.subject.from.as_ref())
@@ -217,10 +245,24 @@ fn conversions(
         .iter()
         .filter_map(|attribute| attribute.subject.try_from.as_ref())
         .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
-    let into: Vec<&IntoTarget> = attributes
+    let mut into: Vec<&IntoTarget> = vec![];
+    for target in attributes
         .iter()
         .flat_map(|attribute| attribute.subject.into.iter())
-        .collect();
+    {
+        let spelled = spelling::spelled(&target.target);
+        if into
+            .iter()
+            .any(|known| spelling::spelled(&known.target) == spelled)
+        {
+            errors.push(Error::new(
+                target.key.span(),
+                format!("`into = {spelled}` is given twice on `{enum_ident}`; `From<{enum_ident}> for {spelled}` is the enum's, written once whatever its attributes, so name a target once"),
+            ));
+            continue;
+        }
+        into.push(target);
+    }
     conversion_impls(subject, entries, from, try_from, &into, errors)
 }
 
@@ -338,7 +380,7 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
             if !attr.is_empty() {
                 return Err(Error::new_spanned(
                     attr,
-                    "`#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method",
+                    "`#[dispatch]` on an inherent impl block takes no arguments; each method says what it forwards to in its own `#[dispatch(..)]`",
                 ));
             }
             let request = BlockRequest {

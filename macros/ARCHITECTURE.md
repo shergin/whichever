@@ -129,7 +129,8 @@ src/
   selection.rs     which targets a method's mark names, `OwnArms` under `*`, and the check on its body
   shape.rs         classifying receivers, arguments, return types and pointers
   spelling.rs      how a type, a path or a route is spelled in a sentence
-  substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's
+  words.rs         `Words`: whether a sentence speaks of an enum and its variants or of a struct and its field
+  substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's, and a method's own given names that mean nothing else in the impl
   agreement.rs     the associated type and const checks
   conversions.rs   `From`, `TryFrom` and `into = Target`
   limits.rs        a test: every sentence the macros write is pinned by a `tests/ui` snapshot
@@ -143,8 +144,8 @@ them, and the review of 2026-11-15 added `builds.rs`, `site.rs`,
 token streams in the modules around it. `shape.rs`, `options.rs`,
 `protocol.rs`, `substitution.rs`, `route.rs`, `spelling.rs`, `naming.rs`,
 `dispatchable.rs`, `builds.rs`, `subject.rs`, `signatures.rs`,
-`marked.rs`, `partial.rs`, `forwarding.rs` and `refusal.rs` have unit
-tests through `parse_quote!`, which the monolith made impractical.
+`marked.rs`, `partial.rs`, `forwarding.rs`, `refusal.rs` and `words.rs`
+have unit tests through `parse_quote!`, which the monolith made impractical.
 
 ### 3.2 The forwarding engine
 
@@ -366,7 +367,57 @@ and a payload method taking the enum is a legitimate target. A trait
 method's parameter names come from a trait the enum's crate may not own:
 each is kept where it is a plain identifier and generated otherwise; an
 inherent method's are the user's, and a pattern that is not a plain
-identifier is an error there.
+identifier is an error there. A trait method's own generic parameter
+may be named like something the impl gives a meaning around the method's
+signature, which in the trait it never meets: a parameter of the header,
+the subject's or a partial block's, which would make two parameters of
+one name, rustc's E0403 (E0496 for a lifetime); or a name the impl writes
+into the method, which the parameter would stand for there. Such a name is
+one that stands first in a path, `Square` and `std` in `Pair<Square,
+std::vec::IntoIter<u8>>` and not `vec` or `IntoIter`, which follow `::`
+and are looked up in what stands before (`Which::First`). The names are
+gathered by `Substitution::names`, called from `expand_implement` on the
+header's parameters, bounds and `where` clause, the self type, the
+subject's path, every payload's type and the overrides' types and the
+enum's `mismatch` expressions, and by `Substitution::of_trait` on the
+trait's path with its arguments. Before the trait's parameters are
+replaced in a signature the attribute writes, the plain forwarding's or a
+rejected method's, `Substitution::distinguish` renames each such
+parameter as a hand does: the name with the first number that neither
+those names, nor any identifier the trait writes (`Which::Every`), nor the
+signature itself uses, `I2`, `'a2`, `N2`, `Square2`, at the parameter's own span, in the
+declaration, the bounds, the `where` clause, the arguments and the
+result, and so in the turbofish the arms spell. `distinguish` returns the
+`Renaming`, which `forward_trait_method` applies to the trait method's own
+`mismatch` expression (`Renaming::expression`), written against the
+method's parameters as the trait names them: a type parameter where it
+stands before `::` or in a type, a const parameter where it stands alone,
+so `T::default()` becomes `T2::default()`. A macro's arguments are tokens
+nothing has read. The arguments of a macro of `core` or `std` that takes
+a format string, as `format_argument` names it by the name before the
+`!`, with or without a path, are expressions between commas:
+`Renaming::arguments` reads them as such, renames each as any expression
+is, and has `capturing` rename a const parameter that the format string
+captures, `{N}`, `{N:>4}` or the width `{:N$}`, leaving `{{` and the rest
+of the text alone. The format string is the argument at its place, the
+first of `format!` and `println!`, the second of `write!` and `assert!`,
+the third of `assert_eq!`, whatever commas stand inside generic arguments
+or a closure before it. Where the arguments do not read as expressions,
+and for any other macro, `Renaming::among` renames the tokens one by one,
+a name that stands first in a path, not after `::` or `.`, and a
+lifetime; a string there is text, `vec!["{N}"]` included, and a macro
+called among the tokens has its arguments read as its own name says. The
+input of `stringify!` and `cfg!` is no code and is left as written, the
+first being the text its tokens are and the second a predicate; a user's
+macro that quotes its input as text cannot be told from one that runs
+it, and is renamed like code. An enum's `mismatch(..)` is
+written in the enum's scope and is not renamed; it is among the names the
+impl writes. A name only the trait
+writes is no reason to rename, since the trait's tokens mean the same in
+the impl. Running before the substitution, it keeps a method's `T` apart
+from the `T` a trait parameter becomes, `Encoder<T>` on `enum E<T>`. A
+method the block writes or marks keeps its signature as written, since
+it is the user's.
 
 Above the engine, `expand_implement` in `implement.rs` reads as the
 sequence it is: the partial block, the header, the entries with the
@@ -439,8 +490,10 @@ rewraps and converts (golden `overridden_results`); `(Self, u32)` and
 `Subject` keeps its two cases and answers the questions the generators ask
 instead of being asked what it is: whether two values of it can hold
 different targets (an enum can, so a `Self` argument needs a mismatch
-arm), whether it has conversions, whether it has one target, and what its
-targets are called in a sentence. The subject's carrier is named
+arm), whether it has conversions, whether it has one target, and what a
+sentence calls it: `Subject::words` answers `Words::Enum`, whose sentences
+speak of the enum and its variants, or `Words::Struct`, whose sentences
+speak of the struct and its field and never of a variant. The subject's carrier is named
 `__whichever_dispatch_..` for both cases, after the attribute that writes
 it.
 
@@ -451,7 +504,20 @@ and whether it is deprecated whatever it holds, and what it holds:
 for a variant of another shape, which carries the reason and the sentence.
 A struct's field options are parsed once there, and what each field is
 marked with stays beside the entries until `Entries::for_trait` keeps the
-field a trait goes to, or `Entries::star` names the field `*` means. The
+field a trait goes to, or `Entries::star` names the field `*` means.
+`for_trait` serves both homes of a trait's impl alike, the subject's
+attribute and a partial impl block's header, and compares the path as the
+home spells it, so a field names a trait as its home does. Two functions
+speak for a field `for_trait` left out. `Entries::spelt_otherwise` finds a
+field that names a home's trait in another spelling, when no field names it
+as spelled: `same_name` takes two paths for one name when the shorter ends
+the longer and their generic arguments agree or one has none, so
+`Catalog` and `traits::Catalog`, or `Encoder` and `Encoder<F>`, are one
+name, and `Encoder<Json>` and `Encoder<Xml>`, or `a::Named` and
+`b::Named`, are two. `Entries::forwarded_elsewhere` names the field the
+trait is kept for when a partial block's method, or a trait's route, names
+another field of the struct, so the sentence says where the trait goes
+rather than that the struct lacks the field. The
 other steps of the reading edit the entries before any target is taken: a
 partial block's header names the subject's parameters, `Entries::rename`,
 and a trait's routes, `via(Variant = ..)`, win over the variants' own,
@@ -565,14 +631,32 @@ one typed struct per position. On a subject the attribute is a
 and what a partial block's attribute holds, whose grammar refuses a trait
 path and a subject's option. `SubjectOptions` holds the subject's `from`,
 `try_from`, `into` and `remote`, each with the span it was written at, read
-where the subject is expanded and never sent. `TargetOptions::read` reads
+where the subject is expanded and never sent. The conversions are the
+enum's and written once, so `conversions` in `dispatch.rs` reads them
+across the attributes as one answer: `from` is on or off, and a later
+attribute that gives it the other value is reported on its key; the
+`try_from` forms add up to the widest; the `into` targets are collected,
+and one spelled as a target already collected, on another attribute or
+the same one, is reported on its key and written once. Who reads a list is a
+`Reader`, which decides the words of its sentences:
+`DispatchAttribute::read` reads the subject's own attribute as
+`Reader::Subject` with the subject's `Words`, so an unknown option lists a
+struct's options on a struct and an enum's on an enum, and a partial
+block's attribute is read as `Reader::Block`, whose sentences name neither
+and list the trait's options, the ones a block takes. `TargetOptions::read` reads
 a variant's or a field's attributes at a `Position`: on a variant a route
 and the variant's say on the conversions, on a variant's field a route
 alone, `deref` or `via`, and on a struct's field a route and the traits the
-field is the target of. A method's mark is a `ForwardingOptions` in an
+field is the target of. An option is read by its first identifier, so a
+path that begins with `::`, `crate`, `self` or `super` is read as a whole
+before it: on a struct's field it is a trait, as its home may spell it,
+and on a variant or a variant's field it gets the unknown-option sentence
+any other trait name gets there, naming its first segment. A method's mark is a `ForwardingOptions` in an
 inherent block and a `TraitMark` in a partial block: `default`, or the
 variants and `via`, with the inherent options `call`, `with`, `field` and
-`value` refused. `method_mismatch` reads a trait method's `mismatch = ..`
+`value` refused; both are read in the subject's `Words`, since the carrier
+has brought the subject by then, so a struct's bare mark asks for its
+field. `method_mismatch` reads a trait method's `mismatch = ..`
 and `DispatchableOptions` a trait's `remote` and `name`.
 The right-hand side of `Name = ..` stays a `TokenStream` until `implement!`
 knows whether `Name` is an associated type or const, and is parsed as a
@@ -590,6 +674,27 @@ accident of one compiler per build. Token positions stay in the name, and
 with them the 1.88 minimum.
 
 ### 3.8 Diagnostics policy
+
+A field's mark for a trait that no home implements is not reported: the
+struct's attribute does not see the partial blocks, which are other
+expansions, so a trait a field names that the attribute does not is taken
+for a block's, and the trait's first use says when the impl is missing.
+What can be told from one expansion is: one name spelled two ways, reported
+at the struct's attribute on the field's mark (`expand_subject`) and at a
+partial block on its trait path (`expand_partial`), through
+`Entries::spelt_otherwise`. The home then hands the struct on with that
+field naming the trait as the home spells it (`Subject::naming`), so the
+impl is written for the field that was meant and the calls around it
+resolve: the sentence stands alone, with no rustc error on a bare field
+that does not implement the trait and no impl withheld.
+
+A sentence speaks of the item the user wrote. It is written where the
+subject is known, at the subject's own attribute and inside `implement!`
+and `implement_block!`, and takes its words from `Subject::words`: an
+enum's sentence names its variants, a struct's its field. The attribute of
+an impl block is read before the subject's carrier brings the subject, so a
+sentence written there (`Reader::Block`) names neither an enum nor a
+struct.
 
 Every generator collects errors with `syn::Error::combine` and reports all
 of them, and every generator emits the item. A trait method that cannot be
@@ -612,15 +717,17 @@ an impl with nothing to forward to would only add rustc's errors to, so
 that a partial block's impl is then the shape errors alone; and a trait
 path whose generic arguments do not fit the trait's parameters, or bind an
 associated item inside the path (`Substitution::of_trait`). In
-`PartialBlock::read`: a method of the block without a body and without a
-mark, a macro invocation, whose items cannot be told from the ones to
-forward (one under `#[cfg]` never reaches it: `expand_partial` takes such
-invocations out of the block, writes the trait's carrier invocation under
-the complement of their `cfg`s, so the block is read without them where
-none holds, and writes each sentence under its invocation's own `cfg`), a
-mark that does not parse or names an inherent method's option,
-a second mark on one method, and `#[dispatch(default)]` on a method with a
-body. In `ItemWriter::write`: a macro invocation inside the trait, an
+`PartialBlock::read`, through `read_item`: a method of the block without
+a body and without a mark, a macro invocation, whose items cannot be told
+from the ones to forward, a mark that does not parse or names an inherent
+method's option, a second mark on one method, and `#[dispatch(default)]`
+on a method with a body. Such an item under `#[cfg]` never reaches it:
+`expand_partial` reads each item with `read_item` first
+(`without_unread_conditional_items`), takes one that cannot be read and is
+not of every build out of the block, writes the trait's carrier invocation
+under the complement of their `cfg`s, so the block is read without them
+where none holds, and writes each sentence under its item's own `cfg`, so
+every such item has its sentence where its `cfg` holds. In `ItemWriter::write`: a macro invocation inside the trait, an
 associated type or const the block writes under `#[cfg]`, an override that
 does not read as a type or as a value, and a signature or a const's type
 the substitution could not write, a projection it could not qualify, which

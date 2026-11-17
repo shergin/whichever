@@ -112,6 +112,9 @@ The `impl` block has to be
 in the enum's crate, which inherent impls are anyway; a bare `#[dispatch]`
 on an enum registers it for this without dispatching a trait. A block on a
 dispatch struct forwards the same way: `*` is the field marked bare, or the
-only field, and a field's name is that field, marked or not; there a `Self`
+only field, and a field's name is that field, marked or not. A method names
+one field, since every value of the struct holds them all and its `match`
+has one arm; naming two is reported, and a method that needs both is
+written by hand. There a `Self`
 argument is the other value's field, as in trait dispatch, and a
 return-position `impl Trait` is forwarded as it is.

@@ -318,9 +318,9 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "block-invocations",
-        summary: "a macro invocation in a partial impl block, bare or under a `#[cfg]` that holds or does not, over a few subjects",
+        summary: "an item a partial impl block cannot read, a macro invocation bare or under a `#[cfg]` that holds or does not, or a method without a body and without a mark under either, over a few subjects",
         vary: &[
-            ("path", &["block-macro", "block-macro-on", "block-macro-off"]),
+            ("path", &["block-macro", "block-macro-on", "block-macro-off", "block-bodiless-on", "block-bodiless-off"]),
             ("s0", &["plain", "deref-box", "marked-struct", "marked-named", "struct", "struct-named"]),
             ("s1", &["plain", "none", "unit"]),
         ],
@@ -614,6 +614,63 @@ pub const ZONES: &[Zone] = &[
             ("deprecated", &["none", "first"]),
         ],
         fixed: &[("decl", "foreign")],
+    },
+    Zone {
+        name: "field-traits",
+        summary: "a struct whose field names the trait beside a bare label, as its home spells it or with one more path segment, through the enum's attribute and the blocks, a block's method naming the label included, over the homes and a few receivers and returns",
+        vary: &[
+            ("s0", &["struct-trait", "struct-trait-spelt", "struct-trait-self"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("home", &[]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self", "assoc"]),
+            ("decl", &["dispatchable", "unsafe"]),
+        ],
+        fixed: &[("s1", "none")],
+    },
+    Zone {
+        name: "struct-fields",
+        summary: "a struct's method naming two of its fields, on an inherent block and a partial block, beside the plain struct's paths",
+        vary: &[
+            ("path", &["inherent", "block-star", "inherent-fields", "block-fields"]),
+            ("s0", &["struct", "struct-marked", "struct-named"]),
+        ],
+        fixed: &[("s1", "none")],
+    },
+    Zone {
+        name: "repeated-conversions",
+        summary: "conversion options that agree, contradict or repeat across the subject's two attributes or within one, beside a second variant of each kind",
+        vary: &[
+            ("conv", &["from-agreed", "from-contradicted", "into-repeated", "into-twice", "from-off", "into"]),
+            ("stack", &["none", "second"]),
+            ("s1", &["plain", "none", "deref-box", "unit"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "renamed-generics",
+        summary: "a method's type parameter named as the subject's parameter or a payload's type, which the impl renames, beside the plain one, through the enum's attribute and a silent block, with a trait-side `mismatch` that names it",
+        vary: &[
+            ("qual", &["generic", "generic-named"]),
+            ("generic", &["none", "payload"]),
+            ("path", &["attribute", "block"]),
+            ("arg", &["none", "ref-trait"]),
+            ("s0", &["plain", "deref-box", "struct"]),
+            ("s1", &["plain", "none"]),
+            ("home", &["local", "crate"]),
+            ("recv", &["ref", "mut", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
+        name: "foreign-iterators",
+        summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
+        vary: &[
+            ("s0", &["plain", "deref-box", "marked-tuple", "struct", "struct-named"]),
+            ("s1", &["plain", "none", "deref-box", "via-field", "unit"]),
+            ("path", &["attribute", "block"]),
+        ],
+        fixed: &[("decl", "foreign-iterator")],
     },
     Zone {
         name: "restated-enums",

@@ -405,8 +405,8 @@ impl Cell {
     /// sentence names it.
     pub fn method_name(&self) -> &'static str {
         match self.decl.descriptor().foreign {
-            true => "`fmt`",
-            false => "`m`",
+            Some(foreign) => foreign.method_name(),
+            None => "`m`",
         }
     }
 

@@ -1,4 +1,4 @@
-error: `doubled` requires `Self: Sized`, and `Boxed` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn doubled(..);` in a `#[whichever::dispatch] impl Shape for Any` block, or implement the method by hand
+error: `doubled` requires `Self: Sized`, and `Boxed` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn doubled(..);` in a `#[whichever::dispatch] impl Shape for Any` block, hold `Box<dyn Shape>` without `deref` where it implements the trait itself, or implement the method by hand
   --> tests/ui/dyn_payload_under_sized_method.rs:6:5
    |
  6 | /     fn doubled(&self) -> u32

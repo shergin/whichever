@@ -109,7 +109,7 @@ impl Marked {
             .retain(|attribute| !is_dispatch_attribute(attribute));
         Err(Error::new_spanned(
             second,
-            "one `#[dispatch(..)]` per method; name every variant it forwards to in that one",
+            "one `#[dispatch(..)]` per method; say in that one everything the method forwards to",
         ))
     }
 
@@ -210,6 +210,7 @@ mod tests {
 
     use super::*;
     use crate::options::TraitMark;
+    use crate::words::Words;
 
     /// The method a marked item reads as, or a panic for any other item.
     fn marked(item: ImplItem) -> Marked {
@@ -269,13 +270,13 @@ mod tests {
             #[dispatch(Square)]
             fn sides(&self) -> u32;
         });
-        let error = match method.mark(TraitMark::read) {
+        let error = match method.mark(|mark| TraitMark::read(mark, Words::Enum)) {
             Ok(_) => panic!("a second mark is an error"),
             Err(error) => error.to_string(),
         };
         assert_eq!(
             error,
-            "one `#[dispatch(..)]` per method; name every variant it forwards to in that one"
+            "one `#[dispatch(..)]` per method; say in that one everything the method forwards to"
         );
         assert_eq!(method.attrs.len(), 1, "only `#[inline]` is left");
         assert!(method.attrs[0].path().is_ident("inline"));
@@ -283,7 +284,10 @@ mod tests {
             #[dispatch(default)]
             fn sides(&self) -> u32;
         });
-        assert!(matches!(once.mark(TraitMark::read), Ok(TraitMark::Default)));
+        assert!(matches!(
+            once.mark(|mark| TraitMark::read(mark, Words::Enum)),
+            Ok(TraitMark::Default)
+        ));
     }
 
     #[test]

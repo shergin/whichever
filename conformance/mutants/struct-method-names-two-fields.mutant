@@ -1,0 +1,9 @@
+file: macros/src/selection.rs
+breaks: An inherent method of a dispatch struct names one field, since every value holds every field and a second one named would be an arm no value reaches, which is reported, as `docs/limits.md` says.
+expect: killed
+witness: s0=struct-marked s1=none path=inherent-fields
+
+find:
+        if let [first, second, ..] = forwarding.variants.as_slice() {
+replace:
+        if let [first, second, ..] = &forwarding.variants.as_slice()[..0] {

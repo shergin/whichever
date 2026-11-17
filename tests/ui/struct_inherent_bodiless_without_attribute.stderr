@@ -1,0 +1,5 @@
+error: a method without a body needs `#[dispatch(*)]` to be forwarded to the struct's field
+  --> tests/ui/struct_inherent_bodiless_without_attribute.rs:16:9
+   |
+16 |     pub fn side(&self) -> u32;
+   |         ^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,12 @@
+file: src/foreign.rs
+breaks: Each restatement `whichever::foreign` ships forwards every provided method a `match` can forward, so a payload's override of `any` is what runs through the enum, as `docs/decisions/foreign-traits-are-restated.md` and `docs/restatements.md` say.
+expect: killed
+witness: decl=foreign-iterator
+witness: s0=struct s1=none decl=foreign-iterator
+
+find:
+    fn any<F>(&mut self, f: F) -> bool
+    where
+        Self: Sized,
+        F: ::core::ops::FnMut(Self::Item) -> bool;
+replace:

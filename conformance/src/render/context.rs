@@ -4,7 +4,7 @@
 use crate::cell::Cell;
 use crate::model::agreement::AgreementDescriptor;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
-use crate::model::declaration::{DeclarationDescriptor, DISPLAY, REAL};
+use crate::model::declaration::{DeclarationDescriptor, Foreign, REAL};
 use crate::model::generics::GenericsDescriptor;
 use crate::model::home::HomeDescriptor;
 use crate::model::item::ItemDescriptor;
@@ -228,14 +228,17 @@ impl Context {
     /// Returns the second trait's attribute options: the associated items
     /// it fixes as the trait under test does.
     pub fn other_options(&self) -> Vec<String> {
-        self.agreement
+        let mut options: Vec<String> = self
+            .agreement
             .items
             .iter()
             .filter_map(|item| {
                 item.overridden
                     .map(|value| format!("{} = {value}", item.name))
             })
-            .collect()
+            .collect();
+        options.extend(self.cell.conv.descriptor().other_option.map(String::from));
+        options
     }
 
     /// Returns the second trait's attribute on the subject.
@@ -290,10 +293,21 @@ impl Context {
     /// Returns the trait as an impl names it, its arguments included:
     /// `Probe<support::Json>`, `Probe<N>`.
     pub fn trait_path(&self) -> String {
-        if self.foreign() {
-            return String::from(DISPLAY);
+        if let Some(foreign) = self.declaration.foreign {
+            return String::from(foreign.path());
         }
         format!("{TRAIT}{}", self.generics.argument)
+    }
+
+    /// Returns the trait as its impl's home spells it, the subject's
+    /// attribute or a partial block's header: as an impl names it, or with
+    /// one more path segment, `self::Probe`, where the struct's field
+    /// spells it as an impl names it, one name spelled two ways.
+    pub fn home_path(&self) -> String {
+        match self.cell.s0.home_prefix() {
+            Some(prefix) => format!("{prefix}::{}", self.trait_path()),
+            None => self.trait_path(),
+        }
     }
 
     /// Returns how an impl of the trait under test begins: `unsafe impl`
@@ -314,8 +328,28 @@ impl Context {
         }
     }
 
-    /// Returns whether the trait under test is `whichever::foreign::Display`.
+    /// Returns the `#[dispatch(..)]` on the method under test in a partial
+    /// block: the path's, or, where the method names its target and the
+    /// struct's field names the trait, the struct's other field, the label,
+    /// which a sentence then says the trait is not forwarded to
+    /// (a-fields-trait-may-be-a-partial-blocks.md).
+    pub fn block_mark(&self) -> Option<&'static str> {
+        let named = self.cell.s0.descriptor().trait_on_field().is_some();
+        match (self.path.form, named) {
+            (crate::model::path::Form::First, true) => Some("label"),
+            _ => self.path.mark,
+        }
+    }
+
+    /// Returns whether the trait under test is a restatement
+    /// `whichever::foreign` ships.
     pub fn foreign(&self) -> bool {
+        self.declaration.foreign.is_some()
+    }
+
+    /// Returns the restatement `whichever::foreign` ships that the trait
+    /// under test is, if it is one.
+    pub fn foreign_trait(&self) -> Option<Foreign> {
         self.declaration.foreign
     }
 
@@ -342,9 +376,7 @@ impl Context {
     /// Returns the name of the crate the trait and the payloads live in
     /// where they live in a crate of their own.
     pub fn trait_crate(&self) -> String {
-        crate::run::workspace::crate_name(
-            &crate::run::workspace::ShardKind::Traits.shard(self.cell.hash()),
-        )
+        crate::run::workspace::crate_name(&crate::run::workspace::traits_shard(self.cell.hash()))
     }
 
     /// Returns the signature of the method under test as a restatement
@@ -756,9 +788,10 @@ impl Context {
         // A converted boxed future holds the arguments in its `async move`
         // block, so a type parameter it holds is `Send`, as a trait under
         // `#[async_trait]` declares it.
+        let fixed = self.method_parameter(site);
         let (generic, generic_bound) = match self.qualifier.generic {
-            Some(Generic::Fixed) if boxed => (Some("X"), "Into<u64> + Send"),
-            Some(Generic::Fixed) => (Some("X"), "Into<u64>"),
+            Some(Generic::Fixed) if boxed => (Some(fixed.as_str()), "Into<u64> + Send"),
+            Some(Generic::Fixed) => (Some(fixed.as_str()), "Into<u64>"),
             Some(Generic::Turbofish) => (Some("W"), "support::Weight"),
             None => (None, ""),
         };
@@ -800,7 +833,7 @@ impl Context {
                 (Site::Impl, _) => "support::Count",
             };
             match self.qualifier.generic {
-                Some(Generic::Fixed) => text.push_str(&format!(", {name}: X")),
+                Some(Generic::Fixed) => text.push_str(&format!(", {name}: {fixed}")),
                 Some(Generic::Turbofish) | None => text.push_str(&format!(", {name}: {ty}")),
             }
         }
@@ -825,6 +858,26 @@ impl Context {
             text.push_str(&format!(" where {}", bounds.join(", ")));
         }
         text
+    }
+
+    /// Returns the name of the method's type parameter the argument fixes,
+    /// at `site`. A name the impl gives a meaning around the method, the
+    /// subject's parameter or a payload's type, is renamed in the impl the
+    /// attribute writes, as a hand renames it, with the first number
+    /// neither the impl nor the trait writes (what-is-generated.md); the
+    /// trait and the payloads' impls keep it.
+    pub fn method_parameter(&self, site: Site) -> String {
+        if !self.qualifier.named {
+            return String::from("X");
+        }
+        let name = match self.generics.payload {
+            true => "T",
+            false => "P0",
+        };
+        match site {
+            Site::Impl => format!("{name}2"),
+            Site::Trait | Site::Payload | Site::Inherent => String::from(name),
+        }
     }
 
     /// Returns the associated types the trait declares, with whether the
@@ -946,7 +999,22 @@ impl Context {
     /// Returns the mismatch expression, the method's answer for two
     /// different variants, naming the enum by `path`.
     pub fn mismatch(&self, path: &str) -> String {
-        let output = self.mismatched_output(path);
+        let mut output = self.mismatched_output(path);
+        // A trait method's own `mismatch` that names its type parameter
+        // follows the impl's name for it (what-is-generated.md); it adds
+        // nothing to the answer.
+        let on_trait = self.argument.mismatch == MismatchSite::Trait;
+        if self.qualifier.named && on_trait && self.node == Node::Tag {
+            let site = match path {
+                "Self" => Site::Trait,
+                _ => Site::Impl,
+            };
+            output = format!(
+                "{output} + <{} as Into<u64>>::into({}) * 0",
+                self.method_parameter(site),
+                self.parameter()
+            );
+        }
         let Some((FutureKind::Boxed, inner)) = self.node.future() else {
             return output;
         };
@@ -1196,13 +1264,15 @@ pub fn write_struct(
             writer.close(");");
         }
         Form::StructMarked => {
-            let mark = match (attributes, target.option) {
-                (false, _) => "",
-                (true, Some(_)) => unreachable!("the marked struct field takes no option"),
-                (true, None) => "#[dispatch] ",
+            // A field that names the trait stands beside a bare label, the
+            // field every other trait goes to.
+            let (label, mark) = match (attributes, target.trait_on_field()) {
+                (false, _) => ("", String::new()),
+                (true, Some(named)) => ("#[dispatch] ", format!("#[dispatch({named})] ")),
+                (true, None) => ("", String::from("#[dispatch] ")),
             };
             writer.open(format!("pub struct E{generics} {{"));
-            writer.line("pub label: u64,");
+            writer.line(format!("{label}pub label: u64,"));
             if anchored {
                 writer.anchor(Anchor::Variant(slot.index).name());
             }

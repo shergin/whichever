@@ -194,6 +194,15 @@ impl TargetDescriptor {
         matches!(self.route.last(), Some(Step::Yield(_)))
     }
 
+    /// Returns the trait the struct's held field names, as the field
+    /// spells it, beside a bare label: `None` where the field names none.
+    pub fn trait_on_field(&self) -> Option<&'static str> {
+        match self.form {
+            Form::StructMarked => self.option,
+            _ => None,
+        }
+    }
+
     /// Returns whether the subject is a struct rather than an enum.
     pub fn is_struct(&self) -> bool {
         matches!(
@@ -211,6 +220,18 @@ impl TargetDescriptor {
     }
 }
 
+/// The trait under test as a struct's field names it, as its home spells
+/// it.
+pub const TRAIT_ON_FIELD: &str = "Probe";
+
+/// The trait under test as a struct's field names it by a path from
+/// `self`, as its home spells it too.
+pub const ROOTED_TRAIT_ON_FIELD: &str = "self::Probe";
+
+/// The module of the cell that re-exports the trait under test, so that a
+/// home can spell it with one more segment than the field.
+pub const SPELT_MODULE: &str = "spelt";
+
 const DEREF: &[Step] = &[Step::Deref];
 const FIELD: &[Step] = &[Step::Field("payload")];
 const INDEX: &[Step] = &[Step::Field("1")];
@@ -221,6 +242,24 @@ const INDEX_FIELD: &[Step] = &[Step::Field("1"), Step::Field("payload")];
 const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
 
 impl Target {
+    /// Returns whether the struct's field names the trait under test as an
+    /// impl names it while its home spells it with one more path segment,
+    /// `spelt::Probe`: one name spelled two ways.
+    pub fn spells_trait_otherwise(self) -> bool {
+        self == Target::StructTraitSpelt
+    }
+
+    /// Returns the segment the home spells the trait under test with in
+    /// front of its name: a module of the cell, where the field spells it
+    /// otherwise, or `self`, as the field spells it too.
+    pub fn home_prefix(self) -> Option<&'static str> {
+        match self {
+            Target::StructTraitSpelt => Some(SPELT_MODULE),
+            Target::StructTraitSelf => Some("self"),
+            _ => None,
+        }
+    }
+
     /// Returns the target kind's description.
     pub fn descriptor(self) -> TargetDescriptor {
         let single = |storage, route, option| TargetDescriptor {
@@ -343,6 +382,27 @@ impl Target {
                 form: Form::StructMarkedLast,
                 route: &[],
                 option: None,
+                refused: false,
+            },
+            Target::StructTrait => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(TRAIT_ON_FIELD),
+                refused: false,
+            },
+            Target::StructTraitSpelt => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(TRAIT_ON_FIELD),
+                refused: false,
+            },
+            Target::StructTraitSelf => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(ROOTED_TRAIT_ON_FIELD),
                 refused: false,
             },
         }

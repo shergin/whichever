@@ -1,0 +1,10 @@
+file: macros/src/options.rs
+breaks: A struct's field names a trait as its home spells it, a path that begins with `crate`, `self`, `super` or `::` included, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `docs/structs.md` say.
+expect: killed
+witness: s0=struct-trait-self s1=none
+witness: s0=struct-trait-self s1=none path=block
+
+find:
+                    if rooted {
+replace:
+                    if rooted && false {

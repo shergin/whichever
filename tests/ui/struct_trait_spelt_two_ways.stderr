@@ -1,0 +1,5 @@
+error: `Catalog` on `catalog` and `traits::Catalog` on the struct spell one trait's name two ways, so `catalog` is not the field `traits::Catalog` is forwarded to; a field names a trait as the struct's attribute spells it
+  --> tests/ui/struct_trait_spelt_two_ways.rs:26:16
+   |
+26 |     #[dispatch(Catalog)]
+   |                ^^^^^^^

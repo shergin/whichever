@@ -39,13 +39,30 @@
   `&mut` through one is reported too. Hold a `Box` or a `&mut`.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
-  default with `#[dispatch(default)]`.
+  default with `#[dispatch(default)]`. Where the pointer implements the
+  trait itself, as `Box<dyn Iterator>` and `&mut dyn Iterator` implement
+  `Iterator`, hold it without `deref`, and every method is forwarded to
+  it. `deref` stays the way for a trait the pointer does not implement,
+  such as a crate's own `Box<dyn Shape>`. Every method of
+  `foreign::Iterator` but `next`, `size_hint` and `nth` has the bound.
+- An override, `Name = Type`, converts what a method returns, not an
+  argument that names the overridden type: the argument is handed to the
+  payload as it is, so the method compiles only where every payload's own
+  type is the override's, and elsewhere rustc reports the arm. The methods
+  of `foreign::Iterator` that take a closure over `Self::Item` are such
+  methods under `Item = Wide`. Restate the trait with only the methods to
+  forward, or leave a method to the default with `#[dispatch(default)]` in
+  a partial block.
 - A method whose return type wraps `Self` in anything but `Option`,
   `Result` or a tuple, such as a combinator
   `fn buffered(self) -> Buffered<Self>`, cannot be forwarded: the payload's
   `Buffered<Payload>` is not the enum's. A provided one is left to the
   trait's default in a partial block with `#[dispatch(default)]`, and the
   default then wraps the enum.
+- An inherent method of a dispatch struct names one field,
+  `#[dispatch(square)]`: every value holds every field, so a second one
+  named would be an arm no value reaches, and is reported. Write a method
+  that needs two fields by hand.
 - Under `with = Some` or `with = Ok` on an inherent method, the payload's
   result is rebuilt into the variant and lifted once: a declared return
   that wraps `Self` twice, `Option<Option<Self>>`, is reported. Drop the
@@ -62,8 +79,21 @@
   as a struct's field may name one, is reported, since the variant is the
   target of every trait its enum dispatches. A trait's own route through
   the variant goes on the enum, `via(Variant = route)`.
-- A generic associated type is declared by the enum, in a partial impl
-  block; it cannot come from the first variant.
+- A generic associated type is declared by the enum or the struct, in a
+  partial impl block; it cannot come from the first variant or from the
+  struct's field, and no option on the attribute gives it.
+- A struct's field names a trait as its impl's home spells it, the struct's
+  attribute or a partial impl block's header, since a macro cannot resolve
+  names. A home whose trait no field names as it is spelled there, beside a
+  field that names one with the same name in another spelling, with more
+  or fewer path segments, `Catalog` and `traits::Catalog`, or with or
+  without its generic arguments, `Encoder` and `Encoder<F>`, is reported,
+  and the impl is written for that field so that the sentence stands
+  alone: spell it as the home does. Two traits of one name that the sentence
+  takes for one, a `Named` and a `wire::Named`, are told apart by
+  importing one under another name. A field's mark for a trait no home
+  implements is not reported, as the struct does not see its blocks; the
+  trait's first use says that the impl is missing.
 - A projection through a trait parameter with several bounds, `F::Value`
   with `F: Format + Clone`, cannot be qualified at the enum; the trait
   writes `<F as Format>::Value`.
@@ -81,7 +111,14 @@
   writes could not be told from the ones to forward. It is reported; write
   the items out in the block. One under `#[cfg]` is reported where the
   `cfg` holds; where it does not, the invocation is not in the block, which
-  is read without it and forwards as usual.
+  is read without it and forwards as usual, as for any item of the block
+  that cannot be read.
+- The conversions are the enum's and written once, so `from = true` on one
+  of its attributes and `from = false` on another contradict each other,
+  and the later is reported; give `from` one value, or write it once.
+- An `into` target named twice, on two of the enum's attributes or on one,
+  would be the same `From<Enum> for Target` written twice, and the second
+  is reported; name each target once.
 - A lint attribute on the enum does not reach the impls written next to it,
   as it would not reach a hand-written one; `#[allow]` goes on the trait
   method, on a partial impl block, or on the module.
@@ -148,7 +185,12 @@ one without a receiver, a mark that cannot be read or a bodiless method
 without a mark, is reported under that method's own `#[cfg]`, so a method
 compiled out is no error, as a hand's method under that `cfg` is simply
 absent; tokens in the block that are no method are reported in every
-build. A rejected enum is still
+build. The same holds for an item of a partial impl block that cannot be
+read: a method without a body and without a mark, a mark that does not
+parse, carries an inherent method's option or stands beside a second,
+`#[dispatch(default)]` on a method with a body, and a macro invocation.
+Each is reported under its own `#[cfg]`; where the `cfg` does not hold,
+the block is read without it and forwards as usual. A rejected enum is still
 emitted, so the derives, uses and impl blocks around it compile, and a
 trait method that cannot be forwarded is still written, with its sentence
 as its body, and so is an associated type or const no variant can supply,

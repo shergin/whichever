@@ -14,6 +14,7 @@ use crate::builds::Builds;
 use crate::marked::{BlockItem, Marked};
 use crate::options::{ForwardingOptions, TraitMark};
 use crate::subject::cfg_attributes;
+use crate::words::Words;
 
 /// A partial impl block: the user's own impl of a trait for the subject,
 /// holding the items the subject implements itself; the rest is forwarded
@@ -39,32 +40,18 @@ impl PartialBlock {
     /// Reads the block. A method marked `#[dispatch(..)]`, or declared
     /// without a body, is the engine's to write; every other item is the
     /// user's.
-    pub(crate) fn read(block: ItemImpl) -> Result<Self> {
+    pub(crate) fn read(block: ItemImpl, words: Words) -> Result<Self> {
         let mut written: HashMap<String, Written> = HashMap::new();
         let mut marked: HashMap<String, Vec<BlockMethod>> = HashMap::new();
         let mut declared_types = vec![];
         let mut user_items = vec![];
         for item in block.items {
-            let item = match BlockItem::read(item) {
-                BlockItem::Marked(method) => {
-                    let name = method.sig.ident.to_string();
-                    marked
-                        .entry(name)
-                        .or_default()
-                        .push(BlockMethod::read(method)?);
+            let item = match read_item(item, words).1? {
+                BlockEntry::Marked(name, method) => {
+                    marked.entry(name).or_default().push(method);
                     continue;
                 }
-                BlockItem::Bodyless { sig, .. } => {
-                    return Err(Error::new_spanned(
-                        &sig,
-                        format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
-                    ));
-                }
-                BlockItem::Unread(tokens) => {
-                    user_items.push(ImplItem::Verbatim(tokens));
-                    continue;
-                }
-                BlockItem::Plain(item) => item,
+                BlockEntry::Written(item) => item,
             };
             let named = match &item {
                 ImplItem::Fn(function) => Some((&function.sig.ident, &function.attrs)),
@@ -73,9 +60,6 @@ impl PartialBlock {
                     Some((&assoc.ident, &assoc.attrs))
                 }
                 ImplItem::Const(constant) => Some((&constant.ident, &constant.attrs)),
-                // What a macro writes is not seen here, so an item it
-                // writes would be forwarded as well and defined twice.
-                ImplItem::Macro(invocation) => return Err(unread_invocation(invocation)),
                 _ => None,
             };
             if let Some((name, attrs)) = named {
@@ -115,9 +99,65 @@ impl PartialBlock {
     }
 }
 
+/// One item of a partial block as read: a method the block marks, which
+/// the engine writes, by its name, or an item the block writes itself.
+// Short-lived and few; the size difference does not matter here.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum BlockEntry {
+    Marked(String, BlockMethod),
+    Written(ImplItem),
+}
+
+/// Reads one item of a partial block, and returns it, or why it cannot be
+/// read, beside the `#[cfg]` attributes it is written under. An item that
+/// cannot be read is a method without a body and without a mark, which
+/// nothing gives a body; a mark that does not parse, names an inherent
+/// method's option or stands beside a second; `#[dispatch(default)]` on a
+/// method with a body; and a macro invocation, whose items are not seen,
+/// so that one it writes would be forwarded as well and defined twice. The
+/// `cfg` is the caller's to use: an item is in the block only where it
+/// holds, and so is what there is to say about it.
+pub(crate) fn read_item(item: ImplItem, words: Words) -> (Vec<Attribute>, Result<BlockEntry>) {
+    let item = match BlockItem::read(item) {
+        BlockItem::Marked(method) => {
+            let cfgs = cfg_attributes(&method.attrs);
+            let name = method.sig.ident.to_string();
+            let read = BlockMethod::read(method, words);
+            return (cfgs, read.map(|method| BlockEntry::Marked(name, method)));
+        }
+        BlockItem::Bodyless { attrs, sig } => {
+            let error = Error::new_spanned(
+                &sig,
+                match words {
+                    Words::Enum => format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
+                    Words::Struct => format!("`{}` has no body; forward it to the struct's field with `#[dispatch(*)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
+                },
+            );
+            return (cfg_attributes(&attrs), Err(error));
+        }
+        BlockItem::Unread(tokens) => {
+            return (vec![], Ok(BlockEntry::Written(ImplItem::Verbatim(tokens))));
+        }
+        BlockItem::Plain(item) => item,
+    };
+    let attrs: &[Attribute] = match &item {
+        ImplItem::Fn(function) => &function.attrs,
+        ImplItem::Type(assoc) => &assoc.attrs,
+        ImplItem::Const(constant) => &constant.attrs,
+        ImplItem::Macro(invocation) => &invocation.attrs,
+        _ => &[],
+    };
+    let cfgs = cfg_attributes(attrs);
+    let read = match &item {
+        ImplItem::Macro(invocation) => Err(unread_invocation(invocation)),
+        _ => Ok(BlockEntry::Written(item)),
+    };
+    (cfgs, read)
+}
+
 /// Returns the sentence about a macro invocation in a partial impl block,
 /// on the invocation.
-pub(crate) fn unread_invocation(invocation: &ImplItemMacro) -> Error {
+fn unread_invocation(invocation: &ImplItemMacro) -> Error {
     Error::new_spanned(
         invocation,
         "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
@@ -156,8 +196,8 @@ pub(crate) enum BlockMethod {
 impl BlockMethod {
     /// Reads a marked method by its mark: left to the trait's default, or
     /// forwarded to the variants it names.
-    fn read(mut method: Marked) -> Result<Self> {
-        match method.mark(TraitMark::read)? {
+    fn read(mut method: Marked, words: Words) -> Result<Self> {
+        match method.mark(|mark| TraitMark::read(mark, words))? {
             TraitMark::Default => {
                 if let Some(body) = &method.body {
                     return Err(Error::new_spanned(
@@ -217,14 +257,14 @@ mod tests {
     use super::*;
 
     fn read(block: ItemImpl) -> PartialBlock {
-        match PartialBlock::read(block) {
+        match PartialBlock::read(block, Words::Enum) {
             Ok(block) => block,
             Err(error) => panic!("a partial block: {error}"),
         }
     }
 
     fn refused(block: ItemImpl) -> String {
-        match PartialBlock::read(block) {
+        match PartialBlock::read(block, Words::Enum) {
             Ok(_) => panic!("expected an error"),
             Err(error) => error.to_string(),
         }
@@ -363,6 +403,22 @@ mod tests {
         assert!(
             twice.starts_with("one `#[dispatch(..)]` per method"),
             "{twice}"
+        );
+    }
+
+    #[test]
+    fn a_bodyless_method_over_a_struct_is_forwarded_to_its_field() {
+        let block: ItemImpl = parse_quote! {
+            impl Shape for Wrapper {
+                fn area(&self) -> u32;
+            }
+        };
+        let Err(error) = PartialBlock::read(block, Words::Struct) else {
+            panic!("expected an error");
+        };
+        assert_eq!(
+            error.to_string(),
+            "`area` has no body; forward it to the struct's field with `#[dispatch(*)]`, or leave it to the trait's default with `#[dispatch(default)]`"
         );
     }
 }

@@ -86,6 +86,21 @@ axis! {
         /// `pub struct E(u64, #[dispatch] P0)`: a tuple struct subject whose
         /// marked field is its last.
         StructMarkedLast = "struct-marked-last",
+        /// `pub struct E { #[dispatch] pub label: u64, #[dispatch(Probe)]
+        /// pub held: P0 }`: a struct whose field names the trait under test,
+        /// as its impl's home spells it, beside a bare field the trait would
+        /// otherwise go to (a-fields-trait-may-be-a-partial-blocks.md).
+        StructTrait = "struct-trait",
+        /// The same struct whose home, the attribute or the block's header,
+        /// spells the trait with one more path segment, `spelt::Probe`
+        /// through a module of the cell that re-exports it: one name
+        /// spelled two ways, the home's sentence
+        /// (a-fields-trait-may-be-a-partial-blocks.md).
+        StructTraitSpelt = "struct-trait-spelt",
+        /// The same struct whose field names the trait by a path that
+        /// begins with a keyword, `#[dispatch(self::Probe)]`, as its home
+        /// spells it too: one spelling, so the trait goes to `held`.
+        StructTraitSelf = "struct-trait-self",
     }
 }
 
@@ -263,6 +278,12 @@ axis! {
         /// A provided method, with a default body, that `P0` overrides and
         /// `P1` does not.
         Provided = "provided",
+        /// `fn m<T: Into<u64>>(.., x: T)` over a subject generic over `T`,
+        /// or `fn m<P0: Into<u64>>(.., x: P0)` over the payload `P0`: a
+        /// name the impl gives a meaning around the method, which the
+        /// attribute renames as a hand does, `T2` or `P02`
+        /// (what-is-generated.md).
+        GenericNamed = "generic-named",
     }
 }
 
@@ -305,6 +326,20 @@ axis! {
         /// An inherent `#[dispatch(*)] pub fn m(..) { match self { .. } }`
         /// (inherent-methods.md).
         InherentArms = "inherent-arms",
+        /// A bodiless inherent `#[dispatch(held, label)] pub fn m(..);` on a
+        /// struct, naming two of its fields, which a struct forwards a
+        /// method to one of (limits.md).
+        InherentFields = "inherent-fields",
+        /// The same mark on the method in a partial block (limits.md).
+        BlockFields = "block-fields",
+        /// A partial block holding `m` without a body and without a mark
+        /// under `#[cfg(all())]`, a `cfg` that holds: in the block, which
+        /// cannot read it, and reported, in this build (limits.md).
+        BlockBodilessOn = "block-bodiless-on",
+        /// The same method under `#[cfg(any())]`, a `cfg` that does not
+        /// hold: not in the block in this build, which is read without it
+        /// and forwards as `block` does (limits.md).
+        BlockBodilessOff = "block-bodiless-off",
     }
 }
 
@@ -466,6 +501,18 @@ axis! {
         VariantFromOff = "variant-from-off",
         /// `#[dispatch(try_from = true)]` on the first variant.
         VariantTry = "variant-try",
+        /// `from = false` on the subject's attribute and on the second
+        /// trait's: attributes that agree, one `from` (options.md).
+        FromAgreed = "from-agreed",
+        /// `from = true` on the subject's attribute and `from = false` on
+        /// the second trait's, which contradicts it (options.md).
+        FromContradicted = "from-contradicted",
+        /// `into = support::Sink` on the subject's attribute and on the
+        /// second trait's: one target given twice (options.md).
+        IntoRepeated = "into-repeated",
+        /// `into = support::Sink, into = support::Sink` on one attribute
+        /// (options.md).
+        IntoTwice = "into-twice",
     }
 }
 
@@ -547,6 +594,11 @@ axis! {
         /// `#[whichever::dispatchable] pub unsafe trait Probe`, whose every
         /// impl is an `unsafe impl` (what-is-generated.md).
         Unsafe = "unsafe",
+        /// `whichever::foreign::Iterator`, of whose methods the law calls
+        /// `next` and the provided `any`, which every payload overrides
+        /// for `core::iter::Iterator`, so that the default the enum would
+        /// otherwise answer with shows (foreign-traits-are-restated.md).
+        ForeignIterator = "foreign-iterator",
     }
 }
 

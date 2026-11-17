@@ -5,9 +5,7 @@ witness: ret=vec-self path=block-some
 
 find:
         if self.has_body {
-            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
-        }
+            return match self.words {
 replace:
         if !self.has_body && self.has_body {
-            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
-        }
+            return match self.words {

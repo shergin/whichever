@@ -1,0 +1,9 @@
+file: macros/src/dispatch.rs
+breaks: The conversions are the enum's and written once, so an attribute that gives `from` the other value contradicts the first and is reported, as `docs/options.md` says.
+expect: killed
+witness: conv=from-contradicted stack=second
+
+find:
+        for other in switches.filter(|other| other.value() != first.value()) {
+replace:
+        for other in switches.filter(|other| other.value() != first.value() && false) {

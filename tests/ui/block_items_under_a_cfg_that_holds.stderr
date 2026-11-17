@@ -1,0 +1,32 @@
+error: `bodiless` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`
+  --> tests/ui/block_items_under_a_cfg_that_holds.rs:40:5
+   |
+40 |     fn bodiless(&self) -> u32;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: expected identifier
+  --> tests/ui/block_items_under_a_cfg_that_holds.rs:43:16
+   |
+43 |     #[dispatch(=)]
+   |                ^
+
+error: `call` is an option of an inherent method; a trait method is called by its own name, and takes `via` only
+  --> tests/ui/block_items_under_a_cfg_that_holds.rs:47:5
+   |
+47 |     #[dispatch(*, call = other)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: one `#[dispatch(..)]` per method; say in that one everything the method forwards to
+  --> tests/ui/block_items_under_a_cfg_that_holds.rs:52:5
+   |
+52 |     #[dispatch(*)]
+   |     ^^^^^^^^^^^^^^
+
+error: `default_with_a_body` is left to the trait's default, so it takes no body; end the signature with `;`
+  --> tests/ui/block_items_under_a_cfg_that_holds.rs:57:42
+   |
+57 |       fn default_with_a_body(&self) -> u32 {
+   |  __________________________________________^
+58 | |         2
+59 | |     }
+   | |_____^

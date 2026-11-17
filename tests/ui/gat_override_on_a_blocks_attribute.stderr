@@ -1,0 +1,5 @@
+error: `Item<..>` is a generic associated type, which the block declares and no option gives; write `type Item<..> = ..;` in the block
+  --> tests/ui/gat_override_on_a_blocks_attribute.rs:26:23
+   |
+26 | #[whichever::dispatch(Item<'a> = &'a A)]
+   |                       ^^^^

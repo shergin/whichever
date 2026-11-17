@@ -1,10 +1,10 @@
-error: `Storage` has no associated type or const `nothing`; its associated items are `Error` and `Unit`, and the other options are `mismatch(method = expr)`, `from = false` and `try_from = true`
+error: `Storage` has no associated type or const `nothing`; its associated items are `Error` and `Unit`, and a struct's other option is a route, `via(field = route)`
   --> tests/ui/unknown_option_names.rs:49:32
    |
 49 | #[whichever::dispatch(Storage, nothing = u8, target = inner)]
    |                                ^^^^^^^
 
-error: `Storage` has no associated type or const `target`; a struct forwards to its one field, or to the field marked `#[dispatch]`
+error: `Storage` has no associated type or const `target`; a struct forwards to its one field, to the field marked `#[dispatch]`, or to the one that names the trait, `#[dispatch(Trait)]`
   --> tests/ui/unknown_option_names.rs:49:46
    |
 49 | #[whichever::dispatch(Storage, nothing = u8, target = inner)]

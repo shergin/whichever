@@ -10,7 +10,7 @@ use super::limits::{
 };
 use super::path::{Form as PathForm, Site as PathSite};
 use super::receiver::Lends;
-use super::target::{Step, TargetDescriptor};
+use super::target::{Step, TargetDescriptor, TRAIT_ON_FIELD};
 use super::{Callee, Receiver, Slot, SlotVariant};
 use crate::cell::Cell;
 use crate::render::context::storage;
@@ -47,6 +47,8 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::OtherAttribute
+        | Anchor::BlockHeader
         | Anchor::BlockInvocation
         | Anchor::Arm
         | Anchor::Associated
@@ -215,7 +217,14 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::GenericAssociatedType
         | Limit::ArmNamingNoVariant
         | Limit::ArmsBesideSelfArgument
-        | Limit::ArmsMatchedByPlace => String::new(),
+        | Limit::ArmsMatchedByPlace
+        | Limit::FieldTraitSpelt
+        | Limit::BlockTraitSpelt
+        | Limit::FieldElsewhere
+        | Limit::TwoFieldsNamed
+        | Limit::BodilessInBlock
+        | Limit::FromContradicted
+        | Limit::IntoRepeated => String::new(),
     }
 }
 
@@ -360,14 +369,47 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::DefaultWithoutDefault => {
             push(Some(format!("{method} has no default body in `Probe")))
         }
-        // A struct is forwarded to its field
-        // (`inherent_all_with_body_on_a_struct`).
+        // A struct is forwarded to its field, and the sentence speaks of
+        // the struct and its field (`inherent_all_with_body_on_a_struct`,
+        // #18).
         Limit::BodyNeverRuns => push(Some(match cell.s0.descriptor().is_struct() {
-            true => format!("{method} is forwarded to every field"),
+            true => format!("{method} is forwarded to the struct's field"),
             false => format!("{method} is forwarded to every variant"),
         })),
         Limit::ArmNamingNoVariant => push(Some(format!("an arm of {method} names the variants"))),
         Limit::ArmsBesideSelfArgument => push(Some(format!("{method} takes `Self` arguments"))),
+        // The trait as the field spells it, the field, and the trait as
+        // its home spells it.
+        Limit::FieldTraitSpelt => push(cell.s0.home_prefix().map(|prefix| {
+            format!("`{TRAIT_ON_FIELD}` on `held` and `{prefix}::{TRAIT_ON_FIELD}` on the struct")
+        })),
+        Limit::BlockTraitSpelt => push(cell.s0.home_prefix().map(|prefix| {
+            format!("`{TRAIT_ON_FIELD}` on `held` and `{prefix}::{TRAIT_ON_FIELD}` here")
+        })),
+        // The method, and the mark that forwards it in the subject's words
+        // (#18).
+        Limit::BodilessInBlock => {
+            push(Some(format!("{method} has no body")));
+            push(Some(String::from(match cell.s0.descriptor().is_struct() {
+                true => "forward it to the struct's field with `#[dispatch(*)]`",
+                false => "forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`",
+            })));
+        }
+        // The later option, the earlier one, and the enum.
+        Limit::FromContradicted => push(Some(String::from(
+            "`from = false` contradicts `from = true` on another attribute of `E`",
+        ))),
+        Limit::IntoRepeated => push(Some(String::from(
+            "`into = support::Sink` is given twice on `E`",
+        ))),
+        // The method and the two fields it names, in the mark's order.
+        Limit::TwoFieldsNamed => push(Some(format!(
+            "{method} names two fields, `held` and `label`"
+        ))),
+        // The field the method names, and the one the trait goes to.
+        Limit::FieldElsewhere => push(Some(String::from(
+            "`label` is a field of `E`, but this trait is forwarded to `held`",
+        ))),
         Limit::ArmsMatchedByPlace => {
             push(Some(String::from("every variant of `E` is under `#[cfg]`")));
             push(Some(format!("so {method} is matched as `match *self`")));
@@ -425,13 +467,18 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         ),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
         // The sentence is on the method and names the variant that holds
-        // the trait object, and the mark that leaves the method to the
-        // trait's default.
+        // the trait object, the mark that leaves the method to the trait's
+        // default, and the pointer held without `deref`, which is the way
+        // where the pointer implements the trait itself
+        // (foreign-traits-are-restated.md: a `Box<dyn Iterator>` does).
         Limit::SizedOnObject => {
             push(Some(format!("{method} requires `Self: Sized`")));
             push(Some(format!(
                 "`#[dispatch(default)] fn {}(..);`",
                 method.trim_matches('`')
+            )));
+            push(Some(String::from(
+                "hold `Box<dyn Probe>` without `deref` where it implements the trait itself",
             )));
             let objects: Vec<String> = cell
                 .method_slots()
@@ -446,14 +493,24 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         // subject that borrows included.
         Limit::GenericAssociatedType => {
             push(Some(String::from("`Item` is a generic associated type")));
+            // A sentence about a struct speaks of the struct (#18).
+            push(Some(match cell.s0.descriptor().is_struct() {
+                true => String::from("which only the struct can declare"),
+                false => String::from("which only the enum can declare"),
+            }));
             push(Some(String::from("`type Item<'v> = ..;`")));
             let borrows = cell
                 .live_slots()
                 .iter()
                 .any(|(_, _, target)| target.borrows());
+            // The trait as the subject's attribute spells it.
+            let probe = match cell.s0.home_prefix() {
+                Some(prefix) => format!("{prefix}::Probe"),
+                None => String::from("Probe"),
+            };
             push(Some(match borrows {
-                true => String::from("impl<'a> Probe for E<'a>` block"),
-                false => String::from("impl Probe for E` block"),
+                true => format!("impl<'a> {probe} for E<'a>` block"),
+                false => format!("impl {probe} for E` block"),
             }));
         }
     }

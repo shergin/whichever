@@ -1,0 +1,5 @@
+error: `Wrapped` has no field `Square` to route through
+  --> tests/ui/struct_route_through_no_field.rs:16:34
+   |
+16 | #[whichever::dispatch(Shape, via(Square = .square))]
+   |                                  ^^^^^^

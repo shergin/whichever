@@ -1,4 +1,6 @@
 use std::io;
+use std::ops::Range;
+use std::vec::IntoIter;
 
 pub struct Tcp(pub Vec<u8>);
 pub struct Memory(pub Vec<u8>);
@@ -43,6 +45,12 @@ pub enum ClientError {
     Io(io::Error),
     #[dispatch(from = false)]
     Message(String),
+}
+
+#[whichever::dispatch(whichever::foreign::Iterator)]
+pub enum Numbers {
+    Range(Range<u32>),
+    Owned(IntoIter<u32>),
 }
 
 fn main() {}
