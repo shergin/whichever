@@ -1,7 +1,8 @@
 file: macros/src/arm.rs
 breaks: A rustc error in an arm lands on a user token, the enum's name or the method's, and never on an attribute, as `macros/ARCHITECTURE.md` 3.8 says.
 expect: killed
-witness: s1=via-method-field recv=value
+witness: s1=none recv=value path=inherent callee=value lift=by-ref
+witness: s0=via-field path=inherent lift=by-ref
 
 find:
 pub(crate) fn hygienic(name: &str, site: Site) -> Ident {

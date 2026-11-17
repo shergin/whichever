@@ -8,5 +8,5 @@ find:
                 #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
             });
 replace:
-            let _ = (&carried, generics, where_clause, error);
+            let _ = (&carried, &generics, where_clause, error);
             return Err(Error::new_spanned(assoc, "a generic associated type"));
