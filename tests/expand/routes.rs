@@ -1,7 +1,8 @@
 //! An arm reaches its target through a route: a field of the payload, the
 //! marked field of a variant with several, or what a method returns; the
 //! call is then qualified by the trait alone, since the target's type is
-//! not the payload's.
+//! not the payload's. A mutable borrow takes its own route where one is
+//! named, `via_mut`, on a variant, on a marked field or beside the trait.
 #[whichever::dispatchable]
 pub trait Area {
     fn area(&self) -> u32;
@@ -24,6 +25,15 @@ pub struct Account {
     pub id: u32,
 }
 
+impl Account {
+    pub fn base(&self) -> &Square {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut Square {
+        &mut self.base
+    }
+}
+
 #[whichever::dispatch(Area, via(Pair = .1))]
 pub enum Any {
     #[dispatch(via = .base)]
@@ -32,6 +42,22 @@ pub enum Any {
     Tagged(#[dispatch] Square, u32),
     Row { id: u32, #[dispatch] cell: Square },
     Plain(Square),
+}
+
+#[whichever::dispatch(Area, via(Keyed = .base()), via_mut(Keyed = .base_mut()))]
+pub enum Lent {
+    #[dispatch(via = .base(), via_mut = .base_mut())]
+    Module(Account),
+    Keyed(Account),
+    Tagged(#[dispatch(via = .base(), via_mut = .base_mut())] Account, u32),
+}
+
+#[whichever::dispatch]
+impl Lent {
+    #[dispatch(Module, Tagged, value, with = Some)]
+    pub fn base_mut(&mut self) -> Option<&mut Square> {
+        None
+    }
 }
 
 #[whichever::dispatch]

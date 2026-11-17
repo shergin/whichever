@@ -1,4 +1,4 @@
-error: unknown option `inline`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)` and `remote = path`
+error: unknown option `inline`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)`, `via_mut(field = route)` and `remote = path`
   --> tests/ui/struct_unknown_option.rs:16:30
    |
 16 | #[whichever::dispatch(Value, inline)]

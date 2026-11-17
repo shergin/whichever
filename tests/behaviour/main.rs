@@ -45,6 +45,7 @@ mod marks_under_the_trait_methods_cfg;
 mod method_attribute_spelled_with_the_crate_path;
 mod method_parameters_named_like_what_the_impl_names;
 mod mismatch_with_moved_arguments;
+mod mutable_routes;
 mod named_carrier_macros;
 mod newtype_delegation;
 mod non_pub_traits_stay_in_their_module;

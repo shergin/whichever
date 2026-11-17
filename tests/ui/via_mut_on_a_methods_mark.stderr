@@ -1,0 +1,5 @@
+error: a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`
+  --> tests/ui/via_mut_on_a_methods_mark.rs:40:19
+   |
+40 |     #[dispatch(*, via_mut = .base_mut(), call = grow)]
+   |                   ^^^^^^^

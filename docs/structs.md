@@ -197,7 +197,13 @@ Labelled {}`.
 ## What is different from an enum
 
 - **`#[dispatch(deref)]` on the field** reaches through a `Box` or another
-  pointer, as it does on a variant.
+  pointer, as it does on a variant. `#[dispatch(via = .source(), via_mut =
+  .source_mut())]` reaches through a getter pair of the field's type, the
+  mutable getter for the methods that borrow mutably; see
+  [A route for a mutable borrow](routes.md#a-route-for-a-mutable-borrow).
+  A trait's own routes through the field go after the trait,
+  `via(field = route)` and `via_mut(field = route)`, on the struct's
+  attribute or on a partial impl block's.
 - **A method returning `Self`** is rebuilt only around a struct with no
   other field, because the macro has no values for the others. On a struct
   with other fields it is an error, and the method goes in a

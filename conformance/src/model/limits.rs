@@ -49,7 +49,8 @@ pub enum Limit {
     /// A `mismatch` on the enum for a method a `#[cfg]` compiled out.
     MismatchForAbsentMethod,
 
-    /// A `&mut self` method on a route ending in a method call.
+    /// A method that borrows its target mutably over a route ending in a
+    /// method call, with no route named for a mutable borrow.
     MethodRouteOnMutSelf,
     /// An associated type taken from the first variant, where no variant's
     /// target has a type to take it from.
@@ -287,7 +288,7 @@ impl Limit {
                 keeps_impl: false,
                 ..entry(
                     "variant-field-option",
-                    "the options of a variant's field are `deref` and `via = route`",
+                    "the options of a variant's field are `deref`, `via = route` and `via_mut = route`",
                     "trait_named_on_a_variants_field",
                 )
             },
@@ -323,7 +324,7 @@ impl Limit {
             ),
             Limit::MethodRouteOnMutSelf => entry(
                 "method-route-on-mut-self",
-                "ends in a method call, whose result cannot be borrowed mutably",
+                "ends in a method call, which may not lend mutably",
                 "route_method_on_mut_self",
             ),
             Limit::DefaultWithoutDefault => entry(
@@ -500,7 +501,7 @@ impl Limit {
             Limit::MovesThroughSharedPointer => ("which a value cannot be moved out of; hold a `Box`", true),
             Limit::MutableBorrowThroughSharedPointer => ("hold a `Box` or a `&mut`", true),
             Limit::MismatchForAbsentMethod => ("takes its mismatch on the trait method, `#[dispatch(mismatch = ..)]`", false),
-            Limit::MethodRouteOnMutSelf => ("route to a field", true),
+            Limit::MethodRouteOnMutSelf => ("give the route a mutable borrow takes, `via_mut = ..`", true),
             Limit::DefaultWithoutDefault => ("give it a body, or forward it", false),
             Limit::BodyNeverRuns => ("end the signature with `;` instead", false),
             // Where the method holds no arms of its own, its way out is

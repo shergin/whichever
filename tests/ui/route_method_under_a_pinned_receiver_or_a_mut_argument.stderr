@@ -1,10 +1,10 @@
-error: `grow` takes `self: Pin<&mut Self>`, and the route `.base()` of `Module` ends in a method call, whose result cannot be borrowed mutably; route to a field, or implement the method by hand
+error: `grow` takes `self: Pin<&mut Self>`, and the route `.base()` of `Module` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or implement the method by hand
   --> tests/ui/route_method_under_a_pinned_receiver_or_a_mut_argument.rs:37:12
    |
 37 |     Module(Account),
    |            ^^^^^^^
 
-error: `absorb` takes `other: &mut Self`, and the route `.base()` of `Module` ends in a method call, whose result cannot be borrowed mutably; route to a field, or implement the method by hand
+error: `absorb` takes `other: &mut Self`, and the route `.base()` of `Module` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or implement the method by hand
   --> tests/ui/route_method_under_a_pinned_receiver_or_a_mut_argument.rs:37:12
    |
 37 |     Module(Account),

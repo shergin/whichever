@@ -1,4 +1,4 @@
-error: unknown option `Shape`; the options of a variant's field are `deref` and `via = route`, and a trait takes its own route through the variant on the enum, `via(Variant = route)`
+error: unknown option `Shape`; the options of a variant's field are `deref`, `via = route` and `via_mut = route`, and a trait takes its own route through the variant on the enum, `via(Variant = route)`
   --> tests/ui/trait_named_on_a_variants_field.rs:19:20
    |
 19 |         #[dispatch(Shape)]

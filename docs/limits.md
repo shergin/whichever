@@ -59,8 +59,8 @@ On this page:
 - **An enum that only forwards [inherent methods](inherent-methods.md)
   may hold variants of any other form.** Those variants have no payload
   to forward to, so they take the method's body.
-- **The marked field of a variant takes `deref` and `via = route`
-  only.** The other variant options belong to the variant itself:
+- **The marked field of a variant takes `deref`, `via = route` and
+  `via_mut = route` only.** The other variant options belong to the variant itself:
   `from` and `try_from` go on the variant, not on its field.
 - **A variant's marked field cannot list a trait**, as a struct's field
   may. The variant is already the target of every trait its enum
@@ -172,11 +172,23 @@ A [route](routes.md) is the steps from the payload to the target: `*`
   [partial impl block](partial-impl-blocks.md). Where the method is
   under `*` with arms you write, write that variant's arm in the
   method's body instead.
-- **A route that ends in a method call cannot serve a method that borrows
-  mutably**: through `&mut self`, `self: Pin<&mut Self>` or a `&mut Self`
-  argument. The error says which of the three it is. The method call
-  returns a value that cannot be borrowed mutably. Route to a field
-  instead, or implement the method by hand.
+- **A route that ends in a method call serves a method that borrows
+  mutably only when a route is given for the mutable borrow**: through
+  `&mut self`, `self: Pin<&mut Self>` or a `&mut Self` argument. The
+  method call returns a value, handed over as it is, and the attribute
+  cannot see whether it is a `&mut`. Give the route for a mutable borrow,
+  `via_mut = ..` on the variant or the field, or `via_mut(Variant = ..)`
+  after the trait, or route through the method's own mark. Otherwise you
+  get an error that names `via_mut` and says which of the three borrows
+  it is, or implement the method by hand.
+- **`via_mut = route` after a trait is an error.** After a trait, a
+  route is keyed by what it goes through: write `via_mut(Variant =
+  route)`.
+- **A variant and its marked field cannot both give `via_mut`.** One of
+  them is the route; two would leave you guessing which wins.
+- **A method's own mark takes `via`, not `via_mut`.** The method follows
+  its own route whatever it borrows, and its receiver is beside the mark,
+  so a second route would say nothing.
 - **A `deref` variant over an `Rc`, an `Arc` or a `&T` cannot serve a
   method that borrows mutably.** Those pointers lend what they point at
   shared only. Hold a `Box` or a `&mut`.

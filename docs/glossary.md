@@ -79,7 +79,9 @@ The steps from the payload to the [target](#target). A step is `*` (what
 the payload dereferences to), `.field` or `.0` (a field), or `.method()`
 (what a method returns), in any sequence. `#[dispatch(deref)]` on a
 variant is the route `*`, and `#[dispatch(via = .shape)]` reaches a
-field. See [Reaching the target][routes].
+field. A second route, `via_mut`, can serve the methods that borrow the
+target mutably, such as a getter that lends mutably. See [Reaching the
+target][routes].
 
 ```rust
 #[dispatch(deref)]

@@ -1,0 +1,5 @@
+error: `Tagged` and its field both give a route for a mutable borrow; give one
+  --> tests/ui/via_mut_on_a_variant_and_its_field.rs:36:12
+   |
+36 |     Tagged(#[dispatch(via = .base(), via_mut = .base_mut())] Account, u32),
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

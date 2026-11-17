@@ -688,6 +688,20 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("owner", "remote")],
     },
     Zone {
+        name: "mutable-routes",
+        summary: "a getter pair, `via` and `via_mut`, on a variant and on a marked field, beside a method route that names none, under the receivers and the `Self` arguments that borrow each way, through the enum's attribute, a block and an inherent block that calls or reads the target",
+        vary: &[
+            ("s0", &["via-getters", "marked-getters", "via-method"]),
+            ("s1", &["plain", "none", "via-getters", "via-method"]),
+            ("recv", &["ref", "mut", "value", "pin-ref", "pin-mut"]),
+            ("arg", &["none", "ref-trait", "mut"]),
+            ("path", &["attribute", "block-star", "inherent"]),
+            ("ret", &["u64", "mut", "unit"]),
+            ("callee", &["method", "value"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "restated-structs",
         summary: "a struct of another crate restated beside the subject, its one field or a marked one, whose pattern ends in `..`, through the enum's attribute and the blocks, with the receivers, the returns that rebuild it and a conversion option it refuses",
         vary: &[

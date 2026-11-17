@@ -28,10 +28,12 @@ and is not read either.
 | [`try_from = true`, `ref`, `ref_mut`](#try_from-get-the-payload-back-out) | on the enum, after the trait path | Adds `TryFrom<Enum> for Payload`, and the by-reference forms. |
 | [`into = Target`](#into--target-convert-the-enum-into-another-type) | on the enum, after the trait path | Adds `From<Enum> for Target`. |
 | [`via(Variant = route, ..)`](#viavariant--route-a-route-for-one-trait) | on the enum, after the trait path | A route through `Variant` for this trait only. One entry per variant. |
+| [`via_mut(Variant = route, ..)`](#viavariant--route-a-route-for-one-trait) | on the enum, after the trait path | The same, for the methods that borrow the target mutably. |
 | [`from = false`](#options-on-a-variant) | on a variant | Leaves the variant out of `From` and `TryFrom`. |
 | [`try_from = true`](#options-on-a-variant) | on a variant | Adds `TryFrom` for this variant's payload alone. |
 | [`deref`](#options-on-a-variant) | on a variant, or on the marked field | Calls the trait on what the payload dereferences to. |
 | [`via = route`](#options-on-a-variant) | on a variant, or on the marked field | Calls the trait on a field of the payload, or on what a method returns. |
+| [`via_mut = route`](#options-on-a-variant) | on a variant, or on the marked field | The route the methods that borrow the target mutably take instead. |
 | [`#[dispatch]`](#the-marked-field) | on one field of a variant | Picks the field to forward to, in a variant with several fields or a named one. |
 | [`remote = path`](restatements.md#enums-from-other-crates) | on the enum or the struct | Restates an enum or a struct another crate defines, so you can dispatch traits on it. |
 | [`#[dispatch(Trait)]`](structs.md#several-traits-several-fields) | on a field of a struct | Makes the field the target of `Trait`. |
@@ -281,7 +283,7 @@ let wire: Wire = message.into();
 
 ## Options on a variant
 
-Four options go on a variant, in `#[dispatch(..)]` above it:
+Five options go on a variant, in `#[dispatch(..)]` above it:
 
 ```rust
 #[whichever::dispatch(Shape)]
@@ -308,8 +310,12 @@ pub enum AnyShape<'a> {
   a plain `T`.
 - **`via = route`** calls the trait on a field of the payload, or on what
   a method of it returns.
+- **`via_mut = route`** is the route that the methods borrowing the
+  target mutably take instead, such as a getter that lends mutably
+  beside one that lends shared: `#[dispatch(via = .data(), via_mut =
+  .data_mut())]`.
 
-`deref` and `via` are routes. [Reaching the target](routes.md) has
+`deref`, `via` and `via_mut` are routes. [Reaching the target](routes.md) has
 everything about them.
 
 ### The marked field
@@ -327,7 +333,9 @@ pub enum AnyShape {
 
 Without the mark, you get an error on the variant.
 
-The marked field takes `deref` and `via = route`, and nothing else:
+The marked field takes `deref`, `via = route` and `via_mut = route`, and
+nothing else. A route for a mutable borrow goes on the variant or on its
+field, not on both, or you get an error:
 
 - The conversion options (`from`, `try_from`) go on the variant, because
   the conversions belong to the variant.
@@ -349,7 +357,13 @@ pub enum Any {
 }
 ```
 
-For that trait, it wins over the variant's own route.
+For that trait, it wins over the variant's own routes: both its `via`
+and its `via_mut`.
+
+`via_mut(Pair = route)` gives the trait its own route for the methods
+that borrow the target mutably. Given alone, it replaces the variant's
+`via_mut` only, and the variant's `via` still serves the other methods.
+See [A route for a mutable borrow](routes.md#a-route-for-a-mutable-borrow).
 
 ## Dispatching several traits
 

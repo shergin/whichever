@@ -248,6 +248,10 @@ pub(crate) struct TraitOptions {
     /// The routes this trait takes through named variants, `via(Variant =
     /// .0, ..)`, over the variants' own.
     pub(crate) routes: Vec<(Ident, Route)>,
+    /// The routes its methods that borrow mutably take through named
+    /// variants, `via_mut(Variant = .get_mut(), ..)`, over the variants'
+    /// own.
+    pub(crate) mutable_routes: Vec<(Ident, Route)>,
 }
 
 impl TraitOptions {
@@ -267,6 +271,11 @@ impl TraitOptions {
         for (name, route) in other.routes {
             if !self.routes.iter().any(|(known, _)| *known == name) {
                 self.routes.push((name, route));
+            }
+        }
+        for (name, route) in other.mutable_routes {
+            if !self.mutable_routes.iter().any(|(known, _)| *known == name) {
+                self.mutable_routes.push((name, route));
             }
         }
     }
@@ -463,6 +472,13 @@ impl ToTokens for TraitOptions {
                 .map(|(variant, route)| quote!(#variant = #route));
             parts.push(quote!(via(#(#pairs),*)));
         }
+        if !self.mutable_routes.is_empty() {
+            let pairs = self
+                .mutable_routes
+                .iter()
+                .map(|(variant, route)| quote!(#variant = #route));
+            parts.push(quote!(via_mut(#(#pairs),*)));
+        }
         tokens.extend(quote!(#(#parts),*));
     }
 }
@@ -512,6 +528,7 @@ impl DispatchAttribute {
             overrides,
             mismatch,
             routes,
+            mutable_routes,
         } = &self.options;
         let (span, spelled) = if let Some(fixed) = overrides.first() {
             let name = fixed.name.to_string();
@@ -526,6 +543,8 @@ impl DispatchAttribute {
             (method.span(), String::from("mismatch(..)"))
         } else if let Some((name, _)) = routes.first() {
             (name.span(), String::from("via(..)"))
+        } else if let Some((name, _)) = mutable_routes.first() {
+            (name.span(), String::from("via_mut(..)"))
         } else {
             return None;
         };
@@ -604,6 +623,7 @@ impl DispatchAttribute {
             overrides: vec![],
             mismatch: vec![],
             routes: vec![],
+            mutable_routes: vec![],
         };
         let mut subject = SubjectOptions::default();
         if let Some(path) = &path {
@@ -630,19 +650,20 @@ impl DispatchAttribute {
                 }
                 return Ok(());
             }
-            if key == "via" && input.peek(syn::token::Paren) {
+            if (key == "via" || key == "via_mut") && input.peek(syn::token::Paren) {
                 let content;
                 parenthesized!(content in input);
                 let pairs = Punctuated::<KeyedRoute, Token![,]>::parse_terminated(&content)?;
+                let routes = if key == "via" {
+                    &mut options.routes
+                } else {
+                    &mut options.mutable_routes
+                };
                 for pair in pairs {
-                    if options
-                        .routes
-                        .iter()
-                        .any(|(variant, _)| *variant == pair.key)
-                    {
+                    if routes.iter().any(|(variant, _)| *variant == pair.key) {
                         return Err(given_twice(&pair.key));
                     }
-                    options.routes.push((pair.key, pair.route));
+                    routes.push((pair.key, pair.route));
                 }
                 return Ok(());
             }
@@ -657,14 +678,20 @@ impl DispatchAttribute {
                     "`via = route` goes on a variant, on a field or on a method's `#[dispatch(..)]`; after a trait a route is keyed by what it goes through, `via(name = route)`, and the field of a struct that a trait is forwarded to names the trait, `#[dispatch(Trait)]`",
                 ));
             }
+            if key == "via_mut" && input.peek(Token![=]) {
+                return Err(Error::new(
+                    key.span(),
+                    "`via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`",
+                ));
+            }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
                     match reader {
-                        Reader::Subject(Words::Enum) => format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
+                        Reader::Subject(Words::Enum) => format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `via_mut(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
                         // The conversions and the mismatch are an enum's.
-                        Reader::Subject(Words::Struct) => format!("unknown option `{key}`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)` and `remote = path`"),
-                        Reader::Block => format!("unknown option `{key}`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)`"),
+                        Reader::Subject(Words::Struct) => format!("unknown option `{key}`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)`, `via_mut(field = route)` and `remote = path`"),
+                        Reader::Block => format!("unknown option `{key}`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)` or `via_mut(name = route)`"),
                     },
                 ));
             }
@@ -959,6 +986,9 @@ pub(crate) fn method_mismatch(function: &TraitItemFn) -> Result<Option<Expr>> {
 pub(crate) struct TargetOptions {
     /// How an arm reaches the target from the payload; `deref` is `*`.
     pub(crate) route: Option<Route>,
+    /// How an arm that borrows the target mutably reaches it, `via_mut =
+    /// route`, where that is another route.
+    pub(crate) mutable: Option<Route>,
     pub(crate) from: bool,
     pub(crate) try_from: Option<TryFromForms>,
     /// The traits a struct's field is the target of, `#[dispatch(Rom)]`,
@@ -980,14 +1010,15 @@ pub(crate) enum Position {
 
 impl TargetOptions {
     /// Reads every `#[dispatch(..)]` attribute written at `position`:
-    /// `deref` and `via = route` anywhere, `from = false` and `try_from =
-    /// true` on a variant, and the traits a struct's field is the target
+    /// `deref`, `via = route` and `via_mut = route` anywhere, `from = false`
+    /// and `try_from = true` on a variant, and the traits a struct's field is the target
     /// of. A bare `#[dispatch]` marks the field to forward to and carries
     /// nothing.
     pub(crate) fn read(attributes: &[Attribute], position: Position) -> Result<Self> {
         let on_variant = position == Position::Variant;
         let mut options = Self {
             route: None,
+            mutable: None,
             from: true,
             try_from: None,
             traits: vec![],
@@ -1015,7 +1046,7 @@ impl TargetOptions {
                         if on_variant {
                             return Err(Error::new(
                                 first.span(),
-                                format!("unknown option `{first}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                                format!("unknown option `{first}`; the options are `deref`, `via = route`, `via_mut = route`, `from = false` and `try_from = true`"),
                             ));
                         }
                         if position == Position::VariantField {
@@ -1029,13 +1060,14 @@ impl TargetOptions {
                     // trait the field is the target of.
                     let is_option = key == "deref"
                         || key == "via"
+                        || key == "via_mut"
                         || ((key == "from" || key == "try_from") && on_variant)
                         || input.peek(Token![=]);
                     if !is_option {
                         if on_variant {
                             return Err(Error::new(
                                 key.span(),
-                                format!("unknown option `{key}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                                format!("unknown option `{key}`; the options are `deref`, `via = route`, `via_mut = route`, `from = false` and `try_from = true`"),
                             ));
                         }
                         // A variant is the target of every trait its enum
@@ -1069,6 +1101,12 @@ impl TargetOptions {
                             ));
                         }
                         options.route = Some(route);
+                    } else if key == "via_mut" {
+                        input.parse::<Token![=]>()?;
+                        if options.mutable.is_some() {
+                            return Err(given_twice(&key));
+                        }
+                        options.mutable = Some(input.parse()?);
                     } else if key == "from" && on_variant {
                         input.parse::<Token![=]>()?;
                         options.from = input.parse::<LitBool>()?.value;
@@ -1079,9 +1117,9 @@ impl TargetOptions {
                         return Err(variant_field_option(&key));
                     } else {
                         let known = if on_variant {
-                            "the options are `deref`, `via = route`, `from = false` and `try_from = true`"
+                            "the options are `deref`, `via = route`, `via_mut = route`, `from = false` and `try_from = true`"
                         } else {
-                            "the options are `deref` and `via = route`, and the traits the field is the target of"
+                            "the options are `deref`, `via = route` and `via_mut = route`, and the traits the field is the target of"
                         };
                         return Err(Error::new(
                             key.span(),
@@ -1101,7 +1139,7 @@ impl TargetOptions {
 fn variant_field_option(key: &Ident) -> Error {
     Error::new(
         key.span(),
-        format!("unknown option `{key}`; the options of a variant's field are `deref` and `via = route`, and a trait takes its own route through the variant on the enum, `via(Variant = route)`"),
+        format!("unknown option `{key}`; the options of a variant's field are `deref`, `via = route` and `via_mut = route`, and a trait takes its own route through the variant on the enum, `via(Variant = route)`"),
     )
 }
 
@@ -1212,6 +1250,12 @@ impl ForwardingOptions {
                         }
                         "with" => forwarding.with = Some(input.parse()?),
                         "via" => forwarding.via = Some(input.parse()?),
+                        "via_mut" => {
+                            return Err(Error::new(
+                                ident.span(),
+                                "a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`",
+                            ))
+                        }
                         "field" => {
                             forwarding.field = Some(if input.peek(LitInt) {
                                 let index: LitInt = input.parse()?;
@@ -1549,7 +1593,7 @@ mod tests {
             let attributes: Vec<Attribute> = vec![attribute];
             assert_eq!(
                 message(TargetOptions::read(&attributes, Position::Variant)),
-                format!("unknown option `{first}`; the options are `deref`, `via = route`, `from = false` and `try_from = true`"),
+                format!("unknown option `{first}`; the options are `deref`, `via = route`, `via_mut = route`, `from = false` and `try_from = true`"),
                 "a variant names no trait"
             );
             let on_field = message(TargetOptions::read(&attributes, Position::VariantField));
@@ -1571,7 +1615,12 @@ mod tests {
             .is_some_and(|route| route.is_deref()));
         let routed = field(parse_quote!(#[dispatch(via = .base)])).unwrap();
         assert_eq!(routed.route.unwrap().spelled(), ".base");
-        let sentence = "the options of a variant's field are `deref` and `via = route`";
+        assert!(routed.mutable.is_none());
+        let lent = field(parse_quote!(#[dispatch(via = .base(), via_mut = .base_mut())])).unwrap();
+        assert_eq!(lent.route.unwrap().spelled(), ".base()");
+        assert_eq!(lent.mutable.unwrap().spelled(), ".base_mut()");
+        let sentence =
+            "the options of a variant's field are `deref`, `via = route` and `via_mut = route`";
         for refused in [
             parse_quote!(#[dispatch(Shape)]),
             parse_quote!(#[dispatch(from = false)]),
@@ -1584,6 +1633,82 @@ mod tests {
         assert!(
             message(field(parse_quote!(#[dispatch(Shape)]))).starts_with("unknown option `Shape`")
         );
+    }
+
+    #[test]
+    fn a_mutable_borrows_route_goes_on_a_target_or_keyed_beside_a_trait() {
+        let variant = |attribute: Attribute| TargetOptions::read(&[attribute], Position::Variant);
+        let both =
+            variant(parse_quote!(#[dispatch(via = .data(), via_mut = .data_mut())])).unwrap();
+        assert_eq!(both.route.unwrap().spelled(), ".data()");
+        assert_eq!(both.mutable.unwrap().spelled(), ".data_mut()");
+        let alone = variant(parse_quote!(#[dispatch(via_mut = .data_mut())])).unwrap();
+        assert!(alone.route.is_none(), "the other borrows keep the payload");
+        assert_eq!(alone.mutable.unwrap().spelled(), ".data_mut()");
+        assert_eq!(
+            message(variant(
+                parse_quote!(#[dispatch(via_mut = .a(), via_mut = .b())])
+            )),
+            "`via_mut` is given twice"
+        );
+        let on_struct = TargetOptions::read(
+            &[parse_quote!(#[dispatch(via_mut = .source_mut())])],
+            Position::StructField,
+        )
+        .unwrap();
+        assert_eq!(on_struct.mutable.unwrap().spelled(), ".source_mut()");
+        let keyed: TraitOptions =
+            syn::parse_str("via(Got = .get()), via_mut(Got = .get_mut(), Other = .0)").unwrap();
+        assert_eq!(keyed.routes.len(), 1);
+        let mutable: Vec<String> = keyed
+            .mutable_routes
+            .iter()
+            .map(|(name, route)| format!("{name} = {}", route.spelled()))
+            .collect();
+        assert_eq!(mutable, ["Got = .get_mut()", "Other = .0"]);
+        assert_eq!(
+            message(syn::parse_str::<TraitOptions>("via_mut = .get_mut()")),
+            "`via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`"
+        );
+        assert_eq!(
+            message(DispatchAttribute::read(
+                quote!(Shape, via_mut = .get_mut()),
+                Words::Enum
+            )),
+            "`via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`"
+        );
+        assert!(
+            message(syn::parse_str::<TraitOptions>(
+                "via_mut(Got = .a(), Got = .b())"
+            ))
+            .contains("Got"),
+            "a variant keyed twice is reported"
+        );
+    }
+
+    #[test]
+    fn a_methods_own_route_is_via_whatever_the_method_borrows() {
+        let sentence = "a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`";
+        assert_eq!(
+            message(ForwardingOptions::read(
+                &parse_quote!(#[dispatch(*, via_mut = .data_mut())]),
+                Words::Enum,
+            )),
+            sentence
+        );
+        assert_eq!(
+            message(TraitMark::read(
+                &parse_quote!(#[dispatch(*, via_mut = .data_mut())]),
+                Words::Struct,
+            )),
+            sentence
+        );
+        let own = ForwardingOptions::read(
+            &parse_quote!(#[dispatch(*, via = .data_mut(), call = to_send)]),
+            Words::Enum,
+        )
+        .unwrap();
+        assert_eq!(own.via.unwrap().spelled(), ".data_mut()");
     }
 
     #[test]
@@ -1646,11 +1771,11 @@ mod tests {
             .starts_with("unknown option `inline`; the options are `Name = Type`"));
         assert_eq!(
             read("Value, inline", Words::Struct),
-            "unknown option `inline`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)` and `remote = path`"
+            "unknown option `inline`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)`, `via_mut(field = route)` and `remote = path`"
         );
         assert_eq!(
             block("Unit = u8, inline"),
-            "unknown option `inline`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)`"
+            "unknown option `inline`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)` or `via_mut(name = route)`"
         );
         assert!(read("Lend, Item<'a> = &'a A", Words::Enum).starts_with(
             "`Item<..>` is a generic associated type, which only the enum can declare"

@@ -230,17 +230,18 @@ fn takes(cell: &Cell, limit: Limit) -> String {
 }
 
 /// Returns the route a target is reached by, as the variant's option
-/// spells it, every step: `.payload`, `.lend()`, `*.payload`; `None` for
-/// `deref` alone, which a sentence names as `deref`.
+/// spells it, every step: `.payload`, `.lend()`, `*.payload`, the one
+/// named for a mutable borrow where the method borrows `exclusive`ly;
+/// `None` for `deref` alone, which a sentence names as `deref`.
 ///
 /// Open question: no snapshot holds a sentence about a route of several
 /// steps; it is read as naming the route as the option spells it.
-fn route(target: &TargetDescriptor) -> Option<String> {
+fn route(target: &TargetDescriptor, exclusive: bool) -> Option<String> {
     if target.route.is_empty() || target.is_deref() {
         return None;
     }
     let steps: Vec<String> = target
-        .route
+        .route_for(exclusive)
         .iter()
         .map(|step| match step {
             Step::Deref => String::from("*"),
@@ -321,9 +322,12 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             push(Some(format!("{method} returns `Self`")));
             push(variant.map(|variant| format!("payload of {variant}")));
         }
+        // The route the receiver takes, the one named for a mutable borrow
+        // where the receiver borrows mutably.
         Limit::RouteSelfReturn => {
             push(Some(format!("{method} returns `Self`")));
-            let route = target.and_then(|(_, target)| route(&target));
+            let exclusive = cell.recv.descriptor().lends == Lends::Exclusive;
+            let route = target.and_then(|(_, target)| route(&target, exclusive));
             push(
                 route
                     .zip(variant)
@@ -381,7 +385,7 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         }
         Limit::MethodRouteOnMutSelf => {
             push(Some(format!("{method} {}", takes(cell, limit))));
-            let route = target.and_then(|(_, target)| route(&target));
+            let route = target.and_then(|(_, target)| route(&target, false));
             push(
                 route
                     .zip(variant)

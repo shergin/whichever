@@ -1699,14 +1699,16 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::MismatchForAbsentMethod, anchor);
     }
 
-    // "A route ending in a method call cannot serve a `&mut self` method."
-    //
-    // `self: Pin<&mut Self>` and a `&mut Self` argument get the same
-    // sentence, naming the receiver or the argument as the signature has
-    // it.
+    // "Without `via_mut`, a mutable borrow through a route that ends in a
+    // method call is an error on the variant. [..] The error names
+    // `via_mut`" (routes.md): a method that borrows
+    // the target mutably, by `&mut self`, by `self: Pin<&mut Self>` or in
+    // a `&mut Self` argument, over a route that ends in a method call and
+    // names no route for a mutable borrow. The sentence names the receiver
+    // or the argument as the signature has it.
     if receiver.lends == Lends::Exclusive || argument.kind == Some(ArgumentKind::Exclusive) {
         for (slot, _, target) in &method_live {
-            if target.ends_in_method() {
+            if target.borrows_mutably_through_a_call() {
                 expect(Limit::MethodRouteOnMutSelf, Anchor::Variant(slot.index));
             }
         }

@@ -90,6 +90,7 @@ pub mod glossary {}
 /// [restatements-provided-methods]: crate#restate-any-other-trait
 /// [routes]: crate#reaching-the-target-pointers-fields-and-methods
 /// [structs-some-builds]: crate#forwarding-from-a-struct-field
+/// [routes-mutable-borrow]: crate#where-you-write-a-route
 /// [what-is-generated]: crate#what-is-generated
 ///
 #[doc = include_str!("../docs/troubleshooting.md")]

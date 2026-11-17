@@ -4,7 +4,10 @@ Status: accepted, 2026-11-05. Serves rules 1 and 3 of the
 [vision](../vision.md), the output is the hand's and what earns a shape.
 Supersedes the open directions B and C of [A variant without a payload is
 left to the fallback](a-variant-without-a-payload-is-left-to-the-fallback.md),
-whose decision stands. Reopen if a surveyed project needs a route with an
+whose decision stands. Completed on 2026-11-17 by
+[A mutable borrow takes a route of its own](a-mutable-borrow-takes-a-route-of-its-own.md),
+which supersedes one rule: a method route is no longer refused under a
+mutable borrow where a route is named for one. Reopen if a surveyed project needs a route with an
 argument, a fallible step, or a method route under `&mut self`, each of
 which is a limit today.
 

@@ -1,14 +1,15 @@
 //! An arm reaches its target through a route: a field of the payload, the
 //! marked field of a variant with several, or what a method returns; the
 //! call is then qualified by the trait alone, since the target's type is
-//! not the payload's.
+//! not the payload's. A mutable borrow takes its own route where one is
+//! named, `via_mut`, on a variant, on a marked field or beside the trait.
 pub trait Area {
     fn area(&self) -> u32;
     fn grow(&mut self, by: u32);
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub use __whichever_Area_db9d8ab2eb5f6f7c_5_1 as Area;
+pub use __whichever_Area_088b1393c113015a_6_1 as Area;
 pub struct Square(pub u32);
 impl Area for Square {
     fn area(&self) -> u32 {
@@ -21,6 +22,14 @@ impl Area for Square {
 pub struct Account {
     pub base: Square,
     pub id: u32,
+}
+impl Account {
+    pub fn base(&self) -> &Square {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut Square {
+        &mut self.base
+    }
 }
 pub enum Any {
     Module(Account),
@@ -52,7 +61,7 @@ impl ::core::convert::From<Square> for Any {
 }
 #[doc(hidden)]
 #[allow(unused_imports)]
-pub(crate) use __whichever_dispatch_Any_facda45d93460f69_27_1 as Any;
+pub(crate) use __whichever_dispatch_Any_facda45d93460f69_37_1 as Any;
 #[automatically_derived]
 impl Area for Any {
     #[inline]
@@ -73,6 +82,42 @@ impl Area for Any {
             Any::Tagged(__inner, ..) => <Square as Area>::grow(__inner, by),
             Any::Row { cell: __inner, .. } => <Square as Area>::grow(__inner, by),
             Any::Plain(__inner) => <Square as Area>::grow(__inner, by),
+        }
+    }
+}
+pub enum Lent {
+    Module(Account),
+    Keyed(Account),
+    Tagged(Account, u32),
+}
+#[doc(hidden)]
+#[allow(unused_imports)]
+pub(crate) use __whichever_dispatch_Lent_b437d6003e01c151_47_1 as Lent;
+#[automatically_derived]
+impl Area for Lent {
+    #[inline]
+    fn area(&self) -> u32 {
+        match self {
+            Lent::Module(__inner) => <_ as Area>::area(__inner.base()),
+            Lent::Keyed(__inner) => <_ as Area>::area(__inner.base()),
+            Lent::Tagged(__inner, ..) => <_ as Area>::area(__inner.base()),
+        }
+    }
+    #[inline]
+    fn grow(&mut self, by: u32) {
+        match self {
+            Lent::Module(__inner) => <_ as Area>::grow(__inner.base_mut(), by),
+            Lent::Keyed(__inner) => <_ as Area>::grow(__inner.base_mut(), by),
+            Lent::Tagged(__inner, ..) => <_ as Area>::grow(__inner.base_mut(), by),
+        }
+    }
+}
+impl Lent {
+    pub fn base_mut(&mut self) -> Option<&mut Square> {
+        match self {
+            Self::Module(__inner) => Some(__inner.base_mut()),
+            Self::Tagged(__inner, ..) => Some(__inner.base_mut()),
+            _ => None,
         }
     }
 }

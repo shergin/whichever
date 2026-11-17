@@ -1,0 +1,11 @@
+error: `via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`
+  --> tests/ui/via_mut_on_the_attribute.rs:35:29
+   |
+35 | #[whichever::dispatch(Grow, via_mut = .base_mut())]
+   |                             ^^^^^^^
+
+error: `via_mut(..)` is an option of a trait's impl, and this attribute names no trait; write it after the trait, `#[whichever::dispatch(Trait, via_mut(..))]`, or on the `#[whichever::dispatch] impl` block that implements the trait
+  --> tests/ui/via_mut_on_the_attribute.rs:42:31
+   |
+42 | #[whichever::dispatch(via_mut(Module = .base_mut()))]
+   |                               ^^^^^^

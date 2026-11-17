@@ -179,7 +179,11 @@ pub fn observe_diagnostic(outcome: &mut Outcome, rendered: &Rendered, diagnostic
                 .unwrap_or_else(|| quoted(&diagnostic.message)),
             part,
         },
-        Level::Error => match Limit::of_message(&diagnostic.message) {
+        // The hand's errors are rustc's, its own `match` arms that disagree
+        // included, which the catalogue holds as a sentence of the enum's.
+        Level::Error => match Limit::of_message(&diagnostic.message)
+            .filter(|_| !matches!(part.as_str(), "hand" | "law-hand"))
+        {
             Some(limit) => {
                 let key = String::from(limit.entry().key);
                 let place = place_of(rendered, site.line);
@@ -476,20 +480,24 @@ pub fn judge(cell: &Cell, verdict: &Verdict, outcome: &Outcome, rendered: &Rende
                     | Finding::Untested { .. } => None,
                 })
                 .collect();
+            // rustc's own E0308 over arms that disagree is catalogued as a
+            // sentence of the enum's, for the limit it is beside an
+            // agreement check; here it is the error the hand gets too.
+            let arms = |key: &str| key == Limit::ArmsDisagree.entry().key;
             let shared = |finding: &&Finding| match finding {
                 Finding::Error { code: found, part } => {
                     hand_codes.contains(&found.as_str()) && part != "attribute"
                 }
-                Finding::Sentence { .. }
-                | Finding::Warning { .. }
+                Finding::Sentence { key, .. } => arms(key) && hand_codes.contains(&"E0308"),
+                Finding::Warning { .. }
                 | Finding::Law { .. }
                 | Finding::Shape { .. }
                 | Finding::Untested { .. } => false,
             };
             let own = |finding: &&Finding| match finding {
                 Finding::Error { code: found, .. } => is_code(found) && shared(finding),
-                Finding::Sentence { .. }
-                | Finding::Warning { .. }
+                Finding::Sentence { key, .. } => is_code("E0308") && arms(key) && shared(finding),
+                Finding::Warning { .. }
                 | Finding::Law { .. }
                 | Finding::Shape { .. }
                 | Finding::Untested { .. } => false,

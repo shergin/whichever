@@ -12,6 +12,20 @@ std::thread_local! {
     /// What the last call of a method answering `()` noted: the number its
     /// answer would have been made from, which the law reads back.
     static NOTE: Cell<u64> = const { Cell::new(0) };
+    /// How many times a wrapper's mutable getter has lent since the law
+    /// last asked: what it does besides lending, which a route to the
+    /// field in its place would skip.
+    static LENT_MUT: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Counts a loan of a wrapper's mutable getter.
+pub fn lend_mut() {
+    LENT_MUT.with(|count| count.set(count.get() + 1));
+}
+
+/// Returns how many times a mutable getter has lent, and forgets it.
+pub fn take_lent_mut() -> u64 {
+    LENT_MUT.with(|count| count.replace(0))
 }
 
 /// Notes what a method answering `()` was called on and with, so that a

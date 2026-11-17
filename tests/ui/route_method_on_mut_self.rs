@@ -1,5 +1,7 @@
-//! A route ending in a method call yields a value, which `&mut self`
-//! cannot borrow through.
+//! A route ending in a method call yields a value, which is a `&mut` only
+//! where its method lends one; without a route named for a mutable borrow,
+//! `&mut self` over a getter that lends shared is reported, naming
+//! `via_mut`.
 #[whichever::dispatchable]
 trait Grow {
     fn grow(&mut self);

@@ -12,11 +12,11 @@ suite shapes
   never 135 unmodelled: a return for the subject's lifetime outside an inherent place over `&'a P0`
 
 suite pairs
-  pass 884
-  limit 1694
-  rejected 91
+  pass 936
+  limit 1762
+  rejected 102
   malformed 0
-  never 31 unmodelled: a limit beside a rejection the limit does not replace
+  never 35 unmodelled: a limit beside a rejection the limit does not replace
 
 suite arguments
   pass 1557
@@ -95,17 +95,17 @@ suite path-arguments
   never 120 unmodelled: arms of the method's own over an enum of one variant
 
 suite inherent
-  pass 1048
-  limit 2638
+  pass 1088
+  limit 2736
   rejected 66
   malformed 0
-  never 3840 non-canonical
+  never 3912 non-canonical
   never 43 unmodelled: a limit beside a rejection the limit does not replace
   never 168 unmodelled: a struct's inherent or block method naming its field, not modelled yet
-  never 153 unmodelled: an `async fn` that returns a future
-  never 720 unmodelled: an inherent body for a return type that needs a payload to make
+  never 159 unmodelled: an `async fn` that returns a future
+  never 792 unmodelled: an inherent body for a return type that needs a payload to make
   never 144 unmodelled: an inherent method through a field of what a method lends under a receiver other than `&self`
-  never 288 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
+  never 576 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
   never 72 unmodelled: an inherent method through a route whose method yields its target
   never 36 unmodelled: an inherent opaque future on an enum with a lifetime, whose capture needs `use<..>`
 
@@ -223,10 +223,10 @@ suite named-variants
 
 suite field-options
   pass 0
-  limit 61
+  limit 64
   rejected 0
   malformed 0
-  never 19 non-canonical
+  never 20 non-canonical
 
 suite block-invocations
   pass 20
@@ -499,6 +499,18 @@ suite restated-enums
   never 40 unmodelled: a block body for a return type that needs a payload to make
   never 100 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
 
+suite mutable-routes
+  pass 504
+  limit 264
+  rejected 132
+  malformed 0
+  never 1728 non-canonical
+  never 24 unmodelled: a limit beside a rejection the limit does not replace
+  never 84 unmodelled: a place beside a `Self` argument, which nothing reads
+  never 120 unmodelled: a place read as a return type other than a value or a reference
+  never 72 unmodelled: a reference return that borrows from the `Self` argument
+  never 312 unmodelled: an inherent method through a route ending in a method call under a receiver other than `&self`
+
 suite restated-structs
   pass 87
   limit 81
@@ -633,31 +645,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 10173
+  pass 11686
   limit 0
   rejected 0
   malformed 0
-  rows 10173
-  covered 103401
-  unreached 103905
+  rows 11686
+  covered 111592
+  unreached 108000
 
 suite array-limits
   pass 0
-  limit 635
+  limit 680
   rejected 0
   malformed 0
-  rows 635
-  covered 13108
-  unreached 4779
+  rows 680
+  covered 13567
+  unreached 4829
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 1017
+  rejected 1024
   malformed 0
-  rows 1017
-  covered 12250
-  unreached 5637
+  rows 1024
+  covered 12532
+  unreached 5864
 
 suite known
   pass 0

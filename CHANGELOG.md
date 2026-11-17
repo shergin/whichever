@@ -5,6 +5,47 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a route ending in a method call was refused for every method
+  that borrows mutably, "whose result cannot be borrowed mutably; route to
+  a field", though a getter that lends mutably, `fn data_mut(&mut self) ->
+  &mut Data`, returns the mutable borrow itself and the hand's arm
+  `inner.data_mut().to_send(version)` compiles; and the field route the
+  sentence advised skipped what the getter does besides lending, such as
+  confluent-kafka's `MetadataResponse::data_mut`, which drops a cache. A
+  mutable borrow now takes a route of its own: `via_mut = route` on a
+  variant, a variant's marked field or a struct's field, and
+  `via_mut(name = route)` beside a trait, on the enum's or the struct's
+  attribute or on a partial block's. A method that borrows the target
+  mutably, by `&mut self`, by `self: Pin<&mut Self>` or in a `&mut Self`
+  argument, follows it, and every other method follows `via`; each `Self`
+  argument takes the route of its own borrow, so `fn absorb(&mut self,
+  other: &Self)` is `absorb(inner.source_mut(), other.source())`. A route
+  on a method's own mark, an inherent method's or a marked method's in a
+  partial block, is followed whatever the method borrows, so
+  `#[dispatch(*, via = .data_mut(), call = to_send)]` on a `&mut self`
+  method is the hand's arm. A trait's `via(Variant = ..)` replaces both of
+  the variant's own routes, and its `via_mut(Variant = ..)` given alone
+  the variant's `via_mut` only. An inherent method's place arm, `value`,
+  through a route ending in a method hands that method's result over as
+  it is. A
+  mutable borrow through a method route with no route named for it is
+  still one sentence, which now names the option: ".. ends in a method
+  call, which may not lend mutably; give the route a mutable borrow takes,
+  `via_mut = ..`, or implement the method by hand". `via_mut` on a
+  method's own mark, `via_mut = route` after a trait, and a route for a
+  mutable borrow on both a variant and its field are each one sentence,
+  and the option lists of the "unknown option" sentences name `via_mut`.
+  `docs/routes.md`, `docs/options.md`, `docs/structs.md`,
+  `docs/inherent-methods.md`, `docs/limits.md`, `docs/troubleshooting.md`,
+  `docs/glossary.md`, the crate docs and the docs of `#[dispatch]` say
+  so.
+  The snapshots `route_method_on_mut_self`,
+  `route_method_under_a_pinned_receiver_or_a_mut_argument`,
+  `unknown_option`, `struct_unknown_option`, `block_unknown_option`,
+  `variant_option` and `trait_named_on_a_variants_field` changed;
+  `via_mut_on_the_attribute`, `via_mut_on_a_variant_and_its_field` and
+  `via_mut_on_a_methods_mark` are new, and so is the behaviour test
+  `mutable_routes`; the golden `routes` gained an enum over a getter pair.
 - Before, the sentence for a return-position `impl Trait` on an enum said
   that "every variant returns a different opaque type", which is not true
   of variants that reach a target of one type, such as spenso's

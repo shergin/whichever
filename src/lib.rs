@@ -656,16 +656,19 @@
 //! ### Where you write a route
 //!
 //! - **On a variant or a struct field**, for every trait:
-//!   `#[dispatch(via = .base)]`.
+//!   `#[dispatch(via = .base)]`. A second route, `via_mut = route`, serves
+//!   the methods that borrow the target mutably; see below.
 //! - **On one field of a variant with several**, as the marker:
 //!   `Node { id: u32, #[dispatch] data: Data }`. The arm's pattern skips the
-//!   other fields with `_` or `..`. The marked field takes `deref` or
-//!   `via = route`, and nothing else.
+//!   other fields with `_` or `..`. The marked field takes `deref`,
+//!   `via = route` or `via_mut = route`, and nothing else.
 //! - **On the enum's attribute, for one trait**, when the route through one
 //!   variant differs from trait to trait: `via(Variant = route)` after the
-//!   trait path, as in the example below. For that trait, it wins over the
-//!   variant's own route.
-//! - **On an inherent method**, for that method alone; see
+//!   trait path, as in the example below. For that trait, it wins over both
+//!   of the variant's own routes. `via_mut(Variant = route)` given alone
+//!   replaces the variant's `via_mut` only.
+//! - **On an inherent method, or a marked method of a partial impl block**,
+//!   for that method alone, whatever it borrows; see
 //!   [inherent methods](#inherent-methods).
 //!
 //! ```
@@ -718,9 +721,14 @@
 //!
 //! ### What a route cannot do
 //!
-//! - **A route that ends in a method call serves `&self` and `self`
-//!   methods, not `&mut self`.** You cannot borrow mutably through a call's
-//!   result. Route to a field instead, or write the method by hand.
+//! - **A route that ends in a method call hands over what the method
+//!   returns**, so one method serves one way of borrowing. A getter pair
+//!   takes two routes: `#[dispatch(via = .source(), via_mut =
+//!   .source_mut())]`. A method that borrows the target mutably (`&mut
+//!   self`, `self: Pin<&mut Self>` or a `&mut Self` argument) follows
+//!   `via_mut`, every other method follows `via`, and each `Self` argument
+//!   takes the route of its own borrow. Without `via_mut`, such a method
+//!   through a method route is an error that names it.
 //! - **A method returning `Self` cannot use a routed variant**, `deref`
 //!   included, nor a variant with other fields beside the marked one. The
 //!   result is a new target, and the rest of the payload is gone, so there
@@ -1408,10 +1416,12 @@
 //! | [`try_from = true`, `ref`, `ref_mut`](#conversions) | on the enum, after the trait path | Adds `TryFrom<Enum> for Payload`, and the by-reference forms. |
 //! | [`into = Target`](#conversions) | on the enum, after the trait path | Adds `From<Enum> for Target`. |
 //! | [`via(Variant = route)`](#where-you-write-a-route) | on the enum, after the trait path | A route through `Variant` for this trait only. |
+//! | [`via_mut(Variant = route)`](#where-you-write-a-route) | on the enum, after the trait path | The same, for the methods that borrow the target mutably. |
 //! | [`from = false`](#conversions) | on a variant | Leaves the variant out of `From` and `TryFrom`. |
 //! | [`try_from = true`](#conversions) | on a variant | Adds `TryFrom` for this variant's payload alone. |
 //! | [`deref`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | Calls the trait on what the payload dereferences to. |
 //! | [`via = route`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | Calls the trait on a field of the payload, or on what a method returns. |
+//! | [`via_mut = route`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | The route the methods that borrow the target mutably take instead. |
 //! | [`#[dispatch]`](#where-you-write-a-route) | on one field of a variant | Picks the field to forward to, in a variant with several fields or a named one. |
 //! | [`#[dispatch(Trait)]`](#forwarding-from-a-struct-field) | on a struct's field | Makes the field the target of that trait. |
 //! | [`#[dispatch(remote = path)]`](#enums-from-other-crates) | on an enum or a struct, as an attribute of its own | Restates an enum or a struct another crate defines. |
@@ -1623,8 +1633,9 @@
 //!   `#[dispatch(default)]` in a partial impl block. Where the pointer
 //!   implements the trait itself, as `Box<dyn Iterator>` does, hold it
 //!   without `deref`.
-//! - **A route that ends in a method call cannot serve `&mut self`**, and a
-//!   method returning `Self` cannot use a routed variant. See
+//! - **A route that ends in a method call serves a mutable borrow only
+//!   through `via_mut`**, or a method's own route, and a method returning
+//!   `Self` cannot use a routed variant. See
 //!   [what a route cannot do](#what-a-route-cannot-do).
 //! - **A value cannot be moved out of a `deref` variant holding anything but
 //!   a `Box`.** A trait method taking `self` gives an error there, and so

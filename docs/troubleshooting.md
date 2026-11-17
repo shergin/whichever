@@ -443,6 +443,41 @@ which hand-written code would not do.
 **The fix.** Use one of the receivers the error lists, or implement the
 method by hand. See [Receivers][limits-receivers].
 
+### "ends in a method call, which may not lend mutably"
+
+```text
+error: `grow` takes `&mut self`, and the route `.base()` of `Module` ends in a method call, which may not lend mutably; give the route a mutable borrow takes, `via_mut = ..`, or implement the method by hand
+```
+
+**What it means.** The variant's route ends in a method call, here
+`.base()`, and the trait method borrows mutably. The route's method
+returns a value that is handed over as it is, and nothing says that it
+lends mutably. Usually it does not: `fn base(&self) -> &Square` lends
+shared.
+
+**The fix.** If the payload has a getter that lends mutably, give it as
+the route for a mutable borrow:
+
+```rust
+#[dispatch(via = .base(), via_mut = .base_mut())]
+Module(Account),
+```
+
+See [A route for a mutable borrow][routes-mutable-borrow].
+The neighbouring errors about where `via_mut` goes:
+
+```text
+error: `via_mut = route` goes on a variant or on a field; after a trait a route is keyed by what it goes through, `via_mut(name = route)`
+```
+
+```text
+error: `Tagged` and its field both give a route for a mutable borrow; give one
+```
+
+```text
+error: a method's own route is `via = route`, which the method follows whatever it borrows; `via_mut` goes on a variant or a field, or beside a trait as `via_mut(name = route)`
+```
+
 ### Other errors on a trait method
 
 The other one-sentence errors on a method, about `Self` in a return
@@ -753,4 +788,5 @@ reproduces the error helps most.
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
 [structs-some-builds]: structs.md#a-trait-in-some-builds-only
+[routes-mutable-borrow]: routes.md#a-route-for-a-mutable-borrow
 [what-is-generated]: what-is-generated.md

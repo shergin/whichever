@@ -845,10 +845,36 @@ fn write_method_checks(
             call(context, "S", "lent", None, "x")
         ));
     }
+    // A mutable getter does more than lend: "The getter runs as it would in
+    // your own code, so a `source_mut` that also clears a cache still
+    // clears it. A route to the field would skip that" (routes.md). A call
+    // that borrows its target mutably through it counts its loans, one for
+    // `self` and one for a `Self` argument, each by the route of its own
+    // borrow.
+    let getters = context.declared.iter().any(|slot| {
+        slot.target()
+            .is_some_and(|(_, target)| target.route_mut.is_some())
+    });
+    if getters {
+        writer.line("support::take_lent_mut();");
+    }
     writer.line(format!(
         "let answer = observe({});",
         call(context, "S", "subject", other, "x")
     ));
+    if getters {
+        let named = |slot: &Slot| {
+            slot.target()
+                .is_some_and(|(_, target)| target.route_mut.is_some())
+        };
+        let forwarded = *method == Expect::Twin;
+        let own = forwarded && exclusive && named(slot);
+        let argument_lent = forwarded && other_exclusive && !enum_argument && named(argument);
+        let loans = u64::from(own) + u64::from(argument_lent);
+        writer.line(format!(
+            "assert_eq!(support::take_lent_mut(), {loans}, \"loans of a mutable getter by m on {name} with x = {{x}}\");"
+        ));
+    }
     match method {
         Expect::Twin if context.inherent() => {
             writer.line(format!(

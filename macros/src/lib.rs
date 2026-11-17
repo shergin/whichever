@@ -309,7 +309,8 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `try_from = ref` | Also adds `TryFrom<&Enum> for &Payload`. |
 /// | `try_from = ref_mut` | Also adds `TryFrom<&mut Enum> for &mut Payload`. |
 /// | `into = Target` | Adds `From<Enum> for Target`, through each payload's `Into<Target>`. |
-/// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only. |
+/// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only; it replaces both of the variant's routes. |
+/// | `via_mut(Variant = route, ..)` | The route through `Variant` for the methods that borrow the target mutably, for this trait only. |
 ///
 /// The conversion options (`from`, `try_from`, `into`) belong to the enum,
 /// not to one trait, so they apply whichever attribute they are on. The
@@ -325,11 +326,12 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `try_from = true` | Adds `TryFrom` for this variant's payload alone. |
 /// | `deref` | Calls the trait on what the payload dereferences to (`Box`, `Rc`, `Arc`, `&`, `&mut`). |
 /// | `via = route` | Calls the trait on what the route reaches: `.field`, `.0`, `.method()`, `*`, chained. |
+/// | `via_mut = route` | The route the methods that borrow the target mutably take instead: `&mut self`, `self: Pin<&mut Self>`, a `&mut Self` argument. |
 ///
 /// A variant takes `deref` or `via`, not both. A variant with several
 /// fields, or with one named field, marks the field to forward to:
-/// `Tagged(#[dispatch] Square, u32)`. The marked field takes `deref` or
-/// `via = route`, and nothing else.
+/// `Tagged(#[dispatch] Square, u32)`. The marked field takes `deref`,
+/// `via = route` or `via_mut = route`, and nothing else.
 ///
 /// ## On a struct's field
 ///
@@ -339,6 +341,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `#[dispatch(Trait)]` | The field this trait goes to, spelled as the trait's impl spells it. |
 /// | `#[dispatch(deref)]` | Calls the trait on what the field dereferences to. |
 /// | `#[dispatch(via = route)]` | Calls the trait on what the route reaches from the field. |
+/// | `#[dispatch(via_mut = route)]` | The route the methods that borrow the target mutably take instead. |
 ///
 /// ## On a method of an inherent block
 ///
@@ -351,7 +354,7 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `call = name` | Calls the payload's method `name` instead. |
 /// | `field = name` | The arm is the field `inner.name`, borrowed or read. |
 /// | `value` | The arm is the target itself, borrowed or read. |
-/// | `via = route` | Reaches the target by a route, for this method alone. |
+/// | `via = route` | Reaches the target by a route, for this method alone, whatever it borrows. |
 ///
 /// On a struct, a field's name takes the place of the variant list, and
 /// `*` is the field marked `#[dispatch]`, or the only field.

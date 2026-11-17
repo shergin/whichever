@@ -101,6 +101,14 @@ axis! {
         /// begins with a keyword, `#[dispatch(self::Probe)]`, as its home
         /// spells it too: one spelling, so the trait goes to `held`.
         StructTraitSelf = "struct-trait-self",
+        /// `#[dispatch(via = .lend(), via_mut = .lend_mut())] A(W0)`: a
+        /// getter pair of a wrapper: "A method that borrows the target
+        /// mutably follows `via_mut`. [..] Every other method follows `via`"
+        /// (routes.md).
+        ViaGetters = "via-getters",
+        /// `A { label: u64, #[dispatch(via = .lend(), via_mut =
+        /// .lend_mut())] held: W0 }`, the getter pair on a marked field.
+        MarkedGetters = "marked-getters",
         /// `A(#[cfg_attr(all(), dispatch)] P0, u64)`, the mark of a tuple
         /// variant's field under `cfg_attr`: "You get an error on the mark,
         /// and the item is read as if the mark were plain" (limits.md).
@@ -156,6 +164,8 @@ axis! {
         /// `#[dispatch(deref)] B(Box<dyn Probe>)`, a `P1` held as a trait
         /// object.
         DerefObject = "deref-dyn",
+        /// `#[dispatch(via = .lend(), via_mut = .lend_mut())] B(W1)`.
+        ViaGetters = "via-getters",
     }
 }
 

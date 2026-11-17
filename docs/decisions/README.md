@@ -36,6 +36,8 @@ the planning notes, the note holds the long form and the record names it.
 - [A trait item's `cfg` is decided in the trait's crate](a-trait-items-cfg-is-decided-in-the-traits-crate.md)
 - [A required method's `#[inline]` is its forwarders'](a-required-methods-inline-is-its-forwarders.md)
 - [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
+- [A mutable borrow takes a route of its own](a-mutable-borrow-takes-a-route-of-its-own.md),
+  completing the one above
 - [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)
 - [The subject can be restated](the-subject-can-be-restated.md)
 - [A restated struct lists the fields it forwards to](a-restated-struct-lists-the-fields-it-forwards-to.md),

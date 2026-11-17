@@ -212,6 +212,21 @@ behind a `Box` and behind an `Rc`, `via = .1.payload` through a tuple
 holding a wrapper, and `via = .get().payload`, a field of what a method
 lends, which a hand can neither borrow mutably nor move out of.
 
+Two values of `s0` and one of `s1` reach their target through a getter
+pair, `#[dispatch(via = .lend(), via_mut = .lend_mut())]`, on a variant or
+on a marked field (`docs/routes.md`, "A route for a mutable borrow"):
+a method that borrows the target mutably, by `&mut self`, by `self:
+Pin<&mut Self>` or in a `&mut Self` argument, follows `via_mut`, anything
+else follows `via`, and each `Self` argument the route of its own borrow,
+in the hand as in the attribute. The mutable getter counts its loans in
+`support`, which the law reads after each call: one for `self` and one for
+a `Self` argument that borrow mutably through it, so that a route to the
+field in its place, which skips what the getter does besides lending,
+shows. `via-method` beside them names no `via_mut`, and a mutable borrow
+through it is still the sentence, which names `via_mut`. A route on a
+method's own mark and `via_mut(name = route)` beside a trait are
+`tests/ui`'s and the behaviour tests'.
+
 The `s1` value `deref-dyn` holds the second payload as a trait object,
 `#[dispatch(deref)] B(Box<dyn Probe>)`, the open set beside the sized
 payloads of `docs/routes.md`. The law builds it from a fresh `P1` and keeps

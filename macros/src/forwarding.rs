@@ -757,6 +757,8 @@ mod tests {
                 Routed(Wrapper),
                 #[dispatch(via = .get())]
                 Got(Holder),
+                #[dispatch(via = .get(), via_mut = .get_mut())]
+                Lent(Holder),
                 Tagged(#[dispatch] Circle, u32),
                 Named {
                     #[dispatch]
@@ -922,6 +924,33 @@ mod tests {
     }
 
     #[test]
+    fn a_mutable_borrow_through_a_route_of_its_own_is_forwarded() {
+        for signature in [
+            parse_quote!(fn grow(&mut self)),
+            parse_quote!(fn grow(self: Pin<&mut Self>)),
+            parse_quote!(fn absorb(&mut self, other: &Self)),
+            parse_quote!(fn drain_into(&self, other: &mut Self)),
+            parse_quote!(fn area(&self) -> u32),
+        ] {
+            assert_eq!(refusal(signature, "Lent"), "none");
+        }
+        for signature in [
+            parse_quote!(fn grow(self: Pin<&mut Self>)),
+            parse_quote!(fn drain_into(&self, other: &mut Self)),
+        ] {
+            assert_eq!(
+                refusal(signature, "Got"),
+                "method route borrowed mutably",
+                "no route is named for the mutable borrow"
+            );
+        }
+        assert_eq!(
+            refusal(parse_quote!(fn grown(&mut self) -> Self), "Lent"),
+            "rewrap through a route"
+        );
+    }
+
+    #[test]
     fn the_first_reason_that_holds_is_the_one_given() {
         // A trait object is named before the route it is reached by.
         assert_eq!(
@@ -1021,6 +1050,7 @@ mod tests {
             overrides: vec![],
             mismatch: vec![],
             routes: vec![],
+            mutable_routes: vec![],
         };
         // The body is the arm for the variants a named list leaves; under
         // `*` an enum's body holds the method's own arms instead, and

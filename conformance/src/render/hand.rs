@@ -872,7 +872,14 @@ fn arm(
     awaited: bool,
     conversion: &Conversion,
 ) -> String {
-    let own = Place::of("inner", binding, target.route);
+    // A method that borrows its target mutably takes the route named for
+    // that, where the variant names one: "Each `Self` argument takes the
+    // route of its own borrow" (routes.md).
+    let own = Place::of(
+        "inner",
+        binding,
+        target.route_for(binding == Binding::Exclusive),
+    );
     let by_place = method.matches_by_place(binding);
     let bound = match (by_place, binding) {
         (true, Binding::Shared) => "ref inner",
@@ -892,7 +899,11 @@ fn arm(
         match method.hands_enum {
             true => other_argument = Some(String::from("other")),
             false => {
-                let other = Place::of("same", other_binding, target.route);
+                let other = Place::of(
+                    "same",
+                    other_binding,
+                    target.route_for(other_binding == Binding::Exclusive),
+                );
                 pattern_text = format!(
                     "({pattern_text}, {})",
                     pattern(hand_path(slot), slot, target, "same")

@@ -64,7 +64,9 @@ pub enum AnyShape {
 ```
 
 On a [struct](structs.md), the same option goes on the field the struct
-forwards to.
+forwards to. Both places also take `via_mut = route`, a second route for
+the methods that borrow the target mutably; see
+[A route for a mutable borrow](#a-route-for-a-mutable-borrow).
 
 ### On one field of a variant with several
 
@@ -84,8 +86,10 @@ pub enum Console {
 ```
 
 The arm's pattern skips the other fields with `_` or `..`. The marked
-field can take a route of its own, `deref` or `via = route`, and no other
-option.
+field can take a route of its own, `deref`, `via = route` or
+`via_mut = route`, and no other option. A route for a mutable borrow is
+given by the variant or by its marked field, not by both: two would
+leave you guessing which one wins, so you get an error.
 
 ### On the enum's attribute, for one trait
 
@@ -102,6 +106,11 @@ pub enum Any {
 ```
 
 For that trait, this route wins over a route on the variant itself.
+`via_mut(Pair = route)` gives that trait its own route for a mutable
+borrow the same way. A partial impl block takes both on its own
+attribute. (After a trait, a route is always keyed by the variant or the
+field it goes through, so `via_mut = route` there is an error: write
+`via_mut(Pair = route)`.)
 
 ### On an inherent method
 
@@ -115,6 +124,13 @@ pub fn refresh(&mut self);
 
 Here the first `*` means "every variant", as usual in an inherent
 method's attribute. The route is `.content()`.
+
+A route on a method's own mark is that method's alone, and the method
+follows it whatever it borrows: `&self`, `&mut self` or `self`. The same
+holds for a method you mark in a
+[partial impl block](partial-impl-blocks.md). So a mark takes `via`, and
+`via_mut` on a mark is an error: the method's receiver is right beside
+it.
 
 ## What the arm looks like
 
@@ -135,17 +151,74 @@ AnyShape::Account(inner) => <_ as Shape>::area(&inner.base),
 It is still a fully qualified call, so an inherent method of the same
 name on the target still never takes over.
 
+## A route for a mutable borrow
+
+A route that ends in a method call hands over what the method returns,
+as it is. So one method serves one way of borrowing:
+
+- a getter that lends the target, `fn source(&self) -> &Source`, serves
+  `&self`;
+- a getter that lends it mutably, `fn source_mut(&mut self) -> &mut
+  Source`, serves `&mut self`;
+- a method that returns the target by value serves `self`.
+
+A type with a getter pair therefore needs two routes. Write the second
+with `via_mut`:
+
+```rust
+#[whichever::dispatch(AudioRead)]
+pub struct RegisteredAudio {
+    #[dispatch(via = .source(), via_mut = .source_mut())]
+    warp: Warp,
+}
+```
+
+`position(&self)` is now `self.warp.source().position()`, and
+`read(&mut self, ..)` is `self.warp.source_mut().read(..)`. The getter
+runs as it would in your own code, so a `source_mut` that also clears a
+cache still clears it. A route to the field would skip that.
+
+Who follows which route:
+
+- **A method that borrows the target mutably follows `via_mut`.** That
+  is a method taking `&mut self` or `self: Pin<&mut Self>`, and a
+  `&mut Self` argument.
+- **Every other method follows `via`.**
+- **Each `Self` argument takes the route of its own borrow.** So
+  `fn absorb(&mut self, other: &Self)` is
+  `absorb(inner.source_mut(), other.source())`.
+
+### The fine print
+
+- **Without `via_mut`, a mutable borrow through a route that ends in a
+  method call is an error on the variant.** The method may lend shared
+  only, and rustc would then report every such method. The error names
+  `via_mut`, and says whether `&mut self`, `self: Pin<&mut Self>` or a
+  `&mut Self` argument is the cause. A route that ends in a field is
+  fine: a field is a place, borrowed either way.
+- **A trait's `via(Variant = ..)` replaces both of the variant's own
+  routes.** So a mutable borrow never follows the variant's `via_mut` to
+  another target than the trait's route reaches. Where the trait's route
+  ends in a method call, give the trait its own `via_mut(Variant = ..)`
+  too, or you get the error above.
+- **A trait's `via_mut(Variant = ..)` given alone replaces the variant's
+  `via_mut` only.** The variant's own `via` still serves the other
+  methods.
+- **A method's own route** (see
+  [On an inherent method](#on-an-inherent-method)) is followed whatever
+  the method borrows. `#[dispatch(*, via = .data_mut(), call = to_send)]`
+  on `fn to_send(&mut self, version: u16) -> Vec<u8>;` is the arm you
+  would write, `inner.data_mut().to_send(version)`.
+- **An inherent method's `value` through a route that ends in a method**
+  hands over the method's result as it is: `inner.data()` under `&self`,
+  `inner.data_mut()` under `&mut self`.
+
 ## What a route can and cannot do
 
-- **A route that ends in a method call serves `&self` or `self`, not
-  both.** The method's result is handed over as it is. A method that
-  lends the target, `fn base(&self) -> &Square`, serves the trait's
-  `&self` methods. A method that returns the target by value serves its
-  `self` methods. Use the route for the receivers its method fits.
-- **A route that ends in a method call cannot serve `&mut self`.** You
-  cannot borrow mutably through a call's result, so you get an error. The
-  same goes for `self: Pin<&mut Self>` and a `&mut Self` argument, and the
-  error says which. Route to a field instead, or write the method by hand.
+- **A route that ends in a method call hands over the method's result.**
+  Use it for the receivers that result fits, and a second route,
+  `via_mut`, for a mutable borrow, as
+  [above](#a-route-for-a-mutable-borrow).
 - **`deref` over an `Rc`, an `Arc` or a `&T` cannot lend mutably**, because
   those only lend what they point at as shared. You get an error on the
   payload for:

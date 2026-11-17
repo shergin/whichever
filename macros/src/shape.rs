@@ -666,6 +666,17 @@ pub(crate) enum ReceiverKind {
 }
 
 impl ReceiverKind {
+    /// Returns how the receiver takes the subject: by one of the two
+    /// borrows, plain or pinned, or by value, as `self` and `self:
+    /// Box<Self>` do.
+    pub(crate) fn access(self) -> Access {
+        match self {
+            ReceiverKind::Value(access) => access,
+            ReceiverKind::Boxed => Access::Owned,
+            ReceiverKind::Pinned(borrow) => borrow.into(),
+        }
+    }
+
     /// Returns the borrow the receiver takes the subject by, plain or
     /// pinned, so that a pattern over it binds references; nothing for
     /// `self` and `self: Box<Self>`, which are matched by value and bind
