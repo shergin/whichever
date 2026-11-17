@@ -8,5 +8,5 @@ find:
         }
 replace:
         (Fields::Named(fields), [(Member::Named(name), field)]) if fields.named.len() == 1 => {
-            (PayloadField::Beside(Member::Named(name.clone())), *field)
+            (PayloadField::beside(Member::Named(name.clone()), 1), *field)
         }
