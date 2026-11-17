@@ -2,10 +2,10 @@
 
 This page walks you through `whichever` one feature at a time. You need to
 know Rust traits and enums, and about fifteen minutes. Each step shows the
-everyday use of one feature and links to the page with the details, so
-you can stop at any step and still be right.
+everyday use of one feature and links to the details, so you can stop at
+any step and still be right.
 
-The whole tour is one program, [`examples/tour.rs`](../examples/tour.rs),
+The whole tour is one program, [`examples/tour.rs`][tour-rs],
 with one module per step. Every snippet below is copied from it, and each
 step checks its claims with `assert!`. Run it from a clone of the
 repository:
@@ -15,7 +15,7 @@ cargo run --example tour
 ```
 
 Most steps use shapes: a `Shape` trait, a `Circle` and a `Square`. Words
-in **bold** are defined in the [glossary](glossary.md).
+in **bold** are defined in the [glossary][glossary].
 
 ## 1. Write your first dispatch enum
 
@@ -97,7 +97,7 @@ One `match` per method, one call per variant, and no trait object or
 allocation anywhere. Passing the call on like this is called
 **forwarding**. You also get `From<Circle>` and `From<Square>`, which is
 why `Circle(1).into()` works above. [What is
-generated](what-is-generated.md) shows the full expansion.
+generated][what-is-generated] shows the full expansion.
 
 ## 2. Put the trait and the enum in different crates
 
@@ -139,8 +139,8 @@ leaves a hidden `macro_rules!` macro next to the trait, holding its
 signatures: the **carrier macro**. It has the trait's name, so importing
 the trait imports the macro too, and `#[dispatch]` reads the signatures
 from it. Nothing is cached between macro expansions. See the
-[glossary](glossary.md#carrier-macro) and
-[Compatibility](compatibility.md), which also explains why both crates
+[glossary][glossary-carrier-macro] and
+[Compatibility][compatibility], which also explains why both crates
 should use the same minor version of `whichever` before 1.0.
 
 The one thing to remember: the types the trait's signatures mention,
@@ -213,7 +213,7 @@ repeat the attribute, one trait each.
 error: `congruent` takes `Self` arguments; give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or `mismatch(congruent = <expr>)` on the enum
 ```
 
-[What is generated](what-is-generated.md) and [Options](options.md) have
+[What is generated][what-is-generated-items] and [Options][options] have
 the details.
 
 ## 5. Use associated types and consts
@@ -254,7 +254,7 @@ There are two ways the enum gets an associated item:
   `StorageError` needs `From<Infallible>` and `From<Timeout>`.
 
 A const can be fixed the same way, `NAME = value`. See
-[Options](options.md).
+[Options][options].
 
 ## 6. Convert between the enum and its payloads
 
@@ -288,7 +288,7 @@ The other conversion options:
 - `into = Target` adds `From<AnyShape> for Target`, when every payload
   converts into `Target`.
 
-[Options](options.md) lists them all.
+[Options][options] lists them all.
 
 ## 7. Hold a payload behind a pointer
 
@@ -334,7 +334,7 @@ to call object safe).
 
 `deref` is the simplest **route**: the steps from the payload to the
 value the trait is called on. A route can also reach a field or what a
-method returns; [Reaching the target](routes.md) shows how.
+method returns; [Reaching the target][routes] shows how.
 
 ## 8. Give the enum methods of its own
 
@@ -368,7 +368,7 @@ assert_eq!(square.describe(), "square of side 3");
 other variant runs the body, `None`: that body is the **fallback**.
 `describe` is forwarded to every variant (`*`), so it needs no body.
 Here `Circle` and `Square` have inherent `radius` and `describe` methods;
-no trait is involved. See [Inherent methods](inherent-methods.md).
+no trait is involved. See [Inherent methods][inherent-methods].
 
 ## 9. Write one trait method yourself
 
@@ -409,7 +409,7 @@ assert_eq!(unit.summary(), "a shape with 4 sides");
 This is a **partial impl block**: you wrote `unit` and `summary`, and
 `sides` was forwarded. Since the block is the impl, the enum does not
 list `Sides` in its own attribute. See [Partial impl
-blocks](partial-impl-blocks.md).
+blocks][partial-impl-blocks].
 
 ## 10. Forward a trait you do not own
 
@@ -441,7 +441,7 @@ variant opts out of `From`, so a plain string does not turn into a
 
 For any other trait, copy its signatures once into a trait marked
 `#[whichever::dispatchable(remote = path::to::Trait)]`: a
-**restatement**. [Traits and enums from other crates](restatements.md)
+**restatement**. [Traits and enums from other crates][restatements]
 shows how, and lists what `whichever::foreign` holds.
 
 ## 11. Wrap the enum in a struct
@@ -468,7 +468,7 @@ assert_eq!((labelled.area(), labelled.name()), (9, "shape"));
 
 Every method is forwarded to `shape`, provided methods included. The
 field can be any type that implements the trait, not only an enum. See
-[Forwarding from a struct field](structs.md).
+[Forwarding from a struct field][structs].
 
 ## 12. Forward `async fn`
 
@@ -491,7 +491,7 @@ enum Drawing {
 The tour runs `Drawing::from(Circle(2)).render()` with
 `pollster::block_on` and gets `<circle r=2/>`. A method that returns
 `impl Future<Output = T>` is awaited the same way. See [What is
-generated](what-is-generated.md).
+generated][what-is-generated-items].
 
 ## 13. Read an error when it says no
 
@@ -535,28 +535,49 @@ pub enum AnyShape {
 ```
 
 Everything the attribute refuses like this is a **limit**, listed in
-[Limits](limits.md).
-[Troubleshooting](troubleshooting.md) goes the other way: start from the
+[Limits][limits].
+[Troubleshooting][troubleshooting] goes the other way: start from the
 error message and find the cause and the fix.
 
 ## Where to go next
 
 - **See exactly what the attribute writes:**
-  [What is generated](what-is-generated.md).
-- **Look up an option:** [Options](options.md).
+  [What is generated][what-is-generated].
+- **Look up an option:** [Options][options].
 - **Reach a field, or call through a pointer:**
-  [Reaching the target](routes.md).
+  [Reaching the target][routes].
 - **Forward to only some variants:**
-  [Inherent methods](inherent-methods.md) and
-  [Partial impl blocks](partial-impl-blocks.md).
+  [Inherent methods][inherent-methods] and
+  [Partial impl blocks][partial-impl-blocks].
 - **Forward a trait or an enum from another crate:**
-  [Restatements](restatements.md).
-- **Wrap the enum in a struct:** [Structs](structs.md).
-- **Know what it cannot do:** [Limits](limits.md) and
-  [Troubleshooting](troubleshooting.md).
+  [Restatements][restatements].
+- **Wrap the enum in a struct:** [Structs][structs].
+- **Know what it cannot do:** [Limits][limits] and
+  [Troubleshooting][troubleshooting].
 - **Decide between an enum and a trait object:**
-  [When enum dispatch pays](when-to-use-enum-dispatch.md).
-- **Compare it with other crates:** [Comparison](comparison.md), or
-  [Moving from `enum_dispatch`](moving-from-enum-dispatch.md).
-- **Check versions and dependencies:** [Compatibility](compatibility.md).
-- **Look up a word:** [Glossary](glossary.md).
+  [When enum dispatch pays][when-to-use-enum-dispatch].
+- **Compare it with other crates:** [Comparison][comparison], or
+  [Moving from `enum_dispatch`][moving-from-enum-dispatch].
+- **Check versions and dependencies:**
+  [Compatibility][compatibility-footprint].
+- **Look up a word:** [Glossary][glossary].
+
+<!-- The links are reference-style because src/docs.rs includes this page in the crate docs and gives each label a target there. -->
+[comparison]: comparison.md
+[compatibility]: compatibility.md
+[compatibility-footprint]: compatibility.md
+[glossary]: glossary.md
+[glossary-carrier-macro]: glossary.md#carrier-macro
+[inherent-methods]: inherent-methods.md
+[limits]: limits.md
+[moving-from-enum-dispatch]: moving-from-enum-dispatch.md
+[options]: options.md
+[partial-impl-blocks]: partial-impl-blocks.md
+[restatements]: restatements.md
+[routes]: routes.md
+[structs]: structs.md
+[tour-rs]: ../examples/tour.rs
+[troubleshooting]: troubleshooting.md
+[what-is-generated]: what-is-generated.md
+[what-is-generated-items]: what-is-generated.md
+[when-to-use-enum-dispatch]: when-to-use-enum-dispatch.md

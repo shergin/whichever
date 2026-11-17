@@ -45,6 +45,10 @@ any default.
   Unreleased section of `CHANGELOG.md`, and the guide when a measurement
   it quotes moves. `docs/tutorial.md` shows code from `examples/tour.rs`,
   and the two change together.
+- Three pages are in the crate docs as well, through `src/docs.rs`: the
+  tutorial, the glossary and troubleshooting. Their links to files are
+  reference-style, and a label a page defines gets a line in
+  `src/docs.rs` that says where it goes on docs.rs.
 - Settled stays settled. A choice among real alternatives is recorded in
   `docs/decisions/` with the condition that reopens it. Do not relitigate
   without new evidence; when evidence arrives, supersede the record rather
