@@ -7,8 +7,8 @@
 use proc_macro2::TokenStream as TokenStream2;
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Expr, ImplItem, ImplItemFn, Result, Signature,
-    Stmt, Token, Visibility,
+    parse_quote_spanned, Attribute, Block, Error, Expr, FnArg, Ident, ImplItem, ImplItemFn, Pat,
+    Result, Signature, Stmt, Token, Visibility,
 };
 
 use crate::arm::receiver_scrutinee;
@@ -127,11 +127,12 @@ impl Marked {
 /// body that is one `match self` names only the variants the enum answers
 /// itself and is exhaustive only with the forwarding arms written into
 /// it, so as written it would be rustc's E0004 beside the error that kept
-/// the method. An arm for the rest stands in for the forwarding, under
-/// the allowance that keeps it quiet where the arms already name every
-/// variant, and the `match` looks at what the forwarding's would: the enum
-/// moved out of its box under `self: Box<Self>`, or the pinned reference
-/// unpinned, which `match self` as written is not.
+/// the method. An arm for the rest stands in for the forwarding, reading
+/// the arguments and under the allowance that keeps it quiet where the
+/// arms already name every variant, and the `match` looks at what the
+/// forwarding's would: the enum moved out of its box under `self:
+/// Box<Self>`, or the pinned reference unpinned, which `match self` as
+/// written is not.
 pub(crate) fn standing_alone(function: &mut ImplItemFn, mark: &Attribute) {
     let under_star = mark
         .parse_args::<ForwardingOptions>()
@@ -148,13 +149,36 @@ pub(crate) fn standing_alone(function: &mut ImplItemFn, mark: &Attribute) {
                 ReceiverKind::Value(_) => None,
                 kind => Some(receiver_scrutinee(kind, &receiver.self_token, site)),
             });
+    // The closing arm reads the arguments, as the arm standing in for a
+    // variant's own error does: where the only arm that uses one is
+    // compiled out, the lint about it would stand beside the error.
+    let arguments: Vec<Ident> = function
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|input| match input {
+            FnArg::Typed(argument) => match &*argument.pat {
+                Pat::Ident(binding) => Some(binding.ident.clone()),
+                _ => None,
+            },
+            FnArg::Receiver(_) => None,
+        })
+        .collect();
+    let rest: Expr = if arguments.is_empty() {
+        parse_quote_spanned!(*site => ::core::unreachable!())
+    } else {
+        parse_quote_spanned!(*site => {
+            let _ = (#(&#arguments,)*);
+            ::core::unreachable!()
+        })
+    };
     if let [Stmt::Expr(Expr::Match(written), None)] = function.block.stmts.as_mut_slice() {
         if let Some(scrutinee) = scrutinee {
             *written.expr = Expr::Verbatim(scrutinee);
         }
         written.arms.push(parse_quote_spanned! { *site =>
             #[allow(unreachable_patterns)]
-            _ => ::core::unreachable!(),
+            _ => #rest,
         });
     }
 }
@@ -396,6 +420,56 @@ mod tests {
                 }
             }),
             quote!(::core::pin::Pin::get_ref(self)).to_string()
+        );
+    }
+
+    /// The closing arm of the kept `match` of `item`, spelled.
+    fn closing_arm(item: ImplItemFn) -> String {
+        let (function, spelled) = standing(item);
+        let [Stmt::Expr(Expr::Match(closed), None)] = function.block.stmts.as_slice() else {
+            panic!("one `match`: {spelled}");
+        };
+        let last = closed.arms.last().expect("an arm");
+        quote!(#last).to_string()
+    }
+
+    #[test]
+    fn the_closing_arm_reads_the_arguments_where_the_method_has_any() {
+        assert_eq!(
+            closing_arm(parse_quote! {
+                #[dispatch(*)]
+                fn write(&self, buf: &mut Vec<u8>, mut limit: usize) -> usize {
+                    match self {
+                        #[cfg(any())]
+                        Self::Empty => limit + buf.len(),
+                    }
+                }
+            }),
+            quote! {
+                #[allow(unreachable_patterns)]
+                _ => {
+                    let _ = (&buf, &limit,);
+                    ::core::unreachable!()
+                },
+            }
+            .to_string(),
+            "every argument is read, in order, so none is unused where its arm is compiled out"
+        );
+        assert_eq!(
+            closing_arm(parse_quote! {
+                #[dispatch(*)]
+                fn len(&self) -> usize {
+                    match self {
+                        Self::Empty => 0,
+                    }
+                }
+            }),
+            quote! {
+                #[allow(unreachable_patterns)]
+                _ => ::core::unreachable!(),
+            }
+            .to_string(),
+            "a method without arguments has nothing to read"
         );
     }
 

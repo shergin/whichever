@@ -312,7 +312,10 @@ without its mark, and `standing_alone` in `marked.rs` closes a body that
 holds the method's own arms with `_ => ::core::unreachable!()` under
 `#[allow(unreachable_patterns)]`, since those arms alone are not
 exhaustive and rustc's E0004 would stand beside the error that kept the
-method, and makes the kept `match` look at what the forwarding's would,
+method; the closing arm reads the arguments first, as `standing_in` does,
+so that no lint about them stands beside that error where the only arm
+using one is compiled out; and it makes the kept `match` look at what the
+forwarding's would,
 through `receiver_scrutinee` in `arm.rs`: `*self` under `self: Box<Self>`,
 `::core::pin::Pin::get_mut(self)` or `get_ref(self)` under a pinned
 receiver; `without_method_attributes` in `dispatch.rs` does the same for a

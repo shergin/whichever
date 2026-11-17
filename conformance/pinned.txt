@@ -345,3 +345,9 @@ s0=struct s1=none path=inherent-arms
 s0=deref-rc s1=unit recv=mut path=block-arms
 s0=marked-tuple s1=unit ret=self path=block-arms
 s1=unit ret=option-self path=inherent-arms lift=some
+
+# A method kept as written beside the sentence that replaces it closed its
+# arms with one that read no argument, so where its only arm reading one is
+# compiled out the arguments were warned of beside the sentence
+# (`marked.rs`, `standing_alone`).
+ret=option-self path=inherent-arms lift=some arms=cfg-off
