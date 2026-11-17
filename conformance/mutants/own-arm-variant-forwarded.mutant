@@ -1,0 +1,11 @@
+file: macros/src/selection.rs
+breaks: Under `*` a variant an arm of the method's own names is not forwarded, with a guard or without, as `docs/partial-impl-blocks.md` and `docs/inherent-methods.md` say.
+expect: killed
+
+find:
+            .fold(Builds::Never, |builds, (_, arm)| builds.or(arm.clone()))
+            .complement()
+replace:
+            .fold(Builds::Never, |builds, (_, arm)| builds.or(arm.clone()))
+            .complement()
+            .or(Builds::Every)

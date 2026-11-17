@@ -204,6 +204,22 @@ nothing; the block is not read, so the invocation's sentence is all it
 reports and no impl is written, whatever the method, and only the variants
 depart from the neutral cell.
 
+Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
+`#[dispatch(*)]` with a body that is one `match self` holding the arms the
+enum answers itself, and the `arms` axis says what that body holds: an arm
+for the second variant, whatever it holds, and one for every later variant
+without a payload; the second variant's arm under a `#[cfg]` that holds or
+one that does not, where the variant is forwarded instead; an arm for the
+second variant alone, which leaves a third without a payload unanswered; a
+wildcard arm beside them; or a body that is no `match`. An arm answers the
+constant a body for the rest answers, so the law tells it from the
+payload's, and the arm of a variant of two fields reads its label where the
+method answers a number. The hand writes the forwarding arms in the enum's
+order and then the arms as written, with no wildcard, and `--shape`
+compares both in that order. On a struct, which has no variant for an arm
+to name, every body is the sentence of `inherent_all_with_body_on_a_struct`.
+The axis is neutral on every other path.
+
 A provided method's default body knows no payload. It answers a number
 made from the control method, a place it leaks for that number where the
 type borrows, `support::leak`, the `self` it owns where the method takes
@@ -353,7 +369,8 @@ An outcome is `pass` or a list of findings:
 - `wording:KEY`, a predicted sentence that lacks what the cell asks of it:
   the way out its catalogue entry names, as its `tests/ui` snapshot spells
   it; the method's own way out where the sentence ends in one, by hand,
-  a body, or leaving the variant to the body the method has; and the names
+  a body, leaving the variant to the body the method has, or writing the
+  variant's arm in a body that holds the enum's own arms; and the names
   it interpolates, the method's, the variant's, what the method takes as
   the signature spells it, and the payload's type as written;
 - `error:CODE@PART`, a rustc error, by code, in a part of the cell:

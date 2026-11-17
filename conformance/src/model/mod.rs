@@ -24,8 +24,8 @@ mod verdict;
 pub mod wording;
 
 pub use axes::{
-    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Agreement, Argument, Arms, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home,
+    Item, Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 pub use limits::{Anchor, Expected, Limit};
 pub use verdict::verdict;
@@ -192,7 +192,57 @@ impl Slot {
     }
 }
 
+/// An arm a method under `*` writes in its body for a variant the enum
+/// answers itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnArm {
+    /// The variant the arm names.
+    pub slot: Slot,
+    /// The predicate of the `#[cfg]` the arm itself is under, if any.
+    pub cfg: Option<&'static str>,
+}
+
 impl Cell {
+    /// Returns the arms the body of a method under `*` holds, in the order
+    /// written: one for the second variant, and one for every later variant
+    /// that holds no payload unless the arms name the second alone. A
+    /// variant under `#[cfg]` keeps its arm, under the variant's `#[cfg]`
+    /// as a hand writes it; a body that is no `match self` and a struct's
+    /// hold none.
+    pub fn own_arms(&self) -> Vec<OwnArm> {
+        let path = self.path_descriptor();
+        let matched = !matches!(self.arms, Arms::Unmatched);
+        if path.form != path::Form::Arms || !matched || self.s0.descriptor().is_struct() {
+            return Vec::new();
+        }
+        self.declared_slots()
+            .into_iter()
+            .filter(|slot| match slot.index {
+                0 => false,
+                1 => true,
+                _ => slot.target().is_none() && self.arms != Arms::Second,
+            })
+            .map(|slot| OwnArm {
+                slot,
+                cfg: match (slot.index, self.arms) {
+                    (1, Arms::CfgOn) => Some("all()"),
+                    (1, Arms::CfgOff) => Some("any()"),
+                    _ => None,
+                },
+            })
+            .collect()
+    }
+
+    /// Returns whether an arm of the method's own answers the variant of a
+    /// slot in this build: "An arm under `#[cfg]` answers where the `cfg`
+    /// holds and its variant is forwarded where it does not"
+    /// (partial-impl-blocks.md).
+    pub fn answered_by_arm(&self, slot: &Slot) -> bool {
+        self.own_arms()
+            .iter()
+            .any(|arm| arm.slot.index == slot.index && arm.cfg != Some("any()"))
+    }
+
     /// Returns the subject's variants, in order.
     pub fn slots(&self) -> Vec<Slot> {
         self.declared_slots()
@@ -367,6 +417,37 @@ impl Cell {
         declared.len() > 1 || declared.iter().any(|slot| slot.cfg.is_some())
     }
 
+    /// Returns whether the method under test is matched by place, `match
+    /// *self` with `ref` bindings: "A method whose receiver is a reference,
+    /// `&self` or `&mut self`, plain or pinned, over an enum whose every
+    /// variant is under `#[cfg]`" (limits.md). A `self: Box<Self>` receiver
+    /// is no reference: the enum is moved out of its box and matched by
+    /// value.
+    pub fn matched_by_place(&self) -> bool {
+        let by_reference = match self.recv {
+            Receiver::Shared
+            | Receiver::Exclusive
+            | Receiver::PinShared
+            | Receiver::PinExclusive => true,
+            Receiver::Owned
+            | Receiver::Boxed
+            | Receiver::Rc
+            | Receiver::Arc
+            | Receiver::PinBoxed => false,
+        };
+        self.every_under_cfg() && by_reference
+    }
+
+    /// Returns whether the method under test may hold, under `*`, a body of
+    /// the arms the enum answers itself. "A trait method with a `Self`
+    /// argument, which is matched beside `self`, holds no arms the enum
+    /// answers itself under `*`; an inherent method hands a `Self` argument
+    /// on as it is and is not concerned" (limits.md), which
+    /// `reached_argument` says; nor does a method matched by place.
+    pub fn takes_own_arms(&self) -> bool {
+        self.reached_argument().kind.is_none() && !self.matched_by_place()
+    }
+
     /// Returns whether every variant is under `#[cfg]`, so that the enum
     /// may be empty in some build and is matched by place where the
     /// receiver is a reference (what-is-generated.md).
@@ -434,6 +515,7 @@ impl Cell {
             .filter(|(slot, _, _)| match form {
                 path::Form::Forwarded => true,
                 path::Form::First => slot.index == 0,
+                path::Form::Arms => !self.answered_by_arm(slot),
                 path::Form::Default | path::Form::Written => false,
             })
             .collect()

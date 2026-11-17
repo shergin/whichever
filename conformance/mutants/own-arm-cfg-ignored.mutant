@@ -1,0 +1,8 @@
+file: macros/src/selection.rs
+breaks: An arm of the method's own under `#[cfg]` answers where the `cfg` holds, and its variant is forwarded where it does not, as `docs/partial-impl-blocks.md` says.
+expect: killed
+
+find:
+            let builds = Builds::of(&arm.attrs);
+replace:
+            let builds = Builds::Every;

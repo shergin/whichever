@@ -27,6 +27,9 @@ pub enum Form {
     Default,
     /// Written by the block itself.
     Written,
+    /// Forwarded to every variant but those the body's own arms answer,
+    /// `#[dispatch(*)]` with a body that is one `match self`.
+    Arms,
 }
 
 /// A path's description.
@@ -65,6 +68,8 @@ impl Path {
             Path::BlockWritten => with(Site::Block, Form::Written, None, true),
             Path::Inherent => with(Site::Inherent, Form::Forwarded, Some("*"), true),
             Path::InherentSome => with(Site::Inherent, Form::First, Some("A"), true),
+            Path::BlockArms => with(Site::Block, Form::Arms, Some("*"), true),
+            Path::InherentArms => with(Site::Inherent, Form::Arms, Some("*"), true),
             Path::BlockMacro => PathDescriptor {
                 invocation: true,
                 ..with(Site::Block, Form::Forwarded, None, false)

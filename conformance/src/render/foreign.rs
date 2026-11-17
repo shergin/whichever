@@ -71,6 +71,7 @@ pub fn write_block_method(writer: &mut Writer, context: &Context) {
             writer.line(body());
             writer.close("}");
         }
+        PathForm::Arms => unreachable!("the verdict gives `fmt` no arms of its own"),
     }
 }
 

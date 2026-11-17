@@ -5,3 +5,5 @@
 # it diverge is excused by a line whose pattern matches it. A line that
 # excuses no finding in a complete run fails the run as stale. Columns are
 # separated by one tab.
+s1=pair arg=value path=block cfg=first-off decl=remote	warning:unused_variables@restatement	A method a partial block forwards whose live arms are a variant's sentence and the mismatch leaves its `u64` argument unread, and the generated method does not allow it, so a warning stands beside the sentence.
+path=inherent-arms arms=cfg-off	warning:unused_variables@inherent	A method kept as written beside a sentence that replaces it closes its arms with one for the rest that reads no argument, so where its only arm reading one is compiled out the arguments are warned of beside the sentence.

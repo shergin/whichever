@@ -532,10 +532,22 @@ fn forwarded_to(slot: &Slot, slots: Vec<(Slot, Target, TargetDescriptor)>) -> bo
 fn method_expectation(context: &Context, slot: &Slot) -> Expect {
     let forwarded = |slots| forwarded_to(slot, slots);
     match context.path.form {
-        PathForm::Forwarded | PathForm::First if forwarded(context.cell.method_slots()) => {
+        PathForm::Forwarded | PathForm::First | PathForm::Arms
+            if forwarded(context.cell.method_slots()) =>
+        {
             Expect::Twin
         }
         PathForm::Default => Expect::Default,
+        // An arm of the method's own answers its constant, or the label it
+        // reads.
+        PathForm::Arms if context.own_arm_reads_field(slot) => {
+            Expect::Constant(super::context::LABEL.to_string())
+        }
+        PathForm::Arms if context.inherent() => Expect::Constant(super::context::constant(
+            &context.cell.declared_node(),
+            &context.fresh(&value_path(context)),
+        )),
+        PathForm::Arms => Expect::Constant(context.mismatched_output(&value_path(context))),
         PathForm::Forwarded | PathForm::First | PathForm::Written if context.inherent() => {
             Expect::Constant(super::context::constant(
                 &context.cell.declared_node(),
@@ -879,7 +891,9 @@ fn write_mismatch(writer: &mut Writer, context: &Context) {
     let checked = match context.path.form {
         PathForm::Forwarded => context.argument.mismatch != MismatchSite::Missing,
         PathForm::First => true,
-        PathForm::Default | PathForm::Written => false,
+        // A trait method's `Self` argument takes no arms of its own
+        // (limits.md), so no such cell has a law.
+        PathForm::Default | PathForm::Written | PathForm::Arms => false,
     };
     if !checked || context.slots.len() < 2 {
         return;

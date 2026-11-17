@@ -8,8 +8,8 @@
 
 use crate::axis::Axis;
 use crate::model::{
-    Agreement, Argument, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home, Item,
-    Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
+    Agreement, Argument, Arms, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home,
+    Item, Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third,
 };
 
 /// The id of the neutral cell.
@@ -194,6 +194,8 @@ cell! {
     decl: Declaration,
     /// Which crate declares the enum.
     owner: Owner,
+    /// The arms a method under `*` writes in its body.
+    arms: Arms,
 }
 
 impl Cell {

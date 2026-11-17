@@ -8,7 +8,7 @@ use crate::model::argument::MismatchSite;
 use crate::model::path::{Form as PathForm, Site as PathSite};
 use crate::model::returns::Associated;
 use crate::model::stack::OTHER;
-use crate::model::Anchor;
+use crate::model::{Anchor, Arms};
 
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
 /// `base` and the method under test `m`.
@@ -261,9 +261,49 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
             writer.line(context.declared_constant());
             writer.close("}");
         }
+        PathForm::Arms => {
+            writer.open(format!("{signature} {{"));
+            write_own_arms(writer, context, Site::Inherent);
+            writer.close("}");
+        }
         PathForm::Forwarded | PathForm::Default | PathForm::Written => {
             writer.line(format!("{signature};"))
         }
+    }
+    writer.close("}");
+}
+
+/// Writes the body of a method under `*` that holds the enum's own arms:
+/// one `match self` holding them, as written, and a wildcard arm where the
+/// cell has one; or, for a body that is no `match self` and on a struct,
+/// the answer alone.
+fn write_own_arms(writer: &mut Writer, context: &Context, site: Site) {
+    let (unused, constant) = match site {
+        Site::Inherent => (
+            context.unused(Site::Inherent, true),
+            context.declared_constant(),
+        ),
+        Site::Trait | Site::Impl | Site::Payload => {
+            (context.unused(Site::Impl, false), context.mismatch("E"))
+        }
+    };
+    let unmatched = context.cell.arms == Arms::Unmatched || is_struct(&context.slots);
+    if unmatched {
+        writer.line(unused);
+        writer.line(constant);
+        return;
+    }
+    writer.open("match self {");
+    for arm in context.cell.own_arms() {
+        writer.line(context.own_arm(&arm, "Self"));
+    }
+    if context.cell.arms == Arms::Wildcard {
+        // Where the arms name every variant in the build, the wildcard is
+        // unreachable too, which the user's own code would be warned of.
+        writer.anchor(Anchor::Arm.name());
+        writer.line(format!(
+            "#[allow(unreachable_patterns)] _ => {{ {unused} {constant} }}"
+        ));
     }
     writer.close("}");
 }
@@ -350,6 +390,11 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         }
         match context.path.form {
             PathForm::Forwarded | PathForm::Default => writer.line(format!("{signature};")),
+            PathForm::Arms => {
+                writer.open(format!("{signature} {{"));
+                write_own_arms(writer, context, Site::Impl);
+                writer.close("}");
+            }
             PathForm::First | PathForm::Written => {
                 writer.open(format!("{signature} {{"));
                 writer.line(context.unused(Site::Impl, context.path.form == PathForm::Written));

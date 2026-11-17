@@ -204,6 +204,15 @@ struct Method {
     /// The type the impl gives the subject's parameter, where it is for
     /// one instantiation.
     instance: Option<&'static str>,
+    /// The arms the enum answers itself under `*`, as written, after the
+    /// forwarding arms.
+    own_arms: Vec<String>,
+    /// The variants holding a payload whose own arm is under a `#[cfg]`,
+    /// with its predicate: the variant is forwarded where it does not
+    /// hold, so its forwarding arm is written under the negation. Where
+    /// the predicate holds in every build the forwarding arm is in none,
+    /// and the hand leaves it out.
+    conditional: Vec<(usize, &'static str)>,
 }
 
 /// Writes `mod hand`.
@@ -333,6 +342,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
         hands_enum: false,
         trait_path: context.trait_path(),
         instance: context.instance(),
+        own_arms: Vec::new(),
+        conditional: Vec::new(),
     };
     write_method(writer, context, &base);
     // The method returning the trait's own type is forwarded as the control
@@ -393,7 +404,11 @@ pub fn write(writer: &mut Writer, context: &Context) {
     }
     let fallback = match context.path.form {
         // A method in no build has no arm to write.
-        PathForm::Forwarded | PathForm::First if !context.cell.method_present() => None,
+        PathForm::Forwarded | PathForm::First | PathForm::Arms
+            if !context.cell.method_present() =>
+        {
+            None
+        }
         // An inherent method's arms are written below, with the body it
         // takes for the variants its mark leaves out.
         PathForm::Forwarded | PathForm::First if context.inherent() => None,
@@ -409,8 +424,24 @@ pub fn write(writer: &mut Writer, context: &Context) {
             context.unused(Site::Impl, false),
             context.mismatch("E")
         )),
-        PathForm::Default | PathForm::Written => None,
+        // The arms the method writes leave no variant to a wildcard.
+        PathForm::Default | PathForm::Written | PathForm::Arms => None,
     };
+    // Under `*` the body's arms follow the forwarding arms, as written, in
+    // the hand's impl and in the subject's (partial-impl-blocks.md).
+    let own_arms = context
+        .cell
+        .own_arms()
+        .iter()
+        .map(|arm| context.own_arm(arm, "E"))
+        .collect();
+    let conditional = context
+        .cell
+        .own_arms()
+        .iter()
+        .filter(|arm| arm.slot.target().is_some())
+        .filter_map(|arm| arm.cfg.map(|predicate| (arm.slot.index, predicate)))
+        .collect();
     let method = Method {
         name: "m",
         signature: context.signature(Site::Impl),
@@ -437,6 +468,8 @@ pub fn write(writer: &mut Writer, context: &Context) {
         hands_enum: false,
         trait_path: context.trait_path(),
         instance: context.instance(),
+        own_arms,
+        conditional,
     };
     if method.inherent {
         writer.close("}");
@@ -449,7 +482,7 @@ pub fn write(writer: &mut Writer, context: &Context) {
                 context.unused(Site::Inherent, context.hands_the_enum()),
                 context.declared_constant()
             )),
-            PathForm::Forwarded | PathForm::Default | PathForm::Written => None,
+            PathForm::Forwarded | PathForm::Default | PathForm::Written | PathForm::Arms => None,
         };
         // An inherent method carries what the user wrote and the allowance
         // over an enum that may be empty, and no `#[inline]`.
@@ -481,8 +514,10 @@ pub fn write(writer: &mut Writer, context: &Context) {
     // no build, so the hand has nothing of it to write.
     let present = context.cell.method_present();
     match context.path.form {
-        PathForm::Forwarded | PathForm::First if present => write_method(writer, context, &method),
-        PathForm::Forwarded | PathForm::First | PathForm::Default => {}
+        PathForm::Forwarded | PathForm::First | PathForm::Arms if present => {
+            write_method(writer, context, &method)
+        }
+        PathForm::Forwarded | PathForm::First | PathForm::Arms | PathForm::Default => {}
         PathForm::Written if !present => {}
         PathForm::Written => {
             writer.blank();
@@ -550,6 +585,8 @@ fn write_other(writer: &mut Writer, context: &Context) {
         hands_enum: false,
         trait_path: String::from(OTHER),
         instance: None,
+        own_arms: Vec::new(),
+        conditional: Vec::new(),
     };
     write_method(writer, context, &method);
     writer.close("}");
@@ -606,10 +643,13 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
         hands_enum: false,
         trait_path: String::from(CORE_DISPLAY),
         instance: None,
+        own_arms: Vec::new(),
+        conditional: Vec::new(),
     };
     match context.path.form {
         PathForm::Forwarded | PathForm::First => write_method(writer, context, &method),
         PathForm::Default => {}
+        PathForm::Arms => unreachable!("the verdict gives `fmt` no arms of its own"),
         PathForm::Written => {
             writer.blank();
             writer.open(format!("{SIGNATURE} {{"));
@@ -702,6 +742,11 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     };
     writer.open(format!("match {scrutinee} {{"));
     for (slot, _, target) in context.live() {
+        let condition = method
+            .conditional
+            .iter()
+            .find(|(index, _)| *index == slot.index)
+            .map(|(_, predicate)| *predicate);
         if !method.slots.contains(&slot.index) {
             continue;
         }
@@ -714,7 +759,13 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
             awaited,
             &conversion,
         );
-        writer.line(arm);
+        match condition {
+            Some(predicate) => writer.line(format!("#[cfg(not({predicate}))] {arm}")),
+            None => writer.line(arm),
+        }
+    }
+    for own in &method.own_arms {
+        writer.line(own);
     }
     // Beside a variant under `#[cfg]` the fallback arm is unreachable in a
     // build that leaves only variants the arms name, so a hand writing the
