@@ -744,8 +744,9 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     let unwrap = receiver
         .unwrap
         .expect("the verdict writes a hand only for a forwarded receiver");
-    // "On a struct the one arm returns the field's future as it is, unless
-    // its output is rewrapped or converted" (what-is-generated.md).
+    // "On a struct, there is one arm, so the field's future is returned as
+    // it is, unless its output is rewrapped (a `Self`) or converted"
+    // (what-is-generated.md).
     let one_arm = is_struct(&context.slots);
     let (wrapping, awaited, conversion) = match method.node.future() {
         Some((FutureKind::Opaque, output))
@@ -912,11 +913,12 @@ fn arm(
     if method.passes {
         arguments.push(String::from(method.parameter));
     }
-    // "Where the route names the target's type, the payload or what it
-    // dereferences to, the call is `<Square as Shape>::area(&inner.base)`;
-    // a field's or a method's type cannot be named, and the call is `<_ as
-    // Shape>::area(&inner.base)`, qualified by the trait alone" (routes.md).
-    // What a `Box<dyn Probe>` dereferences to is the trait object.
+    // "When the attribute can name the target's type, the call names it",
+    // as for the payload or what it dereferences to; "The type of a field
+    // or of a method's result cannot be named from inside the macro. Then
+    // the call is qualified by the trait alone", `<_ as
+    // Shape>::area(&inner.base)` (routes.md). What a `Box<dyn Probe>`
+    // dereferences to is the trait object.
     let named = target.route.iter().all(|step| *step == Step::Deref);
     let qualifier = match named {
         true => target_type(slot, target, method.instance),

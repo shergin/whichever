@@ -34,10 +34,17 @@ any default.
   with one word per thing: the macro `#[dispatchable]` leaves next to a
   trait is the carrier macro. The macro source's internal names, such as
   "subject" for the enum or struct, stay out of public text.
+- Public docs are written for a reader new to the crate, in plain English:
+  short sentences that speak to "you", the everyday case and a small
+  example first, the fine print after it under a heading of its own, and
+  the reason beside each rule. Every fact stays: an option, an exception
+  or a limit is never left out to make a page lighter. The words are the
+  ones `docs/glossary.md` defines.
 - Public docs are updated in the same change that makes them stale: the
   README, the pages under `docs/`, the crate docs in `src/lib.rs`, the
   Unreleased section of `CHANGELOG.md`, and the guide when a measurement
-  it quotes moves.
+  it quotes moves. `docs/tutorial.md` shows code from `examples/tour.rs`,
+  and the two change together.
 - Settled stays settled. A choice among real alternatives is recorded in
   `docs/decisions/` with the condition that reopens it. Do not relitigate
   without new evidence; when evidence arrives, supersede the record rather
@@ -101,7 +108,8 @@ any default.
   `python3 smoke/mixed/check.py`,
   `cargo bench -p whichever-benchmarks --no-run`,
   `python3 benchmarks/scripts/codegen.py`,
-  `python3 benchmarks/scripts/check_numbers.py`, and
+  `python3 benchmarks/scripts/check_numbers.py`,
+  `python3 scripts/check_links.py`, and
   `cargo run -p whichever-conformance --release -- run --shape`.
   The mutants are judged by their witnesses, the cells each mutant's file
   names: `.github/workflows/mutants.yml` runs them in four jobs on every

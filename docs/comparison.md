@@ -1,29 +1,37 @@
 # Compared with the alternatives
 
 Several crates write the forwarding impl of a trait for an enum over its
-implementors, the `match` a hand would otherwise write for every method.
+implementors: the `match` you would otherwise write by hand for every
+method. This page shows where each of them stops, and what `whichever`
+does differently.
 
 ## `enum_dispatch`
 
-`enum_dispatch` came first, and its mechanism is its limit. It keeps the
-trait's definition in a process-global cache inside the proc-macro server,
-and remembers it from one expansion to the next. That is why:
+`enum_dispatch` came first, and its mechanism is also its limit. It keeps
+the trait's definition in a process-global cache inside the proc-macro
+server, and remembers it from one expansion to the next. That has three
+consequences:
 
-- **An enum in another crate gets no impl, silently.** The cache is empty
-  when the enum's crate compiles, so the enum compiles without the trait and
-  the first call fails, far from the cause.
-- **Real trait shapes panic or are refused.** Associated types, associated
-  consts, methods without a receiver, `&Self` arguments and lifetime-generic
-  traits are out of reach.
-- **Errors lose their spans.** Tokens replayed from a cache no longer point
-  at your code.
+- **An enum in another crate silently gets no impl.** The cache is empty
+  when the enum's crate compiles. So the enum compiles without the trait,
+  and the first call fails, far from the cause.
+- **Real-world traits panic or are refused.** Associated types,
+  associated consts, methods without a receiver, `&Self` arguments and
+  lifetime-generic traits are out of reach.
+- **Errors lose their spans.** Tokens replayed from a cache no longer
+  point at your code.
 
-Its tracker, read on 2026-11-13, still has these open: [associated
-types][ed-50], the most upvoted open issue and open since 2021; [the
-trait and the enum in different crates][ed-83]; [`Option<Self>` and
-`Result<Self, E>` returns][ed-82]; [traits of other crates][ed-79], and
-[`Display`][ed-55] in particular; [a generic trait on an enum that is not
-generic][ed-67]; and [IDE support][ed-52]. All of them work here.
+Its tracker, read on 2026-11-13, still has these open:
+
+- [associated types][ed-50], the most upvoted open issue and open since
+  2021;
+- [the trait and the enum in different crates][ed-83];
+- [`Option<Self>` and `Result<Self, E>` returns][ed-82];
+- [traits of other crates][ed-79], and [`Display`][ed-55] in particular;
+- [a generic trait on an enum that is not generic][ed-67];
+- [IDE support][ed-52].
+
+All of them work in `whichever`.
 
 [ed-50]: https://gitlab.com/antonok/enum_dispatch/-/issues/50
 [ed-52]: https://gitlab.com/antonok/enum_dispatch/-/issues/52
@@ -33,7 +41,7 @@ generic][ed-67]; and [IDE support][ed-52]. All of them work here.
 [ed-82]: https://gitlab.com/antonok/enum_dispatch/-/issues/82
 [ed-83]: https://gitlab.com/antonok/enum_dispatch/-/issues/83
 
-Here is a trait `enum_dispatch` cannot take, with the same two
+Here is a trait `enum_dispatch` cannot take, dispatched with the same two
 attributes:
 
 ```rust
@@ -59,30 +67,34 @@ pub enum AnyStorage {
 }
 ```
 
+What to notice:
+
 - The variants' own error types meet in one `StorageError` through
   `Into`.
-- `shares_file_with` on two different variants answers the `false` the
+- `shares_file_with` on two different variants returns the `false` the
   trait declares.
 - `snapshot` wraps the payload's `Option<Self>` back into its variant.
 - `Display` is a trait of `std`, dispatched from `whichever::foreign`.
 
-The whole program is [`examples/storage.rs`](../examples/storage.rs), and
-runs with `cargo run --example storage`.
+The whole program is [`examples/storage.rs`](../examples/storage.rs). Run
+it with `cargo run --example storage`.
 
 ## The crates that followed
 
-The crates that followed work across crates, but each supports a different
-slice of what real traits look like:
+The crates that followed work across crates, but each one supports a
+different slice of what real traits look like:
 
-- `ambassador` handles associated types and generic traits, but no `Self`
-  in arguments or returns, no associated consts and no `From` impls.
-- `enum_delegate` handles `-> Self` and unifies associated types, but
-  panics at runtime on `&Self` arguments, has no `async`, generic traits or
-  generic methods, and leaves out `#[inline]`, which costs an out-of-line
-  call across a crate boundary ([measured](../benchmarks/RESULTS.md)).
-- `delegate` handles almost anything, because you list every signature
-  again by hand.
-- `portrait`, `delegation` and `static-dispatch` cover plain `&self`
+- **`ambassador`** handles associated types and generic traits. It has
+  no `Self` in arguments or returns, no associated consts and no `From`
+  impls.
+- **`enum_delegate`** handles `-> Self` and unifies associated types. It
+  panics at runtime on `&Self` arguments, and has no `async`, no generic
+  traits and no generic methods. It also leaves out `#[inline]`, which
+  costs an out-of-line call across a crate boundary
+  ([measured](../benchmarks/RESULTS.md)).
+- **`delegate`** handles almost anything, because you list every
+  signature again by hand.
+- **`portrait`, `delegation` and `static-dispatch`** cover plain `&self`
   methods, defaults and generic methods.
 
 Whichever you pick, the first trait with a `&Self` argument or an
@@ -91,22 +103,28 @@ associated const sends you back to writing the `match` by hand.
 ## What `whichever` does instead
 
 `whichever` keeps nothing between expansions. `#[dispatchable]` exports a
-carrier macro holding the trait's signatures, re-exported under the
-trait's own name, and `#[dispatch]` calls it. The trait reaches the enum
-through ordinary name resolution, so it works across crates, in any order,
-and every span is the one you wrote.
+[carrier macro](glossary.md#carrier-macro): a hidden macro that holds the
+trait's signatures, re-exported under the trait's own name. `#[dispatch]`
+calls it.
+
+So the trait reaches the enum through ordinary name resolution. It works
+across crates, in any order, and every span is the one you wrote.
 
 ## Feature by feature
 
 Every row where only `whichever` says yes is a trait that, with any other
 crate, goes back to a hand-written `match`.
 
+How to read the table: "yes" means the case works; "no" means it does
+not; a dash means the case was not probed; anything else says how the
+case is handled.
+
 | | whichever | enum_dispatch 0.3 | ambassador 0.5 | portrait 0.3 | enum_delegate 0.2 | delegation 0.5 | static-dispatch 0.3 | delegate 0.13 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Trait and enum in different crates | yes | no, silently | yes | yes | yes | yes | yes | yes, signatures re-listed |
 | Traits of `std` or a crate you do not own | yes, `Display`, `io::Read` and more shipped; others restated once | no | yes, restated | - | - | - | - | yes, signatures re-listed |
 | Default methods forwarded | yes | yes | yes | yes | yes | yes | yes | if listed |
-| `Self`, `&Self`, `&mut Self` arguments | yes, with a declared fallback | no | no | no | panics at runtime | no | no | no |
+| `Self`, `&Self`, `&mut Self` arguments | yes, with a declared mismatch value (what to return when the two hold different variants) | no | no | no | panics at runtime | no | no | no |
 | `-> Self` | yes | yes | no | no | yes | no | no | with `#[into]` |
 | `-> Option<Self>`, `-> Result<Self, E>` | yes | no | - | - | - | - | - | - |
 | Associated types | yes | no | yes | no | yes | no | no | by hand |
@@ -133,4 +151,5 @@ crate, goes back to a hand-written `match`.
 
 Probed on 2026-11-01 against the versions shown, with the trait in one
 crate and the enum in another, on stable Rust. A dash means the case was
-not probed for that crate. The `whichever` column is what `tests/` checks.
+not probed for that crate. The `whichever` column is what `tests/`
+checks.

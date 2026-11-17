@@ -1,10 +1,16 @@
 # Forwarding from a struct field
 
-A dispatch enum is often private, behind a public struct that forwards the
-same trait by hand, and the hand-written half forwards only the required
-methods, so a payload's override of a provided method never reaches the
-public type. `#[dispatch]` on the struct forwards to its one field, or to
-the field marked `#[dispatch]`, every method included:
+A [dispatch enum](glossary.md#dispatch-enum) (an enum with `#[dispatch]`
+on it) is often private. It sits behind a public struct, and the struct
+implements the same trait by hand, passing each call to the enum.
+
+That hand-written half usually forwards only the required methods. So if
+a payload overrides a provided method (a method with a default body), the
+override never reaches the public type: the struct runs the default.
+
+Put `#[dispatch(Trait)]` on the struct instead. It forwards to the
+struct's one field, or to the field marked `#[dispatch]`, and it forwards
+every method, provided ones included:
 
 ```rust
 #[whichever::dispatch(FlowCtrlHooks)]
@@ -21,8 +27,14 @@ pub struct StreamFlowCtrl {
 }
 ```
 
-The field may be any implementor, not only a dispatch enum, so the same
-attribute replaces a field-delegation derive:
+`StreamFlowCtrl` has two fields, so `#[dispatch]` marks the one that every
+call goes to. The `hooks` field is left alone.
+
+## Any implementor will do
+
+The field does not have to be a dispatch enum. Any type that implements
+the trait works, so the same attribute also replaces a field-delegation
+derive:
 
 ```rust
 #[whichever::dispatch(Addresses)]
@@ -33,16 +45,11 @@ pub struct Beacon {
 }
 ```
 
-A field may name the traits it is the target of, and the field marked bare
-takes every trait not named elsewhere. A trait's impl has one home: the
-struct's attribute, which names every trait whose impl it writes, or a
-[partial impl block](partial-impl-blocks.md), and a trait goes to the field
-that names it whichever home writes the impl. A field names a trait as its
-home spells it, the attribute or the block's header, arguments included,
-and from `crate`, `self`, `super` or the root where the home's path
-begins there, `#[dispatch(crate::traits::Catalog)]`, so two instantiations of one generic trait, `Encoder<Json>` and
-`Encoder<Xml>`, or two traits of one name from two modules, go to two
-fields:
+## Several traits, several fields
+
+A field may list the traits it is the [target](glossary.md#target) of.
+The field marked with a bare `#[dispatch]` takes every trait that no
+other field lists:
 
 ```rust
 #[whichever::dispatch(Rom)]
@@ -58,10 +65,30 @@ pub struct Mapper {
 }
 ```
 
-A trait whose impl needs a header the attribute cannot write, such as a
-bound that ties one field's type to another's, is a partial block's, and
-the field still names it; the struct's attribute then leaves it out, since
-the block is the impl:
+### Where a trait's impl lives
+
+A trait's impl has one home. It is either the struct's attribute, which
+lists every trait whose impl it writes, or a
+[partial impl block](partial-impl-blocks.md). Whichever home writes the
+impl, the trait goes to the field that lists it.
+
+### How a field lists a trait
+
+A field lists a trait exactly as the trait's home spells it: as the
+struct's attribute spells it, or as the block's header spells it.
+
+- **Generic arguments are part of the name.** So two instantiations of one
+  generic trait, `Encoder<Json>` and `Encoder<Xml>`, can go to two fields.
+- **The module path is part of the name.** So two traits of one name from
+  two modules can go to two fields.
+- **Start from `crate`, `self`, `super` or the root** where the home's
+  path starts there, as in `#[dispatch(crate::traits::Catalog)]`.
+
+## When the impl needs its own header
+
+Sometimes the impl needs a header the attribute cannot write, such as a
+bound that ties one field's type to another's. Then the trait's home is a
+partial impl block, and the field still lists the trait:
 
 ```rust
 #[whichever::dispatch(Named)]
@@ -73,37 +100,88 @@ pub struct Env<S, C, N> {
     pub named: N,
 }
 
+impl<S: Sorts, C, N> Sorts for Env<S, C, N> {
+    type Extractor = S::Extractor;
+}
+
 #[whichever::dispatch]
 impl<S: Sorts, C: Catalog<Extractor = S::Extractor>, N> Catalog for Env<S, C, N> {}
 ```
 
-A generic trait's block names its parameter, `impl<F, E: Encoder<F>, N>
-Encoder<F> for Env<E, N> {}`, and the field names the trait as the header
-does, `#[dispatch(Encoder<F>)]`. A method of the block marked `*` goes to
-that field, and so does one that names it, `#[dispatch(catalog)]`; one that
-names another field is reported, with the way to send the trait there,
-which is to name it on that field. The struct does not see its blocks, so
-a field's mark that no home claims forwards nothing and is not reported:
-the trait's first use says that the impl is missing. One name spelled two
-ways is reported, at either home: a home whose trait no field names as it
-is spelled there, beside a field that names it with more or fewer path
-segments, `Catalog` and `traits::Catalog`, or with or without its generic
-arguments, `Encoder` and `Encoder<F>`, since the home would otherwise go
-to the bare field. The impl is then written for the field that was meant,
-so the sentence is the only error, and the calls of the trait's methods
-compile.
+Notice that the struct's attribute lists only `Named`, and leaves
+`Catalog` out: the block is the impl of `Catalog`. The `Sorts` impl is
+written by hand, because `Catalog` needs it as a supertrait.
 
-`#[dispatch(deref)]` on the field reaches through a `Box` or another
-pointer. A method returning `Self` is rebuilt only around a struct with no
-other field; otherwise it is an error, and the method goes in a partial impl
-block, which works on a struct like on an enum. `Option<Self>` and
-`Result<Self, E>` are mapped with a path, `.map(Wrapper)`, which a tuple
-struct has and a struct with a named field does not, so on `struct Named {
-shape: Square }` they are an error too, which the tuple form
-`struct Named(Square);` avoids; `-> Self` there is rebuilt by the braces,
-as it is for a variant whose one field is named and marked. A struct's
-`match` has one
-arm, so it forwards a return-position `impl Trait` as it is, which an enum
-cannot. A struct gets no `From` impls. `Self` arguments need no `mismatch`:
-two values of the struct always hold the same field, and the argument is
-unwrapped to it.
+- **A generic trait.** The block writes the trait's parameter, as in
+  `impl<F, E: Encoder<F>, N> Encoder<F> for Env<E, N> {}`, and the field
+  lists the trait the way the header spells it: `#[dispatch(Encoder<F>)]`.
+- **Methods of the block.** A method marked `#[dispatch(*)]` goes to the
+  field that lists the trait. So does a method that names that field, as
+  in `#[dispatch(catalog)]`.
+- **Naming another field is an error.** A trait goes to one field. To
+  send it to another field, list the trait on that field instead. The
+  error says:
+
+  ```text
+  error: `named` is a field of `Env`, but this trait is forwarded to `catalog`, and a trait is forwarded to one field; name the trait on `named`, `#[dispatch(Trait)]`, to forward it there
+  ```
+
+## Spelling: one name, two ways
+
+Here the struct's attribute and the field spell one trait two ways:
+
+```rust
+#[whichever::dispatch(traits::Catalog)]
+struct Env {
+    #[dispatch(Catalog)]
+    catalog: Books,
+    #[dispatch]
+    named: Label,
+}
+```
+
+You get an error:
+
+```text
+error: `Catalog` on `catalog` and `traits::Catalog` on the struct spell one trait's name two ways, so `catalog` is not the field `traits::Catalog` is forwarded to; a field names a trait as the struct's attribute spells it
+```
+
+The rule: a field lists a trait as the trait's home spells it. When no
+field lists the home's trait in that spelling, but a field lists it in
+another, you get this error. Another spelling is:
+
+- more or fewer path segments, as in `Catalog` and `traits::Catalog`, or
+- with or without its generic arguments, as in `Encoder` and `Encoder<F>`.
+
+Without the error, the home's trait would quietly go to the bare field,
+`named`, instead. You get it at either home, the struct's attribute or a
+block.
+
+The impl is still written for the field that was meant. So this error is
+the only one you see, and the calls of the trait's methods compile.
+
+A field's mark that no home claims is not an error. It forwards nothing,
+and nothing says so, because the struct does not see its blocks. The
+first use of the trait then tells you that the impl is missing.
+
+## What is different from an enum
+
+- **`#[dispatch(deref)]` on the field** reaches through a `Box` or another
+  pointer, as it does on a variant.
+- **A method returning `Self`** is rebuilt only around a struct with no
+  other field, because the macro has no values for the others. On a struct
+  with other fields it is an error, and the method goes in a
+  [partial impl block](partial-impl-blocks.md). A partial impl block works
+  on a struct as it does on an enum.
+- **`Option<Self>` and `Result<Self, E>`** are mapped with a path, as in
+  `.map(Wrapper)`. A tuple struct has such a path; a struct with a named
+  field does not. So on `struct Named { shape: Square }` they are an error
+  too, and the tuple form `struct Named(Square);` avoids it. A plain
+  `-> Self` on the named form is fine: it is rebuilt with braces, as it is
+  for a variant whose one field is named and marked.
+- **A return-position `impl Trait` is forwarded as it is.** A struct's
+  `match` has one arm, so there is only one hidden type. An enum cannot do
+  this.
+- **A struct gets no `From` impls.**
+- **`Self` arguments need no `mismatch`.** Two values of the struct always
+  hold the same field, and the argument is unwrapped to it.

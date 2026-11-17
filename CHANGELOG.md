@@ -5,6 +5,28 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The documentation is rewritten in plainer English, with every fact
+  kept. The README, the pages under `docs/`, the crate docs and the docs
+  of the two attributes now open with the everyday case and a small
+  example, and keep the fine print under headings of its own. Three
+  pages are new: `docs/tutorial.md`, a guided tour whose code is the
+  runnable `examples/tour.rs`; `docs/glossary.md`, the words the docs
+  use, one per thing; and `docs/troubleshooting.md`, which goes from an
+  error message to its cause and its fix. `docs/limits.md` gains a line
+  for each limit that had a `tests/ui` case and none on the page.
+  Four things the old text had wrong are corrected. The call a route
+  writes: `<<Box<Square> as Deref>::Target as Shape>::area(&**inner)`
+  for `deref`, `<_ as Shape>::area(&inner.base)` for a field, and never
+  `<Square as Shape>::area(&inner.base)`. The variant an associated
+  type or const comes from: the first that is always compiled in and
+  whose target has a type to name. The cost of a cyclic layout in the
+  guide, where the `match` keeps up with the uniform case only up to 8
+  variants. And the options in the docs of `#[dispatch]` itself, which
+  listed three of the four a variant takes and left out `into`,
+  `Name = value` and the by-reference `try_from` forms.
+  `scripts/check_links.py` checks that every link between the pages
+  points at a file and a heading that exist, and CI runs it. No
+  behaviour changed.
 - Before, a trait method whose own generic parameter is named like
   something the impl gives a meaning around the method did not compile, or
   meant something else. Named like a parameter of the enum or the struct,

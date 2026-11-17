@@ -1,12 +1,7 @@
-//! Declarations of standard library traits for `#[dispatch]`.
+//! Ready-made restatements of standard library traits for `#[dispatch]`.
 //!
-//! A trait from `core` or `std` is not `#[dispatchable]`, so this module
-//! restates the ones an enum over implementors most often forwards by hand.
-//! Each is a `#[dispatchable(remote = ..)]` declaration: it emits no trait,
-//! only the carrier macro that `#[dispatch]` reads, and the impl it generates
-//! is of the real trait. `#[dispatch(whichever::foreign::Display)]` on an
-//! enum implements `core::fmt::Display` for it, with one `match` whose arms
-//! are `<Payload as core::fmt::Display>::fmt(inner, f)`.
+//! Use this module to forward `Display`, `Error`, `Iterator`, `Read`,
+//! `Write` and the other traits below on your enum, with one attribute:
 //!
 //! ```
 //! use std::io;
@@ -25,37 +20,84 @@
 //! }
 //! ```
 //!
-//! The forwarded provided methods are the ones a `match` can forward and
-//! that are stable on the crate's minimum Rust version, so a payload's
-//! override is what runs through the enum: `core`'s slice iterators answer
-//! `any`, `all`, `find` and `position` themselves, a range answers `max`,
-//! `min` and `is_sorted`, and a `vec::IntoIter` collected into a `Vec`
-//! reuses its allocation. Adapters that consume `Self` into a wrapper, such
-//! as `Iterator::map` or `Read::bytes`, and `by_ref` keep their defaults,
-//! which call the forwarded methods. `Iterator` also leaves out `unzip`,
-//! which a `match` cannot forward, since the bound `Self: Iterator<Item =
-//! (A, B)>` does not reach the payload; `rposition`, whose bound
-//! `Self: ExactSizeIterator + DoubleEndedIterator` holds only for an enum
-//! that is both; and the methods that are unstable on that version, such as
-//! `try_fold`, `try_for_each` and `advance_by`. `Error` leaves out
-//! `description` and `cause`, which are deprecated: a hand does not forward
-//! them, and a partial block over `Error` that answers `source` itself
-//! would then have to answer them too.
+//! `#[dispatch(whichever::foreign::Display)]` implements the real
+//! `core::fmt::Display` for the enum. You get one `match`, and each arm is
+//! `<Payload as core::fmt::Display>::fmt(inner, f)`.
 //!
-//! Every method the `Iterator` declaration forwards but `next`, `size_hint`
-//! and `nth` requires `Self: Sized`, as `core` declares them, and so do
-//! `DoubleEndedIterator`'s `rfold` and `rfind`. A `Box<dyn Iterator>` is itself an `Iterator`, so an
-//! enum holds one as a plain payload, without `deref`, and every method is
-//! forwarded to the box; the same holds for a `Box<dyn DoubleEndedIterator>`
-//! under `DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
-//! `ExactSizeIterator`. `DoubleEndedIterator` and `ExactSizeIterator` are
-//! dispatched beside `Iterator`, their supertrait, one attribute each.
+//! A trait from `core` or `std` is not `#[dispatchable]`, so `#[dispatch]`
+//! has nothing to read its signatures from. This module restates the
+//! traits an enum over implementors most often forwards by hand. Each one
+//! is a restatement, a copy of the trait's signatures marked `remote` with
+//! `#[dispatchable(remote = ..)]`: it emits no trait, only the carrier
+//! macro that `#[dispatch]` reads, and the impl it generates is of the
+//! real trait.
 //!
-//! An override such as `Item = Wide` converts what a method returns, not an
-//! argument that names the type, so the methods that take a closure over
-//! `Self::Item` compile only where every payload's `Item` is `Wide`. Where
-//! the payloads' items differ, restate `Iterator` in the dispatching crate
-//! with the methods to forward, `next` and `size_hint`, and the rest take
+//! | Restatement | Implements | Forwarded |
+//! | --- | --- | --- |
+//! | `Display` | `core::fmt::Display` | `fmt` |
+//! | `Debug` | `core::fmt::Debug` | `fmt` |
+//! | `Error` | `core::error::Error` | `source` |
+//! | `PartialEq` | `core::cmp::PartialEq` | `eq` and `ne`; two different variants are never equal |
+//! | `Iterator` | `core::iter::Iterator` | `type Item`, `next`, `size_hint`, `count`, `last`, `nth`, `for_each`, `collect`, `partition`, `fold`, `reduce`, `all`, `any`, `find`, `find_map`, `position`, `max`, `min`, `max_by_key`, `max_by`, `min_by_key`, `min_by`, `sum`, `product`, `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_sorted`, `is_sorted_by`, `is_sorted_by_key` |
+//! | `DoubleEndedIterator` | `core::iter::DoubleEndedIterator` | `next_back`, `nth_back`, `rfold`, `rfind` |
+//! | `ExactSizeIterator` | `core::iter::ExactSizeIterator` | `len` |
+//! | `Read` | `std::io::Read` | `read`, `read_vectored`, `read_to_end`, `read_to_string`, `read_exact` |
+//! | `Write` | `std::io::Write` | `write`, `write_vectored`, `flush`, `write_all`, `write_fmt` |
+//! | `BufRead` | `std::io::BufRead` | `fill_buf`, `consume`, `read_until`, `skip_until`, `read_line` |
+//! | `Seek` | `std::io::Seek` | `seek`, `rewind`, `stream_position`, `seek_relative` |
+//!
+//! # What is forwarded, and why it matters
+//!
+//! Each restatement forwards the provided methods that a `match` can
+//! forward and that are stable on the crate's minimum Rust version. So a
+//! payload's own override is what runs through the enum:
+//!
+//! - `core`'s slice iterators implement `any`, `all`, `find`, `find_map`
+//!   and `position` themselves.
+//! - A range implements `max`, `min` and `is_sorted` itself.
+//! - A `vec::IntoIter` collected into a `Vec` reuses its allocation.
+//!
+//! # What is left out, and why
+//!
+//! - Adapters that consume `Self` into a wrapper, such as `Iterator::map`
+//!   or `Read::bytes`, and `by_ref` keep their defaults. Those defaults
+//!   call the forwarded methods.
+//! - `Iterator::unzip` is left out because a `match` cannot forward it:
+//!   the bound `Self: Iterator<Item = (A, B)>` does not reach the payload.
+//! - `Iterator::rposition` is left out because its bound
+//!   `Self: ExactSizeIterator + DoubleEndedIterator` is true only for an
+//!   enum that is both.
+//! - The methods that are unstable on the crate's minimum Rust version are
+//!   left out, such as `try_fold`, `try_for_each` and `advance_by`.
+//! - `Error` leaves out `description` and `cause`, which are deprecated.
+//!   You would not forward them by hand, and a partial impl block over
+//!   `Error` that writes `source` itself would then have to write them
+//!   too.
+//!
+//! # `Self: Sized` and boxed iterators
+//!
+//! Every method the `Iterator` restatement forwards, except `next`,
+//! `size_hint` and `nth`, needs `Self: Sized`, as `core` declares them. So
+//! do `DoubleEndedIterator`'s `rfold` and `rfind`.
+//!
+//! A `Box<dyn Iterator>` is itself an `Iterator`. So an enum holds one as a
+//! plain payload, without `deref`, and every method is forwarded to the
+//! box. The same goes for a `Box<dyn DoubleEndedIterator>` under
+//! `DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
+//! `ExactSizeIterator`.
+//!
+//! `DoubleEndedIterator` and `ExactSizeIterator` are dispatched beside
+//! `Iterator`, their supertrait, one attribute each.
+//!
+//! # Payloads with different items
+//!
+//! An override such as `Item = Wide` converts what a method returns. It
+//! does not convert an argument that mentions the type. So the methods that
+//! take a closure over `Self::Item` compile only when every payload's
+//! `Item` is `Wide`.
+//!
+//! When the payloads' items differ, restate `Iterator` in your own crate
+//! with only the methods to forward, `next` and `size_hint`. The rest take
 //! the trait's default:
 //!
 //! ```
@@ -80,26 +122,14 @@
 //! }
 //! ```
 //!
-//! The `std` declarations are plain tokens here and resolve in the
-//! dispatching crate, so this module needs no feature; a `no_std` crate
-//! uses the `core` ones.
+//! # Features and `no_std`
 //!
-//! | Declaration | Implements | Forwarded |
-//! | --- | --- | --- |
-//! | `Display` | `core::fmt::Display` | `fmt` |
-//! | `Debug` | `core::fmt::Debug` | `fmt` |
-//! | `Error` | `core::error::Error` | `source` |
-//! | `PartialEq` | `core::cmp::PartialEq` | `eq` and `ne`; two different variants are never equal |
-//! | `Iterator` | `core::iter::Iterator` | `type Item`, `next`, `size_hint`, `count`, `last`, `nth`, `for_each`, `collect`, `partition`, `fold`, `reduce`, `all`, `any`, `find`, `find_map`, `position`, `max`, `min`, `max_by_key`, `max_by`, `min_by_key`, `min_by`, `sum`, `product`, `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_sorted`, `is_sorted_by`, `is_sorted_by_key` |
-//! | `DoubleEndedIterator` | `core::iter::DoubleEndedIterator` | `next_back`, `nth_back`, `rfold`, `rfind` |
-//! | `ExactSizeIterator` | `core::iter::ExactSizeIterator` | `len` |
-//! | `Read` | `std::io::Read` | `read`, `read_vectored`, `read_to_end`, `read_to_string`, `read_exact` |
-//! | `Write` | `std::io::Write` | `write`, `write_vectored`, `flush`, `write_all`, `write_fmt` |
-//! | `BufRead` | `std::io::BufRead` | `fill_buf`, `consume`, `read_until`, `skip_until`, `read_line` |
-//! | `Seek` | `std::io::Seek` | `seek`, `rewind`, `stream_position`, `seek_relative` |
+//! The `std` restatements are plain tokens here, and they resolve in your
+//! crate, where the enum is. So this module needs no feature, and a
+//! `no_std` crate uses the `core` ones.
 //!
-//! Any other trait is restated the same way in the dispatching crate; see
-//! the crate documentation.
+//! To restate any other trait the same way in your own crate, see the
+//! [crate documentation](crate).
 #![allow(clippy::module_name_repetitions)]
 
 use whichever_macros::dispatchable;

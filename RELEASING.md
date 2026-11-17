@@ -41,6 +41,7 @@ python3 smoke/mixed/check.py
 cargo bench -p whichever-benchmarks --no-run
 python3 benchmarks/scripts/codegen.py
 python3 benchmarks/scripts/check_numbers.py
+python3 scripts/check_links.py
 cargo run -p whichever-conformance --release -- run --shape
 ```
 

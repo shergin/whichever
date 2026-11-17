@@ -110,6 +110,8 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       # Every number the README and the guide quote is one RESULTS.md holds.
       - run: python3 benchmarks/scripts/check_numbers.py
+      # Every relative link in the Markdown docs reaches a file and a heading.
+      - run: python3 scripts/check_links.py
 
   semver:
     name: semver-checks

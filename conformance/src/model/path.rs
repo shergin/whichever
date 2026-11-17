@@ -53,9 +53,9 @@ pub struct PathDescriptor {
     pub bodiless: bool,
     /// The predicate of the `#[cfg]` the item the block cannot read, the
     /// invocation or the bodiless method, is under, if any. "An item of a
-    /// partial impl block that cannot be read [..] is reported under its
-    /// own `#[cfg]`; where the `cfg` does not hold the item is not in the
-    /// block, which is read without it and forwards as usual" (limits.md).
+    /// partial impl block that cannot be read also follows its own
+    /// `#[cfg]`. [..] Where the `cfg` is off, the block is read without the
+    /// item and forwards as usual" (limits.md).
     pub unread_cfg: Option<&'static str>,
 }
 
