@@ -5,6 +5,14 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `docs/options.md`, `docs/limits.md`, `docs/troubleshooting.md` and the
+  crate docs say that the `From` impls reach one level: an enum held by
+  another gives the outer enum `From<Inner>` and nothing for the inner
+  enum's payloads, and one
+  blanket impl by hand, `impl<T> From<T> for Outer where Inner: From<T>`,
+  with `#[dispatch(from = false)]` on the variant, converts every leaf,
+  through as many levels as are written that way. The behaviour test
+  `from_impls` converts every leaf through two and through three levels.
 - Before, rustc's error about what a route's method returns, such as a
   method that returns its target by value forwarded under `&self`,
   "expected `&_`, found `Parsed`", stood on the enum's or the struct's

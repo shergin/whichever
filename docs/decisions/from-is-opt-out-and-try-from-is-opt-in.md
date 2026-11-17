@@ -3,7 +3,8 @@
 Status: accepted, 2026-11-01 (`From` in 0.1.0, `try_from` in 0.2.0, per
 variant in 0.4.0; the by-reference forms `try_from = ref` and `ref_mut`,
 and `into = Target`, on 2026-11-05, after sound_flow and mindus met the
-by-reference condition and screeps and boreholeio the `into` one). Serves
+by-reference condition and screeps and boreholeio the `into` one). Completed on
+2026-11-17 by [`From` reaches one level](from-reaches-one-level.md). Serves
 rule 1 of the [vision](../vision.md), the output is the hand's. Reopen if
 the surveys show `TryFrom` wanted more often than not.
 

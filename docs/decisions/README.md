@@ -26,6 +26,8 @@ the planning notes, the note holds the long form and the record names it.
 - [A rejected enum is still emitted](a-rejected-enum-is-still-emitted.md)
 - [Foreign traits are restated, and the common ones ship](foreign-traits-are-restated.md)
 - [`From` is opt-out and `TryFrom` is opt-in](from-is-opt-out-and-try-from-is-opt-in.md)
+- [`From` reaches one level](from-reaches-one-level.md), completing the one
+  above
 - [A variant without a payload is left to the fallback](a-variant-without-a-payload-is-left-to-the-fallback.md)
 - [A struct's field may name its traits](a-structs-field-may-name-its-traits.md),
   superseding [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md)

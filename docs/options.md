@@ -232,6 +232,50 @@ pub enum AnyShape {
   projection from a concrete type, `<Fixed as Source>::Out`, is fine: it
   gets its `From`.
 
+### An enum inside an enum
+
+The `From` impls reach one level. An enum held by another,
+`Round(Round)` in `enum Flat`, gives the outer enum `From<Round>`, and
+nothing for `Round`'s own payloads. The outer attribute cannot see what
+the inner enum holds, so `Flat::from(Circle(1))` does not compile.
+
+Write the second level yourself, once. Leave the variant's own `From`
+out with `#[dispatch(from = false)]`, and add one blanket impl that goes
+through the inner enum's `From`:
+
+```rust
+#[whichever::dispatch(Shape)]
+pub enum Flat {
+    Square(Square),
+    #[dispatch(from = false)]
+    Round(Round),
+}
+
+impl<T> From<T> for Flat
+where
+    Round: From<T>,
+{
+    fn from(value: T) -> Self {
+        Flat::Round(Round::from(value))
+    }
+}
+```
+
+Now `Flat::from(Circle(1))` converts a leaf of `Round`, and
+`Flat::from(round)` still works, through `core`'s `From<T> for T`. That
+is also why the variant's own `From<Round>` must be off: the two would
+overlap. An enum that holds `Flat`, written the same way, reaches a third
+level through `Flat`'s impl. The impl does not grow when `Round` gains a
+variant.
+
+The fine print:
+
+- One such impl fits an enum. A second inner enum's blanket impl
+  overlaps the first, whatever their payloads.
+- An inner enum from another crate beside a direct payload from another
+  crate does not work either: rustc says that upstream crates may add a
+  `From` impl that would overlap.
+
 ## `try_from`: get the payload back out
 
 `try_from = true` adds `TryFrom<Enum> for Payload` for every payload type:

@@ -487,6 +487,14 @@ once, whatever attributes it has. See [options.md](options.md).
 - Not a limit: a projection from a type that is not a type parameter,
   such as `<Fixed as Source>::Out`. rustc can name that type, so the
   payload gets its `From` and `TryFrom` like any other.
+- **The `From` impls reach one level.** An enum held by another gives the
+  outer enum `From<Inner>`, and nothing for the inner enum's payloads,
+  because the outer attribute cannot see what the inner enum holds. Write
+  one blanket impl, `impl<T> From<T> for Outer where Inner: From<T>`, with
+  `#[dispatch(from = false)]` on the variant, as
+  [options.md](options.md#an-enum-inside-an-enum) shows. It fits one inner
+  enum per outer enum, and not an inner enum of another crate beside a
+  direct payload of another crate.
 - **`into = Target` needs every variant to hold a payload.** It converts
   every variant's payload, so a variant without one, or with other
   fields beside its payload, is an error. Write the `From<Enum> for

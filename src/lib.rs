@@ -194,6 +194,12 @@
 //! - **`#[dispatch(try_from = true)]`** adds the `TryFrom` impl for that
 //!   variant's payload alone.
 //!
+//! The `From` impls reach one level: an enum held by another gives the outer
+//! enum `From<Inner>`, not the inner enum's payloads. One blanket impl by
+//! hand reaches them, `impl<T> From<T> for Outer where Inner: From<T>`,
+//! calling `Outer::Inner(Inner::from(value))`, with `#[dispatch(from =
+//! false)]` on the variant, whose own `From<Inner>` the blanket covers.
+//!
 //! A payload type that two variants hold gets no `From` either way: there
 //! would be two impls of the same `From`, one per variant. Neither does a
 //! payload that is a type parameter of the enum, because `From<T>` would

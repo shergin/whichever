@@ -91,3 +91,105 @@ mod projections {
         assert_eq!(Generic::<Fixed>::from(2u8).value(), 2);
     }
 }
+
+/// `From` reaches one level: an enum held by another gets one blanket impl
+/// by hand, through the inner enum's own `From`, with the variant's own
+/// left out by `from = false`, and each level reaches the next through its
+/// own.
+mod nested {
+    #[whichever::dispatchable]
+    pub trait Shape {
+        fn area(&self) -> u32;
+    }
+
+    pub struct Circle(pub u32);
+    pub struct Square(pub u32);
+    pub struct Line(pub u32);
+
+    impl Shape for Circle {
+        fn area(&self) -> u32 {
+            3 * self.0 * self.0
+        }
+    }
+
+    impl Shape for Square {
+        fn area(&self) -> u32 {
+            self.0 * self.0
+        }
+    }
+
+    impl Shape for Line {
+        fn area(&self) -> u32 {
+            0
+        }
+    }
+
+    #[whichever::dispatch(Shape)]
+    pub enum Round {
+        Circle(Circle),
+    }
+
+    #[whichever::dispatch(Shape)]
+    pub enum Flat {
+        Square(Square),
+        #[dispatch(from = false)]
+        Round(Round),
+    }
+
+    impl<T> From<T> for Flat
+    where
+        Round: From<T>,
+    {
+        fn from(value: T) -> Self {
+            Flat::Round(Round::from(value))
+        }
+    }
+
+    #[whichever::dispatch(Shape)]
+    pub enum AnyShape {
+        #[dispatch(from = false)]
+        Flat(Flat),
+        Line(Line),
+    }
+
+    impl<T> From<T> for AnyShape
+    where
+        Flat: From<T>,
+    {
+        fn from(value: T) -> Self {
+            AnyShape::Flat(Flat::from(value))
+        }
+    }
+
+    #[test]
+    fn every_leaf_converts_through_two_levels() {
+        assert!(matches!(
+            Flat::from(Circle(1)),
+            Flat::Round(Round::Circle(Circle(1)))
+        ));
+        assert!(matches!(Flat::from(Square(2)), Flat::Square(Square(2))));
+        let round = Round::from(Circle(3));
+        assert!(matches!(Flat::from(round), Flat::Round(Round::Circle(_))));
+        assert_eq!(Flat::from(Square(2)).area(), 4);
+    }
+
+    #[test]
+    fn every_leaf_converts_through_three_levels() {
+        assert!(matches!(
+            AnyShape::from(Circle(1)),
+            AnyShape::Flat(Flat::Round(Round::Circle(Circle(1))))
+        ));
+        let square: AnyShape = Square(2).into();
+        assert!(matches!(square, AnyShape::Flat(Flat::Square(Square(2)))));
+        assert!(matches!(
+            AnyShape::from(Round::from(Circle(4))),
+            AnyShape::Flat(Flat::Round(_))
+        ));
+        assert!(matches!(
+            AnyShape::from(Flat::from(Square(5))),
+            AnyShape::Flat(Flat::Square(_))
+        ));
+        assert!(matches!(AnyShape::from(Line(6)), AnyShape::Line(Line(6))));
+        assert_eq!(AnyShape::from(Circle(1)).area(), 3);
+    }
+}

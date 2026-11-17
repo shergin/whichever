@@ -593,6 +593,12 @@ which variant to build, so that payload type gets no `From` impl at all.
 
 **The fix.** Build the variant you mean by name: `Any::Large(circle)`.
 
+The same error appears when `Circle` is a payload of an enum that a
+variant of `Any` holds, as in `Round(Round)` with `enum Round {
+Circle(Circle) }`. The `From` impls reach one level. See
+[An enum inside an enum][options-enum-inside-enum] for the one
+blanket impl that converts every leaf.
+
 ### A payload that is a type parameter: "`From<I>` would overlap"
 
 ```text
@@ -844,6 +850,7 @@ reproduces the error helps most.
 [limits]: limits.md
 [limits-conversions]: limits.md#conversions
 [limits-receivers]: limits.md#receivers
+[options-enum-inside-enum]: options.md#an-enum-inside-an-enum
 [options-from-false]: options.md#from--false-no-from-impls
 [options-mismatch]: options.md#mismatch-what-to-return-when-two-variants-differ
 [options-name-type]: options.md#name--type-override-an-associated-type

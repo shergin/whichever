@@ -77,6 +77,7 @@ pub mod glossary {}
 /// [limits]: crate#requirements-and-limits
 /// [limits-conversions]: crate#conversions
 /// [limits-receivers]: crate#receivers
+/// [options-enum-inside-enum]: crate#conversions
 /// [options-from-false]: crate#conversions
 /// [options-mismatch]: crate#self-arguments-and-mismatch
 /// [options-name-type]: crate#associated-types-and-consts
