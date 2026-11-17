@@ -374,3 +374,9 @@ s0=deref-mut recv=value path=inherent-some callee=borrowing
 s0=deref-ref s1=deref-rc recv=value ret=lent path=inherent callee=borrowing
 s0=deref-rc recv=value path=inherent
 s0=deref-ref recv=value path=inherent
+
+# A method a partial block forwards whose live arms are a variant's
+# sentence and the mismatch left its `u64` argument unread, so a warning
+# stood beside the sentence: the arm standing in for the variant was not
+# written beside a `Self` argument (#13).
+s1=pair arg=value path=block cfg=first-off decl=remote

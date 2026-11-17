@@ -1,0 +1,9 @@
+file: macros/src/arm.rs
+breaks: The arm standing in for a variant a method cannot be forwarded to reads only the arguments the `match` does not hold, so that a `Self` argument moved into the scrutinee is not used again beside the sentence, as `docs/limits.md` and `macros/ARCHITECTURE.md` 3.8 say.
+expect: killed
+witness: s1=pair arg=value path=block cfg=first-off decl=remote
+
+find:
+            .filter(|(index, _)| !self.same_variant.iter().any(|(same, _)| same == index))
+replace:
+            .filter(|_| true)

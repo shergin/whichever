@@ -404,10 +404,19 @@ impl MethodPlan {
     /// Returns the result of an arm that only keeps the `match` exhaustive
     /// beside a variant's own error. It reads the arguments first: in a
     /// build where no other arm is left nothing else uses them, and the
-    /// lint about them would stand beside that error. The arm is under its
-    /// variant's `cfg`, so a build without the variant has none of this.
+    /// lint about them would stand beside that error. A `Self` argument
+    /// matched beside the receiver is read by the `match` itself, and one
+    /// taken by value was moved into it, so the arm reads the others. The
+    /// arm is under its variant's `cfg`, so a build without the variant
+    /// has none of this.
     pub(crate) fn standing_in(&self, site: Site) -> TokenStream2 {
-        let arguments = &self.arguments;
+        let arguments: Vec<&Ident> = self
+            .arguments
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !self.same_variant.iter().any(|(same, _)| same == index))
+            .map(|(_, argument)| argument)
+            .collect();
         if arguments.is_empty() {
             return quote_spanned!(*site => ::core::unreachable!());
         }

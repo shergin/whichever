@@ -306,7 +306,13 @@ sentence as its result, under the variant's own attributes, so a build
 without the variant forwards the rest and every variant the method cannot
 reach is named. Writing an arm cannot fail. `MethodPlan::beside_arguments`
 gives that arm, and the unforwardable ones the selection writes, the
-tuple's shape where `Self` arguments are matched beside the receiver.
+tuple's shape where `Self` arguments are matched beside the receiver. An
+entry without a target, a variant reported elsewhere under its own `cfg`,
+gets its unforwardable arm, `Arm::unforwardable` with `standing_in` as its
+result, beside `Self` arguments as well, though the arm for two different
+variants already keeps that `match` exhaustive: that arm does not read the
+other arguments, and in a build that leaves no forwarding arm nothing else
+would.
 What fails a whole method is what `forward` returns as an error: a
 signature the plan cannot read, a mark naming a variant the subject
 lacks or one without a payload, a body where none would run or none
@@ -346,8 +352,9 @@ expression names it, an identifier at any depth or a name inside a literal,
 which a format string captures (`names`); one it does not name stays in the
 scrutinee, as a hand leaves it. `MethodPlan::standing_in` is the result of
 an arm that only keeps the `match` exhaustive beside a variant's own error,
-and reads the arguments, so that no lint about them stands beside that
-error. Every token the engine writes carries the context's `Site`, the
+and reads the arguments the `match` does not hold, so that no lint about
+them stands beside that error: a `Self` argument is read by the scrutinee,
+and one taken by value was moved into it, so the arm reads the others. Every token the engine writes carries the context's `Site`, the
 subject's or the method's own span, the generated bindings and a
 turbofish's angle brackets included: a proc macro's call site inside a
 carrier's expansion is the trait's attribute, which may be in another

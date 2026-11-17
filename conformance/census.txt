@@ -573,7 +573,7 @@ suite own-arms-refusals
 
 suite pinned
   pass 107
-  limit 40
+  limit 41
   rejected 8
   malformed 0
 
@@ -588,12 +588,12 @@ suite array
 
 suite array-limits
   pass 0
-  limit 532
+  limit 531
   rejected 0
   malformed 0
-  rows 532
-  covered 12082
-  unreached 2888
+  rows 531
+  covered 12080
+  unreached 2890
 
 suite array-rejected
   pass 0
@@ -606,6 +606,6 @@ suite array-rejected
 
 suite known
   pass 0
-  limit 1
+  limit 0
   rejected 0
   malformed 0

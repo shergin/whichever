@@ -5,6 +5,19 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a partial impl block that leaves a trait method with a `Self`
+  argument to the plain forwarding, `fn f(&self, other: Self, n: u64)`,
+  over an enum whose only variant in the build cannot be forwarded to,
+  `B(P1, u64)` beside `#[cfg(any())] A(P0)`, reported the variant's
+  sentence and, beside it, rustc's unused variable: `n`. The arm that
+  stands in for the variant was left out where a `Self` argument is
+  matched beside `self`, and the arm for two different variants does not
+  read `n`. That arm is now written beside the `Self` argument too, `(E::B
+  { .. }, ..) => { let _ = (&n,); ::core::unreachable!() }`, and reads the
+  arguments the `match` does not hold, so the sentence stands alone. The
+  `tests/ui` case
+  `block_over_an_unforwardable_variant_beside_a_self_argument` is new; no
+  other snapshot and no golden changed.
 - Before, an inherent method taking `self` by value and forwarded by name
   to a `deref` variant holding a `&'a T`, an `Rc`, an `Arc` or a `&mut T`,
   `#[dispatch(*)] pub fn base(self) -> &'a Base;` over
