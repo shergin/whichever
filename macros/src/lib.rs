@@ -1,13 +1,27 @@
 //! Procedural macros of `whichever`.
 //!
-//! `#[dispatchable]` on a trait re-emits the trait and exports its carrier
-//! macro, a hidden `macro_rules!` that carries the trait's signatures; the
-//! macro is re-exported under the trait's own name, so importing the trait
-//! imports the macro. `#[dispatch(Trait)]` on an enum invokes that macro, which
-//! forwards the trait tokens, the enum tokens and the options into the
-//! implementation macro, `implement!`, which writes `impl Trait for Enum`
-//! with one `match` per method. No state is shared between expansions, so
-//! the trait and the enum may live in different crates.
+//! This crate is an implementation detail of `whichever`. Depend on
+//! `whichever` and use the two attributes from there, where they are
+//! documented: `whichever::dispatchable` and `whichever::dispatch`.
+//!
+//! How the pieces fit together:
+//!
+//! - `#[dispatchable]` on a trait emits the trait, and next to it the
+//!   carrier macro: a hidden `macro_rules!` that holds the trait's
+//!   signatures. The carrier macro is re-exported under the trait's own
+//!   name, so importing the trait imports the macro too.
+//! - `#[dispatch(Trait)]` on an enum calls the trait's carrier macro. The
+//!   carrier macro hands the trait's tokens, the enum's tokens and the
+//!   options to the hidden `implement!` macro, which writes
+//!   `impl Trait for Enum` with one `match` per method.
+//! - `#[dispatch]` on an enum or a struct also leaves a crate-local carrier
+//!   macro that holds the item's definition. `#[dispatch]` on an impl block
+//!   of the item calls it, and it hands the block and the definition to the
+//!   hidden `implement_block!` macro, which rewrites the block.
+//!
+//! Nothing is kept between expansions. Everything an expansion needs
+//! travels in the tokens of these macros, so the trait and the enum may
+//! live in different crates.
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Error, Item, ItemTrait};
@@ -62,28 +76,55 @@ mod words;
 
 /// Makes a trait available to `#[dispatch]`, from this crate or any other.
 ///
-/// The trait is emitted unchanged, except that `#[dispatch(..)]` attributes
-/// on its methods are consumed. The only method option is `mismatch`, which
-/// gives the result of a method taking `Self` arguments when the arguments
-/// hold a different variant than `self`:
+/// The trait is emitted as you wrote it. The one change is that the
+/// `#[dispatch(..)]` attributes on its methods are consumed. Next to the
+/// trait, the attribute leaves a hidden carrier macro that holds the
+/// trait's signatures. `#[dispatch]` on an enum reads the trait from the
+/// carrier macro, so the enum may be in another crate, and nothing is
+/// cached between expansions. The carrier macro is re-exported under the
+/// trait's name, so importing the trait imports it too.
 ///
 /// ```rust,ignore
 /// #[whichever::dispatchable]
 /// pub trait Shape {
 ///     fn area(&self) -> u32;
+/// }
+///
+/// #[whichever::dispatch(Shape)]
+/// pub enum AnyShape {
+///     Circle(Circle),
+///     Square(Square),
+/// }
+/// ```
+///
+/// # On a trait method
+///
+/// `#[dispatch(mismatch = expr)]` says what the method returns when `self`
+/// and a `Self` argument hold different variants:
+///
+/// ```rust,ignore
+/// #[whichever::dispatchable]
+/// pub trait Shape {
+///     /// Two different kinds of shape are never congruent.
 ///     #[dispatch(mismatch = false)]
 ///     fn congruent(&self, other: &Self) -> bool;
 /// }
 /// ```
 ///
-/// Options:
-/// - `remote = path` declares a trait of another crate: the item is a
-///   restatement of that trait's signatures, nothing is emitted for it but
-///   the carrier macro, and `#[dispatch]` of the declaration implements the
-///   trait at `path`. Only the methods restated are forwarded.
-/// - `name = ident` names the carrier macro after `ident` instead of the
-///   trait's text and position, for a trait that one `macro_rules!` emits
-///   several times with identical tokens.
+/// An enum can decide it instead, with `mismatch(congruent = ..)` on its
+/// own attribute. A method with a `Self` argument that has neither is an
+/// error, unless the enum has only one variant.
+///
+/// # Options
+///
+/// - `remote = path`: the item is a restatement of another crate's trait,
+///   the one at `path`. Nothing is emitted for it but the carrier macro.
+///   `#[dispatch]` of the restatement implements the real trait at `path`,
+///   and forwards exactly the methods restated. A method left out keeps
+///   the real trait's default.
+/// - `name = ident`: names the carrier macro after `ident`, instead of
+///   after the trait's tokens and their positions. Use it when one
+///   `macro_rules!` emits the same trait several times.
 ///
 /// ```rust,ignore
 /// #[whichever::dispatchable(remote = std::io::Write)]
@@ -92,12 +133,48 @@ mod words;
 ///     fn flush(&mut self) -> std::io::Result<()>;
 ///     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()>;
 /// }
+///
+/// #[whichever::dispatch(Write)] // implements std::io::Write
+/// pub enum Stream {
+///     Tcp(TcpStream),
+///     Buffer(Vec<u8>),
+/// }
 /// ```
 ///
-/// The trait's signature types are later written into the dispatching
-/// enum's module, so they must be nameable there; `crate::` paths are
-/// rewritten to this crate, `super::` and `self::` paths are not and must
-/// not be used.
+/// ```rust,ignore
+/// macro_rules! runtime {
+///     ($module:ident) => {
+///         pub mod $module {
+///             #[whichever::dispatchable(name = $module)]
+///             pub trait Runtime {
+///                 fn spawn(&self) -> u32;
+///             }
+///         }
+///     };
+/// }
+///
+/// runtime!(tokio);
+/// runtime!(smol);
+/// ```
+///
+/// # Notes
+///
+/// - The types in the trait's signatures are written into the enum's
+///   module, so they must be in scope and nameable there, as for a
+///   hand-written impl. Paths that start with `crate::` are rewritten to
+///   the trait's crate. `super::` and `self::` paths are not, so do not
+///   use them.
+/// - With `#[async_trait]`, put `#[dispatchable]` below it, so that it
+///   reads the signatures after `#[async_trait]` has rewritten them.
+/// - With `#[typetag::serde]`, put `#[dispatchable]` above it, so that
+///   `typetag`'s own methods are never forwarded. Then
+///   `#[typetag::serde(name = "..")]` goes on the enum's partial impl
+///   block.
+/// - The other order gives you an error that says where the attribute
+///   goes.
+///
+/// The crate-level documentation of `whichever` explains all of this in
+/// full, with runnable examples: <https://docs.rs/whichever>.
 #[proc_macro_attribute]
 pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let options = parse_macro_input!(attr as DispatchableOptions);
@@ -108,58 +185,56 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Implements a `#[dispatchable]` trait for an enum by forwarding every
-/// method to whichever variant the value holds, or forwards the methods of
-/// an inherent `impl` block of such an enum.
+/// Implements a `#[dispatchable]` trait for an enum by forwarding each
+/// method to whichever variant the value holds.
 ///
-/// On an enum, each attribute names one trait, with its generic arguments
-/// when it has any, followed by options; several attributes dispatch several
-/// traits, and a bare `#[dispatch]` only registers the enum. Every variant
-/// holds exactly one unnamed field, or marks the field to forward to, whose
-/// type implements the trait. The
-/// enum also gets a `From<Payload>` impl for every payload type that appears
-/// in exactly one variant.
+/// The same attribute also goes on a struct and on the enum's impl blocks.
+///
+/// # Where it goes
+///
+/// ## On an enum
 ///
 /// ```rust,ignore
 /// #[whichever::dispatch(Shape)]
-/// #[whichever::dispatch(Encoder<Json>, Error = EncodeError)]
+/// #[whichever::dispatch(Named)]
 /// pub enum AnyShape {
 ///     Circle(Circle),
 ///     #[dispatch(deref)]
-///     Square(Box<Square>),
+///     Boxed(Box<Square>),
 /// }
 /// ```
 ///
-/// Options, after the trait path:
-/// - `Name = Type`: the associated type `Name` of the enum's impl, instead
-///   of the first variant's. Methods returning `Self::Name` are converted
-///   with `Into`, methods returning `Result<_, Self::Name>` with
-///   `map_err(Into::into)`.
-/// - `mismatch(method = expr, ..)`: the result of `method` when its `Self`
-///   arguments hold a different variant than `self`.
-/// - `from = false`: no `From<Payload>` impls.
-/// - `try_from = true`: a `TryFrom<Enum> for Payload` impl per payload type,
-///   returning the enum unchanged when it holds another variant.
+/// Each attribute lists one trait, with its generic arguments if it has
+/// any (`Encoder<Json>`), and then options. Repeat the attribute for each
+/// trait, a supertrait included. Every variant holds one unnamed field,
+/// the payload, or marks the field to forward to with `#[dispatch]`. The
+/// payload, or what a route reaches from it, implements the trait.
 ///
-/// Three options go on a variant. `#[dispatch(deref)]` calls the trait on what
-/// the payload dereferences to, for `Box<T>`, `Rc<T>`, `Arc<T>`, `&T` and
-/// `&mut T` payloads; such a variant cannot take part in a method that
-/// returns `Self`. `#[dispatch(from = false)]` leaves the variant out of the
-/// conversions, and `#[dispatch(try_from = true)]` adds the `TryFrom` impl
-/// for that payload alone. A variant with several fields, or with one named
-/// field, marks the field to forward to with `#[dispatch]`, which takes
-/// `deref` and `via = route` and nothing else.
+/// A bare `#[dispatch]`, with no trait, forwards nothing. It registers the
+/// enum for its inherent blocks and partial impl blocks.
 ///
-/// On a struct, the trait is forwarded to its one field, or to the field
-/// marked `#[dispatch]`, with `#[dispatch(deref)]` for a field behind a
-/// pointer. A struct gets no conversions, needs no `mismatch`, and forwards
-/// a return-position `impl Trait` as it is, since its `match` has one arm.
+/// `#[dispatch(remote = path)]`, as an attribute of its own, makes the
+/// enum a restatement of another crate's enum at `path`. The impls are
+/// written for the real enum, with no conversions.
 ///
-/// On an inherent `impl` block of a dispatch enum, in the same crate, every
-/// method carrying `#[dispatch(..)]` is forwarded to the named variants'
-/// own method of the same name, and the body is what the other variants
-/// return. `*` names every variant; the method then has no fallback and is
-/// written without a body:
+/// ## On a struct
+///
+/// ```rust,ignore
+/// #[whichever::dispatch(Shape)]
+/// pub struct Labelled {
+///     #[dispatch]
+///     shape: Circle,
+///     label: String,
+/// }
+/// ```
+///
+/// The trait is forwarded to the struct's one field, or to the field
+/// marked `#[dispatch]`. The field may be any type that implements the
+/// trait. A struct gets no `From` impls and needs no `mismatch`, and it
+/// forwards a method that returns `impl Trait` as it is, because its
+/// `match` has one arm.
+///
+/// ## On an inherent block
 ///
 /// ```rust,ignore
 /// #[whichever::dispatch]
@@ -171,21 +246,18 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     }
 ///
 ///     #[dispatch(*)]
-///     pub fn perimeter(&self) -> f64;
+///     pub fn describe(&self) -> String;
 /// }
 /// ```
 ///
-/// Method options: `with = path` wraps each forwarded result in a call to
-/// `path`, and `call = name` forwards to a payload method of another name.
-/// Methods without the attribute are left as they are.
+/// A method marked `#[dispatch(..)]` is forwarded to the method of the
+/// same name on the listed variants' payloads. Its body is the fallback:
+/// what every other variant returns. `*` lists every variant, so
+/// `describe` has no body. Methods without the attribute are left alone.
+/// The block must be in the enum's crate, and the enum needs `#[dispatch]`
+/// on it.
 ///
-/// On a trait impl block of a dispatch enum, in the same crate, the block
-/// holds the items the enum implements itself, a generic associated type
-/// among them, and the rest of the trait is forwarded around them; a macro
-/// invocation in the block is reported, since its items cannot be told from
-/// the ones to forward. The enum
-/// then does not name that trait in its own attribute; the trait's options
-/// go on the block's attribute:
+/// ## On a trait impl block
 ///
 /// ```rust,ignore
 /// #[whichever::dispatch]
@@ -201,6 +273,99 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     }
 /// }
 /// ```
+///
+/// This is a partial impl block. You write the items the enum handles
+/// itself, and the rest of the trait is forwarded around them.
+///
+/// - The enum does not list the trait in its own attribute: the block is
+///   the impl. The trait's options go on the block's attribute.
+/// - An associated type written in the block is an override. A generic
+///   associated type is declared here.
+/// - The block's header, generics and bounds included, becomes the impl's
+///   header. An empty block gives the impl a header the enum's attribute
+///   cannot write.
+/// - The block must be in the enum's crate. A macro invocation in the
+///   block is an error, because its items cannot be told apart from the
+///   ones to forward.
+///
+/// # Options
+///
+/// ## On the enum, after the trait path
+///
+/// | Option | What it does |
+/// | --- | --- |
+/// | `Name = Type` | Fixes the associated type `Name`; results are converted into it. |
+/// | `Name = value` | Fixes the associated const `Name`, instead of the first variant's. |
+/// | `mismatch(method = expr, ..)` | What `method` returns when `self` and a `Self` argument hold different variants. |
+/// | `from = false` | No `From<Payload>` impls. |
+/// | `try_from = true` | Adds `TryFrom<Enum> for Payload`; the error is the enum itself. |
+/// | `try_from = ref` | Also adds `TryFrom<&Enum> for &Payload`. |
+/// | `try_from = ref_mut` | Also adds `TryFrom<&mut Enum> for &mut Payload`. |
+/// | `into = Target` | Adds `From<Enum> for Target`, through each payload's `Into<Target>`. |
+/// | `via(Variant = route, ..)` | A route through `Variant`, for this trait only. |
+///
+/// The conversion options (`from`, `try_from`, `into`) belong to the enum,
+/// not to one trait, so they apply whichever attribute they are on.
+///
+/// ## On a variant
+///
+/// | Option | What it does |
+/// | --- | --- |
+/// | `from = false` | Leaves the variant out of `From` and `TryFrom`. |
+/// | `try_from = true` | Adds `TryFrom` for this variant's payload alone. |
+/// | `deref` | Calls the trait on what the payload dereferences to (`Box`, `Rc`, `Arc`, `&`, `&mut`). |
+/// | `via = route` | Calls the trait on what the route reaches: `.field`, `.0`, `.method()`, `*`, chained. |
+///
+/// A variant takes `deref` or `via`, not both. A variant with several
+/// fields, or with one named field, marks the field to forward to:
+/// `Tagged(#[dispatch] Square, u32)`. The marked field takes `deref` or
+/// `via = route`, and nothing else.
+///
+/// ## On a struct's field
+///
+/// | Option | What it does |
+/// | --- | --- |
+/// | `#[dispatch]` | The field that takes every trait no other field lists. |
+/// | `#[dispatch(Trait)]` | The field this trait goes to, spelled as the trait's impl spells it. |
+/// | `#[dispatch(deref)]` | Calls the trait on what the field dereferences to. |
+/// | `#[dispatch(via = route)]` | Calls the trait on what the route reaches from the field. |
+///
+/// ## On a method of an inherent block
+///
+/// | Option | What it does |
+/// | --- | --- |
+/// | `Variant, ..` | Forwards to these variants; the body is what the others return. |
+/// | `*` | Forwards to every variant; the method has no body. |
+/// | `*` with a body | The body is one `match self` with the enum's own arms; every other variant is forwarded. |
+/// | `with = path` | Wraps each forwarded result: `path(inner.method(args))`. |
+/// | `call = name` | Calls the payload's method `name` instead. |
+/// | `field = name` | The arm is the field `inner.name`, borrowed or read. |
+/// | `value` | The arm is the target itself, borrowed or read. |
+/// | `via = route` | Reaches the target by a route, for this method alone. |
+///
+/// On a struct, a field's name takes the place of the variant list, and
+/// `*` is the field marked `#[dispatch]`, or the only field.
+///
+/// ## On a method of a partial impl block
+///
+/// | Form | What it does |
+/// | --- | --- |
+/// | no attribute, with a body | Your method; it replaces the forwarding for every variant. |
+/// | `Variant, ..` with a body | Forwards to these variants; the body is the arm for the others. |
+/// | `*` without a body | The plain forwarding, written out. |
+/// | `*` with a body | The body is one `match self` with the enum's own arms; every other variant is forwarded. |
+/// | `default` without a body | Leaves the method to the trait's default. |
+///
+/// # What you get
+///
+/// - The forwarding impl you would write by hand: one `match` per method,
+///   one fully qualified call per arm, such as
+///   `<Circle as Shape>::area(inner)`, and `#[inline]` on every method.
+/// - On an enum, `From<Payload>` for every payload type that exactly one
+///   variant holds.
+///
+/// The crate-level documentation of `whichever` explains every form and
+/// option in full, with runnable examples: <https://docs.rs/whichever>.
 #[proc_macro_attribute]
 pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let site = proc_macro::Span::call_site();
