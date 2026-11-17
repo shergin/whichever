@@ -164,7 +164,7 @@ pub fn write_real(writer: &mut Writer, context: &Context) {
 /// Writes the subject with `#[whichever::dispatch(..)]`.
 pub fn write_subject(writer: &mut Writer, context: &Context) {
     let block = context.path.site == PathSite::Block;
-    let mut arguments = vec![context.trait_path()];
+    let mut arguments = vec![context.home_path()];
     arguments.extend(context.options());
     // A restated enum names the real one, and the attribute registers it
     // for a block as the bare one does (restatements.md).
@@ -331,11 +331,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         true => writer.line("#[whichever::dispatch]"),
         false => writer.line(format!("#[whichever::dispatch({})]", options.join(", "))),
     }
+    writer.anchor(Anchor::BlockHeader.name());
     writer.open(format!(
         "{}{} {} for E{} {{",
         context.impl_keyword(),
         context.impl_generics(),
-        context.trait_path(),
+        context.home_path(),
         context.impl_type_generics()
     ));
     // The block declares the generic associated type, which no first
@@ -378,7 +379,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
             writer.line(format!("#[cfg({predicate})]"));
         }
         writer.anchor(Anchor::BlockMethod.name());
-        if let Some(mark) = context.path.mark {
+        if let Some(mark) = context.block_mark() {
             writer.line(format!("#[dispatch({mark})]"));
         }
         // The block's method is the user's item, which keeps the attributes

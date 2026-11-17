@@ -96,6 +96,15 @@ pub enum Limit {
     /// Arms of its own in a method matched by place, over an enum whose
     /// every variant is under `#[cfg]`.
     ArmsMatchedByPlace,
+    /// A struct's field naming the trait its attribute names, spelled
+    /// another way.
+    FieldTraitSpelt,
+    /// A struct's field naming the trait a partial block's header names,
+    /// spelled another way.
+    BlockTraitSpelt,
+    /// A partial block's method naming a field of the struct other than
+    /// the one its trait is forwarded to.
+    FieldElsewhere,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -181,6 +190,9 @@ impl Limit {
         Limit::ArmNamingNoVariant,
         Limit::ArmsBesideSelfArgument,
         Limit::ArmsMatchedByPlace,
+        Limit::FieldTraitSpelt,
+        Limit::BlockTraitSpelt,
+        Limit::FieldElsewhere,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -392,6 +404,27 @@ impl Limit {
                 "which are matched beside `self`, and an arm of its own is written for `self` alone",
                 "own_arms_beside_a_self_argument",
             ),
+            // The field's sentence; the impl the attribute writes is the
+            // bare field's, beside it (a-fields-trait-may-be-a-partial-blocks.md).
+            Limit::FieldTraitSpelt => entry(
+                "field-trait-spelt",
+                "on the struct spell one trait's name two ways",
+                "struct_trait_spelt_two_ways",
+            ),
+            // The block is refused before it is read, so no impl is written.
+            Limit::BlockTraitSpelt => Entry {
+                keeps_impl: false,
+                ..entry(
+                    "block-trait-spelt",
+                    "here spell one trait's name two ways",
+                    "block_trait_spelt_two_ways_by_path",
+                )
+            },
+            Limit::FieldElsewhere => entry(
+                "field-elsewhere",
+                "but this trait is forwarded to",
+                "block_method_naming_another_field",
+            ),
             Limit::ArmsMatchedByPlace => entry(
                 "arms-matched-by-place",
                 "with `ref` bindings, which arms written for `match self` are not",
@@ -456,6 +489,9 @@ impl Limit {
                 "name the variants in `#[dispatch(..)]` and give the method a body for the rest",
                 false,
             ),
+            Limit::FieldTraitSpelt => ("a field names a trait as the struct's attribute spells it", false),
+            Limit::BlockTraitSpelt => ("a field names a trait as the block's header spells it", false),
+            Limit::FieldElsewhere => ("`#[dispatch(Trait)]`, to forward it there", false),
         };
         Entry {
             way_out,
@@ -484,8 +520,11 @@ impl Limit {
             | Limit::MismatchForAbsentMethod
             | Limit::GenericAssociatedType
             | Limit::VariantFieldOption
-            | Limit::MacroInBlock => false,
+            | Limit::MacroInBlock
+            | Limit::FieldTraitSpelt
+            | Limit::BlockTraitSpelt => false,
             Limit::ArmNamingNoVariant
+            | Limit::FieldElsewhere
             | Limit::ArmsBesideSelfArgument
             | Limit::ArmsMatchedByPlace
             | Limit::MutableBorrowThroughSharedPointer
@@ -523,7 +562,8 @@ impl Limit {
             | Limit::BodyNeverRuns
             | Limit::ArmNamingNoVariant
             | Limit::ArmsBesideSelfArgument
-            | Limit::ArmsMatchedByPlace => true,
+            | Limit::ArmsMatchedByPlace
+            | Limit::FieldElsewhere => true,
             // The variants a mark of `*` names are forwarded, each arm
             // carrying a sentence of its own, beside the one on the mark.
             Limit::StarOverUnforwardable
@@ -553,7 +593,9 @@ impl Limit {
             | Limit::TryFromTypeParameter
             | Limit::ArmsDisagree
             | Limit::SizedOnObject
-            | Limit::GenericAssociatedType => false,
+            | Limit::GenericAssociatedType
+            | Limit::FieldTraitSpelt
+            | Limit::BlockTraitSpelt => false,
         }
     }
 
@@ -644,6 +686,9 @@ pub enum Anchor {
     BlockSignature,
     /// The `#[whichever::dispatch(..)]` on a partial impl block.
     BlockAttribute,
+    /// The header of a partial impl block, `impl Probe for E {`, whose
+    /// trait path a sentence about the block's trait is spanned on.
+    BlockHeader,
     /// The macro invocation in a partial impl block.
     BlockInvocation,
     /// The arm of the method's own body under `*` that names no variant.
@@ -666,6 +711,7 @@ impl Anchor {
             Anchor::BlockMethod => String::from("block-method"),
             Anchor::BlockSignature => String::from("block-signature"),
             Anchor::BlockAttribute => String::from("block-attribute"),
+            Anchor::BlockHeader => String::from("block-header"),
             Anchor::BlockInvocation => String::from("block-invocation"),
             Anchor::Arm => String::from("arm"),
             Anchor::Associated => String::from("associated"),

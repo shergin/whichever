@@ -1,0 +1,5 @@
+error: `holder` is a field of `Labelled`, but this trait is forwarded to `square`, which is the field its route goes through; name the trait on `holder`, `#[dispatch(Trait)]`, to forward it there
+  --> tests/ui/route_keyed_by_another_field.rs:20:34
+   |
+20 | #[whichever::dispatch(Shape, via(holder = .square))]
+   |                                  ^^^^^^

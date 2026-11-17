@@ -3,7 +3,7 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Result, Signature, Visibility};
+use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Path, Result, Signature, Visibility};
 
 use crate::builds::Builds;
 use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
@@ -50,6 +50,19 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
             trait_path,
             format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),
         ));
+    }
+    // A struct forwards the block's trait to the field that names it as the
+    // header spells it; a field that spells it another way is not that
+    // field, and the block would go to the bare one.
+    let attributes: Vec<&Path> = dispatched.iter().collect();
+    if let Ok(entries) = subject.read() {
+        if let Some((field, path)) = entries.spelt_otherwise(trait_path, &attributes) {
+            let on_field = trait_key(path);
+            return Err(Error::new_spanned(
+                trait_path,
+                format!("`{on_field}` on `{field}` and `{trait_name}` here spell one trait's name two ways, so `{field}` is not the field this block is forwarded to; a field names a trait as the block's header spells it"),
+            ));
+        }
     }
     // The invocation carries the block's trait path, so that an error rustc
     // finds in the impl is labelled on the block.

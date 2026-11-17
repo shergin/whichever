@@ -34,11 +34,14 @@ pub struct Beacon {
 ```
 
 A field may name the traits it is the target of, and the field marked bare
-takes every trait not named elsewhere; the struct's attribute still names
-every trait it dispatches. A field names a trait as the struct's attribute
-spells it, arguments included, so two instantiations of one generic trait,
-`Encoder<Json>` and `Encoder<Xml>`, or two traits of one name from two
-modules, go to two fields:
+takes every trait not named elsewhere. A trait's impl has one home: the
+struct's attribute, which names every trait whose impl it writes, or a
+[partial impl block](partial-impl-blocks.md), and a trait goes to the field
+that names it whichever home writes the impl. A field names a trait as its
+home spells it, the attribute or the block's header, arguments included,
+so two instantiations of one generic trait, `Encoder<Json>` and
+`Encoder<Xml>`, or two traits of one name from two modules, go to two
+fields:
 
 ```rust
 #[whichever::dispatch(Rom)]
@@ -53,6 +56,39 @@ pub struct Mapper {
     label: Label,       // `Named`, and any other trait
 }
 ```
+
+A trait whose impl needs a header the attribute cannot write, such as a
+bound that ties one field's type to another's, is a partial block's, and
+the field still names it; the struct's attribute then leaves it out, since
+the block is the impl:
+
+```rust
+#[whichever::dispatch(Named)]
+pub struct Env<S, C, N> {
+    pub syntax: S,
+    #[dispatch(Catalog)]
+    pub catalog: C,
+    #[dispatch]
+    pub named: N,
+}
+
+#[whichever::dispatch]
+impl<S: Sorts, C: Catalog<Extractor = S::Extractor>, N> Catalog for Env<S, C, N> {}
+```
+
+A generic trait's block names its parameter, `impl<F, E: Encoder<F>, N>
+Encoder<F> for Env<E, N> {}`, and the field names the trait as the header
+does, `#[dispatch(Encoder<F>)]`. A method of the block marked `*` goes to
+that field, and so does one that names it, `#[dispatch(catalog)]`; one that
+names another field is reported, with the way to send the trait there,
+which is to name it on that field. The struct does not see its blocks, so
+a field's mark that no home claims forwards nothing and is not reported:
+the trait's first use says that the impl is missing. One name spelled two
+ways is reported, at either home: a home whose trait no field names as it
+is spelled there, beside a field that names it with more or fewer path
+segments, `Catalog` and `traits::Catalog`, or with or without its generic
+arguments, `Encoder` and `Encoder<F>`, since the home would otherwise go
+to the bare field.
 
 `#[dispatch(deref)]` on the field reaches through a `Box` or another
 pointer. A method returning `Self` is rebuilt only around a struct with no

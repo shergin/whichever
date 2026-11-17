@@ -1,0 +1,9 @@
+file: macros/src/dispatch.rs
+breaks: A field that names the trait a struct's attribute names with more or fewer path segments is one name spelled two ways, reported on the field, as `docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` and `docs/limits.md` say.
+expect: killed
+witness: s0=struct-trait-spelt s1=none
+
+find:
+entries.spelt_otherwise(home, &dispatched)
+replace:
+entries.spelt_otherwise(home, &dispatched).filter(|_| false)

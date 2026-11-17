@@ -3,6 +3,10 @@
 Status: accepted, 2026-11-05. Supersedes
 [A struct forwards through a marked field](a-struct-forwards-through-a-marked-field.md),
 whose reopening condition rsynko, sabicom, activityrust and russh met.
+Completed on 2026-11-16 by
+[A field's trait may be a partial block's](a-fields-trait-may-be-a-partial-blocks.md),
+which supersedes one clause: a trait named on a field and not on the struct
+is no longer a sentence, since a partial block may be its impl.
 Serves rule 3 of the [vision](../vision.md), what earns a shape. Reopen if a
 project needs one trait forwarded to two fields at once, which no match can
 express.

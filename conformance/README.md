@@ -142,6 +142,25 @@ reached through a route, which no struct value takes, so none leaves an
 associated type to supply; and a method of a block that names the
 struct's field, which no path writes.
 
+Two more values of `s0` make the subject a struct whose field names the
+trait, `E { #[dispatch] label: u64, #[dispatch(Probe)] held: P0 }`, as
+`docs/decisions/a-fields-trait-may-be-a-partial-blocks.md` has it: a field
+names the traits it is the target of, whichever home implements them, the
+struct's attribute or a partial block, and names each as that home spells
+it. Under `struct-trait` the trait goes to `held` from either home, and the
+bare `label`, a `u64` that implements nothing, is where it would go
+otherwise, so a trait sent there is rustc's error; under a block's method
+that names its field, `block-some`, the method names `label`, which is told
+where the trait goes. Under `struct-trait-spelt` the home spells the trait
+`self::Probe`, one name spelled two ways, which is the home's sentence: on
+the field for the attribute, which still writes the impl to the bare
+field, there a payload as the field a user leaves bare is; on the header
+for a block, which is then not read. Every other trait would go to the
+bare field, so a second trait, the inherent paths, whose `*` is the bare
+field, generics, whose arguments the field would repeat, and the
+conversions stay the plain struct's. A route keyed by another field, and a
+trait spelled with and without its generic arguments, are `tests/ui`'s.
+
 The `s0` value `marked-last` marks the last field of a tuple variant,
 `A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as
 `A(_, inner)`, with no rest pattern, since none would have anything left to

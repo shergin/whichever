@@ -78,6 +78,17 @@
 - A generic associated type is declared by the enum or the struct, in a
   partial impl block; it cannot come from the first variant or from the
   struct's field, and no option on the attribute gives it.
+- A struct's field names a trait as its impl's home spells it, the struct's
+  attribute or a partial impl block's header, since a macro cannot resolve
+  names. A home whose trait no field names as it is spelled there, beside a
+  field that names one with the same name in another spelling, with more
+  or fewer path segments, `Catalog` and `traits::Catalog`, or with or
+  without its generic arguments, `Encoder` and `Encoder<F>`, is reported:
+  spell it as the home does. Two traits of one name that the sentence
+  takes for one, a `Named` and a `wire::Named`, are told apart by
+  importing one under another name. A field's mark for a trait no home
+  implements is not reported, as the struct does not see its blocks; the
+  trait's first use says that the impl is missing.
 - A projection through a trait parameter with several bounds, `F::Value`
   with `F: Format + Clone`, cannot be qualified at the enum; the trait
   writes `<F as Format>::Value`.

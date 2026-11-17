@@ -296,6 +296,17 @@ impl Context {
         format!("{TRAIT}{}", self.generics.argument)
     }
 
+    /// Returns the trait as its impl's home spells it, the subject's
+    /// attribute or a partial block's header: as an impl names it, or with
+    /// one more path segment, `self::Probe`, where the struct's field
+    /// spells it as an impl names it, one name spelled two ways.
+    pub fn home_path(&self) -> String {
+        match self.cell.s0.spells_trait_otherwise() {
+            true => format!("self::{}", self.trait_path()),
+            false => self.trait_path(),
+        }
+    }
+
     /// Returns how an impl of the trait under test begins: `unsafe impl`
     /// for an `unsafe trait` (what-is-generated.md), `impl` otherwise.
     pub fn impl_keyword(&self) -> &'static str {
@@ -311,6 +322,19 @@ impl Context {
         match self.stack.required {
             true => ": Other",
             false => "",
+        }
+    }
+
+    /// Returns the `#[dispatch(..)]` on the method under test in a partial
+    /// block: the path's, or, where the method names its target and the
+    /// struct's field names the trait, the struct's other field, the label,
+    /// which a sentence then says the trait is not forwarded to
+    /// (a-fields-trait-may-be-a-partial-blocks.md).
+    pub fn block_mark(&self) -> Option<&'static str> {
+        let named = self.cell.s0.descriptor().trait_on_field().is_some();
+        match (self.path.form, named) {
+            (crate::model::path::Form::First, true) => Some("label"),
+            _ => self.path.mark,
         }
     }
 
@@ -1186,7 +1210,7 @@ pub fn write_struct(
     attributes: bool,
     anchored: bool,
 ) {
-    let Some((_, target)) = slot.target() else {
+    let Some((kind, target)) = slot.target() else {
         unreachable!("a struct subject holds a live target");
     };
     let stored = storage(slot, &target);
@@ -1203,13 +1227,23 @@ pub fn write_struct(
             writer.close(");");
         }
         Form::StructMarked => {
-            let mark = match (attributes, target.option) {
-                (false, _) => "",
-                (true, Some(_)) => unreachable!("the marked struct field takes no option"),
-                (true, None) => "#[dispatch] ",
+            // A field that names the trait stands beside a bare label, the
+            // field every other trait goes to.
+            let (label, mark) = match (attributes, target.trait_on_field()) {
+                (false, _) => ("", String::new()),
+                (true, Some(named)) => ("#[dispatch] ", format!("#[dispatch({named})] ")),
+                (true, None) => ("", String::from("#[dispatch] ")),
+            };
+            // Where the home spells the trait otherwise, the trait goes to
+            // the bare label, which then holds a payload, as the field a
+            // user leaves bare does; elsewhere it is a `u64`, which
+            // implements nothing, so a trait sent there is rustc's error.
+            let labelled = match kind.spells_trait_otherwise() {
+                true => stored.as_str(),
+                false => "u64",
             };
             writer.open(format!("pub struct E{generics} {{"));
-            writer.line("pub label: u64,");
+            writer.line(format!("{label}pub label: {labelled},"));
             if anchored {
                 writer.anchor(Anchor::Variant(slot.index).name());
             }

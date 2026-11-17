@@ -715,11 +715,16 @@
 //!
 //! A field may name the traits it is the target of, `#[dispatch(Rom)] rom:
 //! Cartridge` beside `#[dispatch(Interrupt)] signals: Signals`, and the
-//! field marked bare takes every trait not named elsewhere; the struct's
-//! attribute still names every trait it dispatches. A field names a trait as
-//! the struct's attribute spells it, arguments included, so two
-//! instantiations of one generic trait, or two traits of one name from two
-//! modules, go to two fields.
+//! field marked bare takes every trait not named elsewhere. The trait's impl
+//! is the struct's attribute's, or a partial impl block's when it needs a
+//! header of its own, such as `impl<S: Sorts, C: Catalog<Extractor =
+//! S::Extractor>, N> Catalog for Env<S, C, N> {}`, and the field that names
+//! the trait is its target either way. A field names a trait as that home
+//! spells it, arguments included, `#[dispatch(Encoder<F>)]` for `impl<F, ..>
+//! Encoder<F> for ..`, so two instantiations of one generic trait, or two
+//! traits of one name from two modules, go to two fields; one name spelled
+//! two ways, `Catalog` on the field and `traits::Catalog` at the home, is
+//! reported.
 //! `#[dispatch(deref)]` on the field reaches through a `Box` or another
 //! pointer. A method returning `Self` is rebuilt only around a struct with
 //! no other field; otherwise it goes in a partial impl block, which works on
@@ -812,6 +817,11 @@
 //! - A generic associated type is declared by the enum or the struct, in a
 //!   partial impl block; it cannot come from the first variant or from the
 //!   struct's field, and no option on the attribute gives it.
+//! - A struct's field names a trait as the struct's attribute or a partial
+//!   block's header spells it; one name spelled two ways, `Catalog` and
+//!   `traits::Catalog` or `Encoder` and `Encoder<F>`, is reported. Spell it
+//!   as the home does, or import one of two traits of one name under
+//!   another name.
 //! - A projection through a trait parameter with several bounds,
 //!   `F::Value` with `F: Format + Clone`, cannot be qualified at the enum;
 //!   the trait writes `<F as Format>::Value`.

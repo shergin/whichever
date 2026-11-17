@@ -1,0 +1,5 @@
+error: `via = route` goes on a variant, on a field or on a method's `#[dispatch(..)]`; after a trait a route is keyed by what it goes through, `via(name = route)`, and the field of a struct that a trait is forwarded to names the trait, `#[dispatch(Trait)]`
+  --> tests/ui/via_after_a_trait.rs:20:30
+   |
+20 | #[whichever::dispatch(Shape, via = .square)]
+   |                              ^^^

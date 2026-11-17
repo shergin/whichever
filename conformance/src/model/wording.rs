@@ -10,7 +10,7 @@ use super::limits::{
 };
 use super::path::{Form as PathForm, Site as PathSite};
 use super::receiver::Lends;
-use super::target::{Step, TargetDescriptor};
+use super::target::{Step, TargetDescriptor, TRAIT_ON_FIELD};
 use super::{Callee, Receiver, Slot, SlotVariant};
 use crate::cell::Cell;
 use crate::render::context::storage;
@@ -47,6 +47,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::BlockHeader
         | Anchor::BlockInvocation
         | Anchor::Arm
         | Anchor::Associated
@@ -215,7 +216,10 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::GenericAssociatedType
         | Limit::ArmNamingNoVariant
         | Limit::ArmsBesideSelfArgument
-        | Limit::ArmsMatchedByPlace => String::new(),
+        | Limit::ArmsMatchedByPlace
+        | Limit::FieldTraitSpelt
+        | Limit::BlockTraitSpelt
+        | Limit::FieldElsewhere => String::new(),
     }
 }
 
@@ -369,6 +373,18 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         })),
         Limit::ArmNamingNoVariant => push(Some(format!("an arm of {method} names the variants"))),
         Limit::ArmsBesideSelfArgument => push(Some(format!("{method} takes `Self` arguments"))),
+        // The trait as the field spells it, the field, and the trait as
+        // its home spells it.
+        Limit::FieldTraitSpelt => push(Some(format!(
+            "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` on the struct"
+        ))),
+        Limit::BlockTraitSpelt => push(Some(format!(
+            "`{TRAIT_ON_FIELD}` on `held` and `self::{TRAIT_ON_FIELD}` here"
+        ))),
+        // The field the method names, and the one the trait goes to.
+        Limit::FieldElsewhere => push(Some(String::from(
+            "`label` is a field of `E`, but this trait is forwarded to `held`",
+        ))),
         Limit::ArmsMatchedByPlace => {
             push(Some(String::from("every variant of `E` is under `#[cfg]`")));
             push(Some(format!("so {method} is matched as `match *self`")));

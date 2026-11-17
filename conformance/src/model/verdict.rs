@@ -130,6 +130,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if cell.ret == Return::GatUndeclared && cell.path_descriptor().site != PathSite::Block {
         return Verdict::NonCanonical;
     }
+    if let Some(verdict) = field_trait(cell) {
+        return verdict;
+    }
     if let Some(verdict) = unread(cell) {
         return verdict;
     }
@@ -395,6 +398,71 @@ fn unread(cell: &Cell) -> Option<Verdict> {
         false => (Limit::MacroInBlock, Anchor::BlockInvocation),
     };
     Some(Verdict::Limit(vec![Expected { limit, anchor }]))
+}
+
+/// The shapes of a struct whose field names the trait under test beside a
+/// bare label, or `None` where the field names none. "A field names the
+/// traits it is the target of, whichever home implements them. A trait
+/// the struct's attributes do not name is a partial block's", and the
+/// field names it "as its home spells it"; "a trait whose home finds no
+/// field of its spelling, beside a field that names it with more or fewer
+/// path segments [..] is one sentence", at the home; and "a method of a
+/// partial block that names another field than the trait's is told where
+/// the trait goes" (a-fields-trait-may-be-a-partial-blocks.md).
+///
+/// The label is a `u64`, which implements nothing, so a trait sent to it
+/// is rustc's error, and every other trait would go to it: the second
+/// trait, the inherent paths, whose `*` is the bare field, and generics,
+/// whose arguments a field would have to repeat, stay the plain struct's.
+/// Where the home spells the trait otherwise, the attribute still writes
+/// the impl, to the bare field, so the label holds a payload there, as the
+/// field a user leaves bare does.
+fn field_trait(cell: &Cell) -> Option<Verdict> {
+    let target = cell.s0.descriptor();
+    target.trait_on_field()?;
+    let path = cell.path_descriptor();
+    let alone = path.site != PathSite::Inherent
+        && !path.invocation
+        && cell.stack == Stack::Absent
+        && cell.generic == Generics::Bare
+        && cell.owner == Owner::Local
+        && matches!(cell.decl, Declaration::Dispatchable | Declaration::Unsafe)
+        && cell.conv == Conversion::Unchecked;
+    if !alone {
+        return Some(Verdict::NonCanonical);
+    }
+    let named = cell.s0.spells_trait_otherwise() || path.form == PathForm::First;
+    if !named {
+        return None;
+    }
+    // A sentence stands alone: the method's own axes stay neutral.
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: cell.s1,
+        path: cell.path,
+        home: cell.home,
+        decl: cell.decl,
+        ..Cell::neutral()
+    };
+    if *cell != neutral {
+        return Some(Verdict::NonCanonical);
+    }
+    let expected = match (cell.s0.spells_trait_otherwise(), path.site) {
+        (true, PathSite::Attribute) => Expected {
+            limit: Limit::FieldTraitSpelt,
+            anchor: Anchor::Variant(0),
+        },
+        (true, PathSite::Block) if cell.path == Path::Block => Expected {
+            limit: Limit::BlockTraitSpelt,
+            anchor: Anchor::BlockHeader,
+        },
+        (true, _) => return Some(Verdict::NonCanonical),
+        (false, _) => Expected {
+            limit: Limit::FieldElsewhere,
+            anchor: Anchor::BlockMethod,
+        },
+    };
+    Some(Verdict::Limit(vec![expected]))
 }
 
 /// The shapes a restated enum takes (restatements.md, "Enums from other

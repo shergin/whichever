@@ -100,17 +100,20 @@ pub(crate) fn expand_subject(
         .iter()
         .filter_map(|attribute| attribute.path.as_ref())
         .collect();
-    // A trait a field names is one the struct's attribute dispatches; a
-    // field's mark for any other is dead, and says so.
-    for (field, path) in entries.field_traits() {
-        let spelled = trait_key(path);
-        if dispatched.iter().any(|known| trait_key(known) == spelled) {
-            continue;
+    // A trait a field names is forwarded to that field by its impl's home:
+    // the struct's attribute, or a partial impl block, which is not seen
+    // from here, so a field's trait no attribute names is a block's. A
+    // field names its trait as the home spells it. One that spells an
+    // attribute's trait another way is the target of nothing the attribute
+    // writes, which can be told, and is.
+    for home in &dispatched {
+        if let Some((field, path)) = entries.spelt_otherwise(home, &dispatched) {
+            let (on_field, on_struct) = (trait_key(path), trait_key(home));
+            errors.push(Error::new_spanned(
+                path,
+                format!("`{on_field}` on `{field}` and `{on_struct}` on the struct spell one trait's name two ways, so `{field}` is not the field `{on_struct}` is forwarded to; a field names a trait as the struct's attribute spells it"),
+            ));
         }
-        errors.push(Error::new_spanned(
-            path,
-            format!("`{spelled}` is named on `{field}` but not on the struct, which names every trait it dispatches; add `#[whichever::dispatch({spelled})]` on the struct"),
-        ));
     }
     // Every variant must be forwardable when the item dispatches a trait.
     // The error carries the variant's `cfg`, so a variant that is compiled

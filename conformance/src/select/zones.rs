@@ -616,6 +616,19 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("decl", "foreign")],
     },
     Zone {
+        name: "field-traits",
+        summary: "a struct whose field names the trait beside a bare label, as its home spells it or with one more path segment, through the enum's attribute and the blocks, a block's method naming the label included, over the homes and a few receivers and returns",
+        vary: &[
+            ("s0", &["struct-trait", "struct-trait-spelt"]),
+            ("path", &["attribute", "block", "block-star", "block-some", "block-default", "block-written"]),
+            ("home", &[]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self", "assoc"]),
+            ("decl", &["dispatchable", "unsafe"]),
+        ],
+        fixed: &[("s1", "none")],
+    },
+    Zone {
         name: "foreign-iterators",
         summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
         vary: &[

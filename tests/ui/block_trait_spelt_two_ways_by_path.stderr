@@ -1,0 +1,5 @@
+error: `Catalog` on `catalog` and `traits::Catalog` here spell one trait's name two ways, so `catalog` is not the field this block is forwarded to; a field names a trait as the block's header spells it
+  --> tests/ui/block_trait_spelt_two_ways_by_path.rs:29:21
+   |
+29 | impl<C: Catalog, N> traits::Catalog for Env<C, N> {}
+   |                     ^^^^^^^^^^^^^^^

@@ -426,6 +426,14 @@ impl DispatchAttribute {
             if input.peek(Token![<]) {
                 return Err(gat_override(&key, path.as_ref(), reader));
             }
+            // A route written as a variant, a field or a method writes it
+            // would otherwise be read as an override named `via`.
+            if key == "via" && input.peek(Token![=]) {
+                return Err(Error::new(
+                    key.span(),
+                    "`via = route` goes on a variant, on a field or on a method's `#[dispatch(..)]`; after a trait a route is keyed by what it goes through, `via(name = route)`, and the field of a struct that a trait is forwarded to names the trait, `#[dispatch(Trait)]`",
+                ));
+            }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),

@@ -454,7 +454,20 @@ and whether it is deprecated whatever it holds, and what it holds:
 for a variant of another shape, which carries the reason and the sentence.
 A struct's field options are parsed once there, and what each field is
 marked with stays beside the entries until `Entries::for_trait` keeps the
-field a trait goes to, or `Entries::star` names the field `*` means. The
+field a trait goes to, or `Entries::star` names the field `*` means.
+`for_trait` serves both homes of a trait's impl alike, the subject's
+attribute and a partial impl block's header, and compares the path as the
+home spells it, so a field names a trait as its home does. Two functions
+speak for a field `for_trait` left out. `Entries::spelt_otherwise` finds a
+field that names a home's trait in another spelling, when no field names it
+as spelled: `same_name` takes two paths for one name when the shorter ends
+the longer and their generic arguments agree or one has none, so
+`Catalog` and `traits::Catalog`, or `Encoder` and `Encoder<F>`, are one
+name, and `Encoder<Json>` and `Encoder<Xml>`, or `a::Named` and
+`b::Named`, are two. `Entries::forwarded_elsewhere` names the field the
+trait is kept for when a partial block's method, or a trait's route, names
+another field of the struct, so the sentence says where the trait goes
+rather than that the struct lacks the field. The
 other steps of the reading edit the entries before any target is taken: a
 partial block's header names the subject's parameters, `Entries::rename`,
 and a trait's routes, `via(Variant = ..)`, win over the variants' own,
@@ -601,6 +614,15 @@ accident of one compiler per build. Token positions stay in the name, and
 with them the 1.88 minimum.
 
 ### 3.8 Diagnostics policy
+
+A field's mark for a trait that no home implements is not reported: the
+struct's attribute does not see the partial blocks, which are other
+expansions, so a trait a field names that the attribute does not is taken
+for a block's, and the trait's first use says when the impl is missing.
+What can be told from one expansion is: one name spelled two ways, reported
+at the struct's attribute on the field's mark (`expand_subject`) and at a
+partial block on its trait path (`expand_partial`), through
+`Entries::spelt_otherwise`.
 
 A sentence speaks of the item the user wrote. It is written where the
 subject is known, at the subject's own attribute and inside `implement!`

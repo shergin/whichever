@@ -194,6 +194,15 @@ impl TargetDescriptor {
         matches!(self.route.last(), Some(Step::Yield(_)))
     }
 
+    /// Returns the trait the struct's held field names, as the field
+    /// spells it, beside a bare label: `None` where the field names none.
+    pub fn trait_on_field(&self) -> Option<&'static str> {
+        match self.form {
+            Form::StructMarked => self.option,
+            _ => None,
+        }
+    }
+
     /// Returns whether the subject is a struct rather than an enum.
     pub fn is_struct(&self) -> bool {
         matches!(
@@ -211,6 +220,10 @@ impl TargetDescriptor {
     }
 }
 
+/// The trait under test as a struct's field names it, as its home spells
+/// it.
+pub const TRAIT_ON_FIELD: &str = "Probe";
+
 const DEREF: &[Step] = &[Step::Deref];
 const FIELD: &[Step] = &[Step::Field("payload")];
 const INDEX: &[Step] = &[Step::Field("1")];
@@ -221,6 +234,14 @@ const INDEX_FIELD: &[Step] = &[Step::Field("1"), Step::Field("payload")];
 const METHOD_FIELD: &[Step] = &[Step::Method("get"), Step::Field("payload")];
 
 impl Target {
+    /// Returns whether the struct's field names the trait under test as an
+    /// impl names it while its home spells it with one more path segment,
+    /// `self::Probe`: one name spelled two ways. The field's option parses
+    /// no `self`, so the home takes the longer spelling.
+    pub fn spells_trait_otherwise(self) -> bool {
+        self == Target::StructTraitSpelt
+    }
+
     /// Returns the target kind's description.
     pub fn descriptor(self) -> TargetDescriptor {
         let single = |storage, route, option| TargetDescriptor {
@@ -343,6 +364,20 @@ impl Target {
                 form: Form::StructMarkedLast,
                 route: &[],
                 option: None,
+                refused: false,
+            },
+            Target::StructTrait => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(TRAIT_ON_FIELD),
+                refused: false,
+            },
+            Target::StructTraitSpelt => TargetDescriptor {
+                storage: Storage::Payload,
+                form: Form::StructMarked,
+                route: &[],
+                option: Some(TRAIT_ON_FIELD),
                 refused: false,
             },
         }

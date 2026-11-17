@@ -254,7 +254,12 @@ pub(crate) fn select_targets<'a>(
                         "`{name}` {}, so nothing can be forwarded to it",
                         unforwardable.reason
                     ),
-                    None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                    None => match entries.forwarded_elsewhere(name) {
+                        // A partial block's method on a struct: the trait
+                        // goes to one field, and this is another.
+                        Some(kept) => format!("`{name}` is a field of `{subject_ident}`, but this trait is forwarded to `{kept}`, and a trait is forwarded to one field; name the trait on `{name}`, `#[dispatch(Trait)]`, to forward it there"),
+                        None => format!("`{subject_ident}` has no {noun} `{name}`"),
+                    },
                 };
                 Err(Error::new(name.span(), message))
             })

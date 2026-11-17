@@ -21,7 +21,13 @@ impl HandlerTrait for Handler {
 ```
 
 The enum then does not name that trait in its own attribute, since the
-block is the impl; naming it in both is reported on the block. Options for
+block is the impl; naming it in both is reported on the block. A block over
+a struct goes to the field that names the trait as the block's header
+spells it, `#[dispatch(Catalog)]` on the field for `impl<..> Catalog for
+Env<..> {}` and `#[dispatch(Encoder<F>)]` for `impl<F, ..> Encoder<F> for
+Env<..> {}`, or else to the bare field or the only one, as the struct's
+attribute does; see [Forwarding from a struct
+field](structs.md). Options for
 the trait, `Name = Type` and `mismatch`, go on the block's attribute; an
 associated type written in the block counts as an override too. A generic
 associated type is declared here, since no first variant can supply one,

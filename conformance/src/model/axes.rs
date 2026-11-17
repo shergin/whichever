@@ -86,6 +86,16 @@ axis! {
         /// `pub struct E(u64, #[dispatch] P0)`: a tuple struct subject whose
         /// marked field is its last.
         StructMarkedLast = "struct-marked-last",
+        /// `pub struct E { #[dispatch] pub label: u64, #[dispatch(Probe)]
+        /// pub held: P0 }`: a struct whose field names the trait under test,
+        /// as its impl's home spells it, beside a bare field the trait would
+        /// otherwise go to (a-fields-trait-may-be-a-partial-blocks.md).
+        StructTrait = "struct-trait",
+        /// The same struct whose home, the attribute or the block's header,
+        /// spells the trait with one more path segment, `self::Probe`: one
+        /// name spelled two ways, the home's sentence
+        /// (a-fields-trait-may-be-a-partial-blocks.md).
+        StructTraitSpelt = "struct-trait-spelt",
     }
 }
 

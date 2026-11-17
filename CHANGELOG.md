@@ -5,6 +5,37 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, a struct's field could name only a trait the struct's own
+  attribute dispatches, so a trait whose impl needs a header the attribute
+  cannot write had no way to a field other than the bare one: the field's
+  `#[dispatch(Catalog)]` beside `#[whichever::dispatch] impl<S: Sorts, C:
+  Catalog<Extractor = S::Extractor>, N> Catalog for Env<S, C, N> {}` read
+  "`Catalog` is named on `catalog` but not on the struct", naming it on the
+  struct as well was the second impl, and a method of the block marked
+  `#[dispatch(catalog)]` read "`Env` has no field `catalog`", which was
+  false. A trait's impl has one home, the struct's attribute or a partial
+  impl block, and the struct now forwards a trait to the field that names
+  it whichever home writes the impl; the record "A field's trait may be a
+  partial block's" says why. A field names a trait as its home spells it,
+  generic arguments included, `#[dispatch(Encoder<F>)]` for `impl<F, ..>
+  Encoder<F> for Env<..> {}`. The struct does not see its blocks, so a
+  field's mark that no home claims is no longer reported; the trait's
+  first use says that the impl is missing. One name spelled two ways is
+  reported instead, at either home: "`Catalog` on `catalog` and
+  `traits::Catalog` on the struct spell one trait's name two ways", and
+  the same for `Encoder` beside `Encoder<F>`; spell it as the home does.
+  A block's method naming another field than the trait's now says "`named`
+  is a field of `Env`, but this trait is forwarded to `catalog`, ...; name
+  the trait on `named`, `#[dispatch(Trait)]`, to forward it there", and a
+  trait's route keyed by another field says the same. `via = route` after
+  a trait, which read as an override named `via`, says where a route
+  goes. rsynko 0.1.2's `LawEnv` is the shape (#16). The behaviour test
+  `per_trait_fields` is extended; the `tests/ui` case
+  `field_names_an_undispatched_trait` is gone with its sentence, and
+  `struct_trait_spelt_two_ways`, `block_trait_spelt_two_ways_by_path`,
+  `block_trait_spelt_two_ways_by_arguments`,
+  `block_method_naming_another_field`, `route_keyed_by_another_field` and
+  `via_after_a_trait` are new.
 - Before, several sentences about a dispatch struct spoke of variants and
   the enum: a struct whose field is reached through a method, under a
   trait with an associated type, read "every variant of `Wrapped` is under
