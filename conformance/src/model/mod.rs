@@ -234,8 +234,8 @@ impl Cell {
     }
 
     /// Returns whether an arm of the method's own answers the variant of a
-    /// slot in this build: "An arm under `#[cfg]` answers where the `cfg`
-    /// holds and its variant is forwarded where it does not"
+    /// slot in this build: "An arm under `#[cfg]` handles its variant where
+    /// the `cfg` is on. Where it is off, the variant is forwarded"
     /// (partial-impl-blocks.md).
     pub fn answered_by_arm(&self, slot: &Slot) -> bool {
         self.own_arms()
@@ -429,9 +429,9 @@ impl Cell {
     }
 
     /// Returns whether the method under test is matched by place, `match
-    /// *self` with `ref` bindings: "A method whose receiver is a reference,
+    /// *self` with `ref` bindings: a method with a reference receiver,
     /// `&self` or `&mut self`, plain or pinned, over an enum whose every
-    /// variant is under `#[cfg]`" (limits.md). A `self: Box<Self>` receiver
+    /// variant is under `#[cfg]` (limits.md). A `self: Box<Self>` receiver
     /// is no reference: the enum is moved out of its box and matched by
     /// value.
     pub fn matched_by_place(&self) -> bool {
@@ -451,10 +451,10 @@ impl Cell {
 
     /// Returns whether the method under test may hold, under `*`, a body of
     /// the arms the enum answers itself. "A trait method with a `Self`
-    /// argument, which is matched beside `self`, holds no arms the enum
-    /// answers itself under `*`; an inherent method hands a `Self` argument
-    /// on as it is and is not concerned" (limits.md), which
-    /// `reached_argument` says; nor does a method matched by place.
+    /// argument cannot have arms you write yourself under `*`", and "An
+    /// inherent method passes a `Self` argument on as it is, so this does
+    /// not apply to it" (limits.md), which `reached_argument` says; nor
+    /// does a method matched by place.
     pub fn takes_own_arms(&self) -> bool {
         self.reached_argument().kind.is_none() && !self.matched_by_place()
     }
@@ -483,10 +483,10 @@ impl Cell {
     }
 
     /// Returns whether the subject's impl has a type or const parameter, so
-    /// that its associated consts are taken without a check: "on an enum with a
-    /// type or const parameter [..] taken from the first variant without a
-    /// check" (limits.md); the lifetime the `deref` variants over a
-    /// reference give it is no matter.
+    /// that its associated consts are taken without a check: "taken from
+    /// the first variant without a check when: [..] the enum has a type or
+    /// const parameter" (limits.md); the lifetime the `deref` variants over
+    /// a reference give it is no matter.
     ///
     /// The check is a free `const` item, which cannot evaluate a const a
     /// type or const parameter decides
@@ -494,9 +494,10 @@ impl Cell {
     /// one a block's own header declares is such a parameter too, and an
     /// impl for one instantiation leaves none.
     ///
-    /// Open question: limits.md speaks of "an enum with a type or const
-    /// parameter"; the decision's reason, and its refusal of "silence where
-    /// a check is possible", are read as deciding by the impl's parameters.
+    /// Open question: limits.md speaks of the case where "the enum has a
+    /// type or const parameter"; the decision's reason, and its refusal of
+    /// "silence where a check is possible", are read as deciding by the
+    /// impl's parameters.
     pub fn is_generic(&self) -> bool {
         let generics = self.generic.descriptor();
         let parameter = generics.parameter.is_some() && !generics.instantiated;

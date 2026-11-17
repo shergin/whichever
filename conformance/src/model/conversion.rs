@@ -23,7 +23,7 @@ pub struct ConversionDescriptor {
     /// The option on the subject's attribute, if any.
     pub option: Option<&'static str>,
     /// The option on the second trait's attribute, if any, which needs
-    /// one: "the conversions are the enum's, not a trait's: they are
+    /// one: "The conversions belong to the enum, not to a trait. They are
     /// written once" (options.md).
     pub other_option: Option<&'static str>,
     /// Whether the options give `from` two values or one `into` target

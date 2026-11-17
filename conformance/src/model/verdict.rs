@@ -39,11 +39,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     // The attributes are on the trait's method, which an inherent method
-    // is not; its own `#[cfg]` is the inherent method's too: "a marked
-    // method of an inherent `#[dispatch]` block that cannot be forwarded
-    // [..] is reported under that method's own `#[cfg]`" (limits.md), so a
-    // build that compiles it out reports nothing, as a hand's method under
-    // that `cfg` is absent. The other attributes are the trait method's.
+    // is not; its own `#[cfg]` is the inherent method's too: "An error
+    // about a method of an inherent `#[dispatch]` block follows that
+    // method's own `#[cfg]`" (limits.md), so a build that compiles it out
+    // reports nothing, as a hand's method under that `cfg` is absent. The
+    // other attributes are the trait method's.
     if inherent && !matches!(cell.item, Item::Bare | Item::CfgOn | Item::CfgOff) {
         return Verdict::NonCanonical;
     }
@@ -136,11 +136,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
         return Verdict::NonCanonical;
     }
     // A method parameter named as the impl names something around the
-    // method is renamed in the impl the attribute writes; "a method the
-    // block writes or marks keeps the names written on it", and an
-    // inherent method is no trait's (what-is-generated.md). The names it
-    // meets are the subject's parameter and a payload's type, beside a
-    // trait-side `mismatch` that names it.
+    // method is renamed in the impl the attribute writes; "A method that a
+    // partial impl block writes or marks keeps the names you wrote on it",
+    // and an inherent method is no trait's (what-is-generated.md). The
+    // names it meets are the subject's parameter and a payload's type,
+    // beside a trait-side `mismatch` that names it.
     if cell.qual == Qualifier::GenericNamed {
         let met = matches!(cell.path, Path::Attribute | Path::Block)
             && matches!(cell.generic, Generics::Bare | Generics::Payload)
@@ -292,7 +292,7 @@ fn own_arms(cell: &Cell) -> Option<Verdict> {
 
 /// Returns whether a cell whose subject holds a trait object is canonical.
 /// A `deref` variant holding a trait object is "how an enum holds an open
-/// set beside its sized payloads" (routes.md), so the second variant holds
+/// set next to its sized payloads" (routes.md), so the second variant holds
 /// it, which way round the two stand being no matter; and the trait is
 /// dyn-compatible beside it, so what would make it not, a `Self` in a
 /// signature, an `impl Trait` return, a generic or `async` method, an
@@ -371,26 +371,25 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
 
 /// The subjects and blocks the macro cannot read, or `None` where the
 /// cell is judged as any other. "The marked field of a variant takes
-/// `deref` and `via = route` only: `from` and `try_from` go on the
-/// variant, and a trait named on the field [..] is reported", and "a macro
-/// invocation in a partial impl block is not read [..]. It is reported"
-/// (limits.md). Either is one sentence whatever the method, so only the
-/// axes that make it so and the variants beside it depart from the
-/// neutral cell; a cell with both is non-canonical.
+/// `deref` and `via = route` only", "A variant's marked field cannot list a
+/// trait", and "A macro invocation in a partial impl block is not read
+/// [..], so you get an error" (limits.md). Either is one sentence whatever
+/// the method, so only the axes that make it so and the variants beside it
+/// depart from the neutral cell; a cell with both is non-canonical.
 ///
 /// Open question: the documents do not say whether a sentence about the
 /// other variants' shapes, a unit variant say, is reported beside one that
 /// stops the subject or the block from being read; the macro's `tests/ui`
 /// cases hold the sentence alone, and so does the model.
 ///
-/// An invocation under `#[cfg]` "is reported only where the `cfg` holds;
-/// where it does not, the invocation is not in the block, the block is read
-/// without it, and the method the macro would have written is forwarded as
-/// usual" (limits.md): the cell is then judged as the block without it,
-/// `block`, whose hand is the hand's block in that build. So is a method of
-/// the block without a body and without a mark, the simplest of the items
-/// a block cannot read: "an item of a partial impl block that cannot be
-/// read [..] is reported under its own `#[cfg]`" (limits.md, #22).
+/// An invocation under `#[cfg]` "gives an error only where the `cfg` is on.
+/// Where it is off, the invocation is not in the block. The block is read
+/// without it and forwards as usual" (limits.md), so the method the macro
+/// would have written is forwarded: the cell is then judged as the block
+/// without it, `block`, whose hand is the hand's block in that build. So is
+/// a method of the block without a body and without a mark, the simplest of
+/// the items a block cannot read: "An item of a partial impl block that
+/// cannot be read also follows its own `#[cfg]`" (limits.md, #22).
 fn unread(cell: &Cell) -> Option<Verdict> {
     let refused = cell.s0.descriptor().refused;
     let path = cell.path.descriptor();
@@ -430,12 +429,12 @@ fn unread(cell: &Cell) -> Option<Verdict> {
 }
 
 /// A method that names two fields of a struct, or `None` where the path
-/// names none. "An inherent method of a dispatch struct names one field
-/// [..]: every value holds every field, so a second one named would be an
-/// arm no value reaches, and is reported" (limits.md). The fields are
-/// selected for a partial block's method as for an inherent one, so the
-/// block's is the same sentence. The struct is one whose held field is
-/// marked beside a label, which the mark names second.
+/// names none. "An inherent method of a dispatch struct forwards to one
+/// field [..]. Every value holds every field, so a second field in the list
+/// would be an arm no value reaches, and you get an error" (limits.md). The
+/// fields are selected for a partial block's method as for an inherent one,
+/// so the block's is the same sentence. The struct is one whose held field
+/// is marked beside a label, which the mark names second.
 fn two_fields(cell: &Cell) -> Option<Verdict> {
     if cell.path_descriptor().mark != Some(super::path::TWO_FIELDS) {
         return None;
@@ -769,23 +768,24 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             );
         }
     }
-    // An enum whose every variant is under `#[cfg]` "is matched as `match
-    // *self` with `ref` bindings where the receiver is a reference, so a
-    // build that leaves no variant still compiles, as a hand's does"
-    // (what-is-generated.md). In that build there is no value to build, so
-    // the law has nothing to run, and the cell passes when it compiles
-    // without a diagnostic. The hand's impl over the empty enum carries the
-    // `#[allow(unused_variables)]` a hand needs for the arguments no arm
-    // reads; the subject's impl is `#[automatically_derived]` and is not
-    // asked the same, and a partial block's or an inherent block's method
-    // allows them itself, as a hand's does (CHANGELOG, Unreleased).
+    // An enum whose every variant is under `#[cfg]` may leave no variant in
+    // a build, and "a method whose receiver is a reference matches `match
+    // *self` with `ref` bindings, so the empty build still compiles, as a
+    // hand-written one does" (what-is-generated.md). In that build there is
+    // no value to build, so the law has nothing to run, and the cell passes
+    // when it compiles without a diagnostic. The hand's impl over the empty
+    // enum carries the `#[allow(unused_variables)]` a hand needs for the
+    // arguments no arm reads; the subject's impl is
+    // `#[automatically_derived]` and is not asked the same, and a partial
+    // block's or an inherent block's method allows them itself, as a hand's
+    // does (CHANGELOG, Unreleased).
     //
     // A method with a `Self` argument keeps its tuple scrutinee, "which has
     // the fallback arm in every build" (docs/decisions/an-enum-that-may-be-
     // empty-is-matched-by-place.md), and a mark may name a variant under
-    // `#[cfg]`: "where it is compiled out, the method takes its body"
-    // (inherent-methods.md; partial-impl-blocks.md: a block's method names
-    // its variants "as an inherent method does").
+    // `#[cfg]`: "In a build where the variant is compiled out, the method
+    // uses its body" (inherent-methods.md; partial-impl-blocks.md: a
+    // block's method lists its variants as an inherent method does).
     let inherent = path.site == PathSite::Inherent;
     if cell.s0.descriptor().is_struct() {
         // "Two values of the struct always hold the same field, and the
@@ -793,9 +793,10 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         if argument.kind.is_some() && argument.mismatch == MismatchSite::Enum && !inherent {
             return Some("a mismatch option on a struct, which has no second variant");
         }
-        // "A block on a dispatch struct forwards the same way: `*` is the
-        // field marked bare, or the only field, and a field's name is that
-        // field" (inherent-methods.md); the model names no field.
+        // An inherent block on a dispatch struct "forwards the same way":
+        // "`*` is the field marked with a bare `#[dispatch]`, or the only
+        // field", and "A field's name is that field, marked or not"
+        // (inherent-methods.md); the model names no field.
         if path.form == PathForm::First {
             return Some("a struct's inherent or block method naming its field, not modelled yet");
         }
@@ -868,8 +869,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             | Return::OptionTupleThis
             | Return::Gat
             | Return::GatUndeclared => false,
-            // "A block on a dispatch struct forwards the same way [..]; a
-            // return-position `impl Trait` is forwarded as it is"
+            // "An inherent block on a dispatch struct forwards the same way
+            // [..]. A return-position `impl Trait` is forwarded as it is"
             // (inherent-methods.md), which an enum's arms cannot.
             Return::Iterator => cell.s0.descriptor().is_struct(),
         };
@@ -880,8 +881,8 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
             return Some("an inherent method with a return type the inherent docs do not describe for an enum");
         }
         // "A method returning `Self`, `Option<Self>` or `Result<Self, E>`
-        // wraps the payload's result back into the variant, as trait
-        // dispatch does" (inherent-methods.md), so a variant reached
+        // wraps the payload's result back into the variant, as a trait's
+        // forwarding impl does" (inherent-methods.md), so a variant reached
         // through a route or a marked field gets the trait's sentences,
         // below, ending in the inherent method's way out.
         let method_route = cell
@@ -934,18 +935,18 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
         }
     }
     if argument.kind.is_some() && argument.mismatch != MismatchSite::Missing && !inherent {
-        // "For a method that returns a future, the expression is the
-        // future's output where the arms are awaited, in an `async fn`, an
-        // `impl Future` and a boxed future whose output is converted, and a
-        // value of the declared future where a boxed future is forwarded as
-        // it is" (options.md).
+        // For a method that returns a future, "Where the arms are awaited,
+        // the expression is the future's output. This is the case for an
+        // `async fn`, an `impl Future`, and a boxed future whose output is
+        // converted", and "Where a boxed future is forwarded as it is, the
+        // expression is a value of the declared future type" (options.md).
         let output = match node.future() {
             Some((_, output)) => *output,
             None => node,
         };
         // A `Self` in the mismatch is the first variant built around a
-        // fresh payload, which only the enum's attribute can name: "An
-        // expression on the trait method or on the enum may use the
+        // fresh payload, which only the enum's attribute can name: an
+        // expression on the trait method or on the enum can use "The
         // method's parameters, a `Self` argument included" (options.md),
         // and the trait names no variant, nor can it make a `Self` of a
         // reference to one. A place no payload holds is leaked.
@@ -990,11 +991,11 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
 /// The second trait and the deprecated variant the model writes.
 fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     let stack = cell.stack.descriptor();
-    // "The conversions are the enum's, not a trait's: they are written
-    // once however many attributes the enum carries" (options.md); the
-    // values that spell an option on the second attribute check that, and
-    // an option on the first alone beside a second attribute is left to
-    // the cells without one.
+    // "The conversions belong to the enum, not to a trait. They are written
+    // once, however many attributes the enum has" (options.md); the values
+    // that spell an option on the second attribute check that, and an
+    // option on the first alone beside a second attribute is left to the
+    // cells without one.
     let other_option = cell.conv.descriptor().other_option.is_some();
     if stack.present && cell.conv != Conversion::Unchecked && !other_option {
         return Some("conversion options beside a second attribute");
@@ -1024,7 +1025,7 @@ fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     if stack.present && cell.generic == Generics::Instance {
         return Some("a block for one instantiation beside a second attribute");
     }
-    // "The deprecation reaches the code that names the variant"
+    // "The deprecation still reaches the code that names the variant"
     // (what-is-generated.md): a mismatch or a body the user writes names
     // the first variant, and would be warned of as the user's own code; so
     // does the constant an arm of the method's own answers for `Self`.
@@ -1130,18 +1131,18 @@ fn unpredicted_generics(cell: &Cell) -> Option<&'static str> {
     if parameter && cell.cfg != Cfg::Absent {
         return Some("a subject's generic parameter beside variants under `#[cfg]`");
     }
-    // A generic struct is documented, "`impl<T: Shape> Shape for
-    // Wrapper<T>` for `struct Wrapper<T>(T)`" (options.md); the law builds
-    // and takes apart a tuple struct by its path with the argument spelled,
+    // A generic struct is documented, "`struct Wrapper<T>(T)` gets `impl<T:
+    // Shape> Shape for Wrapper<T>`" (options.md); the law builds and takes
+    // apart a tuple struct by its path with the argument spelled,
     // `E::<P0>(..)`, which an alias cannot.
     if !matches!(cell.generic, Generics::Payload | Generics::Instance) {
         return None;
     }
-    // "A payload that is a type parameter of the enum, or `Box<T>` under
-    // `deref`, gives the impl the bound `Raw: Trait`" (options.md); a
-    // partial block's header is the user's, and spells the bound itself.
-    // A wrapper or a pair the model writes holds the payload's own type,
-    // which would leave the parameter unused.
+    // "A payload that is a type parameter of the enum gives the impl a
+    // bound on that parameter", `Raw: Trait`, and "So does `Box<Raw>` under
+    // `deref`" (options.md); a partial block's header is the user's, and
+    // spells the bound itself. A wrapper or a pair the model writes holds
+    // the payload's own type, which would leave the parameter unused.
     if !matches!(cell.s0, Target::Plain | Target::DerefBox | Target::Struct) {
         return Some("a type-parameter payload reached through a route or a marked field");
     }
@@ -1207,7 +1208,7 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
             if cell.arg != Argument::Absent {
                 return Some("a place beside a `Self` argument, which nothing reads");
             }
-            // "Any other lift is handed the target as it stands"
+            // "Any other `with` is handed the target as it stands"
             // (inherent-methods.md), which for `Into::into` is the binding
             // or the place, converted into a type of the method's choosing.
             if lift == Lift::Into {
@@ -1237,16 +1238,16 @@ enum Lifted {
 }
 
 /// Returns how the cell's lift meets what its method's call answers.
-/// "`with = path` wraps each forwarded result in a call to `path`"
-/// (inherent-methods.md). A method returning `Self` or `Option<Self>`
-/// wraps the payload's result back into the variant, and "with `with`,
-/// the payload returns the plain value and `with` lifts the wrapped
-/// variant"; the arms are awaited where the method is `async` or returns
-/// `impl Future`. Under `support::by_ref` and `support::by_value` the
-/// declared type is theirs, `u64`, which names neither, so the function
-/// is handed the payload's answer as it is, the payload's own type or its
-/// future included; the payloads count as `support::Counted` there. Under
-/// the other lifts the awaited answer is not modelled yet.
+/// "`with = path` passes each forwarded result through `path` on its way
+/// out" (inherent-methods.md). A method returning `Self` or `Option<Self>`
+/// wraps the payload's result back into the variant, and "with `with`, the
+/// payload returns the plain value and `with` lifts the wrapped variant";
+/// the arms are awaited where the method is `async` or returns `impl
+/// Future`. Under `support::by_ref` and `support::by_value` the declared
+/// type is theirs, `u64`, which names neither, so the function is handed
+/// the payload's answer as it is, the payload's own type or its future
+/// included; the payloads count as `support::Counted` there. Under the
+/// other lifts the awaited answer is not modelled yet.
 fn lifted(cell: &Cell) -> Lifted {
     let future = cell.ret.node().future().is_some();
     let unpredicted =
@@ -1342,20 +1343,20 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     };
 
     // A method has no body for the rest when its mark names every variant,
-    // `*` or "a method that names every variant one by one, since no
-    // variant is left to it" (inherent-methods.md,
+    // `*` or "Every variant, one by one", since "No variant is left for a
+    // body to serve" (inherent-methods.md,
     // `inherent_list_of_every_variant_with_body`); the model gives a body
     // under `*` no arms, so the sentence it reaches is the named list's.
     // `*` names a variant that holds no payload too
     // (`inherent_all_with_unforwardable`), whose way out depends on whether
-    // the method may hold arms of its own (`wording`).
-    // "Naming every variant, the conditional one included, is exhaustive in
-    // every build, so the method takes no body" (behaviour test
-    // `inherent_list_naming_a_conditional_variant`): the mark names `A`,
-    // so the variants counted are those the enum declares.
-    // Under `*` with arms of its own, "a variant with neither a payload nor
-    // an arm is an error on that variant" (the decision record), and an arm
-    // under a `#[cfg]` that does not hold leaves its variant forwarded.
+    // the method may hold arms of its own (`wording`). "Naming every
+    // variant, the conditional one included, is exhaustive in every build,
+    // so the method takes no body" (behaviour test
+    // `inherent_list_naming_a_conditional_variant`): the mark names `A`, so
+    // the variants counted are those the enum declares. Under `*` with arms
+    // of its own, "a variant with neither a payload nor an arm is an error
+    // on that variant" (the decision record), and an arm under a `#[cfg]`
+    // that does not hold leaves its variant forwarded.
     let unreachable = slots
         .iter()
         .any(|slot| slot.target().is_none() && !cell.answered_by_arm(slot));
@@ -1366,11 +1367,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::StarOverUnforwardable, Anchor::BlockSignature);
     }
     if path.form == PathForm::Arms {
-        // "A body under `*` that is anything but one `match self` would
-        // never run, and is reported too" (limits.md); "A struct has one
-        // field and no variant for an arm to name, so under
-        // `#[dispatch(*)]` a body would never run, whatever it holds"
-        // (`inherent_all_with_body_on_a_struct`).
+        // "A body under `*` must be one `match self`. Any other body would
+        // never run, because every variant is forwarded, so you get an
+        // error" (limits.md); "A struct has one field and no variant for an
+        // arm to name, so under `#[dispatch(*)]` a body would never run,
+        // whatever it holds" (`inherent_all_with_body_on_a_struct`).
         let unmatched = cell.arms == Arms::Unmatched || cell.s0.descriptor().is_struct();
         if unmatched {
             expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
@@ -1379,43 +1380,43 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         // body; a wildcard arm, as a body that is no `match self`, is read
         // as reported alone, before what the arms would meet.
         let wildcard = cell.arms == Arms::Wildcard;
-        // "A trait method with a `Self` argument, which is matched beside
-        // `self`, holds no arms the enum answers itself under `*`" and "A
-        // method whose receiver is a reference [..] over an enum whose
-        // every variant is under `#[cfg]` [..] holds no arms the enum
-        // answers itself" (limits.md).
+        // "A trait method with a `Self` argument cannot have arms you write
+        // yourself under `*`" and "A method with a reference receiver
+        // cannot have arms you write yourself under `*` when every variant
+        // of the enum is under `#[cfg]`" (limits.md).
         if !unmatched && !wildcard && cell.reached_argument().kind.is_some() {
             expect(Limit::ArmsBesideSelfArgument, Anchor::BlockSignature);
         }
         if !unmatched && !wildcard && cell.matched_by_place() {
             expect(Limit::ArmsMatchedByPlace, Anchor::BlockSignature);
         }
-        // "Under `*`, an arm the enum answers itself names its variants by
-        // path, `Self::Name(..)`; one that names none, `_` or a binding, is
-        // reported" (limits.md).
+        // "Each arm you write names its variants by path, `Self::Name(..)`.
+        // An arm that names none, `_` or a binding, is an arm for every
+        // other variant, [..]. So you get an error" (limits.md).
         if wildcard {
             expect(Limit::ArmNamingNoVariant, Anchor::Arm);
         }
     }
 
-    // "`#[dispatch(default)]` on a bodiless method leaves it to the trait's
-    // default" (partial-impl-blocks.md), which a required method has none of.
-    // "Over a restatement that is the real trait's default, which the
-    // restatement cannot see", so no sentence is written there, and the
-    // impl lacks the method as a hand's does.
+    // "`#[dispatch(default)]` on a method without a body leaves the method
+    // to the trait's default" (partial-impl-blocks.md), which a required
+    // method has none of. "Over a restatement, that is the real trait's
+    // default, which the restatement cannot see", so no sentence is written
+    // there, and the impl lacks the method as a hand's does.
     let restated = cell.decl.descriptor().restated;
     if path.form == PathForm::Default && !cell.qual.descriptor().provided && !restated {
         expect(Limit::DefaultWithoutDefault, Anchor::BlockMethod);
     }
 
     // "A method that requires `Self: Sized` cannot be forwarded to a
-    // `deref` variant holding a trait object; a partial block leaves it to
-    // the trait's default with `#[dispatch(default)]`" (limits.md,
-    // `dyn_payload_under_sized_method`). The sentence names the variant, so
-    // it is that variant's arm, under its `#[cfg]`: "A sentence about one
-    // variant, whether about its shape or about the way a method reaches
-    // it, is reported under that variant's `#[cfg]` [..] and each variant a
-    // method cannot reach is named in a sentence of its own" (limits.md).
+    // `deref` variant that holds a trait object. [..] Leave the method to
+    // the trait's default with `#[dispatch(default)]` in a partial impl
+    // block" (limits.md, `dyn_payload_under_sized_method`). The sentence
+    // names the variant, so it is that variant's arm, under its `#[cfg]`:
+    // "An error about one variant follows that variant's `#[cfg]`. That
+    // covers both the variant's form and the way a method reaches it", and
+    // "Each variant a method cannot reach gets an error of its own"
+    // (limits.md).
     //
     // Open question: the snapshot holds the enum's attribute alone, the
     // sentence on the trait's method; on a block that holds the method it
@@ -1469,28 +1470,30 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::SelfArgumentWithoutMismatch, Anchor::Method);
     }
 
-    // "An enum cannot dispatch a return-position `impl Trait`, at any depth
-    // of the return type, except `impl Future<Output = T>`."
-    // With `with`, the payload returns the plain value and the lift wraps
-    // the variant (inherent-methods.md); "a declared return that wraps
-    // `Self` twice, `Option<Option<Self>>`, is reported" (limits.md,
+    // "An enum cannot forward a method that returns `impl Trait`, at any
+    // depth of the return type"; "The exception is `impl Future<Output =
+    // T>`" (limits.md). With `with`, the payload returns the plain value
+    // and the lift wraps the variant (inherent-methods.md); "Under `with =
+    // Some` or `with = Ok` on an inherent method, the return type cannot
+    // wrap `Self` twice, as in `Option<Option<Self>>`" (limits.md,
     // `lift_over_a_wrapped_self`).
     let lifted = matches!(cell.lift, Lift::Some | Lift::Ok);
     if lifted && node.holds_this() && node != Node::This {
         expect(Limit::SelfInReturn, on_method);
     }
 
-    // "A struct's `match` has one arm, so it forwards a return-position
-    // `impl Trait` as it is, which an enum cannot" (structs.md).
+    // "A return-position `impl Trait` is forwarded as it is. A struct's
+    // `match` has one arm, so there is only one hidden type. An enum cannot
+    // do this" (structs.md).
     let one_arm = cell.s0.descriptor().is_struct();
     let opaque = forwarded && !one_arm && matches!(node, Node::Iterator);
     if opaque {
         expect(Limit::OpaqueReturn, on_method);
     }
 
-    // "A method whose return type wraps `Self` in anything but `Option`,
-    // `Result` or a tuple [..] cannot be forwarded", nor a tuple under an
-    // `Option` (what-is-generated.md).
+    // "`Self` anywhere else in a return type is an error", which "covers
+    // [..] `Self` inside any other type" and "a tuple under an `Option` or
+    // a `Result`" (what-is-generated.md).
     let conversion = node.conversion();
     if forwarded && conversion.is_none() && !matches!(node, Node::Iterator) {
         expect(Limit::SelfInReturn, on_method);
@@ -1533,9 +1536,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // the braces (docs/decisions/a-named-field-is-not-rebuilt-under-a-
     // wrapper.md).
     //
-    // "The same holds for a variant whose one field is named and marked,
-    // `Named { #[dispatch] shape: Square }`: write it as a tuple variant"
-    // (limits.md); its sentence names the variant and the tuple variant.
+    // "A variant whose one field is named and marked, `Named { #[dispatch]
+    // shape: Square }`, cannot forward a method that returns `Option<Self>`
+    // or `Result<Self, E>`. [..] Write it as a tuple variant,
+    // `Named(Square)`" (limits.md); its sentence names the variant and the
+    // tuple variant.
     let mapped = rewraps
         && forwarded
         && node
@@ -1552,10 +1557,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         }
     }
 
-    // "`self: Box<Self>` on `deref` variants holding a `Box`"; a plain
-    // variant is an error, since boxing it again would allocate, and a
-    // `deref` variant over another pointer has no `Box` to hand over
-    // (`box_self_on_a_shared_pointer`).
+    // "`self: Box<Self>` is forwarded only to `deref` variants that hold a
+    // `Box`" (limits.md); a plain variant is an error, since boxing it
+    // again would allocate, and a `deref` variant over another pointer has
+    // no `Box` to hand over (`box_self_on_a_shared_pointer`).
     //
     // Open question: a variant reached through a field is read as getting
     // the plain variant's sentence. A route that dereferences a pointer and
@@ -1677,18 +1682,19 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     }
 
     // "`from`, `try_from` and `into` are options of an enum; a struct gets
-    // no conversions" (struct_from_option), and `into` "converts every
-    // variant's payload" (options.md), which a variant with other fields or
-    // none does not hold alone.
+    // no conversions" (struct_from_option), and under `into` "Every variant
+    // has to hold a payload and take part in the conversions" (options.md),
+    // which a variant with other fields or none does not hold alone.
     let conversion = cell.conv.descriptor();
     if one_arm && conversion.option.is_some() {
         expect(Limit::StructConversion, Anchor::Attribute);
     }
-    // "Two attributes may give `from` the same value, and one that gives it
-    // the other value contradicts the first and is reported", and "one
-    // target named twice, on two attributes or on one, would be the same
-    // `From` written twice, and is reported" (options.md), on the later
-    // option. A struct's conversion options are its one sentence.
+    // "Two attributes may give `from` the same value. An attribute that
+    // gives it the other value contradicts the first, and you get an
+    // error", and "A target listed twice, on two attributes or on one,
+    // would be the same `From` written twice, and you get an error"
+    // (options.md), on the later option. A struct's conversion options are
+    // its one sentence.
     if conversion.repeated && !one_arm {
         let anchor = match conversion.other_option {
             Some(_) => Anchor::OtherAttribute,
@@ -1700,9 +1706,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         };
         expect(limit, anchor);
     }
-    // "A restated enum gets no conversions, which the orphan rules [..]
-    // refuse" (restatements.md), and an option asking for one, or for
-    // none, is its sentence (`restated_enum_conversions`).
+    // A restated enum gets "No conversions and no inherent impl. The orphan
+    // rules and the language refuse both for a type from another crate"
+    // (restatements.md), and an option asking for one, or for none, is its
+    // sentence (`restated_enum_conversions`).
     if cell.owner == Owner::Remote && conversion.option.is_some() {
         expect(Limit::RestatedConversions, Anchor::Attribute);
     }
@@ -1748,10 +1755,11 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // (what-is-generated.md), and a variant whose target has no nameable
     // type takes no part (routes.md): with no variant whose target is
     // named, the sentence of `all_variants_conditional` is on the enum.
-    // "An associated type or const comes from the first variant without a
-    // `#[cfg]`", so only those can supply it.
-    // "A generic associated type is declared by the enum, in a partial impl
-    // block; it cannot come from the first variant" (limits.md,
+    // "Associated types and consts come from the first variant that is
+    // always compiled in and whose target has a type the attribute can
+    // name" (what-is-generated.md), so only those can supply it. "A generic
+    // associated type comes from the enum or the struct, in a partial impl
+    // block. It cannot come from the first variant" (limits.md,
     // `generic_associated_type`), and a block that does not declare it gets
     // the same sentence (`gat_undeclared_in_block`), on the trait's
     // declaration of the type, which the enum reads.
@@ -1771,26 +1779,26 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         expect(Limit::UnsuppliedType, Anchor::Enum);
     }
 
-    // "Every other variant is checked to agree; a disagreement is reported
-    // on that variant", for a type and, "for an integer, a float, `bool`,
-    // `char` or `&str` const on an enum without a type or const parameter,
-    // a lifetime's being no matter", for a const
-    // (what-is-generated.md). A variant whose target has no nameable type
-    // "takes no part in the agreement checks" (routes.md), nor does one
-    // that holds no payload: a const "of a variant reached through a field
-    // or a method, is taken from the first variant without a check"
-    // (limits.md), so it disagrees silently.
+    // "Every other variant is checked to agree, and a disagreement is an
+    // error on that variant", for a type and, for a const, when "the
+    // const's type is an integer, a float, `bool`, `char` or `&str`" and
+    // "the enum has no type or const parameter (lifetime parameters do not
+    // matter here)" (what-is-generated.md). A variant whose target has no
+    // nameable type gets "No agreement check" (routes.md), nor does one
+    // that holds no payload: "a variant reached through a field or a method
+    // is left out of the check: its const is not compared with the first
+    // variant's" (limits.md), so it disagrees silently.
     //
     // Open question: a variant under a `#[cfg]` that holds is read as
     // checked in the builds that hold it, its check carried under the
     // `cfg` as its arm is.
-    // "A type that disagrees shows in the arm of a method that returns it"
-    // (routes.md): the arms of `kind` hand over each payload's own type, so
-    // where two of them differ the `match` is rustc's E0308, on the enum
-    // (`associated_type_disagreement`), beside the agreement check's E0271
-    // on the variant, or alone where the variant takes no part in the
-    // check. A type no variant supplies holds its sentence, which the arms
-    // meet as no type of theirs.
+    // "a disagreeing associated type shows up as a type error in the arm of
+    // a method that returns it" (routes.md): the arms of `kind` hand over
+    // each payload's own type, so where two of them differ the `match` is
+    // rustc's E0308, on the enum (`associated_type_disagreement`), beside
+    // the agreement check's E0271 on the variant, or alone where the
+    // variant takes no part in the check. A type no variant supplies holds
+    // its sentence, which the arms meet as no type of theirs.
     let kinds = returned_kinds(cell);
     if supplier.is_some() && kinds.iter().any(|kind| *kind != kinds[0]) {
         expect(Limit::ArmsDisagree, Anchor::Enum);
@@ -1978,9 +1986,9 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     }
     // A trait object has no size known to the call: moved out of its box
     // for `self` by value, or pinned again for a pinned receiver, which
-    // "needs every payload to be `Unpin`" (what-is-generated.md), it is
-    // rustc's E0277 for a hand's call too. A method that requires `Self:
-    // Sized` has its sentence as that arm instead.
+    // needs that "every payload has to be `Unpin`" (what-is-generated.md),
+    // it is rustc's E0277 for a hand's call too. A method that requires
+    // `Self: Sized` has its sentence as that arm instead.
     let unsized_handover = matches!(
         cell.recv,
         Receiver::Owned | Receiver::PinShared | Receiver::PinExclusive
@@ -2040,13 +2048,14 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         );
     }
 
-    // "Any other lift is handed the target as it stands, the reference the
-    // pattern binds under `&self` or a place reached through `via` or
-    // `field` by value" (inherent-methods.md): a function taking `&T` is
-    // handed a value where the binding owns or the place is a field, and
-    // one taking `T` is handed a reference where the binding borrows.
-    // A build that compiles every variant out has no arm to hand anything
-    // over (an inherent `*` over an enum that may be empty).
+    // "Any other `with` is handed the target as it stands. Under `&self`,
+    // that is the reference the pattern binds. For a place reached through
+    // `via` or `field`, it is the place by value" (inherent-methods.md): a
+    // function taking `&T` is handed a value where the binding owns or the
+    // place is a field, and one taking `T` is handed a reference where the
+    // binding borrows. A build that compiles every variant out has no arm
+    // to hand anything over (an inherent `*` over an enum that may be
+    // empty).
     let by_reference = cell.recv.descriptor().lends != Lends::Nothing;
     let value = cell.callee == Callee::Value && !live.is_empty();
     let field = cell.callee == Callee::Field && !live.is_empty();

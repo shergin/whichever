@@ -1,7 +1,7 @@
 //! What the second trait is: a trait dispatched on the same subject by an
-//! attribute of its own (options.md: "Several traits are dispatched by
-//! repeating the attribute; a supertrait is one more attribute"), and what
-//! a deprecated variant asks of the arms (what-is-generated.md).
+//! attribute of its own (options.md: "Repeat the attribute, one trait per
+//! attribute. A supertrait is one more attribute"), and what a deprecated
+//! variant asks of the arms (what-is-generated.md).
 
 use super::axes::{Deprecation, Stack};
 
