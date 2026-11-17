@@ -141,6 +141,10 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
     if context.inherent() && calls {
         let own = context.payload_side();
         writer.line("/// The method the subject's inherent method forwards to.");
+        // It goes with the inherent method, under its `#[cfg]`.
+        if let Some(predicate) = context.item.cfg {
+            writer.line(format!("#[cfg({predicate})]"));
+        }
         writer.open(format!(
             "pub {} {{",
             own.signature_with(Site::Payload, own.node, own.callee_name())
