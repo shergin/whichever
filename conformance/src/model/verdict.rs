@@ -89,6 +89,11 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if converted && (cell.path != super::Path::Attribute || generic) {
         return Verdict::NonCanonical;
     }
+    // An option on the second trait's attribute needs that attribute.
+    let other_option = cell.conv.descriptor().other_option.is_some();
+    if other_option && cell.stack != Stack::Second {
+        return Verdict::NonCanonical;
+    }
     // A struct subject has its one field and no second variant.
     let is_struct = cell.s0.descriptor().is_struct();
     let later = cell.s1 != Second::Absent || cell.s2 != Third::Absent;
@@ -965,11 +970,13 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
 /// The second trait and the deprecated variant the model writes.
 fn unpredicted_stack(cell: &Cell) -> Option<&'static str> {
     let stack = cell.stack.descriptor();
-    // Open question: which of two attributes writes the conversions, and
-    // whose `from` decides them, is not documented; the model leaves the
-    // default to both, which writes them once (behaviour test
-    // `foreign_traits`, `ReadError`).
-    if stack.present && cell.conv != Conversion::Unchecked {
+    // "The conversions are the enum's, not a trait's: they are written
+    // once however many attributes the enum carries" (options.md); the
+    // values that spell an option on the second attribute check that, and
+    // an option on the first alone beside a second attribute is left to
+    // the cells without one.
+    let other_option = cell.conv.descriptor().other_option.is_some();
+    if stack.present && cell.conv != Conversion::Unchecked && !other_option {
         return Some("conversion options beside a second attribute");
     }
     // The type-parameter payload's `from = false` would have to be spelled
@@ -1656,6 +1663,22 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     let conversion = cell.conv.descriptor();
     if one_arm && conversion.option.is_some() {
         expect(Limit::StructConversion, Anchor::Attribute);
+    }
+    // "Two attributes may give `from` the same value, and one that gives it
+    // the other value contradicts the first and is reported", and "one
+    // target named twice, on two attributes or on one, would be the same
+    // `From` written twice, and is reported" (options.md), on the later
+    // option. A struct's conversion options are its one sentence.
+    if conversion.repeated && !one_arm {
+        let anchor = match conversion.other_option {
+            Some(_) => Anchor::OtherAttribute,
+            None => Anchor::Attribute,
+        };
+        let limit = match conversion.into {
+            true => Limit::IntoRepeated,
+            false => Limit::FromContradicted,
+        };
+        expect(limit, anchor);
     }
     // "A restated enum gets no conversions, which the orphan rules [..]
     // refuse" (restatements.md), and an option asking for one, or for

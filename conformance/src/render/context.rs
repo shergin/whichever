@@ -228,14 +228,17 @@ impl Context {
     /// Returns the second trait's attribute options: the associated items
     /// it fixes as the trait under test does.
     pub fn other_options(&self) -> Vec<String> {
-        self.agreement
+        let mut options: Vec<String> = self
+            .agreement
             .items
             .iter()
             .filter_map(|item| {
                 item.overridden
                     .map(|value| format!("{} = {value}", item.name))
             })
-            .collect()
+            .collect();
+        options.extend(self.cell.conv.descriptor().other_option.map(String::from));
+        options
     }
 
     /// Returns the second trait's attribute on the subject.

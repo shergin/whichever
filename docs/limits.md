@@ -112,6 +112,12 @@
   `cfg` holds; where it does not, the invocation is not in the block, which
   is read without it and forwards as usual, as for any item of the block
   that cannot be read.
+- The conversions are the enum's and written once, so `from = true` on one
+  of its attributes and `from = false` on another contradict each other,
+  and the later is reported; give `from` one value, or write it once.
+- An `into` target named twice, on two of the enum's attributes or on one,
+  would be the same `From<Enum> for Target` written twice, and the second
+  is reported; name each target once.
 - A lint attribute on the enum does not reach the impls written next to it,
   as it would not reach a hand-written one; `#[allow]` goes on the trait
   method, on a partial impl block, or on the module.

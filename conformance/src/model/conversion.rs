@@ -22,6 +22,13 @@ pub struct ConversionDescriptor {
     pub checked: bool,
     /// The option on the subject's attribute, if any.
     pub option: Option<&'static str>,
+    /// The option on the second trait's attribute, if any, which needs
+    /// one: "the conversions are the enum's, not a trait's: they are
+    /// written once" (options.md).
+    pub other_option: Option<&'static str>,
+    /// Whether the options give `from` two values or one `into` target
+    /// twice, the later of which is the sentence (options.md).
+    pub repeated: bool,
     /// The option on the first variant, if any.
     pub variant_option: Option<&'static str>,
     /// Whether `From<Payload>` is written for every variant that takes
@@ -43,6 +50,8 @@ impl Conversion {
         let checked = ConversionDescriptor {
             checked: true,
             option: None,
+            other_option: None,
+            repeated: false,
             variant_option: None,
             from: true,
             first_left_out: false,
@@ -82,6 +91,33 @@ impl Conversion {
             Conversion::VariantTry => ConversionDescriptor {
                 variant_option: Some("try_from = true"),
                 first_try: true,
+                ..checked
+            },
+            Conversion::FromAgreed => ConversionDescriptor {
+                option: Some("from = false"),
+                other_option: Some("from = false"),
+                from: false,
+                ..checked
+            },
+            // A `from = false` anywhere leaves the `From` impls out.
+            Conversion::FromContradicted => ConversionDescriptor {
+                option: Some("from = true"),
+                other_option: Some("from = false"),
+                from: false,
+                repeated: true,
+                ..checked
+            },
+            Conversion::IntoRepeated => ConversionDescriptor {
+                option: Some("into = support::Sink"),
+                other_option: Some("into = support::Sink"),
+                into: true,
+                repeated: true,
+                ..checked
+            },
+            Conversion::IntoTwice => ConversionDescriptor {
+                option: Some("into = support::Sink, into = support::Sink"),
+                into: true,
+                repeated: true,
                 ..checked
             },
         }

@@ -47,6 +47,7 @@ pub fn fragments(cell: &Cell, expected: &Expected) -> Vec<Fragment> {
         | Anchor::BlockMethod
         | Anchor::BlockSignature
         | Anchor::BlockAttribute
+        | Anchor::OtherAttribute
         | Anchor::BlockHeader
         | Anchor::BlockInvocation
         | Anchor::Arm
@@ -221,7 +222,9 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::BlockTraitSpelt
         | Limit::FieldElsewhere
         | Limit::TwoFieldsNamed
-        | Limit::BodilessInBlock => String::new(),
+        | Limit::BodilessInBlock
+        | Limit::FromContradicted
+        | Limit::IntoRepeated => String::new(),
     }
 }
 
@@ -392,6 +395,13 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
                 false => "forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`",
             })));
         }
+        // The later option, the earlier one, and the enum.
+        Limit::FromContradicted => push(Some(String::from(
+            "`from = false` contradicts `from = true` on another attribute of `E`",
+        ))),
+        Limit::IntoRepeated => push(Some(String::from(
+            "`into = support::Sink` is given twice on `E`",
+        ))),
         // The method and the two fields it names, in the mark's order.
         Limit::TwoFieldsNamed => push(Some(format!(
             "{method} names two fields, `held` and `label`"

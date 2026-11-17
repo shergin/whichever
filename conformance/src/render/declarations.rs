@@ -193,6 +193,7 @@ pub fn write_subject(writer: &mut Writer, context: &Context) {
         (false, stacked) => {
             writer.line(format!("#[whichever::dispatch({})]", arguments.join(", ")));
             if stacked {
+                writer.anchor(Anchor::OtherAttribute.name());
                 writer.line(context.other_attribute());
             }
         }

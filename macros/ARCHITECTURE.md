@@ -581,7 +581,13 @@ one typed struct per position. On a subject the attribute is a
 and what a partial block's attribute holds, whose grammar refuses a trait
 path and a subject's option. `SubjectOptions` holds the subject's `from`,
 `try_from`, `into` and `remote`, each with the span it was written at, read
-where the subject is expanded and never sent. Who reads a list is a
+where the subject is expanded and never sent. The conversions are the
+enum's and written once, so `conversions` in `dispatch.rs` reads them
+across the attributes as one answer: `from` is on or off, and a later
+attribute that gives it the other value is reported on its key; the
+`try_from` forms add up to the widest; the `into` targets are collected,
+and one spelled as a target already collected, on another attribute or
+the same one, is reported on its key and written once. Who reads a list is a
 `Reader`, which decides the words of its sentences:
 `DispatchAttribute::read` reads the subject's own attribute as
 `Reader::Subject` with the subject's `Words`, so an unknown option lists a

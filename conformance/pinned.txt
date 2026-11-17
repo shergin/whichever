@@ -439,3 +439,11 @@ path=block-bodiless-off
 s0=struct s1=none path=block-bodiless-off
 path=block-bodiless-on
 s0=struct s1=none path=block-bodiless-on
+
+# A conversion option that contradicted or repeated another was taken
+# silently, or was rustc's E0119 on the attribute (#12): the conversions are
+# the enum's and written once.
+conv=from-contradicted stack=second
+conv=into-repeated stack=second
+conv=into-twice
+conv=from-agreed stack=second

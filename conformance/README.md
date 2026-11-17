@@ -364,7 +364,17 @@ beside a variant with other fields, on a struct or under `from = false`, is
 written by hand beside the subject, which compiles only if the attribute
 wrote none. A payload that is the enum's type parameter takes the
 conversions too: its `From` beside another variant's, and its `TryFrom`,
-are each a sentence on the variant.
+are each a sentence on the variant. The conversions are the enum's and
+written once, so four more values spell them across the subject's two
+attributes, the second trait's beside the first under `stack=second`:
+`from-agreed`, `from = false` on both, which is `from-off`;
+`from-contradicted`, `from = true` on the first and `from = false` on the
+second, which is the sentence on the second; `into-repeated`, `into =
+support::Sink` on both, and `into-twice`, the target twice on the first,
+each the sentence on the later. A conversion option on the first
+attribute alone beside a second stays unmodelled, and so do `try_from`
+forms that add up and different `into` targets, which need a second
+target type.
 
 The `agree` axis gives the trait associated items of its own beside those
 the return types name: a type the payloads give differently, consts of

@@ -109,6 +109,10 @@ pub enum Limit {
     TwoFieldsNamed,
     /// A method of a partial block without a body and without a mark.
     BodilessInBlock,
+    /// `from` given the other value by a later option.
+    FromContradicted,
+    /// An `into` target given a second time.
+    IntoRepeated,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -199,6 +203,8 @@ impl Limit {
         Limit::FieldElsewhere,
         Limit::TwoFieldsNamed,
         Limit::BodilessInBlock,
+        Limit::FromContradicted,
+        Limit::IntoRepeated,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -436,6 +442,16 @@ impl Limit {
                     "block_bodiless_without_attribute",
                 )
             },
+            Limit::FromContradicted => entry(
+                "from-contradicted",
+                "on another attribute of",
+                "from_contradicts_another_attribute",
+            ),
+            Limit::IntoRepeated => entry(
+                "into-repeated",
+                "is given twice on",
+                "into_target_twice_on_two_attributes",
+            ),
             Limit::TwoFieldsNamed => entry(
                 "two-fields-named",
                 "and a struct forwards a method to one, since every value holds them all",
@@ -514,6 +530,8 @@ impl Limit {
             Limit::BlockTraitSpelt => ("a field names a trait as the block's header spells it", false),
             Limit::FieldElsewhere => ("`#[dispatch(Trait)]`, to forward it there", false),
             Limit::TwoFieldsNamed => ("name one, and write a method that needs both by hand", false),
+            Limit::FromContradicted => ("so give `from` one value", false),
+            Limit::IntoRepeated => ("so name a target once", false),
             Limit::BodilessInBlock => (
                 "or leave it to the trait's default with `#[dispatch(default)]`",
                 false,
@@ -549,7 +567,9 @@ impl Limit {
             | Limit::MacroInBlock
             | Limit::FieldTraitSpelt
             | Limit::BlockTraitSpelt
-            | Limit::BodilessInBlock => false,
+            | Limit::BodilessInBlock
+            | Limit::FromContradicted
+            | Limit::IntoRepeated => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -625,7 +645,9 @@ impl Limit {
             | Limit::GenericAssociatedType
             | Limit::FieldTraitSpelt
             | Limit::BlockTraitSpelt
-            | Limit::BodilessInBlock => false,
+            | Limit::BodilessInBlock
+            | Limit::FromContradicted
+            | Limit::IntoRepeated => false,
         }
     }
 
@@ -714,6 +736,8 @@ pub enum Anchor {
     BlockMethod,
     /// The signature of the method under test in a block.
     BlockSignature,
+    /// The second trait's `#[whichever::dispatch(..)]` on the subject.
+    OtherAttribute,
     /// The `#[whichever::dispatch(..)]` on a partial impl block.
     BlockAttribute,
     /// The header of a partial impl block, `impl Probe for E {`, whose
@@ -740,6 +764,7 @@ impl Anchor {
             Anchor::Enum => String::from("enum"),
             Anchor::BlockMethod => String::from("block-method"),
             Anchor::BlockSignature => String::from("block-signature"),
+            Anchor::OtherAttribute => String::from("other-attribute"),
             Anchor::BlockAttribute => String::from("block-attribute"),
             Anchor::BlockHeader => String::from("block-header"),
             Anchor::BlockInvocation => String::from("block-invocation"),

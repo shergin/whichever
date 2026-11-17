@@ -147,10 +147,12 @@
 //! The conversions are the enum's, not a trait's: they are written once
 //! however many attributes the enum carries, and a conversion option on any
 //! one of the attributes applies to all of them. `from = false` on any
-//! attribute leaves the `From` impls out, whatever another says; the widest
-//! `try_from` form on any of them applies; and the `into` targets of all of
-//! them are collected, so one target named on two attributes is the same
-//! `From` written twice, a conflict.
+//! attribute leaves the `From` impls out; two attributes may agree on
+//! `from`, and one that contradicts another is reported. The widest
+//! `try_from` form on any of them applies, so `try_from = false` beside
+//! another form cancels nothing. The `into` targets of all of them are
+//! collected, and one target named twice is reported, since it would be the
+//! same `From` written twice.
 //!
 //! # Semantics
 //!
@@ -839,6 +841,10 @@
 //!   write the items out in the block. One under `#[cfg]` is reported where
 //!   the `cfg` holds, and where it does not the block is read without it, as
 //!   is any item of the block under `#[cfg]` that cannot be read.
+//! - `from = true` on one of the enum's attributes and `from = false` on
+//!   another contradict each other, and the later is reported; an `into`
+//!   target named twice is reported on the second. The conversions are the
+//!   enum's and written once.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

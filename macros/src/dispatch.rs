@@ -15,6 +15,7 @@ use crate::options::{
 use crate::protocol::{
     carrier_macro, carrier_path, BlockRequest, CarriedSubject, Implementation, TraitRequest,
 };
+use crate::spelling;
 use crate::subject::{Entries, Subject};
 
 /// The name the facade crate is published under; a renamed dependency is
@@ -193,7 +194,11 @@ fn take_dispatch_attributes(
 
 /// Writes the `From` and `TryFrom` impls the attributes ask for: an enum's,
 /// switched by `from` and `try_from` on any of its attributes; a struct has
-/// none, and a switch on one is an error.
+/// none, and a switch on one is an error. The conversions are the enum's
+/// and written once, so the attributes say one thing between them: `from`
+/// is on or off, and a second attribute that gives it the other value
+/// contradicts the first; the `try_from` forms and the `into` targets add
+/// up, and a target named a second time would be the same impl twice.
 fn conversions(
     subject: &Subject,
     entries: &Entries,
@@ -212,6 +217,18 @@ fn conversions(
         }
         return TokenStream2::new();
     }
+    let enum_ident = subject.ident();
+    let mut switches = attributes
+        .iter()
+        .filter_map(|attribute| attribute.subject.from.as_ref());
+    if let Some(first) = switches.next() {
+        for other in switches.filter(|other| other.value() != first.value()) {
+            errors.push(Error::new(
+                other.span(),
+                format!("`from = {}` contradicts `from = {}` on another attribute of `{enum_ident}`; the `From` impls are the enum's, written once whatever its attributes, so give `from` one value", other.value(), first.value()),
+            ));
+        }
+    }
     let from = !attributes
         .iter()
         .filter_map(|attribute| attribute.subject.from.as_ref())
@@ -220,10 +237,24 @@ fn conversions(
         .iter()
         .filter_map(|attribute| attribute.subject.try_from.as_ref())
         .fold(TryFromForms::NONE, |forms, switch| forms.or(switch.forms()));
-    let into: Vec<&IntoTarget> = attributes
+    let mut into: Vec<&IntoTarget> = vec![];
+    for target in attributes
         .iter()
         .flat_map(|attribute| attribute.subject.into.iter())
-        .collect();
+    {
+        let spelled = spelling::spelled(&target.target);
+        if into
+            .iter()
+            .any(|known| spelling::spelled(&known.target) == spelled)
+        {
+            errors.push(Error::new(
+                target.key.span(),
+                format!("`into = {spelled}` is given twice on `{enum_ident}`; `From<{enum_ident}> for {spelled}` is the enum's, written once whatever its attributes, so name a target once"),
+            ));
+            continue;
+        }
+        into.push(target);
+    }
     conversion_impls(subject, entries, from, try_from, &into, errors)
 }
 

@@ -5,6 +5,27 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, two conversion options that disagree went unreported: `from =
+  true` on one attribute of an enum and `from = false` on another wrote no
+  `From` impl and said nothing, so the first sign was rustc's E0308 at a
+  call of `E::from(payload)`, far from the attributes; and one `into`
+  target given twice, on two attributes or on one, wrote the impl twice,
+  rustc's E0119 with both labels on the first attribute. Each is now one
+  sentence on the later occurrence: "`from = false` contradicts `from =
+  true` on another attribute of `E`; the `From` impls are the enum's,
+  written once whatever its attributes, so give `from` one value", in
+  either order, and "`into = u32` is given twice on `E`; `From<E> for u32`
+  is the enum's, written once whatever its attributes, so name a target
+  once", with the impl written once. Two attributes that agree on `from`
+  are fine; the `try_from` forms still add up to the widest, so `try_from
+  = false` beside another form cancels nothing and is not reported; and
+  different `into` targets are collected (#12). `docs/options.md`,
+  `docs/limits.md` and the crate docs say so. The `tests/ui` cases
+  `from_contradicts_another_attribute`,
+  `into_target_twice_on_two_attributes` and
+  `into_target_twice_on_one_attribute` are new, and the behaviour test
+  `conversion_options_on_repeated_attributes` is extended with agreeing
+  `from` values and `try_from = false` beside `try_from = true`.
 - Before, an item of a partial impl block that cannot be read was
   reported in every build, whatever `#[cfg]` it carried, and the impl was
   withheld with it, so every call of the trait's methods was rustc's E0599

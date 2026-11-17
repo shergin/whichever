@@ -126,11 +126,15 @@ pub enum AnyShape { /* .. */ }
 
 The conversions are the enum's, not a trait's: they are written once
 however many attributes the enum carries, and a conversion option on any
-one of the attributes applies to all of them. `from = false` on any
-attribute leaves the `From` impls out, whatever another says; the widest
-`try_from` form on any of them applies; and the `into` targets of all of
-them are collected, so one target named on two attributes is the same
-`From` written twice, a conflict.
+one of the attributes applies to all of them, so the attributes say one
+thing between them. `from = false` on any attribute leaves the `From`
+impls out; two attributes may give `from` the same value, and one that
+gives it the other value contradicts the first and is reported. The
+`try_from` forms add up, and the widest on any of them applies, so
+`try_from = false` beside another form cancels nothing and is not
+reported. The `into` targets of all of them are collected, and one target
+named twice, on two attributes or on one, would be the same `From` written
+twice, and is reported.
 
 A generic trait is dispatched at an instantiation named on the enum: a
 concrete one, `#[whichever::dispatch(Encoder<Json>)]`, or the enum's own

@@ -297,11 +297,11 @@ suite generics
 
 suite conversions
   pass 264
-  limit 150
+  limit 168
   rejected 0
   malformed 0
-  never 90 non-canonical
-  never 44 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 316 non-canonical
+  never 88 unmodelled: `into` over a variant that stores more than its payload, or several fields
   never 96 unmodelled: a variant's conversion option beside a variant option of its own
   never 4 unmodelled: a variant's conversion option on a struct, which has no variant
 
@@ -447,10 +447,10 @@ suite foreign
 
 suite foreign-conversions
   pass 54
-  limit 36
+  limit 46
   rejected 0
   malformed 0
-  never 18 non-canonical
+  never 56 non-canonical
 
 suite field-traits
   pass 162
@@ -465,6 +465,15 @@ suite struct-fields
   rejected 0
   malformed 0
   never 4 non-canonical
+
+suite repeated-conversions
+  pass 8
+  limit 13
+  rejected 0
+  malformed 0
+  never 12 non-canonical
+  never 5 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 10 unmodelled: conversion options beside a second attribute
 
 suite foreign-iterators
   pass 28
@@ -514,10 +523,11 @@ suite third-items
 
 suite third-conversions
   pass 98
-  limit 102
+  limit 110
   rejected 0
   malformed 0
-  never 16 unmodelled: `into` over a variant that stores more than its payload, or several fields
+  never 72 non-canonical
+  never 32 unmodelled: `into` over a variant that stores more than its payload, or several fields
 
 suite trait-objects
   pass 180
@@ -601,37 +611,37 @@ suite own-arms-refusals
   never 40 unmodelled: an inherent method with a return type the inherent docs do not describe for an enum
 
 suite pinned
-  pass 119
-  limit 56
+  pass 120
+  limit 59
   rejected 8
   malformed 0
 
 suite array
-  pass 10036
+  pass 10063
   limit 0
   rejected 0
   malformed 0
-  rows 10036
-  covered 102663
-  unreached 92486
+  rows 10063
+  covered 102714
+  unreached 93155
 
 suite array-limits
   pass 0
-  limit 610
+  limit 629
   rejected 0
   malformed 0
-  rows 610
-  covered 12551
-  unreached 3934
+  rows 629
+  covered 12833
+  unreached 4372
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 993
+  rejected 1014
   malformed 0
-  rows 993
-  covered 11958
-  unreached 4527
+  rows 1014
+  covered 12055
+  unreached 5150
 
 suite known
   pass 0

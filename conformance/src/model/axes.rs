@@ -490,6 +490,18 @@ axis! {
         VariantFromOff = "variant-from-off",
         /// `#[dispatch(try_from = true)]` on the first variant.
         VariantTry = "variant-try",
+        /// `from = false` on the subject's attribute and on the second
+        /// trait's: attributes that agree, one `from` (options.md).
+        FromAgreed = "from-agreed",
+        /// `from = true` on the subject's attribute and `from = false` on
+        /// the second trait's, which contradicts it (options.md).
+        FromContradicted = "from-contradicted",
+        /// `into = support::Sink` on the subject's attribute and on the
+        /// second trait's: one target given twice (options.md).
+        IntoRepeated = "into-repeated",
+        /// `into = support::Sink, into = support::Sink` on one attribute
+        /// (options.md).
+        IntoTwice = "into-twice",
     }
 }
 

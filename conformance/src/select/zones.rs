@@ -638,6 +638,16 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("s1", "none")],
     },
     Zone {
+        name: "repeated-conversions",
+        summary: "conversion options that agree, contradict or repeat across the subject's two attributes or within one, beside a second variant of each kind",
+        vary: &[
+            ("conv", &["from-agreed", "from-contradicted", "into-repeated", "into-twice", "from-off", "into"]),
+            ("stack", &["none", "second"]),
+            ("s1", &["plain", "none", "deref-box", "unit"]),
+        ],
+        fixed: &[],
+    },
+    Zone {
         name: "foreign-iterators",
         summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
         vary: &[
