@@ -5,6 +5,26 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, an inherent method taking `self` by value and forwarded by name
+  to a `deref` variant holding a `&'a T`, an `Rc`, an `Arc` or a `&mut T`,
+  `#[dispatch(*)] pub fn base(self) -> &'a Base;` over
+  `#[dispatch(deref)] Int(&'a Int)`, was refused: "`base` takes `self` by
+  value, and `Int` dereferences a `&'a Int`, which a value cannot be moved
+  out of; hold a `Box`, or give it a body". Nothing moves there when the
+  payload's method takes `&self`, and the hand's arm beside it compiles.
+  This was a regression: 0.5.2 compiled the shape, 0.6.0 gave rustc's
+  E0308, and 0.7.0 to 0.8.0 gave the sentence. The arm is now the hand's,
+  `Self::Int(inner) => (*inner).base()`, under `*`, a named list and `call
+  = name` alike, and rustc judges it: a payload method taking `&self`
+  borrows what the variant points at, one that consumes its receiver is
+  rustc's E0507, and a reference returned out of an `Rc` the arm drops is
+  rustc's E0515, as in a hand's arm. A trait method taking `self` or a
+  `Self` argument by value over such a variant, and an inherent `value` or
+  `field` the return type does not borrow, are reported as before.
+  cameleon-genapi 0.1.14's `node_base_precise` is the shape.
+  `docs/limits.md`, `docs/inherent-methods.md` and the crate docs say so.
+  The behaviour test `inherent_methods_on_dereferenced_payloads` is
+  extended; no golden and no `tests/ui` snapshot changed.
 - Before, `#[dispatch(*)]` with a body was an error, and the only way to
   forward to every variant but a few was to name every forwarded variant
   on the method, with the body as the arm for the rest: a list as long as

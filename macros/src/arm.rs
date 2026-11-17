@@ -204,18 +204,20 @@ impl MethodPlan {
         // unless the return type borrows it. By value as well, an arm that
         // is a place moves its target out unless the return type borrows
         // it: `&*inner` on a `&'a T` payload is the reference the variant
-        // holds, and moves nothing.
+        // holds, and moves nothing. A trait's method takes its target as
+        // the signature says, by value. A call by name hands the target to
+        // a method of the payload's own, which borrows or moves it as that
+        // method's receiver says, and the signature here does not: the arm
+        // is the hand's, `(*inner).name()`, and rustc's to judge.
         let is_place = matches!(context.kind, ArmKind::Place { .. });
-        let moves_the_place = !matches!(
-            context.kind,
-            ArmKind::Place {
-                borrow: PlaceBorrow::Reference(_),
-                ..
-            }
-        );
+        let moves_the_target = match &context.kind {
+            ArmKind::QualifiedCall { .. } => true,
+            ArmKind::MethodCall { .. } => false,
+            ArmKind::Place { borrow, .. } => !matches!(borrow, PlaceBorrow::Reference(_)),
+        };
         let moved = match self.receiver {
-            ReceiverKind::Boxed if is_place && moves_the_place => Some(Taken::BoxedSelf),
-            ReceiverKind::Value(Access::Owned) if moves_the_place => Some(Taken::SelfByValue),
+            ReceiverKind::Boxed if is_place && moves_the_target => Some(Taken::BoxedSelf),
+            ReceiverKind::Value(Access::Owned) if moves_the_target => Some(Taken::SelfByValue),
             ReceiverKind::Value(_) | ReceiverKind::Pinned(_) | ReceiverKind::Boxed => {
                 self.taken(Access::Owned).map(Taken::ArgumentByValue)
             }

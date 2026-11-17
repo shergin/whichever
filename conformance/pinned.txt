@@ -360,3 +360,17 @@ s0=marked-last path=inherent
 s0=marked-last recv=value ret=self
 s0=struct-marked-last s1=none
 s0=struct-marked-last s1=none path=inherent
+
+# An inherent call under `self` by value over a `deref` variant that holds
+# no `Box` was refused with the sentence on the payload, though the hand's
+# arm, `(*inner).m(x)`, compiles where the payload's method borrows its
+# receiver (#15, the cameleon-genapi survey): over two `&'a T` returning
+# for `'a`, and over an `Rc` returning a value, each passing; a borrow
+# returned for `'a` out of an `Rc` the arm drops, and a payload's method
+# that takes `self`, each rustc's error for the hand and the macro alike.
+s0=deref-ref s1=deref-ref recv=value ret=lent path=inherent callee=borrowing
+s0=deref-rc recv=value path=inherent callee=borrowing
+s0=deref-mut recv=value path=inherent-some callee=borrowing
+s0=deref-ref s1=deref-rc recv=value ret=lent path=inherent callee=borrowing
+s0=deref-rc recv=value path=inherent
+s0=deref-ref recv=value path=inherent

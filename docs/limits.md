@@ -94,12 +94,17 @@
   when every payload is `Unpin`. `Rc<Self>`, `Arc<Self>` and
   `Pin<Box<Self>>` would need a refcount or an allocation, so they are not.
 - A value cannot be moved out of a `deref` variant that holds anything but
-  a `Box`: a method taking `self` or a `Self` argument by value is reported
-  on the payload, naming the one that would move, and so is an inherent
-  method's `value` or `field` under `self` or `self: Box<Self>` unless the
-  return type borrows the place. A method taking `self: Box<Self>` on such a
-  variant is reported too, since there is no box to hand over. Hold a
-  `Box`, or give the method a body, or implement a trait method by hand; a
+  a `Box`: a trait method taking `self` or a `Self` argument by value, which
+  takes its target as the signature says, is reported on the payload,
+  naming the one that would move, and so is an inherent method's `value` or
+  `field` under `self` or `self: Box<Self>` unless the return type borrows
+  the place. An inherent method forwarded by name under `self` is not: its
+  arm is the hand's, `(*inner).name(..)`, and the payload's method decides
+  what moves, so one taking `&self` borrows what the variant points at,
+  one taking `self` is rustc's E0507, and a reference it returns out of an
+  `Rc` the arm drops is rustc's E0515. A method taking `self: Box<Self>` on
+  such a variant is reported too, since there is no box to hand over. Hold
+  a `Box`, or give the method a body, or implement a trait method by hand; a
   method that names its variants and has a body for the rest is offered
   that body, and one under `*` whose body holds the arms the enum answers
   itself is offered the variant's arm there.

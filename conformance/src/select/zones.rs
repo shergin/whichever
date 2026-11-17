@@ -234,6 +234,17 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("lift", "into")],
     },
     Zone {
+        name: "inherent-borrows",
+        summary: "a payload's method that borrows its receiver, called by an inherent method taking `self` by value, over the pointers it is called through and for the subject's own lifetime",
+        vary: &[
+            ("path", &["inherent", "inherent-some"]),
+            ("s0", &["plain", "deref-box", "deref-rc", "deref-arc", "deref-ref", "deref-mut", "via-field", "deref-rc-field", "marked-tuple"]),
+            ("s1", &["plain", "none", "deref-ref", "deref-rc"]),
+            ("ret", &["u64", "self", "future", "lent"]),
+        ],
+        fixed: &[("recv", "value"), ("callee", "borrowing")],
+    },
+    Zone {
         name: "inherent-shared",
         summary: "`value` over two variants that hold one payload type, reached by different target kinds",
         vary: &[

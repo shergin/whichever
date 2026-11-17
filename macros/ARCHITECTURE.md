@@ -287,7 +287,14 @@ takes and the target cannot give, as the signature has it (`Taken`,
 `Self` rewrapped through a route, a mutable borrow through a route ending
 in a method call, a mutable borrow through a `Pointer::Shared`, a move out
 of a pointer that is no `Box`, `self: Box<Self>` with no box to hand over,
-and a `Self` the target cannot be rebuilt around. `Refusal::error` words it
+and a `Self` the target cannot be rebuilt around. A move is a trait's
+call, `ArmKind::QualifiedCall`, under `self` by value, which takes its
+target as the signature says; a place under `self` by value or `self:
+Box<Self>` that the return type does not borrow; and a `Self` argument
+by value. An inherent call by name, `ArmKind::MethodCall`, is not judged:
+it hands the target to a method of the payload's own, whose receiver
+borrows or moves it as the signature here cannot say, so the arm is the
+hand's, `(*inner).name()`, and rustc's to judge. `Refusal::error` words it
 in `refusal.rs`, on the payload, with the way out the `WayOut` offers: an
 impl by hand on the trait path, a body on the inherent path, the body
 itself where the method has one for the variants it does not name, and an

@@ -42,6 +42,12 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if inherent && cell.item != Item::Bare {
         return Verdict::NonCanonical;
     }
+    // A payload's method that borrows its receiver differs from `method`
+    // only where the inherent method takes `self` by value: under a
+    // reference receiver `method` borrows the target already.
+    if cell.callee == Callee::Borrowing && cell.recv != Receiver::Owned {
+        return Verdict::NonCanonical;
+    }
     // Nor has an inherent method a mismatch or a default body: its `Self`
     // argument is the enum, handed over as it is (inherent-methods.md), so
     // `&Self` is spelled once, with no mismatch, and a provided method is a
@@ -518,14 +524,23 @@ fn unpredicted(cell: &Cell) -> Option<&'static str> {
     }
     // A return for the subject's own lifetime names `'a`, which only a
     // subject over `&'a P0` declares, and only an inherent method can
-    // spell; the model writes it for a place read through such variants.
+    // spell; the model writes it for a place read through such variants,
+    // and for a payload's method that borrows its receiver, called on the
+    // first variant's `&'a P0` beside any second variant, which answers
+    // for `'a` where the arm's binding is a reference (`rejections`).
     if cell.ret == Return::Lent {
         let inherent = cell.path_descriptor().site == PathSite::Inherent;
-        let place = matches!(cell.callee, Callee::Value | Callee::Field);
-        let lent = cell
-            .live_slots()
-            .iter()
-            .all(|(_, target, _)| *target == Target::DerefShared);
+        let place = matches!(
+            cell.callee,
+            Callee::Value | Callee::Field | Callee::Borrowing
+        );
+        let lent = match cell.callee {
+            Callee::Borrowing => cell.s0 == Target::DerefShared,
+            Callee::Method | Callee::Renamed | Callee::Value | Callee::Field => cell
+                .live_slots()
+                .iter()
+                .all(|(_, target, _)| *target == Target::DerefShared),
+        };
         let plain = cell.lift == Lift::Bare
             && cell.arg == Argument::Absent
             && cell.cfg == Cfg::Absent
@@ -988,7 +1003,7 @@ fn unpredicted_callee(cell: &Cell) -> Option<&'static str> {
         return Some("an inherent body for a return type that needs a payload to make");
     }
     match cell.callee {
-        Callee::Method | Callee::Renamed => {
+        Callee::Method | Callee::Renamed | Callee::Borrowing => {
             if let Lifted::Unpredicted(reason) = lifted(cell) {
                 return Some(reason);
             }
@@ -1396,9 +1411,15 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // A place the return type borrows moves nothing, under `self` by value
     // as under `self: Box<Self>`: the arm hands over the reference the
     // variant holds.
+    //
+    // An inherent method forwarded by name calls the payload's own method,
+    // which borrows or moves its target as its own receiver says: the arm is
+    // the hand's, `(*inner).m(x)`, and rustc's to judge (`rejections`), so
+    // only a trait's method, whose target the signature takes by value, and
+    // a place moved out are the sentence (limits.md).
     let moved_place = place && !node.borrows();
     let moves = match cell.recv {
-        Receiver::Owned => !place || moved_place,
+        Receiver::Owned => (!place && !cell.inherent_call()) || moved_place,
         Receiver::Boxed => moved_place,
         Receiver::Shared
         | Receiver::Exclusive
@@ -1845,7 +1866,10 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
     }
     // A lift over a call that does not take what the call answers is a
     // type error the hand's call of the same function gets as well.
-    let called = matches!(cell.callee, Callee::Method | Callee::Renamed);
+    let called = matches!(
+        cell.callee,
+        Callee::Method | Callee::Renamed | Callee::Borrowing
+    );
     if let Lifted::Refused(code, reason) = lifted(cell) {
         if called && forwarded && !live.is_empty() {
             reject(code, reason, Forwarded::Method);
@@ -1875,6 +1899,44 @@ fn rejections(cell: &Cell) -> Vec<Rejection> {
         reject(
             "future cannot be sent between threads safely",
             "a converted boxed future, `+ Send`, holding an enum with a variant over an `Rc`",
+            Forwarded::Method,
+        );
+    }
+    // An inherent call by name is written as the hand writes it, `(*inner).
+    // m(x)`, under `self` by value as under any receiver (limits.md): a
+    // payload's method that takes `self` moves its target out from behind
+    // a pointer that does not own it, rustc's E0507 for the hand's arm as
+    // well. A variant whose arm is a sentence rewrapping `Self` calls
+    // nothing. Borrow checking runs only over a method that type-checks,
+    // so the error comes after every other.
+    let rewrapped = cell.lift != Lift::Into
+        && arm_node(cell).holds_this()
+        && arm_node(cell).conversion().is_some();
+    let consumed = cell.recv == Receiver::Owned
+        && cell.inherent_call()
+        && cell.callee != Callee::Borrowing
+        && !rewrapped;
+    if consumed
+        && forwarded
+        && any(&|target| target.pointer().is_some_and(|pointer| !pointer.owns()))
+    {
+        reject(
+            "E0507",
+            "a payload's method taking `self` called on a target behind a pointer that does not own it",
+            Forwarded::Method,
+        );
+    }
+    // A payload's method that borrows its receiver answers for the borrow
+    // of the target, which is `'a` where the arm binds the `&'a P0` the
+    // variant holds, or a reborrow through `&'a mut P0`; a binding that
+    // owns its target, a payload, a wrapper or a pointer that owns or
+    // counts, is dropped at the end of the arm, so a borrow of it returned
+    // for `'a` is rustc's E0515 for the hand's arm as well.
+    let lent = cell.callee == Callee::Borrowing && arm_node(cell) == Node::Lent;
+    if lent && forwarded && any(&|target| !target.borrows()) {
+        reject(
+            "E0515",
+            "a borrow of a target the arm owns and drops, returned for the subject's lifetime",
             Forwarded::Method,
         );
     }

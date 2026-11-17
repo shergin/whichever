@@ -76,7 +76,16 @@ trait and the payloads.
 
 The `callee` and `lift` axes are an inherent method's: whether the arm
 calls the payload's method, of the same name or another, or reads the
-target or a field of it, and what `with` wraps the result in. An inherent
+target or a field of it, and what `with` wraps the result in. Under
+`borrowing` the payload's method of the same name takes `&self` where the
+inherent method takes `self` by value, the one receiver under which it
+differs from `method`, so the arm, `(*inner).m(x)`, borrows the target
+behind whatever pointer holds it; its answer for the subject's own
+lifetime, `lent`, is the place the payload's own call answers, over a first
+variant holding `&'a P0`, and a borrow of a target the arm owns and drops
+is rustc's E0515 for the hand as well. Under `method` a payload's method
+that takes `self` moves its target out from behind a pointer that does not
+own it, rustc's E0507 for the hand's arm too. An inherent
 method's `Self` argument is the enum, handed over as it is, which the
 payload's method takes as any implementor of the trait and whose control
 method its answer reads, so the law calls it with the argument holding the

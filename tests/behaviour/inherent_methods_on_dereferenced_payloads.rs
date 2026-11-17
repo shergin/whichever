@@ -311,3 +311,147 @@ mod a_shared_borrow_under_a_mutable_receiver {
         assert_eq!(owned.name().0, "owned");
     }
 }
+
+/// Under `self` by value a method forwarded by name is the hand's arm,
+/// `(*inner).base()`: the payload's method decides whether it borrows or
+/// moves its receiver, and one taking `&self` borrows what a reference or
+/// an `Rc` points at. cameleon-genapi's `node_base_precise` is the shape.
+mod a_call_by_name_under_self_by_value {
+    use std::rc::Rc;
+
+    #[derive(Debug, PartialEq)]
+    pub struct Base(pub u32);
+
+    pub struct Int {
+        base: Base,
+        id: u32,
+    }
+
+    impl Int {
+        pub fn base(&self) -> &Base {
+            &self.base
+        }
+        pub fn id(&self) -> u32 {
+            self.id
+        }
+        pub fn into_base(self) -> Base {
+            self.base
+        }
+    }
+
+    pub struct Float {
+        base: Base,
+        id: u32,
+    }
+
+    impl Float {
+        pub fn base(&self) -> &Base {
+            &self.base
+        }
+        pub fn id(&self) -> u32 {
+            self.id
+        }
+    }
+
+    #[whichever::dispatch]
+    #[derive(Clone, Copy)]
+    pub enum Node<'a> {
+        #[dispatch(deref)]
+        Int(&'a Int),
+        #[dispatch(deref)]
+        Float(&'a Float),
+    }
+
+    #[whichever::dispatch]
+    impl<'a> Node<'a> {
+        #[dispatch(*)]
+        pub fn base(self) -> &'a Base;
+
+        #[dispatch(*, call = base)]
+        pub fn base_precise(self) -> &'a Base;
+
+        #[dispatch(Int)]
+        pub fn id(self) -> u32 {
+            0
+        }
+    }
+
+    #[test]
+    fn a_reference_payload_lends_what_it_points_at() {
+        let int = Int {
+            base: Base(1),
+            id: 10,
+        };
+        let float = Float {
+            base: Base(2),
+            id: 20,
+        };
+        let nodes = [Node::Int(&int), Node::Float(&float)];
+        let bases: Vec<&Base> = nodes.iter().map(|node| node.base()).collect();
+        assert!(std::ptr::eq(bases[0], &int.base));
+        assert!(std::ptr::eq(bases[1], &float.base));
+        assert_eq!(nodes[1].base_precise(), &Base(2));
+        assert_eq!(nodes[0].id(), 10);
+        assert_eq!(nodes[1].id(), 0);
+    }
+
+    // An `Rc` is moved into the `match` and dropped after the arm, so the
+    // payload's `&self` method returns something owned.
+    #[whichever::dispatch]
+    pub enum Shared {
+        #[dispatch(deref)]
+        Int(Rc<Int>),
+        #[dispatch(deref)]
+        Float(Rc<Float>),
+    }
+
+    #[whichever::dispatch]
+    impl Shared {
+        #[dispatch(*)]
+        pub fn id(self) -> u32;
+    }
+
+    #[test]
+    fn an_rc_payload_answers_an_owned_value() {
+        let int = Rc::new(Int {
+            base: Base(1),
+            id: 10,
+        });
+        let shared = Shared::Int(Rc::clone(&int));
+        assert_eq!(shared.id(), 10);
+        assert_eq!(Rc::strong_count(&int), 1);
+        let float = Shared::Float(Rc::new(Float {
+            base: Base(2),
+            id: 20,
+        }));
+        assert_eq!(float.id(), 20);
+    }
+
+    // A `Box` moves its target out, so a method that consumes it is called.
+    #[whichever::dispatch]
+    pub enum Owned {
+        #[dispatch(deref)]
+        Boxed(Box<Int>),
+        Plain(Int),
+    }
+
+    #[whichever::dispatch]
+    impl Owned {
+        #[dispatch(*)]
+        pub fn into_base(self) -> Base;
+    }
+
+    #[test]
+    fn a_box_payload_is_consumed() {
+        let boxed = Owned::Boxed(Box::new(Int {
+            base: Base(3),
+            id: 30,
+        }));
+        assert_eq!(boxed.into_base(), Base(3));
+        let plain = Owned::Plain(Int {
+            base: Base(4),
+            id: 40,
+        });
+        assert_eq!(plain.into_base(), Base(4));
+    }
+}

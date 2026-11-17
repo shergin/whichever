@@ -312,6 +312,12 @@ axis! {
         Value = "value",
         /// A field of the target, `field = state`.
         Field = "field",
+        /// The payload's own method of the same name, taking `&self` where
+        /// the method takes `self` by value, so that the arm borrows the
+        /// target whatever holds it (the cameleon-genapi survey: a `Copy`
+        /// enum over `&'a T` forwarding `fn base(self) -> &'a Base` to
+        /// `T::base(&self)`).
+        Borrowing = "borrowing",
     }
 }
 

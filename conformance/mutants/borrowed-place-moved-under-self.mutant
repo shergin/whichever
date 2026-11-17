@@ -4,6 +4,6 @@ expect: killed
 witness: s0=deref-ref s1=none recv=value ret=lent path=inherent callee=value
 
 find:
-            ReceiverKind::Value(Access::Owned) if moves_the_place => Some(Taken::SelfByValue),
+            ArmKind::Place { borrow, .. } => !matches!(borrow, PlaceBorrow::Reference(_)),
 replace:
-            ReceiverKind::Value(Access::Owned) => Some(Taken::SelfByValue),
+            ArmKind::Place { .. } => true,

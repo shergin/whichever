@@ -137,20 +137,22 @@ fn write_payload(writer: &mut Writer, context: &Context, index: usize) {
     writer.close("}");
     writer.blank();
     let callee = context.cell.callee;
-    let calls = matches!(callee, Callee::Method | Callee::Renamed);
+    let calls = matches!(callee, Callee::Method | Callee::Renamed | Callee::Borrowing);
     if context.inherent() && calls {
+        let own = context.payload_side();
         writer.line("/// The method the subject's inherent method forwards to.");
         writer.open(format!(
             "pub {} {{",
-            context.signature_with(Site::Payload, context.node, context.callee_name())
+            own.signature_with(Site::Payload, own.node, own.callee_name())
         ));
-        answer_body(writer, context, index, "x");
+        answer_body(writer, &own, index, "x");
         writer.close("}");
     }
     // A poison returning for the subject's lifetime could not name it in
     // the payload; nothing calls it there, since only a place answers so.
     let lent = matches!(context.node, Node::Lent);
-    if (!context.inherent() || callee != Callee::Method) && !lent {
+    let own_name = matches!(callee, Callee::Method | Callee::Borrowing);
+    if (!context.inherent() || !own_name) && !lent {
         writer.blank();
         writer.line("/// Answers what no forwarding may: an arm that calls it instead of the");
         writer.line("/// method meant shows in the law.");

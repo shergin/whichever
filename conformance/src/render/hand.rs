@@ -40,7 +40,7 @@ impl Method {
     fn callee_name(&self) -> &'static str {
         match self.callee {
             Callee::Renamed => "answer",
-            Callee::Method | Callee::Value | Callee::Field => "m",
+            Callee::Method | Callee::Value | Callee::Field | Callee::Borrowing => "m",
         }
     }
 
@@ -925,10 +925,10 @@ fn inherent_value(
             Place::Binding(_, _) | Place::Field(_, _) | Place::Call(_, _) => own.text(),
         },
         Callee::Field => field.text(),
-        Callee::Method | Callee::Renamed => String::new(),
+        Callee::Method | Callee::Renamed | Callee::Borrowing => String::new(),
     };
     let value = match method.callee {
-        Callee::Method | Callee::Renamed => {
+        Callee::Method | Callee::Renamed | Callee::Borrowing => {
             // A receiver that is a pinned reference or the box is built as
             // the trait's forwarding hands it over; any other is the target
             // the call autorefs.
@@ -975,7 +975,7 @@ fn inherent_value(
         Callee::Field => read(&field),
     };
     let handed = match method.callee {
-        Callee::Method | Callee::Renamed => value.clone(),
+        Callee::Method | Callee::Renamed | Callee::Borrowing => value.clone(),
         Callee::Value | Callee::Field => standing,
     };
     match method.lift {
