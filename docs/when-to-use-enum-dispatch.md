@@ -84,9 +84,10 @@ per element, because the enum allocates nothing.
 Both kinds of dispatch depend on the branch predictor, and the matrix in
 `RESULTS.md` is laid out to show how much. In a uniform collection every
 element takes the same branch and a vtable call costs 0.94 to 0.96 ns at
-any variant count. In a cyclic one, the predictor learns the period and the
-`match` keeps up with the uniform case while the vtable call does not (1.81
-to 2.58 ns).
+any variant count. In a cyclic one, the predictor learns the period: up to 8
+variants the `match` keeps up with the uniform case, and at 16 and 32,
+where it is a jump table, it costs 1.52 to 1.56 ns, while the vtable call
+does not keep up at any count (1.81 to 2.58 ns).
 In a random one both pay, and the gap between them is what the previous two
 sections describe; from 16 variants, where the `match` is a jump table, they
 pay the same. Random means random to the predictor: a loop that replays the

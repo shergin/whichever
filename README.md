@@ -174,9 +174,10 @@ From the last run, on an Apple M1 Pro
 - Where the payload's place matters, the gap is wide: 1.7 ns against
   5.5 ns per element over 4 Mi scattered elements, and a collection is
   built 13x faster without a box per element.
-- A generated impl without `#[inline]` (`enum_delegate`, `delegation`)
-  pays an extra out-of-line call across the crate boundary, up to 5x
-  depending on the method, the variant count and the layout.
+- A generated impl without `#[inline]` pays an extra out-of-line call
+  across the crate boundary: up to 3x for `enum_delegate`, and more than
+  5x for `delegation`, which also walks a chain of `Either`s instead of a
+  `match`, depending on the method, the variant count and the layout.
 
 Whether an enum is the right choice for a given program is answered in
 [When enum dispatch pays](docs/when-to-use-enum-dispatch.md).
