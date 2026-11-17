@@ -29,9 +29,9 @@ New to `whichever`? Read these in order:
   to some variants, with a fallback for the rest.
   [partial-impl-blocks.md](partial-impl-blocks.md) lets you write some of
   a trait's methods by hand and forwards the rest.
-- **Is the trait or the enum another crate's?**
+- **Is the trait, the enum or the struct another crate's?**
   [restatements.md](restatements.md) covers traits from `std` and other
-  crates, and enums from other crates, each restated once.
+  crates, and enums and structs from other crates, each restated once.
 - **Is the enum behind a public struct?**
   [structs.md](structs.md) forwards a trait from a struct to one field.
 - **What can it not do?**

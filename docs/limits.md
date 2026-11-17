@@ -335,10 +335,11 @@ The `#[cfg]` rules for the other items a block cannot read are under
 - **`with` takes the path of a function, not a closure.** `with` calls
   that function on each arm's result. Write a helper function instead,
   generic over the result when the payloads' results differ.
-- **Another crate's enum gets no inherent block.** The language allows
-  an inherent impl only in the type's own crate, so a
-  [restated](restatements.md#enums-from-other-crates) enum cannot have
-  one. Forward through a trait of your crate, or write free functions.
+- **Another crate's enum or struct gets no inherent block.** The language
+  allows an inherent impl only in the type's own crate, so a
+  [restated](restatements.md#enums-from-other-crates) enum or
+  [struct](restatements.md#structs-from-other-crates) cannot have one.
+  Forward through a trait of your crate, or write free functions.
 
 The other limits of [inherent methods](inherent-methods.md) sit with the
 topic they touch:
@@ -443,7 +444,14 @@ once, whatever attributes it has. See [options.md](options.md).
 - **A restated enum takes no conversion options**, not even
   `from = false`. `From`, `TryFrom` and `into` would implement a foreign
   trait for another crate's type, which the orphan rules forbid, so it
-  gets no conversions at all. Leave the options off.
+  gets no conversions at all. Leave the options off. A restated struct
+  gets the error any struct gets for them.
+- **`remote` goes on the enum's or the struct's own attribute.** It
+  restates the type, and a partial impl block's attribute takes the
+  trait's options only, so `remote` there is an error.
+- **A restated struct's pattern ends in `..`**, so a field the
+  restatement leaves out is not caught. `-> Self` built around a struct
+  that has such fields fails against the real struct.
 
 ## `#[cfg]`
 

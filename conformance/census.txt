@@ -498,6 +498,14 @@ suite restated-enums
   never 40 unmodelled: a block body for a return type that needs a payload to make
   never 100 unmodelled: an associated type over a restated enum, which its parameters would have to agree on
 
+suite restated-structs
+  pass 87
+  limit 81
+  rejected 0
+  malformed 0
+  never 108 non-canonical
+  never 12 unmodelled: a block body for a return type that needs a payload to make
+
 suite restated-enum-items
   pass 36
   limit 60
@@ -624,31 +632,31 @@ suite pinned
   malformed 0
 
 suite array
-  pass 10171
+  pass 10149
   limit 0
   rejected 0
   malformed 0
-  rows 10171
-  covered 103360
-  unreached 96446
+  rows 10149
+  covered 103285
+  unreached 96521
 
 suite array-limits
   pass 0
-  limit 643
+  limit 638
   rejected 0
   malformed 0
-  rows 643
-  covered 13037
-  unreached 4520
+  rows 638
+  covered 13036
+  unreached 4521
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 1017
+  rejected 1021
   malformed 0
-  rows 1017
-  covered 12193
-  unreached 5364
+  rows 1021
+  covered 12243
+  unreached 5314
 
 suite known
   pass 0

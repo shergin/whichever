@@ -220,7 +220,9 @@ pub fn dispatchable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// `#[dispatch(remote = path)]`, as an attribute of its own, makes the
 /// enum a restatement of another crate's enum at `path`. The impls are
-/// written for the real enum, with no conversions.
+/// written for the real enum, with no conversions. A struct is restated
+/// the same way; it lists only the fields its impls forward to, and the
+/// pattern ends in `..`.
 ///
 /// ## On a struct
 ///

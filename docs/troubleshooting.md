@@ -66,7 +66,7 @@ one.
 **The fix.** Use the restatement that ships in `whichever::foreign`, such
 as `#[whichever::dispatch(whichever::foreign::Display)]`, or restate the
 trait yourself with `remote`. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ### "cannot find `Trait` in `other`"
 
@@ -590,7 +590,7 @@ is, while the enum's module still needs them.
 **The fix.** Write the signature types in full in the restatement, such
 as `core::fmt::Formatter<'_>`, as `whichever::foreign` does. Or import
 them where the enum is, not where the restatement is. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ## In `Cargo.toml`
 

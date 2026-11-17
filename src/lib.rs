@@ -1303,6 +1303,10 @@
 //!   rules and the language refuse both for a type from another crate.
 //! - For a partial impl block, import the real enum under the restatement's
 //!   name and write the block on it.
+//! - A struct from another crate is restated the same way, with `remote` on
+//!   its attribute. The restatement lists only the fields its impls forward
+//!   to: the real struct may have more, and the impl's pattern ends in `..`.
+//!   It gets no inherent impl either, and no conversions, as no struct does.
 //!
 //! ## Forwarding from a struct field
 //!
@@ -1410,7 +1414,7 @@
 //! | [`via = route`](#reaching-the-target-pointers-fields-and-methods) | on a variant, or on the marked field | Calls the trait on a field of the payload, or on what a method returns. |
 //! | [`#[dispatch]`](#where-you-write-a-route) | on one field of a variant | Picks the field to forward to, in a variant with several fields or a named one. |
 //! | [`#[dispatch(Trait)]`](#forwarding-from-a-struct-field) | on a struct's field | Makes the field the target of that trait. |
-//! | [`#[dispatch(remote = path)]`](#enums-from-other-crates) | on an enum, as an attribute of its own | Restates an enum another crate defines. |
+//! | [`#[dispatch(remote = path)]`](#enums-from-other-crates) | on an enum or a struct, as an attribute of its own | Restates an enum or a struct another crate defines. |
 //!
 //! Four options go on a variant: `from = false`, `try_from = true`, `deref`
 //! and `via = route`.

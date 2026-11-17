@@ -107,9 +107,9 @@ generated][what-is-generated].
 A copy of the signatures of a trait that another crate owns, marked
 `remote`, so that it has a carrier macro: `#[whichever::dispatchable(remote
 = std::io::Write)]` on a trait that lists the methods to forward. An
-enum another crate defines can be restated the same way.
+enum or a struct another crate defines can be restated the same way.
 `whichever::foreign` ships restatements of common `std` traits. See
-[Traits and enums from other crates][restatements].
+[Traits, enums and structs from other crates][restatements].
 
 ## Partial impl block
 

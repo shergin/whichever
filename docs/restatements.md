@@ -1,4 +1,4 @@
-# Traits and enums from other crates
+# Traits, enums and structs from other crates
 
 Often the trait you want on your enum is not yours. It is `Display`,
 `Error`, `Iterator`, `Read` or `Write`, and it lives in `std`.
@@ -310,3 +310,50 @@ What you get:
 - **For a partial impl block, import the real enum under the
   restatement's name** and write the block on it, as the `use
   either::Either;` and the `Named` block above do.
+
+## Structs from other crates
+
+A struct another crate defines is restated the same way: put `remote` on
+the struct's attribute, naming the real struct, and list the fields the
+impls forward to. The fields are forwarded as a
+[dispatch struct](structs.md)'s are: the one field, the field marked
+`#[dispatch]`, or a field that lists the trait.
+
+```rust
+use other::Pair;
+
+// `other::Pair` also has a `note: &'static str` that the impls do not need.
+#[whichever::dispatch(remote = other::Pair)]
+#[whichever::dispatch(Area)]
+#[whichever::dispatch(Tag)]
+pub struct Pair {
+    #[dispatch]
+    left: Square,
+    #[dispatch(Tag)]
+    right: u8,
+}
+```
+
+What you get:
+
+- **The impls are written for the real struct**, as for an enum, and
+  nothing else is emitted for the restatement but its carrier macro.
+- **The restatement lists only the fields it forwards to.** The real
+  struct may have more: the pattern ends in `..`, as yours would over a
+  struct you do not own, `other::Pair { left: inner, .. }`. That is the
+  difference from an enum, whose `match` has to name every variant.
+- **A misspelt field, or a field of another type, fails to compile**
+  against the real struct. A field you leave out is not caught.
+- **`-> Self` is built around the real struct**, so it fails to compile
+  when the real struct has fields that the restatement leaves out.
+- **No inherent impl and no conversions**, as for an enum. The language
+  refuses an inherent impl of another crate's type, and no struct gets
+  conversions.
+- **For a partial impl block, import the real struct under the
+  restatement's name**, as for an enum.
+
+### The fine print
+
+`remote` restates the type, so it goes on the enum's or the struct's own
+attribute. On a partial impl block's attribute it is an error: a block's
+attribute takes the trait's options only.

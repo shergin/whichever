@@ -4,12 +4,6 @@ expect: killed
 witness: s0=struct s1=none
 
 find:
-            PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
-            PayloadField::OnlyNamed(name) => {
-                quote_spanned!(*site => #holder { #name: #binding })
-            }
+        let open = self.place.open.then(|| quote_spanned!(*site => , ..));
 replace:
-            PayloadField::Only => quote_spanned!(*site => #holder(#binding, ..)),
-            PayloadField::OnlyNamed(name) => {
-                quote_spanned!(*site => #holder { #name: #binding, .. })
-            }
+        let open = Some(quote_spanned!(*site => , ..));

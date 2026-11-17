@@ -85,10 +85,10 @@ pub(crate) fn expand_subject(
             home.options.absorb(stray);
         }
     }
-    // A restatement of another crate's enum: nothing is emitted for it but
-    // its carrier and the impls, written for the real path, and it gets no
-    // conversions, which would implement a foreign trait for a foreign
-    // type.
+    // A restatement of another crate's enum or struct: nothing is emitted
+    // for it but its carrier and the impls, written for the real path, and
+    // an enum gets no conversions, which would implement a foreign trait
+    // for a foreign type.
     let mut remotes = attributes
         .iter()
         .filter_map(|attribute| attribute.subject.remote.as_ref());
@@ -96,8 +96,13 @@ pub(crate) fn expand_subject(
     if let Some((second, _)) = remotes.next() {
         errors.push(Error::new(second.span(), "`remote` is given twice"));
     }
+    // A struct gets no conversions wherever it is declared, and says so in
+    // its own words below.
+    let restated_enum = remote.is_some() && captured.has_conversions();
     if remote.is_some() {
         emitted = None;
+    }
+    if restated_enum {
         let conversion = attributes.iter().find_map(|attribute| {
             let options = &attribute.subject;
             options
@@ -114,7 +119,7 @@ pub(crate) fn expand_subject(
             ));
         }
     }
-    let conversions = if remote.is_some() {
+    let conversions = if restated_enum {
         TokenStream2::new()
     } else {
         conversions(&captured, &entries, &attributes, &mut errors)
@@ -238,7 +243,7 @@ fn conversions(
     if !subject.has_conversions() {
         if let Some(span) = attributes
             .iter()
-            .find_map(|attribute| attribute.subject.first_span())
+            .find_map(|attribute| attribute.subject.conversions_span())
         {
             errors.push(Error::new(
                 span,

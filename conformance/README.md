@@ -263,14 +263,19 @@ enum's attribute and a block silent about both.
 Under `unsafe` the trait is an `unsafe trait`, and every impl of it, the
 payloads', the hand's and a block's, is an `unsafe impl`.
 
-The `owner` axis says which crate declares the enum. Under `remote` the
-trait's crate shard declares `E` generic over what its variants hold, as
-another crate declares `either::Either`, and the subject's crate restates
-it with `#[whichever::dispatch(remote = path)]` beside the trait's
-attribute; the impl is written for the real path, with the bound `Tk:
-Probe` per payload parameter, the hand is the same generic enum with that
-bound, and the law takes both at the payloads, `type S = E<P0, P1>;`. A
-conversion option on a restated enum is its sentence.
+The `owner` axis says which crate declares the enum or the struct. Under
+`remote` the trait's crate shard declares `E` generic over what its
+variants or its field hold, as another crate declares `either::Either`,
+and the subject's crate restates it with `#[whichever::dispatch(remote =
+path)]` beside the trait's attribute; the impl is written for the real
+path, with the bound `Tk: Probe` per payload parameter, the hand is the
+same generic enum or struct with that bound, and the law takes both at the
+payloads, `type S = E<P0, P1>;`. A conversion option on a restated enum is
+its sentence, and on a restated struct the struct's. A restated struct
+lists the fields it forwards to and the real one may have more, so its
+pattern always ends in `..` (`docs/restatements.md`, "Structs from other
+crates"), and the hand's does too, naming its struct by a path, `self::E(inner,
+..)`, as the attribute names the real one.
 
 The `path` axis says how `m` reaches the subject: the trait named on the
 subject's attribute, a partial impl block (silent about `m`, `*`, naming

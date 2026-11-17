@@ -852,6 +852,17 @@ fn write_method(writer: &mut Writer, context: &Context, method: &Method) {
     writer.close("}");
 }
 
+/// Returns the path the hand names its subject by in an arm: `E`, or over
+/// a restated struct `self::E`, a path to a struct as the real struct's is,
+/// which the attribute names by its path in the other crate.
+fn hand_path(slot: &Slot) -> &'static str {
+    let is_struct = slot.target().is_some_and(|(_, target)| target.is_struct());
+    match slot.restated && is_struct {
+        true => "self::E",
+        false => "E",
+    }
+}
+
 fn arm(
     slot: &Slot,
     target: &TargetDescriptor,
@@ -868,7 +879,7 @@ fn arm(
         (true, Binding::Exclusive) => "ref mut inner",
         (true, Binding::Owned) | (false, _) => "inner",
     };
-    let mut pattern_text = pattern("E", slot, target, bound);
+    let mut pattern_text = pattern(hand_path(slot), slot, target, bound);
     // The `Self` argument: the enum handed over as it is, or the same
     // variant's target, matched beside `self`.
     let mut other_argument = None;
@@ -882,7 +893,10 @@ fn arm(
             true => other_argument = Some(String::from("other")),
             false => {
                 let other = Place::of("same", other_binding, target.route);
-                pattern_text = format!("({pattern_text}, {})", pattern("E", slot, target, "same"));
+                pattern_text = format!(
+                    "({pattern_text}, {})",
+                    pattern(hand_path(slot), slot, target, "same")
+                );
                 other_argument = Some(other.handed(other_handover));
             }
         }
@@ -938,7 +952,7 @@ fn arm(
     if awaited {
         call = format!("{call}.await");
     }
-    let variant = constructor("E", slot);
+    let variant = constructor(hand_path(slot), slot);
     format!(
         "{pattern_text} => {},",
         convert(conversion, &call, &variant)
@@ -1023,7 +1037,7 @@ fn inherent_value(
             match method.lift {
                 Lift::Into => format!("Into::into({call})"),
                 Lift::Bare | Lift::Some | Lift::Ok | Lift::ByRef | Lift::ByValue => {
-                    let variant = constructor("E", slot);
+                    let variant = constructor(hand_path(slot), slot);
                     convert(conversion, &call, &variant)
                 }
             }

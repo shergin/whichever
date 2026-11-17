@@ -185,3 +185,7 @@ first use of the trait then tells you that the impl is missing.
 - **A struct gets no `From` impls.**
 - **`Self` arguments need no `mismatch`.** Two values of the struct always
   hold the same field, and the argument is unwrapped to it.
+- **Another crate's struct is restated with `remote = path`**, as another
+  crate's enum is, and the restatement lists only the fields its impls
+  forward to. See
+  [Structs from other crates](restatements.md#structs-from-other-crates).

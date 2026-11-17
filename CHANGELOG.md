@@ -5,6 +5,31 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, `remote = path` on a struct's attribute restated another crate's
+  struct, as it restates an enum, and nothing said so; three sentences it
+  can reach called it an enum, and a restatement that left out a field of
+  the real struct compiled or not by how many fields it listed, with
+  rustc's "pattern requires `..` due to inaccessible fields" and a
+  suggestion that is not Rust when it listed one of two. A restated
+  struct now lists the fields its impls forward to, and its pattern always
+  ends in `..`, as a hand's does over a struct it does not own,
+  `other::Pair { left: __inner, .. }`; a field misspelt, or `-> Self`
+  around a struct with fields left out, still fails against the real
+  struct. The sentences speak of a struct: "`other::Solo` is another
+  crate's struct, which gets no inherent impl here", the struct's own
+  "`from`, `try_from` and `into` are options of an enum; a struct gets no
+  conversions" for a restated struct's conversions, and `remote` on a
+  block's attribute has a sentence of its own: "`remote` is an option of
+  the enum's or the struct's own `#[dispatch]` attribute, which restates
+  the type; a block's attribute takes the trait's options only", while
+  `from`, `try_from` and `into` there keep theirs without `remote`.
+  `docs/restatements.md`, under "Structs from other crates",
+  `docs/structs.md`, `docs/limits.md`, the README, the crate docs and
+  the docs of `#[dispatch]` say so. The
+  snapshot `partial_enum_option` changed; `restated_struct_inherent_block`,
+  `restated_struct_conversions` and `partial_block_remote_option` are new,
+  and so are the golden and the behaviour test `restated_struct` and a
+  cross-crate case in `smoke/enums`.
 - Before, an option of a trait's impl written on an enum's or a struct's
   attribute that names no trait, an override `Unit = u8` or `SIDES = 7`,
   `mismatch(same = false)` or `via(A = .0)`, was accepted and did nothing;

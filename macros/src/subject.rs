@@ -330,6 +330,21 @@ impl<'a> Entries<'a> {
         }
     }
 
+    /// Marks the entries as those of a restatement: a struct restated on
+    /// behalf of another crate lists the fields its impls forward to, and
+    /// the real struct may have more, which its patterns leave to `..`. An
+    /// enum's restatement lists every variant, as its `match` has to, and
+    /// each variant as it is.
+    pub(crate) fn restated(&mut self) {
+        for entry in &mut self.entries {
+            if let Holds::Payload { place, .. } = &mut entry.holds {
+                if matches!(place.holder, Holder::Struct) {
+                    place.open = true;
+                }
+            }
+        }
+    }
+
     /// Spells the payloads with the names `renaming` gives the subject's
     /// parameters: a partial block's header may name them as it likes,
     /// `impl<U> Trait for Kind<U>` over `enum Kind<T>`.
@@ -562,6 +577,11 @@ pub(crate) struct Place {
     pub(crate) holder: Holder,
     /// Where the payload sits in it.
     pub(crate) field: PayloadField,
+    /// Whether the holder may have fields the subject does not list: a
+    /// struct restated on behalf of another crate, which says what its
+    /// impls forward to and is no declaration. Its pattern ends in `..`,
+    /// as a hand's does over a struct it does not own.
+    pub(crate) open: bool,
 }
 
 /// What holds a payload.
@@ -669,18 +689,21 @@ impl<'a> Target<'a> {
         let holder = self.holder(prefix, site);
         // A rest pattern skips the fields after the payload's. The one
         // field of a variant or a struct, and an unnamed field that is the
-        // last, have none to skip, and a hand writes no `..` there.
+        // last, have none to skip, and a hand writes no `..` there; over a
+        // restated struct, which may have fields the restatement leaves
+        // out, it writes one.
+        let open = self.place.open.then(|| quote_spanned!(*site => , ..));
         match &self.place.field {
-            PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
+            PayloadField::Only => quote_spanned!(*site => #holder(#binding #open)),
             PayloadField::OnlyNamed(name) => {
-                quote_spanned!(*site => #holder { #name: #binding })
+                quote_spanned!(*site => #holder { #name: #binding #open })
             }
             PayloadField::Beside {
                 member: Member::Unnamed(index),
                 followed,
             } => {
                 let skipped = (0..index.index).map(|_| quote_spanned!(*site => _));
-                let rest = followed.then(|| quote_spanned!(*site => , ..));
+                let rest = (*followed || self.place.open).then(|| quote_spanned!(*site => , ..));
                 quote_spanned!(*site => #holder(#(#skipped,)* #binding #rest))
             }
             PayloadField::Beside { member, .. } => {
@@ -946,6 +969,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
             place: Place {
                 holder: Holder::Variant(Conversions { from, try_from }),
                 field: payload_field,
+                open: false,
             },
             ty: field.ty.clone(),
             route,
@@ -981,6 +1005,7 @@ fn field_entry(member: Member, field: &Field, options: &TargetOptions, count: us
             place: Place {
                 holder: Holder::Struct,
                 field: field_in_struct,
+                open: false,
             },
             ty: field.ty.clone(),
             route: options.route.clone().unwrap_or_default(),

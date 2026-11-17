@@ -36,6 +36,8 @@ the planning notes, the note holds the long form and the record names it.
 - [An arm reaches its target through a route](an-arm-reaches-its-target-through-a-route.md)
 - [A partial block's method names its variants](a-partial-blocks-method-names-its-variants.md)
 - [The subject can be restated](the-subject-can-be-restated.md)
+- [A restated struct lists the fields it forwards to](a-restated-struct-lists-the-fields-it-forwards-to.md),
+  completing the one above
 - [A boxed future is rewrapped by boxing](a-boxed-future-is-rewrapped-by-boxing.md)
 - [An enum that may be empty is matched by place](an-enum-that-may-be-empty-is-matched-by-place.md)
 - [The macro crate parses with `syn` 3](the-macro-crate-parses-with-syn-3.md)

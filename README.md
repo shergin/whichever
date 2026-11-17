@@ -81,7 +81,7 @@ about fifteen minutes.
   `Error`, `PartialEq`, `Iterator`, `DoubleEndedIterator`,
   `ExactSizeIterator`, `Read`, `Write`, `BufRead` and `Seek` ship in
   `whichever::foreign`. You restate any other trait once, and the same
-  goes for an enum another crate defines.
+  goes for an enum or a struct another crate defines.
 - **[Some methods written by hand](docs/partial-impl-blocks.md), the rest
   forwarded.** Constructors, methods without a receiver, a method the
   enum handles differently from every payload, or the arms of the few

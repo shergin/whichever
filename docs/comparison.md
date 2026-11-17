@@ -146,7 +146,7 @@ case is handled.
 | Inherent methods forwarded to some variants, with a fallback | yes | no | no | no | no | no | no | by hand |
 | Variants without a payload, left to the fallback | yes | no | - | - | - | - | - | - |
 | A struct forwarding to one field | yes | no | yes | yes | no | yes | no | yes |
-| An enum another crate defines | yes, restated with `remote` | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
+| An enum another crate defines | yes, restated with `remote`; a struct too | no | yes, restated | no | yes, restated | with `unsafe` | no | no |
 | `self: Pin<&mut Self>`, `self: Box<Self>` | yes | - | - | - | - | - | - | - |
 
 Probed on 2026-11-01 against the versions shown, with the trait in one

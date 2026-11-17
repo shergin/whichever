@@ -303,10 +303,16 @@ impl Parse for TraitOptions {
             options,
             subject,
         } = DispatchAttribute::parse_for(input, Reader::Block)?;
-        if let Some(span) = subject.first_span() {
+        if let Some(span) = subject.conversions_span() {
             return Err(Error::new(
                 span,
-                "`from`, `try_from`, `into` and `remote` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only",
+                "`from`, `try_from` and `into` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only",
+            ));
+        }
+        if let Some((key, _)) = &subject.remote {
+            return Err(Error::new(
+                key.span(),
+                "`remote` is an option of the enum's or the struct's own `#[dispatch]` attribute, which restates the type; a block's attribute takes the trait's options only",
             ));
         }
         if let Some(path) = path {
@@ -605,15 +611,14 @@ pub(crate) struct SubjectOptions {
 }
 
 impl SubjectOptions {
-    /// Returns where the first of them was written, for a message about
-    /// any of them.
-    pub(crate) fn first_span(&self) -> Option<Span> {
+    /// Returns where the first of the conversion options was written:
+    /// `from`, `try_from` or `into`, which are an enum's.
+    pub(crate) fn conversions_span(&self) -> Option<Span> {
         self.from
             .as_ref()
             .map(Switch::span)
             .or(self.try_from.as_ref().map(Switch::span))
             .or(self.into.first().map(|into| into.key.span()))
-            .or(self.remote.as_ref().map(|(key, _)| key.span()))
     }
 }
 
@@ -1543,7 +1548,11 @@ mod tests {
         );
         assert_eq!(
             block("from = false"),
-            "`from`, `try_from`, `into` and `remote` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only"
+            "`from`, `try_from` and `into` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only"
+        );
+        assert_eq!(
+            block("remote = other::Pair"),
+            "`remote` is an option of the enum's or the struct's own `#[dispatch]` attribute, which restates the type; a block's attribute takes the trait's options only"
         );
         assert!(
             DispatchAttribute::read(syn::parse_str("Value").unwrap(), Words::Struct).is_ok(),

@@ -1,0 +1,9 @@
+file: macros/src/subject.rs
+breaks: A restated struct's pattern always ends in `..`, since the restatement lists the fields it forwards to and the real struct may have more, as `docs/restatements.md` says.
+expect: killed
+witness: s0=struct s1=none owner=remote
+
+find:
+                    place.open = true;
+replace:
+                    place.open = false;

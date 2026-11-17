@@ -173,23 +173,28 @@ fn write_foreign_iterator_slot(writer: &mut Writer, context: &Context, slot: &Sl
 const BUILT: &str = "Built";
 
 /// Returns whether the subject is a generic tuple struct, whose constructor
-/// and pattern an alias cannot spell.
+/// and pattern an alias cannot spell: generic over its payload, or a
+/// restated struct, which is generic over what its field holds.
 fn generic_tuple_struct(context: &Context) -> bool {
     let tuple = context
         .slots
         .first()
         .and_then(Slot::target)
         .is_some_and(|(_, target)| matches!(target.form, Form::Struct | Form::StructMarkedLast));
-    tuple && context.generics.parameter.is_some()
+    let restated = context.cell.owner == crate::model::Owner::Remote;
+    tuple && (context.generics.parameter.is_some() || restated)
 }
 
 /// Returns the path the law builds the subject by and takes it apart by:
 /// `S`, or, for a generic tuple struct, the subject's own path with its
 /// argument, `Built::<P0>`.
 fn value_path(context: &Context) -> String {
-    match (generic_tuple_struct(context), context.generics.parameter) {
-        (true, Some(parameter)) => format!("{BUILT}::<{}>", parameter.instance),
-        (true, None) | (false, _) => String::from("S"),
+    if !generic_tuple_struct(context) {
+        return String::from("S");
+    }
+    match context.generics.parameter {
+        Some(parameter) => format!("{BUILT}::<{}>", parameter.instance),
+        None => format!("{BUILT}::<{}>", context.slots[0].payload()),
     }
 }
 

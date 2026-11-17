@@ -144,7 +144,7 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         let spelled = spelling::spelled(remote);
         return Err(Error::new_spanned(
             &item_impl.self_ty,
-            format!("`{spelled}` is another crate's enum, which gets no inherent impl here; forward through a trait of this crate, or write free functions"),
+            format!("`{spelled}` is another crate's {}, which gets no inherent impl here; forward through a trait of this crate, or write free functions", subject.words().subject()),
         ));
     }
     let variants = if rejected {

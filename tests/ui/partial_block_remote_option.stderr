@@ -1,0 +1,5 @@
+error: `remote` is an option of the enum's or the struct's own `#[dispatch]` attribute, which restates the type; a block's attribute takes the trait's options only
+  --> tests/ui/partial_block_remote_option.rs:19:23
+   |
+19 | #[whichever::dispatch(remote = Solo)]
+   |                       ^^^^^^

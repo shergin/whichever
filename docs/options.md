@@ -33,7 +33,7 @@ and is not read either.
 | [`deref`](#options-on-a-variant) | on a variant, or on the marked field | Calls the trait on what the payload dereferences to. |
 | [`via = route`](#options-on-a-variant) | on a variant, or on the marked field | Calls the trait on a field of the payload, or on what a method returns. |
 | [`#[dispatch]`](#the-marked-field) | on one field of a variant | Picks the field to forward to, in a variant with several fields or a named one. |
-| [`remote = path`](restatements.md#enums-from-other-crates) | on the enum | Restates an enum another crate defines, so you can dispatch traits on it. |
+| [`remote = path`](restatements.md#enums-from-other-crates) | on the enum or the struct | Restates an enum or a struct another crate defines, so you can dispatch traits on it. |
 | [`#[dispatch(Trait)]`](structs.md#several-traits-several-fields) | on a field of a struct | Makes the field the target of `Trait`. |
 
 ## `Name = Type`: override an associated type

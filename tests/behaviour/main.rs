@@ -62,6 +62,7 @@ mod qualified_self_returns;
 mod rebuilt_named_field_variants;
 mod recursive_payloads_and_conversions;
 mod restated_enum;
+mod restated_struct;
 mod routes;
 mod same_named_traits_emitted_by_one_macro;
 mod same_named_traits_in_one_crate;

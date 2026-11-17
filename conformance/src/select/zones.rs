@@ -685,6 +685,18 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("owner", "remote")],
     },
     Zone {
+        name: "restated-structs",
+        summary: "a struct of another crate restated beside the subject, its one field or a marked one, whose pattern ends in `..`, through the enum's attribute and the blocks, with the receivers, the returns that rebuild it and a conversion option it refuses",
+        vary: &[
+            ("s0", &["struct", "struct-named", "struct-marked", "struct-marked-last"]),
+            ("path", &["attribute", "block", "block-star", "block-written"]),
+            ("recv", &["ref", "mut", "value"]),
+            ("ret", &["u64", "self", "option-self"]),
+            ("conv", &["none", "from-off"]),
+        ],
+        fixed: &[("owner", "remote"), ("s1", "none")],
+    },
+    Zone {
         name: "restated-enum-items",
         summary: "a restated enum with the receivers, the `Self` arguments, the conversion options it refuses, the associated items and a second trait",
         vary: &[

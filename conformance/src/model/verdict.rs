@@ -530,10 +530,20 @@ fn owned(cell: &Cell) -> Option<Verdict> {
     if cell.owner == Owner::Local {
         return None;
     }
-    if cell.s0.descriptor().is_struct() {
-        return Some(Verdict::NonCanonical);
-    }
-    let first = matches!(cell.s0, Target::Plain | Target::DerefBox);
+    // "A struct another crate defines is restated the same way [..]. The
+    // fields are forwarded as a dispatch struct's are: the one field, the
+    // field marked `#[dispatch]`, or a field that lists the trait"
+    // (restatements.md); the field that lists the trait is the plain
+    // struct's alone (`field_trait`).
+    let first = matches!(
+        cell.s0,
+        Target::Plain
+            | Target::DerefBox
+            | Target::Struct
+            | Target::StructNamed
+            | Target::StructMarked
+            | Target::StructMarkedLast
+    );
     let second = matches!(
         cell.s1,
         Second::Plain | Second::Absent | Second::DerefBox | Second::Unit
@@ -1703,8 +1713,10 @@ fn limits(cell: &Cell) -> Vec<Expected> {
     // A restated enum gets "No conversions and no inherent impl. The orphan
     // rules and the language refuse both for a type from another crate"
     // (restatements.md), and an option asking for one, or for none, is its
-    // sentence (`restated_enum_conversions`).
-    if cell.owner == Owner::Remote && conversion.option.is_some() {
+    // sentence (`restated_enum_conversions`). A restated struct gets "No
+    // inherent impl and no conversions, as for an enum. [..] no struct gets
+    // conversions" (restatements.md), the struct's sentence alone.
+    if cell.owner == Owner::Remote && conversion.option.is_some() && !one_arm {
         expect(Limit::RestatedConversions, Anchor::Attribute);
     }
     // A variant whose payload is the enum's type parameter: "`I` is a type

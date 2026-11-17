@@ -2,7 +2,10 @@
 
 Status: accepted, 2026-11-05. Serves rules 1 and 2 of the
 [vision](../vision.md), the output is the hand's and nothing between
-expansions, and rewords one bullet of its "What it will not be". Reopen if
+expansions, and rewords one bullet of its "What it will not be". Completed on
+2026-11-17 by
+[A restated struct lists the fields it forwards to](a-restated-struct-lists-the-fields-it-forwards-to.md).
+Reopen if
 a surveyed project needs conversions on a restated enum into a local type,
 `into = Local`, which the orphan rules allow and this record leaves out.
 

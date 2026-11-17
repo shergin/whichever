@@ -441,7 +441,7 @@ variant opts out of `From`, so a plain string does not turn into a
 
 For any other trait, copy its signatures once into a trait marked
 `#[whichever::dispatchable(remote = path::to::Trait)]`: a
-**restatement**. [Traits and enums from other crates][restatements]
+**restatement**. [Traits, enums and structs from other crates][restatements]
 shows how, and lists what `whichever::foreign` holds.
 
 ## 11. Wrap the enum in a struct

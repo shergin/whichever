@@ -142,6 +142,11 @@ pub struct Slot {
     pub parameter: Option<&'static str>,
     /// Whether the variant is `#[deprecated]`.
     pub deprecated: bool,
+    /// Whether the subject restates another crate's type, whose pattern
+    /// over a struct ends in `..`: "The restatement lists only the fields
+    /// it forwards to. The real struct may have more: the pattern ends in
+    /// `..`" (restatements.md).
+    pub restated: bool,
 }
 
 impl Slot {
@@ -265,6 +270,7 @@ impl Cell {
                 (Owner::Local, false) => None,
             },
             deprecated: self.deprecated.slot() == Some(0),
+            restated: self.owner == Owner::Remote,
         }];
         for (index, later) in [(1, self.s1.slot()), (2, self.s2.slot())] {
             let variant = match later {
@@ -289,6 +295,7 @@ impl Cell {
                     }
                 },
                 deprecated: self.deprecated.slot() == Some(index),
+                restated: self.owner == Owner::Remote,
             });
         }
         slots

@@ -160,3 +160,12 @@ pub enum Either<L, R> {
     /// The right one.
     Right(R),
 }
+
+/// A struct with no attribute at all, which `smoke-enums` restates listing
+/// only the field its impl forwards to.
+pub struct Labelled<S> {
+    /// What is labelled.
+    pub shape: S,
+    /// The label, which the restatement leaves out.
+    pub label: &'static str,
+}
