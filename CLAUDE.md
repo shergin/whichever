@@ -101,7 +101,8 @@ any default.
   `python3 smoke/mixed/check.py`,
   `cargo bench -p whichever-benchmarks --no-run`,
   `python3 benchmarks/scripts/codegen.py`,
-  `python3 benchmarks/scripts/check_numbers.py`, and
+  `python3 benchmarks/scripts/check_numbers.py`,
+  `python3 scripts/check_links.py`, and
   `cargo run -p whichever-conformance --release -- run --shape`.
   The mutants are judged by their witnesses, the cells each mutant's file
   names: `.github/workflows/mutants.yml` runs them in four jobs on every
