@@ -227,7 +227,11 @@ block writes, or what the trait's default answers. Under `block-macro` the
 block, silent about `m`, also invokes a macro of the cell that writes
 nothing; the block is not read, so the invocation's sentence is all it
 reports and no impl is written, whatever the method, and only the variants
-depart from the neutral cell.
+depart from the neutral cell. Under `block-macro-on` the invocation is
+under `#[cfg(all())]`, which holds, and is the same sentence; under
+`block-macro-off` it is under `#[cfg(any())]`, so it is not in the block in
+this build, the block is read without it, and the cell is judged as
+`block`, its hand the hand's block in that build.
 
 Two more values of `path`, `block-arms` and `inherent-arms`, put `m` under
 `#[dispatch(*)]` with a body that is one `match self` holding the arms the

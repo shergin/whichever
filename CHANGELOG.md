@@ -129,7 +129,13 @@ changes are expected and listed without apology.
 - Before, a macro invocation in a partial impl block was dropped without a
   word, and the forwarding stood in place of the items it would have
   written. It is now one sentence on the invocation; write the items out
-  in the block. The `tests/ui` case `macro_in_a_partial_block` is new.
+  in the block. One under `#[cfg]` is reported only where the `cfg` holds:
+  where it does not, the invocation is not in the block, as it is not in a
+  hand's, and the block is read without it, so a method the macro would
+  have written is forwarded. The `tests/ui` cases
+  `macro_in_a_partial_block` and
+  `macro_in_a_partial_block_under_a_cfg_that_holds` are new, and the
+  behaviour test `conditional_methods_in_a_partial_block` is extended.
 - Before, a second `#[dispatch(..)]` after `#[dispatch(default)]` on a
   method of a partial impl block was ignored. It is now reported, "one
   `#[dispatch(..)]` per method", as a second mark in any other order

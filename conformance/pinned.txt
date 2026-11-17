@@ -390,3 +390,10 @@ s1=none path=inherent-some item=cfg-off
 s1=none path=inherent-some item=cfg-on
 s1=unit path=inherent item=cfg-off
 s1=unit path=inherent item=cfg-on
+
+# A macro invocation in a partial block under a `#[cfg]` that does not
+# hold was reported, and the impl withheld, in the build that compiles it
+# out (#20, the portgraph survey); under one that holds it is the sentence.
+path=block-macro-off
+s0=struct s1=none path=block-macro-off
+path=block-macro-on

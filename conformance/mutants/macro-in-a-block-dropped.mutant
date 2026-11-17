@@ -4,12 +4,7 @@ expect: killed
 witness: path=block-macro
 
 find:
-                ImplItem::Macro(invocation) => {
-                    return Err(Error::new_spanned(
-                        invocation,
-                        "a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block",
-                    ));
-                }
+                ImplItem::Macro(invocation) => return Err(unread_invocation(invocation)),
                 _ => None,
 replace:
                 _ => None,

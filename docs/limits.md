@@ -79,7 +79,9 @@
   builds.
 - A macro invocation in a partial impl block is not read, so the items it
   writes could not be told from the ones to forward. It is reported; write
-  the items out in the block.
+  the items out in the block. One under `#[cfg]` is reported where the
+  `cfg` holds; where it does not, the invocation is not in the block, which
+  is read without it and forwards as usual.
 - A lint attribute on the enum does not reach the impls written next to it,
   as it would not reach a hand-written one; `#[allow]` goes on the trait
   method, on a partial impl block, or on the module.

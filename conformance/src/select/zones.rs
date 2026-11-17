@@ -318,12 +318,13 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "block-invocations",
-        summary: "a macro invocation in a partial impl block, over a few subjects",
+        summary: "a macro invocation in a partial impl block, bare or under a `#[cfg]` that holds or does not, over a few subjects",
         vary: &[
+            ("path", &["block-macro", "block-macro-on", "block-macro-off"]),
             ("s0", &["plain", "deref-box", "marked-struct", "marked-named", "struct", "struct-named"]),
             ("s1", &["plain", "none", "unit"]),
         ],
-        fixed: &[("path", "block-macro")],
+        fixed: &[],
     },
     Zone {
         name: "cfg",

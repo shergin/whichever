@@ -1,13 +1,15 @@
 //! `implement_block!`: inherent blocks forwarded method by method, and
 //! partial trait impl blocks handed on to the trait's carrier.
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{Attribute, Block, Error, ImplItem, Result, Signature, Visibility};
+use syn::{Attribute, Block, Error, ImplItem, ItemImpl, Result, Signature, Visibility};
 
+use crate::builds::Builds;
 use crate::forwarding::{forward, Forward, Generated, Mark, Origin};
 use crate::marked::BlockItem;
 use crate::options::{trait_key, ForwardingOptions, TraitOptions};
+use crate::partial::unread_invocation;
 use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
@@ -19,7 +21,10 @@ use crate::subject::{cfg_attributes, Entries, Subject};
 /// block is emitted as written; its one error is the missing items. A block
 /// of a trait the subject's own attribute dispatches would be a second impl,
 /// which rustc reports as conflicting on the trait's attribute; it is
-/// reported here instead, and the attribute's impl stands.
+/// reported here instead, and the attribute's impl stands. A macro
+/// invocation under `#[cfg]` is in the block only where the `cfg` holds,
+/// and so is its sentence: the block is handed on without it, for the
+/// builds that leave it out.
 pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result<TokenStream2> {
     let BlockInput {
         rejected,
@@ -27,15 +32,16 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
         dispatched,
         remote,
         subject,
-        item_impl,
+        mut item_impl,
         ..
     } = input;
     if rejected {
         return Ok(item_impl.to_token_stream());
     }
-    let Some((trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = item_impl.trait_.clone() else {
         return Err(Error::new_spanned(&item_impl, "expected a trait impl"));
     };
+    let trait_path = &trait_path;
     let trait_name = trait_key(trait_path);
     if dispatched.iter().any(|path| trait_key(path) == trait_name) {
         let subject = subject.ident();
@@ -44,6 +50,11 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
             format!("`{subject}` already dispatches `{trait_name}` from its own attribute; this block is the impl, so drop `{trait_name}` there"),
         ));
     }
+    // The invocation carries the block's trait path, so that an error rustc
+    // finds in the impl is labelled on the block.
+    let site = trait_path.span();
+    let (read_in, sentences) = without_conditional_invocations(&mut item_impl, site);
+    let read_where = read_in.attribute(site);
     let macro_path = carrier_path(trait_path);
     let request = TraitRequest {
         facade: &facade,
@@ -53,10 +64,33 @@ pub(crate) fn expand_partial(input: BlockInput, options: TraitOptions) -> Result
         remote: remote.as_ref(),
         partial: Some(&item_impl),
     };
-    // The invocation carries the block's trait path, so that an error rustc
-    // finds in the impl is labelled on the block.
-    let site = trait_path.span();
-    Ok(quote_spanned! { site => #macro_path! { #request } })
+    Ok(quote_spanned! { site => #read_where #macro_path! { #request } #sentences })
+}
+
+/// Takes the macro invocations under `#[cfg]` out of `block`, and returns
+/// the builds that hold none of them with the sentence of each, under its
+/// own `#[cfg]`. What an invocation writes is not seen, so the block cannot
+/// be read where one stands; where its `cfg` does not hold it is not in
+/// the block, which is then read as a hand's is compiled, without it. An
+/// invocation of every build stays, for `PartialBlock::read` to refuse.
+fn without_conditional_invocations(block: &mut ItemImpl, site: Span) -> (Builds, TokenStream2) {
+    let mut unread = Builds::Never;
+    let mut sentences = TokenStream2::new();
+    block.items.retain(|item| {
+        let ImplItem::Macro(invocation) = item else {
+            return true;
+        };
+        let builds = Builds::of(&invocation.attrs);
+        if builds.is_every() {
+            return true;
+        }
+        let cfgs = cfg_attributes(&invocation.attrs);
+        let sentence = unread_invocation(invocation).to_compile_error();
+        sentences.extend(quote_spanned! { site => #(#cfgs)* #sentence });
+        unread = std::mem::replace(&mut unread, Builds::Never).or(builds);
+        false
+    });
+    (unread.complement(), sentences)
 }
 
 /// Rewrites every marked method of the block. A method that cannot be

@@ -120,7 +120,10 @@ attributes on the block are carried onto the impl: `#[typetag::serde(name =
 `#[typetag::serde]` on the trait, so that typetag's own methods are the
 block's and never forwarded. A macro invocation in the block is reported,
 since the items it writes cannot be told from the ones to forward; write
-them out in the block. A method written in the block that still
+them out in the block. One under `#[cfg]` is reported only where the `cfg`
+holds: where it does not, the invocation is not in the block, as it is not
+in a hand's, and the block is read without it, so a method the macro
+would have written is forwarded. A method written in the block that still
 needs the payloads' answer calls an inherent `#[dispatch(*, call = name)]`
 method beside it. Like inherent blocks, it has to be in the enum's crate.
 

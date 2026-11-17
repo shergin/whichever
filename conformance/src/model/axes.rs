@@ -291,6 +291,13 @@ axis! {
         /// A partial impl block that says nothing about `m` and holds a
         /// macro invocation, which is not read (limits.md).
         BlockMacro = "block-macro",
+        /// The same invocation under `#[cfg(all())]`, a `cfg` that holds:
+        /// in the block, and reported, in this build (limits.md).
+        BlockMacroOn = "block-macro-on",
+        /// The same invocation under `#[cfg(any())]`, a `cfg` that does not
+        /// hold: not in the block in this build, which is read without it
+        /// and forwards as `block` does (limits.md).
+        BlockMacroOff = "block-macro-off",
         /// `#[dispatch(*)] fn m(..) { match self { .. } }` in the block: the
         /// arms the enum answers itself, every other variant forwarded
         /// (partial-impl-blocks.md).

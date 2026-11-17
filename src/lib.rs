@@ -649,7 +649,9 @@
 //! goes there, with `#[whichever::dispatchable]` above `#[typetag::serde]`
 //! on the trait, so that typetag's own methods are the block's and never
 //! forwarded. A macro invocation in the block is reported, since the items
-//! it writes cannot be told from the ones to forward. A method written in
+//! it writes cannot be told from the ones to forward; one under `#[cfg]` is
+//! reported only where the `cfg` holds, and elsewhere the block is read
+//! without it. A method written in
 //! the block that still needs the payloads'
 //! answer calls an inherent `#[dispatch(*, call = name)]` method beside it.
 //! Like inherent blocks, it has to be in the enum's crate.
@@ -802,7 +804,8 @@
 //!   for the other builds.
 //! - A macro invocation in a partial impl block is not read, so the items
 //!   it writes could not be told from the ones to forward. It is reported;
-//!   write the items out in the block.
+//!   write the items out in the block. One under `#[cfg]` is reported where
+//!   the `cfg` holds, and where it does not the block is read without it.
 //! - A lint attribute on the enum does not reach the impls written next to
 //!   it, as it would not reach a hand-written one; `#[allow]` goes on the
 //!   trait method, on a partial impl block, or on the module.

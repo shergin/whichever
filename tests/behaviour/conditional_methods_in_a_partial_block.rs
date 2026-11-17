@@ -345,3 +345,110 @@ fn a_mark_without_a_cfg_takes_the_builds_a_written_method_leaves() {
     assert_eq!((circle.note(), square.note()), ("written", "written"));
     assert_eq!((circle.hint(), square.hint()), ("circle", "body"));
 }
+
+/// A macro invocation under `#[cfg]` is in the block only where the `cfg`
+/// holds. Where it does not, the block is read without it, as a hand's
+/// block is compiled, and the method the macro would write is forwarded.
+mod macro_invocations_compiled_out {
+    use super::{Inner, Other, Tree};
+
+    // No build here invokes the macros, as no build of a hand's block with
+    // the same `cfg`s would.
+    #[allow(unused_macros)]
+    macro_rules! name_from_the_macro {
+        () => {
+            fn name(&self) -> &'static str {
+                "macro"
+            }
+        };
+    }
+
+    #[allow(unused_macros)]
+    macro_rules! kind_from_the_macro {
+        () => {
+            fn kind(&self) -> &'static str {
+                "macro"
+            }
+        };
+    }
+
+    #[whichever::dispatch]
+    pub enum Single {
+        Inner(Inner),
+        Other(Other),
+    }
+
+    #[whichever::dispatch]
+    impl Tree for Single {
+        #[cfg(any())]
+        name_from_the_macro!();
+    }
+
+    #[test]
+    fn an_enum_forwards_the_method_the_macro_would_write() {
+        let inner = Single::Inner(Inner);
+        assert_eq!(
+            (inner.name(), inner.kind(), inner.get()),
+            ("inner", "inner", 1)
+        );
+        let other = Single::Other(Other);
+        assert_eq!(
+            (other.name(), other.kind(), other.get()),
+            ("default", "default", 2)
+        );
+    }
+
+    #[whichever::dispatch]
+    pub struct Held {
+        #[dispatch]
+        inner: Inner,
+        pub label: &'static str,
+    }
+
+    #[whichever::dispatch]
+    impl Tree for Held {
+        #[cfg(any())]
+        name_from_the_macro!();
+    }
+
+    #[test]
+    fn a_struct_forwards_the_method_the_macro_would_write() {
+        let held = Held {
+            inner: Inner,
+            label: "held",
+        };
+        assert_eq!(
+            (held.name(), held.kind(), held.get()),
+            ("inner", "inner", 1)
+        );
+        assert_eq!(held.label, "held");
+    }
+
+    // An integration test is compiled with `cfg(test)` set, so `not(test)`
+    // does not hold either.
+    #[whichever::dispatch]
+    pub enum Double {
+        Inner(Inner),
+        Other(Other),
+    }
+
+    #[whichever::dispatch]
+    impl Tree for Double {
+        #[cfg(any())]
+        name_from_the_macro!();
+
+        #[cfg(not(test))]
+        kind_from_the_macro!();
+    }
+
+    #[test]
+    fn two_invocations_under_two_cfgs_that_do_not_hold_leave_both_methods() {
+        let inner = Double::Inner(Inner);
+        assert_eq!(
+            (inner.name(), inner.kind(), inner.get()),
+            ("inner", "inner", 1)
+        );
+        let other = Double::Other(Other);
+        assert_eq!((other.name(), other.kind()), ("default", "default"));
+    }
+}

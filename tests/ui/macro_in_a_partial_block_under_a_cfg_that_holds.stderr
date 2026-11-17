@@ -1,0 +1,6 @@
+error: a macro invocation in a partial impl block is not read, so the items it writes cannot be told from the ones to forward; write the items out in the block
+  --> tests/ui/macro_in_a_partial_block_under_a_cfg_that_holds.rs:36:5
+   |
+36 | /     #[cfg(all())]
+37 | |     sides!();
+   | |_____________^

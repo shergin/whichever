@@ -614,7 +614,11 @@ path whose generic arguments do not fit the trait's parameters, or bind an
 associated item inside the path (`Substitution::of_trait`). In
 `PartialBlock::read`: a method of the block without a body and without a
 mark, a macro invocation, whose items cannot be told from the ones to
-forward, a mark that does not parse or names an inherent method's option,
+forward (one under `#[cfg]` never reaches it: `expand_partial` takes such
+invocations out of the block, writes the trait's carrier invocation under
+the complement of their `cfg`s, so the block is read without them where
+none holds, and writes each sentence under its invocation's own `cfg`), a
+mark that does not parse or names an inherent method's option,
 a second mark on one method, and `#[dispatch(default)]` on a method with a
 body. In `ItemWriter::write`: a macro invocation inside the trait, an
 associated type or const the block writes under `#[cfg]`, an override that

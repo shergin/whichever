@@ -353,9 +353,28 @@ fn canonical_when_malformed(cell: &Cell) -> bool {
 /// other variants' shapes, a unit variant say, is reported beside one that
 /// stops the subject or the block from being read; the macro's `tests/ui`
 /// cases hold the sentence alone, and so does the model.
+///
+/// An invocation under `#[cfg]` "is reported only where the `cfg` holds;
+/// where it does not, the invocation is not in the block, the block is read
+/// without it, and the method the macro would have written is forwarded as
+/// usual" (limits.md): the cell is then judged as the block without it,
+/// `block`, whose hand is the hand's block in that build.
 fn unread(cell: &Cell) -> Option<Verdict> {
     let refused = cell.s0.descriptor().refused;
-    let invocation = cell.path.descriptor().invocation;
+    let path = cell.path.descriptor();
+    let invocation = path.reads_invocation();
+    let left_out = path.invocation && !invocation;
+    if left_out {
+        let neutral = Cell {
+            s0: cell.s0,
+            s1: cell.s1,
+            s2: cell.s2,
+            path: cell.path,
+            ..Cell::neutral()
+        };
+        let canonical = *cell == neutral && !refused;
+        return (!canonical).then_some(Verdict::NonCanonical);
+    }
     if !refused && !invocation {
         return None;
     }

@@ -319,6 +319,7 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
     // is the sentence (limits.md).
     let invocation = context.path.invocation;
     if invocation {
+        // Unused where its invocation is compiled out.
         writer.line("#[allow(unused_macros)]");
         writer.line("macro_rules! written {");
         writer.line("    () => {};");
@@ -344,7 +345,12 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
         writer.line(Associated::Item.definition(super::context::VIEW));
     }
     if invocation {
+        // The invocation is the item from its first attribute on, and its
+        // sentence is spanned on all of it.
         writer.anchor(Anchor::BlockInvocation.name());
+        if let Some(predicate) = context.path.invocation_cfg {
+            writer.line(format!("#[cfg({predicate})]"));
+        }
         writer.line("written!();");
     }
     if !context.cell.base_reaches_all() && !context.foreign() {
