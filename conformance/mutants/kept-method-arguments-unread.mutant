@@ -1,6 +1,7 @@
 file: macros/src/marked.rs
 breaks: A limit is one sentence on the offending item and the error stands alone, as `docs/vision.md` rule 4 and `macros/ARCHITECTURE.md` 3.8 say: a method kept as written beside its sentence closes its arms with one that reads the method's arguments, so no lint about them stands beside the error.
 expect: killed
+witness: ret=option-self path=inherent-arms lift=some arms=cfg-off
 
 find:
     let rest: Expr = if arguments.is_empty() {

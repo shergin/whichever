@@ -1,6 +1,7 @@
 file: macros/src/items.rs
 breaks: An associated type no variant can supply holds its sentence and the impl is still written, so the calls around it resolve, as `docs/limits.md` says in its last paragraph.
 expect: killed
+witness: s0=via-method-value s1=none recv=value ret=assoc
 
 find:
                     Err(error) => {

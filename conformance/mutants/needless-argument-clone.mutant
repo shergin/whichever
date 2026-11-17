@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: The forwarding hands each argument over as it is, with no operation a careful hand would not write, as the rules of `CLAUDE.md` say.
 expect: killed
+witness: base
 
 find:
                     None => quote_spanned!(*site => #ident),

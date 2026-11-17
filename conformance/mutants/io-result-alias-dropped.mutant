@@ -1,6 +1,7 @@
 file: macros/src/shape.rs
 breaks: A method returning `io::Result<Self>` is mapped like `Result<Self, E>`, as `docs/what-is-generated.md` says.
 expect: killed
+witness: ret=fallible-self
 
 find:
             // `io::Result<T>`: the alias fixes the error type.

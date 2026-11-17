@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: Under `self: Box<Self>` the enum is moved out of its box before the `match`, as `docs/what-is-generated.md` says.
 expect: killed
+witness: recv=box
 
 find:
         ReceiverKind::Boxed => quote_spanned!(*site => *#self_token),

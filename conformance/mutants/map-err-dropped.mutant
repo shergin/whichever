@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A method returning `Result<_, Self::Name>` with `Name` overridden converts the error with `map_err(Into::into)`, as `docs/options.md` says.
 expect: killed
+witness: ret=result-error
 
 find:
                 value = quote_spanned! { *site => #value.map_err(#path) };

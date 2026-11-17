@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A sentence about a variant follows the variant's `#[cfg]`, so a variant compiled out is no error, as `docs/what-is-generated.md` and `docs/limits.md` say.
 expect: killed
+witness: recv=box cfg=second-off
 
 find:
         self.beside_arguments(Arm {

@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A method that borrows its target mutably through a `deref` variant over an `Rc`, an `Arc` or a `&T` is one sentence on the payload, as `docs/limits.md` says.
 expect: killed
+witness: s0=deref-rc recv=mut
 
 find:
             borrows_mutably.filter(|_| route.starts_with_deref() && pointer == Pointer::Shared)

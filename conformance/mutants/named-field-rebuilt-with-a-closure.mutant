@@ -1,6 +1,7 @@
 file: macros/src/subject.rs
 breaks: The generated code holds no closure, as `docs/vision.md` and `docs/what-is-generated.md` say: `Option<Self>` on a struct whose one field is named is a sentence, not `.map(|value| Named { shape: value })`.
 expect: killed
+witness: s0=struct-named s1=none ret=option-self path=inherent
 
 find:
         matches!(self.place.field, PayloadField::Only)

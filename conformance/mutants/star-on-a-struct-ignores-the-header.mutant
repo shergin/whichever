@@ -1,6 +1,7 @@
 file: macros/src/subject.rs
 breaks: `*` in a partial block over one instantiation of a generic struct names the field as the header instantiates it, as `docs/partial-impl-blocks.md` says of the impl header.
 expect: killed
+witness: s0=struct s1=none path=block generic=instance
 
 find:
             if let Holds::Payload { ty, .. } = &mut entry.holds {

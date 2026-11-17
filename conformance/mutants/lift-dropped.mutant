@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: An inherent method with `with = path` wraps each forwarded result in a call to `path`, as `docs/inherent-methods.md` says.
 expect: killed
+witness: s1=none recv=value path=inherent callee=value lift=some
 
 find:
             value = quote_spanned! { *site => #lift(#value) };

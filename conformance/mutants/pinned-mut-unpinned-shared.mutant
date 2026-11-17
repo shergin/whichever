@@ -1,6 +1,7 @@
 file: macros/src/arm.rs
 breaks: A `self: Pin<&mut Self>` receiver is unpinned mutably and the payload pinned again, as `docs/what-is-generated.md` says.
 expect: killed
+witness: recv=pin-mut
 
 find:
             quote_spanned!(*site => ::core::pin::Pin::get_mut(#self_token))

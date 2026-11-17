@@ -1,6 +1,7 @@
 file: macros/src/dispatchable.rs
 breaks: A `#[cfg]` on a trait item is decided in the trait's crate, so the generated item exists exactly when the trait's does, as `docs/what-is-generated.md` says.
 expect: killed
+witness: item=cfg-on
 
 find:
                 if holds(index) {

@@ -1,6 +1,7 @@
 file: macros/src/subject.rs
 breaks: An arm binds the sole field of a variant or a struct with no rest pattern, which would skip nothing, as the goldens under `tests/expand/` and `docs/what-is-generated.md` show and rule 1 of `docs/vision.md` asks: the output is the hand's.
 expect: killed
+witness: s0=struct s1=none
 
 find:
             PayloadField::Only => quote_spanned!(*site => #holder(#binding)),
