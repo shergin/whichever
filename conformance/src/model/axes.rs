@@ -547,6 +547,11 @@ axis! {
         /// `#[whichever::dispatchable] pub unsafe trait Probe`, whose every
         /// impl is an `unsafe impl` (what-is-generated.md).
         Unsafe = "unsafe",
+        /// `whichever::foreign::Iterator`, of whose methods the law calls
+        /// `next` and the provided `any`, which every payload overrides
+        /// for `core::iter::Iterator`, so that the default the enum would
+        /// otherwise answer with shows (foreign-traits-are-restated.md).
+        ForeignIterator = "foreign-iterator",
     }
 }
 

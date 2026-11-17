@@ -36,6 +36,8 @@ mod inherent_list_naming_a_conditional_variant;
 mod inherent_methods;
 mod inherent_methods_do_not_shadow;
 mod inherent_methods_on_dereferenced_payloads;
+mod item_override_through_a_narrower_restatement;
+mod iterator_provided_methods;
 mod kept_parameter_names;
 mod lifetimes_and_generic_enums;
 mod marks_under_the_trait_methods_cfg;

@@ -5,6 +5,61 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, `whichever::foreign::Iterator` forwarded `next`, `size_hint`,
+  `count`, `last`, `nth` and `fold`, and every other provided method ran
+  the trait's default on the enum, so a payload's override was hidden:
+  through `#[dispatch(whichever::foreign::Iterator)]`, a payload's own
+  `any` was never called. It now forwards every provided method a `match`
+  can forward and that is stable on 1.88, 28 more: `for_each`, `collect`,
+  `partition`, `reduce`, `all`, `any`, `find`, `find_map`, `position`,
+  `max`, `min`, `max_by_key`, `max_by`, `min_by_key`, `min_by`, `sum`,
+  `product`, `cmp`, `partial_cmp`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`,
+  `is_sorted`, `is_sorted_by` and `is_sorted_by_key`. `core`'s slice
+  iterators answer `any`, `all`, `find`, `find_map` and `position`
+  themselves, a range answers `max`, `min` and `is_sorted`, and `collect`
+  reaches the payload's own, so a `vec::IntoIter` collected into a `Vec`
+  reuses its allocation; the defaults of `all`, `any`, `find` and
+  `position` run through `try_fold`, which cannot be restated, and matched
+  the enum once per item where they are now one `match`. Left out:
+  `unzip`, which a `match` cannot forward; `rposition`, whose bound holds
+  only for an enum that is also double-ended and exact-size; the methods
+  unstable on 1.88, such as `try_fold`; and the adapters and `by_ref`, as
+  before. `DoubleEndedIterator` and `ExactSizeIterator` were complete
+  already. `Error` still leaves out `description` and `cause`, which are
+  deprecated, so that a block that answers `source` itself need not answer
+  them. Three things that compiled no longer do, each with its way around:
+  - Every added method requires `Self: Sized`, so a `deref` variant
+    holding a trait object, `#[dispatch(deref)] Dyn(Box<dyn Iterator<Item
+    = u32>>)`, is refused for each of them, 31 sentences where there were
+    3. `Box<dyn Iterator>` is itself an `Iterator`: hold it without
+    `deref`, and every method is forwarded to the box, with no partial
+    block. The same holds for a `Box<dyn DoubleEndedIterator>` under
+    `DoubleEndedIterator` and a `Box<dyn ExactSizeIterator>` under
+    `ExactSizeIterator`. The sentence now offers this way beside
+    `#[dispatch(default)]`: "hold `Box<dyn Iterator<Item = u32>>` without
+    `deref` where it implements the trait itself".
+  - A partial block over `foreign::Iterator` forwards every method it
+    leaves alone, so one whose enum holds a variant no method can be
+    forwarded to has 34 methods to answer or leave to the default, not 6.
+  - An override, `Item = Wide`, converts what a method returns and hands
+    an argument to the payload as it is, so over payloads whose items
+    differ, a `Range<u32>` and a `Range<u64>`, rustc reports every method
+    that takes a closure over `Self::Item`, where before it reported
+    `fold` alone (#23). An override of the payloads' own type, `Item =
+    u8` over payloads whose `Item` is `u8`, compiles as before.
+
+  The way around all three is a restatement of `Iterator` in your crate
+  listing the methods to forward, `next` and `size_hint`, since the rest
+  take the real trait's default; `docs/restatements.md` shows it, and
+  `docs/options.md` and `docs/limits.md` say what an override converts.
+  The behaviour tests `iterator_provided_methods` and
+  `item_override_through_a_narrower_restatement` are new;
+  `trait_objects_in_deref_variants` now shows `#[dispatch(default)]` over
+  such a restatement and the box held without `deref`, and
+  `double_ended_and_exact_size_iterators` the boxes held without `deref`.
+  The golden `foreign` shows `Iterator`, and the snapshots
+  `dyn_payload_under_sized_method` and `trait_object_beside_a_plain_variant`
+  moved with the sentence.
 - Before, a method of an inherent `#[dispatch]` impl block that cannot be
   forwarded was reported in every build, whatever `#[cfg]` it carried:
   `#[cfg(feature = "off")] #[dispatch(*)] pub fn make(side: f64) -> Self;`

@@ -9,6 +9,7 @@ use super::payload::answer_type;
 use super::writer::Writer;
 use crate::model::agreement::ItemKind;
 use crate::model::argument::{ArgumentKind, MismatchSite};
+use crate::model::declaration::Foreign;
 use crate::model::path::Form as PathForm;
 use crate::model::qualifier::Generic;
 use crate::model::returns::Node;
@@ -94,6 +95,10 @@ fn write_foreign(writer: &mut Writer, context: &Context, tests: &[&str]) {
     write_seen(writer, context);
     let forwarded = context.cell.method_slots();
     for slot in &context.slots {
+        if context.foreign_trait() == Some(Foreign::Iterator) {
+            write_foreign_iterator_slot(writer, context, slot);
+            continue;
+        }
         let index = slot.index;
         let name = slot.name();
         let seed = seed(index);
@@ -130,6 +135,37 @@ fn write_foreign(writer: &mut Writer, context: &Context, tests: &[&str]) {
     writer.close("};");
     writer.close("}");
     write_tests(writer, context, tests);
+    writer.close("}");
+}
+
+/// Writes the law of one slot under `whichever::foreign::Iterator`: `any`
+/// answers what a twin of the payload answers, which its override does
+/// and the default does not, and `next` then yields what the twin's
+/// yields, which tells the override that takes nothing from the default
+/// that runs `next`. The calls name the trait, since the payloads' own
+/// `any` is the poison.
+fn write_foreign_iterator_slot(writer: &mut Writer, context: &Context, slot: &Slot) {
+    let index = slot.index;
+    let name = slot.name();
+    let seed = seed(index);
+    let iterator = Foreign::Iterator.real();
+    writer.line(format!(
+        "// `{name}` answers `any` and `next` as a twin of its `{}` does.",
+        slot.payload()
+    ));
+    writer.open("{");
+    write_subject(writer, &value_path(context), slot, "subject", seed, true);
+    writer.line(format!("let mut twin = {}::new({seed});", slot.payload()));
+    writer.line(format!("let asked = |x: u64| x == {};", seed + 1));
+    writer.line(format!(
+        "assert_eq!({iterator}::any(&mut subject, asked), {iterator}::any(&mut twin, asked), \"any on {name}\");"
+    ));
+    writer.line(format!(
+        "assert_eq!({iterator}::next(&mut subject), {iterator}::next(&mut twin), \"next on {name} after any\");"
+    ));
+    writer.line(format!(
+        "assert_eq!(seen(&subject), format!(\"{index}:{{}}\", {seed}), \"{name} after any\");"
+    ));
     writer.close("}");
 }
 

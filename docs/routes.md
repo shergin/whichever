@@ -49,4 +49,7 @@ is how an enum holds an open set beside its sized payloads. A method the
 trait declares with `where Self: Sized` cannot be called on it, and is
 reported in one sentence; a partial block leaves that method to the trait's
 default with `#[dispatch(default)]`, as a hand does, and the rest is
-forwarded.
+forwarded. A pointer that implements the trait itself, as `Box<dyn
+Iterator>` implements `Iterator`, is held without `deref`: every method,
+`Self: Sized` or not, is then forwarded to the pointer, and no partial
+block is needed.

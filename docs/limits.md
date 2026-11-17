@@ -39,7 +39,20 @@
   `&mut` through one is reported too. Hold a `Box` or a `&mut`.
 - A method that requires `Self: Sized` cannot be forwarded to a `deref`
   variant holding a trait object; a partial block leaves it to the trait's
-  default with `#[dispatch(default)]`.
+  default with `#[dispatch(default)]`. Where the pointer implements the
+  trait itself, as `Box<dyn Iterator>` and `&mut dyn Iterator` implement
+  `Iterator`, hold it without `deref`, and every method is forwarded to
+  it. `deref` stays the way for a trait the pointer does not implement,
+  such as a crate's own `Box<dyn Shape>`. Every method of
+  `foreign::Iterator` but `next`, `size_hint` and `nth` has the bound.
+- An override, `Name = Type`, converts what a method returns, not an
+  argument that names the overridden type: the argument is handed to the
+  payload as it is, so the method compiles only where every payload's own
+  type is the override's, and elsewhere rustc reports the arm. The methods
+  of `foreign::Iterator` that take a closure over `Self::Item` are such
+  methods under `Item = Wide`. Restate the trait with only the methods to
+  forward, or leave a method to the default with `#[dispatch(default)]` in
+  a partial block.
 - A method whose return type wraps `Self` in anything but `Option`,
   `Result` or a tuple, such as a combinator
   `fn buffered(self) -> Buffered<Self>`, cannot be forwarded: the payload's

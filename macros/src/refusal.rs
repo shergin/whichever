@@ -136,7 +136,9 @@ impl fmt::Display for MutableBorrow<'_> {
 pub(crate) enum Refusal<'a> {
     /// The method requires `Self: Sized`, and the target is a trait
     /// object. A hand leaves such a method to the trait's default, and the
-    /// partial block named here says so with `#[dispatch(default)]`.
+    /// partial block named here says so with `#[dispatch(default)]`; or it
+    /// holds the pointer itself where the pointer implements the trait, as
+    /// a `Box<dyn Iterator>` does, and every method is the pointer's.
     TraitObject {
         declared: &'a Signature,
         block_header: &'a str,
@@ -184,7 +186,7 @@ impl Refusal<'_> {
             } => {
                 return Error::new_spanned(
                     declared,
-                    format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, or implement the method by hand", target.ident()),
+                    format!("`{method}` requires `Self: Sized`, and `{}` holds a trait object, which is not; leave it to the trait's default with `#[dispatch(default)] fn {method}(..);` in a `#[whichever::dispatch] {block_header}` block, hold `{spelled}` without `deref` where it implements the trait itself, or implement the method by hand", target.ident()),
                 );
             }
             Refusal::RewrapThroughRoute if route.is_deref() => {

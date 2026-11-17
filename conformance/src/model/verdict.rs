@@ -18,6 +18,7 @@
 
 use super::agreement::ItemKind;
 use super::argument::{ArgumentKind, MismatchSite};
+use super::declaration::Foreign;
 use super::limits::{Anchor, Expected, Limit};
 use super::path::{Form as PathForm, Site as PathSite};
 use super::qualifier::Generic;
@@ -26,7 +27,7 @@ use super::returns::{Associated, FutureKind, Node};
 use super::target::{Form, Pointer, Storage};
 use super::{
     Agreement, Argument, Arms, Callee, Cfg, Conversion, Declaration, Deprecation, Generics, Home,
-    Item, Lift, Owner, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
+    Item, Lift, Owner, Path, Qualifier, Receiver, Return, Second, Stack, Target, Third, Verdict,
 };
 use crate::cell::Cell;
 
@@ -150,7 +151,7 @@ pub fn verdict(cell: &Cell) -> Verdict {
     let mut expected = limits(cell);
     let mut rejections = rejections(cell);
     // `whichever::foreign::Display` has no control method.
-    if cell.decl.descriptor().foreign {
+    if cell.decl.descriptor().foreign.is_some() {
         rejections.retain(|rejection| rejection.method == Forwarded::Method);
     }
     // A method the trait declares under a `#[cfg]` that does not hold has
@@ -247,7 +248,7 @@ fn own_arms(cell: &Cell) -> Option<Verdict> {
     }
     // `whichever::foreign::Display`'s `fmt` is written by the model as
     // the trait's attribute or a block names it, with no arms of its own.
-    if cell.decl.descriptor().foreign {
+    if cell.decl.descriptor().foreign.is_some() {
         return Some(Verdict::NonCanonical);
     }
     // In a build that leaves no variant, no arm reads the arguments the
@@ -293,7 +294,7 @@ fn object_canonical(cell: &Cell) -> bool {
         && cell.stack == Stack::Absent
         && cell.conv == Conversion::Unchecked;
     let place = cell.path_descriptor().site != PathSite::Inherent
-        && cell.decl != Declaration::Foreign
+        && cell.decl.descriptor().foreign.is_none()
         && cell.owner == Owner::Local;
     signature && trait_alone && place
 }
@@ -421,7 +422,7 @@ fn owned(cell: &Cell) -> Option<Verdict> {
             "a restated enum over a variant other than a payload, a boxed payload or a unit",
         ));
     }
-    if cell.home == Home::Crate || cell.decl == Declaration::Foreign {
+    if cell.home == Home::Crate || cell.decl.descriptor().foreign.is_some() {
         return Some(Verdict::Unmodelled(
             "a restated enum beside a trait of another crate, an impl the orphan rules refuse",
         ));
@@ -477,12 +478,44 @@ fn owned(cell: &Cell) -> Option<Verdict> {
 fn declared(cell: &Cell) -> Option<Verdict> {
     let declaration = cell.decl.descriptor();
     let path = cell.path.descriptor();
-    if declaration.foreign {
+    if let Some(foreign) = declaration.foreign {
         // `whichever::foreign::Display` has one method, `fmt(&self, f)`,
         // which the payloads implement for `core::fmt::Display`; the axes
         // of the method under test, of the trait's own items and of where
         // it lives are `Probe`'s, and a mark of `default` meets a method
         // with no default body in a trait of another crate.
+        //
+        // `whichever::foreign::Iterator` is there for one promise: each
+        // restated provided method is forwarded, so a payload's override
+        // is what runs through the enum (foreign-traits-are-restated.md).
+        // Its `next` and `any` take `&mut self`, which the `recv` axis
+        // does not say, so it is crossed only with the targets a `&mut`
+        // reaches through and with the enum's attribute and a block silent
+        // about both, beside a second variant that holds a payload, none
+        // or no payload. The first variant supplies `Item`, so it holds
+        // its target by a type.
+        if foreign == Foreign::Iterator {
+            let first = matches!(
+                cell.s0,
+                Target::Plain
+                    | Target::DerefBox
+                    | Target::MarkedTuple
+                    | Target::Struct
+                    | Target::StructNamed
+            );
+            let second = matches!(
+                cell.s1,
+                Second::Plain | Second::Absent | Second::DerefBox | Second::ViaField | Second::Unit
+            );
+            let plain = matches!(cell.path, Path::Attribute | Path::Block)
+                && cell.cfg == Cfg::Absent
+                && cell.conv == Conversion::Unchecked
+                && cell.deprecated == Deprecation::Absent
+                && cell.s2 == Third::Absent;
+            if !(first && second && plain) {
+                return Some(Verdict::NonCanonical);
+            }
+        }
         let neutral = cell.recv == Receiver::Shared
             && cell.ret == Return::Tag
             && cell.arg == Argument::Absent

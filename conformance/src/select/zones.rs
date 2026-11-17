@@ -616,6 +616,16 @@ pub const ZONES: &[Zone] = &[
         fixed: &[("decl", "foreign")],
     },
     Zone {
+        name: "foreign-iterators",
+        summary: "`whichever::foreign::Iterator` over payloads that override the provided `any`, over the targets a `&mut` reaches through and the second variants, through the enum's attribute and a block",
+        vary: &[
+            ("s0", &["plain", "deref-box", "marked-tuple", "struct", "struct-named"]),
+            ("s1", &["plain", "none", "deref-box", "via-field", "unit"]),
+            ("path", &["attribute", "block"]),
+        ],
+        fixed: &[("decl", "foreign-iterator")],
+    },
+    Zone {
         name: "restated-enums",
         summary: "an enum of another crate restated beside the subject, over its payloads, boxed payloads and unit variants, through the enum's attribute and the blocks, with the returns that rewrap it",
         vary: &[

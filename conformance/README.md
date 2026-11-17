@@ -206,6 +206,18 @@ is `whichever::foreign::Display`: the payloads implement
 `core::fmt::Display`, beside an inherent `fmt` that prints a poison, the
 hand implements `core::fmt::Display` with the same `match`, and the law
 compares what the subject prints with what a twin of its payload prints.
+Under `foreign-iterator` the trait is `whichever::foreign::Iterator`, there
+for the promise that each restated provided method is forwarded: every
+payload implements `core::iter::Iterator` over `u64`, yields its state
+once from `next`, and overrides `any` to ask the predicate about a number
+`next` never yields while taking nothing, so the override answers `true`
+where the default, which runs `next`, answers `false` and leaves nothing to
+yield. The law calls `any` and then `next` through the trait on the
+subject and a twin, and the hand forwards the two; the other restated
+methods are the behaviour tests'. `next` and `any` take `&mut self`, which
+the `recv` axis does not say, so the value is crossed only with the targets
+a `&mut` reaches through, a first variant that supplies `Item`, and the
+enum's attribute and a block silent about both.
 Under `unsafe` the trait is an `unsafe trait`, and every impl of it, the
 payloads', the hand's and a block's, is an `unsafe impl`.
 

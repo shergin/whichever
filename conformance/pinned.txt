@@ -397,3 +397,11 @@ s1=unit path=inherent item=cfg-on
 path=block-macro-off
 s0=struct s1=none path=block-macro-off
 path=block-macro-on
+
+# `whichever::foreign::Iterator` restated six of its provided methods, so a
+# payload's override of `any` was hidden behind the default (#19, the
+# survey of `delegate`'s dependents, peek-trait 0.1.1).
+decl=foreign-iterator
+s0=struct s1=none decl=foreign-iterator
+s0=deref-box s1=via-field path=block decl=foreign-iterator
+s1=unit decl=foreign-iterator

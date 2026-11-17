@@ -17,6 +17,21 @@ All options follow the trait path in `#[dispatch(..)]`.
   }
   ```
 
+  What a method returns is converted; an argument that names the type is
+  not. A method that takes `Self::Name`, or a closure over it, hands the
+  argument to the payload as it is, so it compiles only where every
+  payload's own `Name` is the override's type: `Item = u8` over payloads
+  whose `Item` is `u8` forwards every method, but `Item = Wide` over a
+  `Range<u32>` and a `Range<u64>` stops at the methods of
+  `foreign::Iterator` that take a closure over `Self::Item`, `fold`, `any`,
+  `max_by` and the rest, where rustc reports the arm. The hand's arm there
+  needs a closure that converts each item, which the attribute does not
+  write. Restate the trait with only the methods to forward, as
+  [Traits from `std` and other crates](restatements.md#traits-from-std-and-other-crates) shows for
+  `Iterator`, so that the rest take the trait's default, or, for a method
+  or two, leave each to the default in a
+  [partial impl block](partial-impl-blocks.md) with `#[dispatch(default)]`.
+
 - `Name = value` fixes the associated const `Name`, for a const that
   differs per payload by design, such as a kind discriminator:
 

@@ -436,8 +436,8 @@ pub fn run(options: &Options) -> Result<Status, RunError> {
                     // A foreign trait's impl is of the real trait, by its
                     // last segment.
                     let name = match cell.decl.descriptor().foreign {
-                        true => "Display",
-                        false => render::context::TRAIT,
+                        Some(foreign) => foreign.name(),
+                        None => render::context::TRAIT,
                     };
                     let mut traits = vec![(name, cell.path.descriptor().site != PathSite::Block)];
                     if cell.stack.descriptor().present {

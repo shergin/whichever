@@ -97,7 +97,10 @@
 //!   converted with [`Into`], one returning `Result<_, Self::Name>` with
 //!   `map_err(Into::into)`, and `Option<Self::Name>`, `Result<Self::Name, E>`
 //!   and `Result<Self, Self::Name>` are mapped the same way, so variants
-//!   whose own type converts into the named one can share the enum. See
+//!   whose own type converts into the named one can share the enum. An
+//!   argument that names the type is handed to the payload as it is, so a
+//!   method taking `Self::Name`, or a closure over it, compiles only where
+//!   every payload's own `Name` is the override's type. See
 //!   [associated types](#associated-types).
 //! - `Name = value` fixes the associated const `Name` instead of taking it
 //!   from the first variant, for a const that differs per payload by
@@ -292,6 +295,9 @@
 //! with `where Self: Sized` cannot be called on it, and is reported in one
 //! sentence, so a partial block leaves that method to the trait's default
 //! with `#[dispatch(default)]`, as a hand does, and the rest is forwarded.
+//! A pointer that implements the trait itself, as `Box<dyn Iterator>`
+//! implements `Iterator`, is held without `deref`, and every method is
+//! forwarded to it.
 //!
 //! A variant marked `#[dispatch(deref)]` holds its value behind a pointer or
 //! a reference. The trait is called on `<Payload as Deref>::Target`, with
@@ -540,9 +546,12 @@
 //! The restatements an enum most often needs ship in [`foreign`]:
 //! `Display`, `Debug`, `Error`, `PartialEq`, `Iterator`,
 //! `DoubleEndedIterator`, `ExactSizeIterator`, `Read`, `Write`, `BufRead`
-//! and `Seek`. `#[dispatch(whichever::foreign::Display)]` on an error enum
-//! replaces the hand-written `match`, and a variant holding a `String`
-//! stays out of the `From` impls with `#[dispatch(from = false)]`.
+//! and `Seek`, each forwarding the provided methods a `match` can forward,
+//! as the module lists them, so `foreign::Iterator` reaches a payload's
+//! own `any`, `find`, `max` or `collect`.
+//! `#[dispatch(whichever::foreign::Display)]` on an error enum replaces the
+//! hand-written `match`, and a variant holding a `String` stays out of the
+//! `From` impls with `#[dispatch(from = false)]`.
 //!
 //! # Enums from other crates
 //!
@@ -776,7 +785,14 @@
 //!   `async fn`. A struct forwards any.
 //! - A method that requires `Self: Sized` cannot be forwarded to a `deref`
 //!   variant holding a trait object; a partial block leaves it to the trait's
-//!   default with `#[dispatch(default)]`.
+//!   default with `#[dispatch(default)]`, or, where the pointer implements
+//!   the trait itself, as `Box<dyn Iterator>` does, the variant holds it
+//!   without `deref`.
+//! - An override, `Name = Type`, converts what a method returns, not an
+//!   argument that names the type: a method taking `Self::Name`, or a
+//!   closure over it, compiles only where every payload's own `Name` is the
+//!   override's. Restate the trait with only the methods to forward, or
+//!   leave such a method to the default with `#[dispatch(default)]`.
 //! - A method whose return type wraps `Self` in anything but `Option`,
 //!   `Result` or a tuple, such as a combinator
 //!   `fn buffered(self) -> Buffered<Self>`, cannot be forwarded: the

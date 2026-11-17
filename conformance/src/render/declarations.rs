@@ -13,8 +13,8 @@ use crate::model::{Anchor, Arms};
 /// Writes the trait with `#[whichever::dispatchable]`: the control method
 /// `base` and the method under test `m`.
 pub fn write_trait(writer: &mut Writer, context: &Context) {
-    if context.foreign() {
-        super::foreign::write_trait(writer);
+    if let Some(foreign) = context.foreign_trait() {
+        super::foreign::write_trait(writer, foreign);
         return;
     }
     // A trait in a sibling module is imported where the subject is, the
@@ -419,8 +419,8 @@ fn write_block(writer: &mut Writer, context: &Context, options: &[String]) {
 /// Writes a function that calls `base` through the trait on the subject,
 /// so that a cascade or a withheld impl shows as a second error.
 pub fn write_probe(writer: &mut Writer, context: &Context) {
-    if context.foreign() {
-        super::foreign::write_probe(writer);
+    if let Some(foreign) = context.foreign_trait() {
+        super::foreign::write_probe(writer, foreign);
         return;
     }
     writer.line("/// Calls the control method through the trait, so that a withheld impl");

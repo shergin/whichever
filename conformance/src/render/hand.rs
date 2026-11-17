@@ -605,11 +605,16 @@ fn write_other(writer: &mut Writer, context: &Context) {
 /// that body alone.
 fn write_foreign(writer: &mut Writer, context: &Context) {
     use super::foreign::{body, SIGNATURE};
-    use crate::model::declaration::CORE_DISPLAY;
+    use crate::model::declaration::Foreign;
+    if context.foreign_trait() == Some(Foreign::Iterator) {
+        write_foreign_iterator(writer, context);
+        return;
+    }
     allow_unread(writer, context);
     writer.open(format!(
-        "impl{} {CORE_DISPLAY} for E{} {{",
+        "impl{} {} for E{} {{",
         context.impl_generics(),
+        Foreign::Display.real(),
         context.type_generics()
     ));
     // A partial block's method over an enum whose every variant is under
@@ -647,7 +652,7 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
         parameter: "f",
         passes: true,
         hands_enum: false,
-        trait_path: String::from(CORE_DISPLAY),
+        trait_path: String::from(Foreign::Display.real()),
         instance: None,
         own_arms: Vec::new(),
         conditional: Vec::new(),
@@ -662,6 +667,55 @@ fn write_foreign(writer: &mut Writer, context: &Context) {
             writer.line(body());
             writer.close("}");
         }
+    }
+    writer.close("}");
+}
+
+/// Writes the hand's impl of `core::iter::Iterator`, the trait
+/// `whichever::foreign::Iterator` implements: the item the payloads
+/// yield, and `next` and `any` forwarded to every variant, which is what
+/// the law calls; the other methods a hand forwards the same way, and the
+/// law does not tell them from the defaults.
+fn write_foreign_iterator(writer: &mut Writer, context: &Context) {
+    use super::foreign::{ANY, NEXT};
+    use crate::model::declaration::Foreign;
+    let real = Foreign::Iterator.real();
+    writer.open(format!("impl {real} for E {{"));
+    writer.line("type Item = u64;");
+    let slots: Vec<usize> = context
+        .cell
+        .method_slots()
+        .iter()
+        .map(|(slot, _, _)| slot.index)
+        .collect();
+    for (name, signature, parameter) in [("next", NEXT, None), ("any", ANY, Some("f"))] {
+        let method = Method {
+            name,
+            signature: String::from(signature),
+            receiver: Receiver::Exclusive,
+            argument: None,
+            node: Node::Tag,
+            asyncness: false,
+            unsafety: false,
+            turbofish: "",
+            slots: slots.clone(),
+            fallback: None,
+            inherent: false,
+            callee: Callee::Method,
+            lift: Lift::Bare,
+            target: Node::Tag,
+            by_place: false,
+            attributes: Vec::new(),
+            inline: "inline",
+            parameter: parameter.unwrap_or(""),
+            passes: parameter.is_some(),
+            hands_enum: false,
+            trait_path: String::from(real),
+            instance: None,
+            own_arms: Vec::new(),
+            conditional: Vec::new(),
+        };
+        write_method(writer, context, &method);
     }
     writer.close("}");
 }

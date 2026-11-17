@@ -4,7 +4,7 @@
 use crate::cell::Cell;
 use crate::model::agreement::AgreementDescriptor;
 use crate::model::argument::{ArgumentDescriptor, ArgumentKind, MismatchSite};
-use crate::model::declaration::{DeclarationDescriptor, DISPLAY, REAL};
+use crate::model::declaration::{DeclarationDescriptor, Foreign, REAL};
 use crate::model::generics::GenericsDescriptor;
 use crate::model::home::HomeDescriptor;
 use crate::model::item::ItemDescriptor;
@@ -290,8 +290,8 @@ impl Context {
     /// Returns the trait as an impl names it, its arguments included:
     /// `Probe<support::Json>`, `Probe<N>`.
     pub fn trait_path(&self) -> String {
-        if self.foreign() {
-            return String::from(DISPLAY);
+        if let Some(foreign) = self.declaration.foreign {
+            return String::from(foreign.path());
         }
         format!("{TRAIT}{}", self.generics.argument)
     }
@@ -314,8 +314,15 @@ impl Context {
         }
     }
 
-    /// Returns whether the trait under test is `whichever::foreign::Display`.
+    /// Returns whether the trait under test is a restatement
+    /// `whichever::foreign` ships.
     pub fn foreign(&self) -> bool {
+        self.declaration.foreign.is_some()
+    }
+
+    /// Returns the restatement `whichever::foreign` ships that the trait
+    /// under test is, if it is one.
+    pub fn foreign_trait(&self) -> Option<Foreign> {
         self.declaration.foreign
     }
 

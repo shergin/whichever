@@ -1,9 +1,10 @@
 //! `foreign::DoubleEndedIterator` and `foreign::ExactSizeIterator`.
 //! The closed set is shaped like darling_core 0.24.1's private iterator:
 //! a single item or a vector's, each trait dispatched beside `Iterator`.
-//! The open set holds a `Box<dyn DoubleEndedIterator>` in a `deref`
-//! variant, so the methods that require `Self: Sized` are left to the
-//! trait's default in partial blocks.
+//! The open set holds a `Box<dyn DoubleEndedIterator>` without `deref`:
+//! the box is itself a `DoubleEndedIterator`, so every method of both
+//! traits is the box's, and no partial block is needed. The same holds of
+//! a `Box<dyn ExactSizeIterator>` under `ExactSizeIterator`.
 use std::iter::{self, Once};
 use std::ops::Range;
 use std::vec;
@@ -65,35 +66,11 @@ fn rfold_and_rfind_are_forwarded() {
     assert_eq!(many.next_back(), Some(1));
 }
 
-#[whichever::dispatch]
+#[whichever::dispatch(whichever::foreign::Iterator)]
+#[whichever::dispatch(whichever::foreign::DoubleEndedIterator)]
 enum AnyDoubleEnded {
     Range(Range<u32>),
-    #[dispatch(deref)]
     Dyn(Box<dyn DoubleEndedIterator<Item = u32>>),
-}
-
-#[whichever::dispatch]
-impl whichever::foreign::Iterator for AnyDoubleEnded {
-    #[dispatch(default)]
-    fn count(self) -> usize;
-    #[dispatch(default)]
-    fn last(self) -> Option<u32>;
-    #[dispatch(default)]
-    fn fold<B, F>(self, init: B, f: F) -> B
-    where
-        F: FnMut(B, u32) -> B;
-}
-
-#[whichever::dispatch]
-impl whichever::foreign::DoubleEndedIterator for AnyDoubleEnded {
-    #[dispatch(default)]
-    fn rfold<B, F>(self, init: B, f: F) -> B
-    where
-        F: FnMut(B, u32) -> B;
-    #[dispatch(default)]
-    fn rfind<P>(&mut self, predicate: P) -> Option<u32>
-    where
-        P: FnMut(&u32) -> bool;
 }
 
 fn range() -> AnyDoubleEnded {
@@ -118,7 +95,7 @@ fn the_back_reaches_the_boxed_trait_object() {
 }
 
 #[test]
-fn rfold_and_rfind_take_the_default_on_both_variants() {
+fn rfold_and_rfind_are_forwarded_to_the_box() {
     assert_eq!(boxed().rfold(String::new(), digits), "321");
     assert_eq!(range().rfold(String::new(), digits), "321");
     let mut dynamic = boxed();
@@ -126,4 +103,20 @@ fn rfold_and_rfind_take_the_default_on_both_variants() {
     assert_eq!(dynamic.next_back(), Some(1));
     assert_eq!(range().rfind(|&number| number > 5), None);
     assert_eq!(boxed().count(), 3);
+}
+
+#[whichever::dispatch(whichever::foreign::Iterator)]
+#[whichever::dispatch(whichever::foreign::ExactSizeIterator)]
+enum AnyExactSize {
+    Range(Range<u32>),
+    Dyn(Box<dyn ExactSizeIterator<Item = u32>>),
+}
+
+#[test]
+fn len_reaches_the_boxed_trait_object() {
+    let mut dynamic = AnyExactSize::Dyn(Box::new(vec![1u32, 2, 3].into_iter()));
+    assert_eq!(dynamic.len(), 3);
+    dynamic.next();
+    assert_eq!(dynamic.len(), 2);
+    assert_eq!(AnyExactSize::Range(0..5).len(), 5);
 }

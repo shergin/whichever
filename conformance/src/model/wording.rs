@@ -425,13 +425,18 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         ),
         Limit::MismatchForAbsentMethod => push(Some(format!("`Probe` has no method {method}"))),
         // The sentence is on the method and names the variant that holds
-        // the trait object, and the mark that leaves the method to the
-        // trait's default.
+        // the trait object, the mark that leaves the method to the trait's
+        // default, and the pointer held without `deref`, which is the way
+        // where the pointer implements the trait itself
+        // (foreign-traits-are-restated.md: a `Box<dyn Iterator>` does).
         Limit::SizedOnObject => {
             push(Some(format!("{method} requires `Self: Sized`")));
             push(Some(format!(
                 "`#[dispatch(default)] fn {}(..);`",
                 method.trim_matches('`')
+            )));
+            push(Some(String::from(
+                "hold `Box<dyn Probe>` without `deref` where it implements the trait itself",
             )));
             let objects: Vec<String> = cell
                 .method_slots()
