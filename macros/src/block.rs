@@ -14,6 +14,7 @@ use crate::protocol::{carrier_path, BlockInput, TraitRequest};
 use crate::site::Site;
 use crate::spelling;
 use crate::subject::{cfg_attributes, Entries, Subject};
+use crate::words::Words;
 
 /// Hands a partial trait impl block to the trait's carrier macro, together
 /// with the subject, so that `implement!` can write the rest of the impl
@@ -123,6 +124,7 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         Some(subject.read()?)
     };
     let mut items = Vec::with_capacity(item_impl.items.len());
+    let words = subject.words();
     let site = Site::at(item_impl.impl_token.span);
     let mut sentences = TokenStream2::new();
     let mut report = |cfgs: &[Attribute], error: Error| {
@@ -137,7 +139,10 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
                     &cfg_attributes(&attrs),
                     Error::new_spanned(
                         &sig,
-                        "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                        match words {
+                            Words::Enum => "a method without a body needs `#[dispatch(*)]` to be forwarded to every variant",
+                            Words::Struct => "a method without a body needs `#[dispatch(*)]` to be forwarded to the struct's field",
+                        },
                     ),
                 );
                 continue;
@@ -164,17 +169,19 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
             continue;
         };
         let cfgs = cfg_attributes(&method.attrs);
-        let forwarded = method.mark(ForwardingOptions::read).and_then(|forwarding| {
-            forward_method(
-                &method.attrs,
-                &method.vis,
-                &method.sig,
-                method.body.as_ref(),
-                forwarding,
-                variants,
-                &subject,
-            )
-        });
+        let forwarded = method
+            .mark(|mark| ForwardingOptions::read(mark, words))
+            .and_then(|forwarding| {
+                forward_method(
+                    &method.attrs,
+                    &method.vis,
+                    &method.sig,
+                    method.body.as_ref(),
+                    forwarding,
+                    variants,
+                    &subject,
+                )
+            });
         match forwarded {
             Ok(generated) => items.push(ImplItem::Verbatim(generated)),
             Err(error) => {

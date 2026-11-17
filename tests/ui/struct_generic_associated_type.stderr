@@ -1,0 +1,12 @@
+error: `Item` is a generic associated type, which only the struct can declare; write `type Item<'a> = ..;` in a `#[whichever::dispatch] impl Lend for Wrapper` block
+  --> tests/ui/struct_generic_associated_type.rs:5:5
+   |
+ 5 | /     type Item<'a>
+ 6 | |     where
+ 7 | |         Self: 'a;
+   | |_________________^
+...
+20 |   #[whichever::dispatch(Lend)]
+   |                         ---- in this macro invocation
+   |
+   = note: this error originates in the macro `Lend` (in Nightly builds, run with -Z macro-backtrace for more info)

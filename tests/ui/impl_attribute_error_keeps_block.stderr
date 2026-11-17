@@ -1,4 +1,4 @@
-error: `#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method
+error: `#[dispatch]` on an inherent impl block takes no arguments; each method says what it forwards to in its own `#[dispatch(..)]`
   --> tests/ui/impl_attribute_error_keeps_block.rs:10:23
    |
 10 | #[whichever::dispatch(Shape)]

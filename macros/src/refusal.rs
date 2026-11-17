@@ -13,6 +13,7 @@ use syn::{Error, Ident, Signature};
 use crate::shape::Pointer;
 use crate::spelling;
 use crate::subject::{Holder, Target};
+use crate::words::Words;
 
 /// The ways out a sentence offers a method that cannot be forwarded as it
 /// is written: an impl by hand on the trait path, a body on the inherent
@@ -29,6 +30,9 @@ pub(crate) struct WayOut {
     /// Whether that body holds arms of the method's own, under `*`, so
     /// that a variant is answered by one more arm and by nothing less.
     pub(crate) own_arms: bool,
+    /// Whose words the way out is said in: the body of an enum's method
+    /// answers for every variant, and a struct has none.
+    pub(crate) words: Words,
 }
 
 impl WayOut {
@@ -40,7 +44,10 @@ impl WayOut {
             return "drop its `#[dispatch(*)]` and write every variant's arm in the body";
         }
         if self.has_body {
-            return "drop its `#[dispatch(..)]`, and the body answers for every variant";
+            return match self.words {
+                Words::Enum => "drop its `#[dispatch(..)]`, and the body answers for every variant",
+                Words::Struct => "drop its `#[dispatch(..)]`, and the body answers by itself",
+            };
         }
         self.by_hand()
     }
@@ -257,6 +264,7 @@ mod tests {
             on_trait,
             has_body,
             own_arms: false,
+            words: Words::Enum,
         }
     }
 
@@ -297,6 +305,20 @@ mod tests {
     }
 
     #[test]
+    fn a_structs_method_with_a_body_is_answered_by_the_body_alone() {
+        for on_trait in [true, false] {
+            let with_body = WayOut {
+                words: Words::Struct,
+                ..way_out(on_trait, true)
+            };
+            assert_eq!(
+                with_body.of_method(),
+                "drop its `#[dispatch(..)]`, and the body answers by itself"
+            );
+        }
+    }
+
+    #[test]
     fn a_method_with_arms_of_its_own_is_given_one_more_on_either_path() {
         let variant: Ident = parse_quote!(Circle);
         for on_trait in [true, false] {
@@ -304,6 +326,7 @@ mod tests {
                 on_trait,
                 has_body: true,
                 own_arms: true,
+                words: Words::Enum,
             };
             assert_eq!(
                 own_arms.of_method(),

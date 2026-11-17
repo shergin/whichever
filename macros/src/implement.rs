@@ -15,6 +15,7 @@ use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{Entries, Subject, Target};
 use crate::substitution::Substitution;
+use crate::words::Words;
 
 pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     let ImplementInput {
@@ -33,7 +34,10 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         .last()
         .expect("a path has at least one segment")
         .ident;
-    let block = partial.map(PartialBlock::read).transpose()?;
+    let words = subject.words();
+    let block = partial
+        .map(|block| PartialBlock::read(block, words))
+        .transpose()?;
     // An associated type written in the block is an override like the
     // `Name = Type` option.
     for (name, ty) in block.iter().flat_map(|block| &block.declared_types) {
@@ -161,12 +165,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     // is reported beside the impl, which is right without it; only an item
     // that cannot be written withholds the impl.
     let mut reported = route_errors;
-    reported.extend(options.unknown_names(
-        item_trait,
-        trait_ident,
-        subject.has_one_target(),
-        block.is_none(),
-    ));
+    reported.extend(options.unknown_names(item_trait, trait_ident, words, block.is_none()));
     // An item that withholds the impl is reported with the errors that
     // would have stood beside it, so that none waits for the next build.
     if !errors.is_empty() {
@@ -257,7 +256,12 @@ impl Impl<'_> {
         let Some(first) = self.supplier else {
             return Err(Error::new_spanned(
                 subject,
-                format!("every variant of `{subject}` is under `#[cfg]` or reached through a field or a method, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`"),
+                match self.subject.words() {
+                    Words::Enum => format!("every variant of `{subject}` is under `#[cfg]` or reached through a field or a method, so none can supply `{name}` in every build; fix it on the enum with `{name} = ..`"),
+                    // A struct has the one field, whose type a route
+                    // through a field or a method leaves unnamed.
+                    Words::Struct => format!("the field of `{subject}` is reached through a field or a method, so its type cannot be named to supply `{name}`; fix it on the struct with `{name} = ..`"),
+                },
             ));
         };
         let payload = first

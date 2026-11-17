@@ -132,7 +132,15 @@ named field is the one the hand rebuilds by its braces and
 which a `Self` under an `Option` or a `Result` cannot be rebuilt into. A struct
 has no second variant, so `s1` stays `none`, and its one arm hands a
 return-position `impl Trait` or a future over as it is, as
-`docs/structs.md` says.
+`docs/structs.md` says. A sentence about a struct speaks of the struct and
+its field, never of an enum or a variant, and the wording checks it where
+the model reaches one: a generic associated type only the struct can
+declare, and a body beside a method forwarded to the struct's field. A
+struct's sentences the model does not reach stay with `tests/ui`: a trait
+method without a receiver, which the `recv` axis does not write; a field
+reached through a route, which no struct value takes, so none leaves an
+associated type to supply; and a method of a block that names the
+struct's field, which no path writes.
 
 The `s0` value `marked-last` marks the last field of a tuple variant,
 `A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as

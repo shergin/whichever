@@ -379,7 +379,7 @@ impl Limit {
             // that leaves the type out.
             Limit::GenericAssociatedType => entry(
                 "generic-associated-type",
-                "is a generic associated type, which only the enum can declare; write `type",
+                "is a generic associated type, which only the",
                 "generic_associated_type",
             ),
             Limit::ArmNamingNoVariant => entry(

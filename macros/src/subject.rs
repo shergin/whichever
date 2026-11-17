@@ -15,6 +15,7 @@ use crate::options::{is_dispatch_attribute, trait_key, Position, TargetOptions, 
 use crate::route::Route;
 use crate::shape::{bare_ident, is_self, pointee, Pointer};
 use crate::site::Site;
+use crate::words::Words;
 
 /// The item an impl is written for: an enum over implementors, or a struct
 /// wrapping one.
@@ -65,12 +66,18 @@ impl Subject {
         matches!(self, Subject::Struct(_))
     }
 
+    /// Returns the words a sentence about the subject speaks: an enum's,
+    /// with its variants, or a struct's, with its field.
+    pub(crate) fn words(&self) -> Words {
+        match self {
+            Subject::Enum(_) => Words::Enum,
+            Subject::Struct(_) => Words::Struct,
+        }
+    }
+
     /// Returns what the subject's targets are called in messages.
     pub(crate) fn target_noun(&self) -> &'static str {
-        match self {
-            Subject::Enum(_) => "variant",
-            Subject::Struct(_) => "field",
-        }
+        self.words().target()
     }
 
     /// Returns the subject without the `#[dispatch]` attributes on its
@@ -327,8 +334,9 @@ impl<'a> Entries<'a> {
                 None => errors.push(Error::new(
                     variant.span(),
                     format!(
-                        "`{}` has no variant `{variant}` to route through",
-                        self.subject.ident()
+                        "`{}` has no {} `{variant}` to route through",
+                        self.subject.ident(),
+                        self.subject.target_noun()
                     ),
                 )),
             }

@@ -1,4 +1,4 @@
-error: `*` already names every variant
+error: `*` already names the field the struct forwards to; name a field or `*`, not both
   --> tests/ui/block_method_under_a_cfg_that_holds.rs:52:19
    |
 52 |     #[dispatch(*, shape)]

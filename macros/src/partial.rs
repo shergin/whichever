@@ -14,6 +14,7 @@ use crate::builds::Builds;
 use crate::marked::{BlockItem, Marked};
 use crate::options::{ForwardingOptions, TraitMark};
 use crate::subject::cfg_attributes;
+use crate::words::Words;
 
 /// A partial impl block: the user's own impl of a trait for the subject,
 /// holding the items the subject implements itself; the rest is forwarded
@@ -39,7 +40,7 @@ impl PartialBlock {
     /// Reads the block. A method marked `#[dispatch(..)]`, or declared
     /// without a body, is the engine's to write; every other item is the
     /// user's.
-    pub(crate) fn read(block: ItemImpl) -> Result<Self> {
+    pub(crate) fn read(block: ItemImpl, words: Words) -> Result<Self> {
         let mut written: HashMap<String, Written> = HashMap::new();
         let mut marked: HashMap<String, Vec<BlockMethod>> = HashMap::new();
         let mut declared_types = vec![];
@@ -51,13 +52,16 @@ impl PartialBlock {
                     marked
                         .entry(name)
                         .or_default()
-                        .push(BlockMethod::read(method)?);
+                        .push(BlockMethod::read(method, words)?);
                     continue;
                 }
                 BlockItem::Bodyless { sig, .. } => {
                     return Err(Error::new_spanned(
                         &sig,
-                        format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
+                        match words {
+                            Words::Enum => format!("`{}` has no body; forward it with `#[dispatch(*)]` or `#[dispatch(Variant, ..)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
+                            Words::Struct => format!("`{}` has no body; forward it to the struct's field with `#[dispatch(*)]`, or leave it to the trait's default with `#[dispatch(default)]`", sig.ident),
+                        },
                     ));
                 }
                 BlockItem::Unread(tokens) => {
@@ -156,8 +160,8 @@ pub(crate) enum BlockMethod {
 impl BlockMethod {
     /// Reads a marked method by its mark: left to the trait's default, or
     /// forwarded to the variants it names.
-    fn read(mut method: Marked) -> Result<Self> {
-        match method.mark(TraitMark::read)? {
+    fn read(mut method: Marked, words: Words) -> Result<Self> {
+        match method.mark(|mark| TraitMark::read(mark, words))? {
             TraitMark::Default => {
                 if let Some(body) = &method.body {
                     return Err(Error::new_spanned(
@@ -217,14 +221,14 @@ mod tests {
     use super::*;
 
     fn read(block: ItemImpl) -> PartialBlock {
-        match PartialBlock::read(block) {
+        match PartialBlock::read(block, Words::Enum) {
             Ok(block) => block,
             Err(error) => panic!("a partial block: {error}"),
         }
     }
 
     fn refused(block: ItemImpl) -> String {
-        match PartialBlock::read(block) {
+        match PartialBlock::read(block, Words::Enum) {
             Ok(_) => panic!("expected an error"),
             Err(error) => error.to_string(),
         }
@@ -363,6 +367,22 @@ mod tests {
         assert!(
             twice.starts_with("one `#[dispatch(..)]` per method"),
             "{twice}"
+        );
+    }
+
+    #[test]
+    fn a_bodyless_method_over_a_struct_is_forwarded_to_its_field() {
+        let block: ItemImpl = parse_quote! {
+            impl Shape for Wrapper {
+                fn area(&self) -> u32;
+            }
+        };
+        let Err(error) = PartialBlock::read(block, Words::Struct) else {
+            panic!("expected an error");
+        };
+        assert_eq!(
+            error.to_string(),
+            "`area` has no body; forward it to the struct's field with `#[dispatch(*)]`, or leave it to the trait's default with `#[dispatch(default)]`"
         );
     }
 }

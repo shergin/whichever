@@ -360,10 +360,11 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         Limit::DefaultWithoutDefault => {
             push(Some(format!("{method} has no default body in `Probe")))
         }
-        // A struct is forwarded to its field
-        // (`inherent_all_with_body_on_a_struct`).
+        // A struct is forwarded to its field, and the sentence speaks of
+        // the struct and its field (`inherent_all_with_body_on_a_struct`,
+        // #18).
         Limit::BodyNeverRuns => push(Some(match cell.s0.descriptor().is_struct() {
-            true => format!("{method} is forwarded to every field"),
+            true => format!("{method} is forwarded to the struct's field"),
             false => format!("{method} is forwarded to every variant"),
         })),
         Limit::ArmNamingNoVariant => push(Some(format!("an arm of {method} names the variants"))),
@@ -451,6 +452,11 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
         // subject that borrows included.
         Limit::GenericAssociatedType => {
             push(Some(String::from("`Item` is a generic associated type")));
+            // A sentence about a struct speaks of the struct (#18).
+            push(Some(match cell.s0.descriptor().is_struct() {
+                true => String::from("which only the struct can declare"),
+                false => String::from("which only the enum can declare"),
+            }));
             push(Some(String::from("`type Item<'v> = ..;`")));
             let borrows = cell
                 .live_slots()

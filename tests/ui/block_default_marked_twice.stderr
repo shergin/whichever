@@ -1,4 +1,4 @@
-error: one `#[dispatch(..)]` per method; name every variant it forwards to in that one
+error: one `#[dispatch(..)]` per method; say in that one everything the method forwards to
   --> tests/ui/block_default_marked_twice.rs:27:5
    |
 27 |     #[dispatch(*)]

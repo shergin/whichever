@@ -129,6 +129,7 @@ src/
   selection.rs     which targets a method's mark names, `OwnArms` under `*`, and the check on its body
   shape.rs         classifying receivers, arguments, return types and pointers
   spelling.rs      how a type, a path or a route is spelled in a sentence
+  words.rs         `Words`: whether a sentence speaks of an enum and its variants or of a struct and its field
   substitution.rs  the trait's generics replaced by the subject's arguments, the subject's by a header's
   agreement.rs     the associated type and const checks
   conversions.rs   `From`, `TryFrom` and `into = Target`
@@ -143,8 +144,8 @@ them, and the review of 2026-11-15 added `builds.rs`, `site.rs`,
 token streams in the modules around it. `shape.rs`, `options.rs`,
 `protocol.rs`, `substitution.rs`, `route.rs`, `spelling.rs`, `naming.rs`,
 `dispatchable.rs`, `builds.rs`, `subject.rs`, `signatures.rs`,
-`marked.rs`, `partial.rs`, `forwarding.rs` and `refusal.rs` have unit
-tests through `parse_quote!`, which the monolith made impractical.
+`marked.rs`, `partial.rs`, `forwarding.rs`, `refusal.rs` and `words.rs`
+have unit tests through `parse_quote!`, which the monolith made impractical.
 
 ### 3.2 The forwarding engine
 
@@ -439,8 +440,10 @@ rewraps and converts (golden `overridden_results`); `(Self, u32)` and
 `Subject` keeps its two cases and answers the questions the generators ask
 instead of being asked what it is: whether two values of it can hold
 different targets (an enum can, so a `Self` argument needs a mismatch
-arm), whether it has conversions, whether it has one target, and what its
-targets are called in a sentence. The subject's carrier is named
+arm), whether it has conversions, whether it has one target, and what a
+sentence calls it: `Subject::words` answers `Words::Enum`, whose sentences
+speak of the enum and its variants, or `Words::Struct`, whose sentences
+speak of the struct and its field and never of a variant. The subject's carrier is named
 `__whichever_dispatch_..` for both cases, after the attribute that writes
 it.
 
@@ -565,14 +568,22 @@ one typed struct per position. On a subject the attribute is a
 and what a partial block's attribute holds, whose grammar refuses a trait
 path and a subject's option. `SubjectOptions` holds the subject's `from`,
 `try_from`, `into` and `remote`, each with the span it was written at, read
-where the subject is expanded and never sent. `TargetOptions::read` reads
+where the subject is expanded and never sent. Who reads a list is a
+`Reader`, which decides the words of its sentences:
+`DispatchAttribute::read` reads the subject's own attribute as
+`Reader::Subject` with the subject's `Words`, so an unknown option lists a
+struct's options on a struct and an enum's on an enum, and a partial
+block's attribute is read as `Reader::Block`, whose sentences name neither
+and list the trait's options, the ones a block takes. `TargetOptions::read` reads
 a variant's or a field's attributes at a `Position`: on a variant a route
 and the variant's say on the conversions, on a variant's field a route
 alone, `deref` or `via`, and on a struct's field a route and the traits the
 field is the target of. A method's mark is a `ForwardingOptions` in an
 inherent block and a `TraitMark` in a partial block: `default`, or the
 variants and `via`, with the inherent options `call`, `with`, `field` and
-`value` refused. `method_mismatch` reads a trait method's `mismatch = ..`
+`value` refused; both are read in the subject's `Words`, since the carrier
+has brought the subject by then, so a struct's bare mark asks for its
+field. `method_mismatch` reads a trait method's `mismatch = ..`
 and `DispatchableOptions` a trait's `remote` and `name`.
 The right-hand side of `Name = ..` stays a `TokenStream` until `implement!`
 knows whether `Name` is an associated type or const, and is parsed as a
@@ -590,6 +601,14 @@ accident of one compiler per build. Token positions stay in the name, and
 with them the 1.88 minimum.
 
 ### 3.8 Diagnostics policy
+
+A sentence speaks of the item the user wrote. It is written where the
+subject is known, at the subject's own attribute and inside `implement!`
+and `implement_block!`, and takes its words from `Subject::words`: an
+enum's sentence names its variants, a struct's its field. The attribute of
+an impl block is read before the subject's carrier brings the subject, so a
+sentence written there (`Reader::Block`) names neither an enum nor a
+struct.
 
 Every generator collects errors with `syn::Error::combine` and reports all
 of them, and every generator emits the item. A trait method that cannot be

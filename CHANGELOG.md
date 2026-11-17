@@ -5,6 +5,49 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- Before, several sentences about a dispatch struct spoke of variants and
+  the enum: a struct whose field is reached through a method, under a
+  trait with an associated type, read "every variant of `Wrapped` is under
+  `#[cfg]` or reached through a field or a method, ...; fix it on the enum
+  with `Unit = ..`". A sentence is now written in the words of the item the
+  attribute is on, so the same struct reads "the field of `Wrapped` is
+  reached through a field or a method, so its type cannot be named to
+  supply `Unit`; fix it on the struct with `Unit = ..`". The same holds
+  for a generic associated type ("which only the struct can declare"), a
+  trait method without a receiver ("no field to forward to"), an unknown
+  option (a struct's list has no conversion and no `mismatch`), an
+  override naming nothing in the trait (a struct's other option is a
+  route, `via(field = route)`), a method's mark that names nothing or
+  names `*` beside a field, a body under a forwarded mark ("forwarded to
+  the struct's field"), a bodiless method without a mark in an inherent or
+  a partial block, a return-type limit on a method with a body ("the body
+  answers by itself"), and a trait's route keyed by a name the struct has
+  no field of. A partial impl block's own attribute is read before the
+  enum or the struct is known, so its sentences name neither: a generic
+  associated type there is one "which the block declares and no option
+  gives", an unknown option
+  lists the trait's options, and a conversion option is "an option of an
+  enum's own `#[dispatch]` attribute; a block's attribute takes the
+  trait's options only". Three sentences that spoke of variants on either
+  item now speak of neither: a second mark on a method, arguments on an
+  inherent block's attribute, and an inherent option on a trait method's
+  mark. Only the words changed. The `tests/ui` cases
+  `struct_field_through_a_method_supplies_no_type`,
+  `struct_generic_associated_type`, `struct_gat_override_option`,
+  `gat_override_on_a_blocks_attribute`,
+  `struct_trait_method_without_receiver`, `struct_unknown_option`,
+  `block_unknown_option`, `struct_override_naming_nothing`,
+  `struct_method_marks_naming_no_field`,
+  `struct_inherent_bodiless_without_attribute`,
+  `struct_block_bodiless_without_attribute`,
+  `struct_lift_over_a_wrapped_self` and `struct_route_through_no_field`
+  are new; `block_default_marked_twice`,
+  `block_method_under_a_cfg_that_holds`, `block_method_with_call`,
+  `impl_attribute_error_keeps_block`,
+  `impl_attribute_error_keeps_own_arms_under_a_boxed_receiver`,
+  `inherent_all_with_body_on_a_struct`, `partial_enum_option`,
+  `two_inherent_attributes` and `unknown_option_names` moved with the
+  words.
 - Before, `whichever::foreign::Iterator` forwarded `next`, `size_hint`,
   `count`, `last`, `nth` and `fold`, and every other provided method ran
   the trait's default on the enum, so a payload's override was hidden:

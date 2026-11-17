@@ -8,7 +8,7 @@
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use syn::parse::discouraged::Speculative;
-use syn::parse::{Parse, ParseStream};
+use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{
     parenthesized, Attribute, Error, Expr, Ident, ItemTrait, LitBool, LitInt, Member, Meta, Path,
@@ -18,6 +18,7 @@ use syn::{
 use crate::route::Route;
 use crate::shape::takes_self_argument;
 use crate::spelling;
+use crate::words::Words;
 
 /// Returns the candidate closest to `name` when it is within one edit, or
 /// within two when both names are long enough for two edits to leave them
@@ -147,7 +148,7 @@ impl TraitOptions {
         &self,
         item_trait: &ItemTrait,
         trait_ident: &Ident,
-        one_target: bool,
+        words: Words,
         on_subject: bool,
     ) -> Vec<Error> {
         let mut errors = vec![];
@@ -165,7 +166,7 @@ impl TraitOptions {
             if associated.contains(&name) {
                 continue;
             }
-            let hint = unknown_override_hint(&name, &associated, one_target, on_subject);
+            let hint = unknown_override_hint(&name, &associated, words, on_subject);
             errors.push(Error::new(
                 fixed.name.span(),
                 format!("`{trait_ident}` has no associated type or const `{name}`; {hint}"),
@@ -212,35 +213,44 @@ impl TraitOptions {
 /// Returns the second half of the message for an override naming nothing in
 /// the trait: the item or option probably meant, where the forwarded field
 /// or variants are chosen when the name is a field-choosing option of
-/// another crate, or else everything there is to name.
+/// another crate, or else everything there is to name. The conversions and
+/// the mismatch are an enum's: a struct has neither to mean.
 fn unknown_override_hint(
     name: &str,
     associated: &[String],
-    one_target: bool,
+    words: Words,
     on_subject: bool,
 ) -> String {
     if let Some(near) = closest(name, associated.iter().map(String::as_str)) {
         return format!("did you mean `{near}`?");
     }
-    let switches = if on_subject {
-        &["from", "try_from"][..]
-    } else {
-        &[]
+    let switches = match (words, on_subject) {
+        (Words::Enum, true) => &["from", "try_from"][..],
+        _ => &[],
     };
     if let Some(near) = closest(name, switches.iter().copied()) {
         return format!("did you mean the enum's option `{near} = ..`?");
     }
     if matches!(name, "target" | "to" | "field" | "delegate" | "via") {
-        return if one_target {
-            "a struct forwards to its one field, or to the field marked `#[dispatch]`".to_owned()
-        } else {
-            "an enum forwards to every variant, and an inherent method names the variants it forwards to".to_owned()
+        return match words {
+            Words::Struct => "a struct forwards to its one field, to the field marked `#[dispatch]`, or to the one that names the trait, `#[dispatch(Trait)]`".to_owned(),
+            Words::Enum => "an enum forwards to every variant, and an inherent method names the variants it forwards to".to_owned(),
         };
     }
-    let options = if on_subject {
-        "`mismatch(method = expr)`, `from = false` and `try_from = true`"
-    } else {
-        "`mismatch(method = expr)`"
+    let options = match (words, on_subject) {
+        (Words::Struct, _) => {
+            return if associated.is_empty() {
+                "it has none, and a struct's other option is a route, `via(field = route)`"
+                    .to_owned()
+            } else {
+                format!(
+                    "its associated items are {}, and a struct's other option is a route, `via(field = route)`",
+                    listed(associated)
+                )
+            };
+        }
+        (Words::Enum, true) => "`mismatch(method = expr)`, `from = false` and `try_from = true`",
+        (Words::Enum, false) => "`mismatch(method = expr)`",
     };
     if associated.is_empty() {
         return format!("it has none, and the other options are {options}");
@@ -260,11 +270,11 @@ impl Parse for TraitOptions {
             path,
             options,
             subject,
-        } = input.parse()?;
+        } = DispatchAttribute::parse_for(input, Reader::Block)?;
         if let Some(span) = subject.first_span() {
             return Err(Error::new(
                 span,
-                "`from`, `try_from`, `into` and `remote` are options of the enum; put them on its `#[dispatch]` attribute",
+                "`from`, `try_from`, `into` and `remote` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only",
             ));
         }
         if let Some(path) = path {
@@ -332,8 +342,34 @@ impl DispatchAttribute {
     }
 }
 
+/// Who reads a list of a trait's options, which decides the words its
+/// sentences speak.
+#[derive(Clone, Copy)]
+pub(crate) enum Reader {
+    /// The subject's own attribute, read where the subject is: in the
+    /// subject's words.
+    Subject(Words),
+    /// A partial impl block's attribute, read before the subject's carrier
+    /// brings the subject: its sentences name neither an enum nor a struct.
+    Block,
+}
+
 impl Parse for DispatchAttribute {
+    /// An enum's own attribute; `read` takes the subject's words.
     fn parse(input: ParseStream) -> Result<Self> {
+        Self::parse_for(input, Reader::Subject(Words::Enum))
+    }
+}
+
+impl DispatchAttribute {
+    /// Reads the arguments of the subject's own attribute, in `words`.
+    pub(crate) fn read(arguments: TokenStream2, words: Words) -> Result<Self> {
+        let parser = |input: ParseStream| Self::parse_for(input, Reader::Subject(words));
+        parser.parse2(arguments)
+    }
+
+    /// Parses the list as `reader` reads it.
+    fn parse_for(input: ParseStream, reader: Reader) -> Result<Self> {
         let starts_with_option =
             input.peek(Ident) && (input.peek2(Token![=]) || input.peek2(syn::token::Paren));
         let path = if input.is_empty() || starts_with_option {
@@ -351,7 +387,7 @@ impl Parse for DispatchAttribute {
             // `Item<'a> = ..` as the first thing is read as a trait path.
             if input.peek(Token![=]) {
                 if let [segment] = path.segments.iter().collect::<Vec<_>>().as_slice() {
-                    return Err(gat_override(&segment.ident, None));
+                    return Err(gat_override(&segment.ident, None, reader));
                 }
             }
             if !input.is_empty() {
@@ -388,12 +424,17 @@ impl Parse for DispatchAttribute {
                 return Ok(());
             }
             if input.peek(Token![<]) {
-                return Err(gat_override(&key, path.as_ref()));
+                return Err(gat_override(&key, path.as_ref(), reader));
             }
             if !input.peek(Token![=]) {
                 return Err(Error::new(
                     key.span(),
-                    format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
+                    match reader {
+                        Reader::Subject(Words::Enum) => format!("unknown option `{key}`; the options are `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)`, `via(Variant = route)`, `from = false`, `try_from = true`, `into = Target` and `remote = path`"),
+                        // The conversions and the mismatch are an enum's.
+                        Reader::Subject(Words::Struct) => format!("unknown option `{key}`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)` and `remote = path`"),
+                        Reader::Block => format!("unknown option `{key}`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)`"),
+                    },
                 ));
             }
             input.parse::<Token![=]>()?;
@@ -426,14 +467,18 @@ fn given_twice(key: &Ident) -> Error {
 }
 
 /// The error for `Name<..> = Type`, an attempt to fix a generic associated
-/// type with an option: only a partial impl block declares one.
-fn gat_override(name: &Ident, trait_path: Option<&Path>) -> Error {
+/// type with an option: only a partial impl block declares one. On a
+/// block's own attribute the block is the place.
+fn gat_override(name: &Ident, trait_path: Option<&Path>, reader: Reader) -> Error {
     let trait_name = trait_path
         .map(spelling::spelled)
         .unwrap_or_else(|| "Trait".to_owned());
     Error::new(
         name.span(),
-        format!("`{name}<..>` is a generic associated type, which only the enum can declare; write `type {name}<..> = ..;` in a `#[whichever::dispatch] impl {trait_name} for ..` block"),
+        match reader {
+            Reader::Subject(words) => format!("`{name}<..>` is a generic associated type, which only the {} can declare; write `type {name}<..> = ..;` in a `#[whichever::dispatch] impl {trait_name} for ..` block", words.subject()),
+            Reader::Block => format!("`{name}<..>` is a generic associated type, which the block declares and no option gives; write `type {name}<..> = ..;` in the block"),
+        },
     )
 }
 
@@ -819,14 +864,14 @@ impl TraitMark {
     /// Reads the mark of a partial block's method: `default`, or the
     /// variants and the options an inherent method takes, of which only the
     /// names and `via` apply to a trait method.
-    pub(crate) fn read(attribute: &Attribute) -> Result<Self> {
+    pub(crate) fn read(attribute: &Attribute, words: Words) -> Result<Self> {
         let default = attribute
             .parse_args::<Ident>()
             .is_ok_and(|word| word == "default");
         if default {
             return Ok(TraitMark::Default);
         }
-        let forwarding = ForwardingOptions::read(attribute)?;
+        let forwarding = ForwardingOptions::read(attribute, words)?;
         let inherent_only = [
             forwarding.call.as_ref().map(|_| "`call`"),
             forwarding.with.as_ref().map(|_| "`with`"),
@@ -836,7 +881,7 @@ impl TraitMark {
         if let Some(option) = inherent_only.into_iter().flatten().next() {
             return Err(Error::new_spanned(
                 attribute,
-                format!("{option} is an option of an inherent method; a trait method is called by its own name on every variant it names, and takes `via` only"),
+                format!("{option} is an option of an inherent method; a trait method is called by its own name, and takes `via` only"),
             ));
         }
         Ok(TraitMark::Forward(forwarding))
@@ -860,21 +905,32 @@ pub(crate) struct ForwardingOptions {
 }
 
 impl ForwardingOptions {
-    /// Reads the mark of an inherent method; a bare `#[dispatch]` names no
-    /// variant.
-    pub(crate) fn read(attribute: &Attribute) -> Result<Self> {
+    /// Reads the mark of an inherent method, in the subject's `words`; a
+    /// bare `#[dispatch]` names no variant and no field.
+    pub(crate) fn read(attribute: &Attribute, words: Words) -> Result<Self> {
         if matches!(attribute.meta, Meta::Path(_)) {
             return Err(Error::new_spanned(
                 attribute,
-                "name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them",
+                match words {
+                    Words::Enum => "name the variants to forward to, `#[dispatch(Variant, ..)]`, or `#[dispatch(*)]` for all of them",
+                    Words::Struct => "name the field to forward to, `#[dispatch(field)]`, or `#[dispatch(*)]` for the one the struct forwards to",
+                },
             ));
         }
-        attribute.parse_args()
+        attribute.parse_args_with(|input: ParseStream| Self::parse_for(input, words))
     }
 }
 
 impl Parse for ForwardingOptions {
+    /// The mark of an enum's method; `read` takes the subject's words.
     fn parse(input: ParseStream) -> Result<Self> {
+        Self::parse_for(input, Words::Enum)
+    }
+}
+
+impl ForwardingOptions {
+    /// Parses the mark's arguments, with the sentences in `words`.
+    fn parse_for(input: ParseStream, words: Words) -> Result<Self> {
         let mut forwarding = ForwardingOptions {
             all: false,
             variants: vec![],
@@ -940,13 +996,21 @@ impl Parse for ForwardingOptions {
         if forwarding.all && !forwarding.variants.is_empty() {
             return Err(Error::new(
                 forwarding.variants[0].span(),
-                "`*` already names every variant",
+                match words {
+                    Words::Enum => "`*` already names every variant",
+                    Words::Struct => "`*` already names the field the struct forwards to; name a field or `*`, not both",
+                },
             ));
         }
         if !forwarding.all && forwarding.variants.is_empty() {
             return Err(Error::new(
                 input.span(),
-                "name the variants to forward to, or `*` for all of them",
+                match words {
+                    Words::Enum => "name the variants to forward to, or `*` for all of them",
+                    Words::Struct => {
+                        "name the field to forward to, or `*` for the one the struct forwards to"
+                    }
+                },
             ));
         }
         let reads = match (&forwarding.field, forwarding.value) {
@@ -1223,7 +1287,7 @@ mod tests {
 
     #[test]
     fn a_partial_blocks_mark_leaves_to_the_default_or_forwards_by_name() {
-        let mark = |attribute: Attribute| TraitMark::read(&attribute);
+        let mark = |attribute: Attribute| TraitMark::read(&attribute, Words::Enum);
         assert!(matches!(
             mark(parse_quote!(#[dispatch(default)])),
             Ok(TraitMark::Default)
@@ -1254,13 +1318,126 @@ mod tests {
 
     #[test]
     fn a_bare_mark_on_a_method_names_no_variant() {
-        let error = message(ForwardingOptions::read(&parse_quote!(#[dispatch])));
+        let error = message(ForwardingOptions::read(
+            &parse_quote!(#[dispatch]),
+            Words::Enum,
+        ));
         assert!(
             error.starts_with("name the variants to forward to, `#[dispatch(Variant, ..)]`"),
             "{error}"
         );
-        assert!(message(TraitMark::read(&parse_quote!(#[dispatch])))
-            .starts_with("name the variants to forward to"));
+        assert!(
+            message(TraitMark::read(&parse_quote!(#[dispatch]), Words::Enum))
+                .starts_with("name the variants to forward to")
+        );
+    }
+
+    #[test]
+    fn a_list_speaks_the_words_of_its_reader() {
+        let read = |tokens: &str, words: Words| {
+            message(DispatchAttribute::read(
+                syn::parse_str(tokens).expect("tokens"),
+                words,
+            ))
+        };
+        let block = |tokens: &str| message(syn::parse_str::<TraitOptions>(tokens));
+        assert!(read("Value, inline", Words::Enum)
+            .starts_with("unknown option `inline`; the options are `Name = Type`"));
+        assert_eq!(
+            read("Value, inline", Words::Struct),
+            "unknown option `inline`; the options of a struct are `Name = Type` for an associated type, `Name = value` for an associated const, `via(field = route)` and `remote = path`"
+        );
+        assert_eq!(
+            block("Unit = u8, inline"),
+            "unknown option `inline`; a block's attribute takes the trait's options: `Name = Type` for an associated type, `Name = value` for an associated const, `mismatch(method = expr)` and a route, `via(name = route)`"
+        );
+        assert!(read("Lend, Item<'a> = &'a A", Words::Enum).starts_with(
+            "`Item<..>` is a generic associated type, which only the enum can declare"
+        ));
+        assert_eq!(
+            read("Lend, Item<'a> = &'a A", Words::Struct),
+            "`Item<..>` is a generic associated type, which only the struct can declare; write `type Item<..> = ..;` in a `#[whichever::dispatch] impl Lend for ..` block"
+        );
+        assert_eq!(
+            block("Item<'a> = &'a A"),
+            "`Item<..>` is a generic associated type, which the block declares and no option gives; write `type Item<..> = ..;` in the block"
+        );
+        assert_eq!(
+            block("from = false"),
+            "`from`, `try_from`, `into` and `remote` are options of an enum's own `#[dispatch]` attribute; a block's attribute takes the trait's options only"
+        );
+        assert!(
+            DispatchAttribute::read(syn::parse_str("Value").unwrap(), Words::Struct).is_ok(),
+            "a struct's attribute reads a trait as an enum's does"
+        );
+    }
+
+    #[test]
+    fn a_structs_mark_names_its_field() {
+        let read = |attribute: Attribute| ForwardingOptions::read(&attribute, Words::Struct);
+        assert_eq!(
+            message(read(parse_quote!(#[dispatch]))),
+            "name the field to forward to, `#[dispatch(field)]`, or `#[dispatch(*)]` for the one the struct forwards to"
+        );
+        assert_eq!(
+            message(read(parse_quote!(#[dispatch()]))),
+            "name the field to forward to, or `*` for the one the struct forwards to"
+        );
+        assert_eq!(
+            message(read(parse_quote!(#[dispatch(*, square)]))),
+            "`*` already names the field the struct forwards to; name a field or `*`, not both"
+        );
+        assert_eq!(
+            message(ForwardingOptions::read(
+                &parse_quote!(#[dispatch(*, Square)]),
+                Words::Enum
+            )),
+            "`*` already names every variant"
+        );
+        let Ok(named) = read(parse_quote!(#[dispatch(square)])) else {
+            panic!("a field named");
+        };
+        assert_eq!(named.variants.len(), 1);
+        assert!(!named.all);
+        assert!(
+            message(TraitMark::read(&parse_quote!(#[dispatch]), Words::Struct))
+                .starts_with("name the field to forward to")
+        );
+    }
+
+    #[test]
+    fn an_option_naming_nothing_on_a_struct_offers_a_route_and_no_conversion() {
+        let item_trait: ItemTrait = parse_quote! {
+            trait Shape {
+                type Output;
+                fn area(&self) -> u32;
+            }
+        };
+        let trait_ident: Ident = parse_quote!(Shape);
+        let unknown = |options: &str, words: Words| {
+            syn::parse_str::<TraitOptions>(options)
+                .expect("valid options")
+                .unknown_names(&item_trait, &trait_ident, words, true)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            unknown("frm = false", Words::Enum),
+            ["`Shape` has no associated type or const `frm`; did you mean the enum's option `from = ..`?"]
+        );
+        assert_eq!(
+            unknown("frm = false", Words::Struct),
+            ["`Shape` has no associated type or const `frm`; its associated items are `Output`, and a struct's other option is a route, `via(field = route)`"]
+        );
+        assert_eq!(
+            unknown("target = inner", Words::Struct),
+            ["`Shape` has no associated type or const `target`; a struct forwards to its one field, to the field marked `#[dispatch]`, or to the one that names the trait, `#[dispatch(Trait)]`"]
+        );
+        assert_eq!(
+            unknown("Outpt = u8", Words::Struct),
+            ["`Shape` has no associated type or const `Outpt`; did you mean `Output`?"]
+        );
     }
 
     #[test]
@@ -1276,7 +1453,7 @@ mod tests {
         let unknown = |options: &str| {
             syn::parse_str::<TraitOptions>(options)
                 .expect("valid options")
-                .unknown_names(&item_trait, &trait_ident, false, true)
+                .unknown_names(&item_trait, &trait_ident, Words::Enum, true)
                 .into_iter()
                 .map(|error| error.to_string())
                 .collect::<Vec<_>>()

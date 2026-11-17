@@ -405,3 +405,10 @@ decl=foreign-iterator
 s0=struct s1=none decl=foreign-iterator
 s0=deref-box s1=via-field path=block decl=foreign-iterator
 s1=unit decl=foreign-iterator
+
+# A sentence about a dispatch struct spoke of an enum and its variants
+# (#18): a generic associated type only "the enum" could declare, and a
+# body beside the forwarding said to be forwarded to "every field".
+s0=struct s1=none ret=gat
+s0=struct-named s1=none ret=gat-undeclared path=block-default
+s0=struct s1=none path=block-arms

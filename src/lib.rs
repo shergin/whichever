@@ -809,8 +809,9 @@
 //!   `from` and `try_from` go on the variant, and a trait named on the
 //!   field is reported, since the variant is the target of every trait its
 //!   enum dispatches.
-//! - A generic associated type is declared by the enum, in a partial impl
-//!   block; it cannot come from the first variant.
+//! - A generic associated type is declared by the enum or the struct, in a
+//!   partial impl block; it cannot come from the first variant or from the
+//!   struct's field, and no option on the attribute gives it.
 //! - A projection through a trait parameter with several bounds,
 //!   `F::Value` with `F: Format + Clone`, cannot be qualified at the enum;
 //!   the trait writes `<F as Format>::Value`.

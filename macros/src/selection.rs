@@ -14,6 +14,7 @@ use crate::builds::Builds;
 use crate::options::ForwardingOptions;
 use crate::site::Site;
 use crate::subject::{Entries, Subject, Target};
+use crate::words::Words;
 
 /// What a method's `#[dispatch(..)]` selects: the targets, with the
 /// method's own route when it gives one; the arms for the variants `*`
@@ -288,14 +289,19 @@ pub(crate) fn check_body(
     selection: &Selection,
     body: Option<&Block>,
     sig: &Signature,
-    noun: &str,
+    words: Words,
 ) -> Result<()> {
     let method = &sig.ident;
     match (selection.covers_all, body) {
         (true, Some(_)) if selection.own.is_some() => Ok(()),
         (true, Some(body)) => Err(Error::new_spanned(
             body,
-            format!("`{method}` is forwarded to every {noun}, so its body would never run; end the signature with `;` instead"),
+            match words {
+                Words::Enum => format!("`{method}` is forwarded to every variant, so its body would never run; end the signature with `;` instead"),
+                // A struct holds its field in every value, so the one
+                // field a method is forwarded to leaves a body nothing.
+                Words::Struct => format!("`{method}` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"),
+            },
         )),
         (false, None) => Err(Error::new_spanned(
             sig,
@@ -862,9 +868,9 @@ mod tests {
                 &selection,
                 Some(&body),
                 &signature,
-                wrapper.target_noun()
+                wrapper.words()
             )),
-            "`encode` is forwarded to every field, so its body would never run; end the signature with `;` instead"
+            "`encode` is forwarded to the struct's field, so its body would never run; end the signature with `;` instead"
         );
     }
 
@@ -890,7 +896,7 @@ mod tests {
             &subject,
         )
         .unwrap();
-        assert!(check_body(&selection, Some(&body), &signature, subject.target_noun()).is_ok());
+        assert!(check_body(&selection, Some(&body), &signature, subject.words()).is_ok());
         let every: ForwardingOptions = parse_quote!(Avc1, Hev1);
         let two: Subject = parse_quote!(
             enum Codec {
@@ -910,7 +916,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            message(check_body(&listed, Some(&body), &signature, two.target_noun())),
+            message(check_body(&listed, Some(&body), &signature, two.words())),
             "`encode` is forwarded to every variant, so its body would never run; end the signature with `;` instead",
             "a named list that names every variant leaves its body nothing"
         );

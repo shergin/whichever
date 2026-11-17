@@ -1,0 +1,5 @@
+error: `area` has no body; forward it to the struct's field with `#[dispatch(*)]`, or leave it to the trait's default with `#[dispatch(default)]`
+  --> tests/ui/struct_block_bodiless_without_attribute.rs:21:5
+   |
+21 |     fn area(&self) -> u32;
+   |     ^^^^^^^^^^^^^^^^^^^^^

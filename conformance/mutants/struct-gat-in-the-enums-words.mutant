@@ -1,0 +1,9 @@
+file: macros/src/items.rs
+breaks: A sentence about a dispatch struct speaks of the struct, which declares a generic associated type in a block as an enum does, as `docs/limits.md` and `docs/structs.md` say.
+expect: killed
+witness: s0=struct s1=none ret=gat
+
+find:
+self.of.subject.words().subject()),
+replace:
+"enum"),

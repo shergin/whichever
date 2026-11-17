@@ -23,6 +23,7 @@ use crate::site::{at, Site};
 use crate::spelling;
 use crate::subject::{allow_deprecated, is_deprecated};
 use crate::substitution::Substitution;
+use crate::words::Words;
 
 /// One thing an item of the trait becomes in the impl, decided before
 /// anything is written. An item the partial block writes in every build,
@@ -289,7 +290,7 @@ impl<'a> ItemWriter<'a> {
             let parameters = spelling::spelled(&assoc.generics);
             let error = Error::new_spanned(
                 assoc,
-                format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block"),
+                format!("`{name}` is a generic associated type, which only the {} can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block", self.of.subject.words().subject()),
             )
             .to_compile_error();
             let generics = &assoc.generics;
@@ -442,7 +443,10 @@ fn forward_trait_method(
         }
         return Err(Error::new_spanned(
             &function.sig,
-            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
+            match subject.words() {
+                Words::Enum => format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
+                Words::Struct => format!("`{method}` has no receiver, so there is no field to forward to; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
+            },
         ));
     }
     // The enum's `mismatch` wins over the trait method's, and the names the

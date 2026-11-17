@@ -53,7 +53,7 @@ pub(crate) fn expand_subject(
     };
     let mut attributes = vec![];
     for tokens in arguments {
-        let parsed = syn::parse2::<DispatchAttribute>(tokens).and_then(|attribute| {
+        let parsed = DispatchAttribute::read(tokens, captured.words()).and_then(|attribute| {
             attribute.check_path()?;
             Ok(attribute)
         });
@@ -338,7 +338,7 @@ fn expand_impl_invocation(attr: TokenStream2, item_impl: ItemImpl) -> Result<Tok
             if !attr.is_empty() {
                 return Err(Error::new_spanned(
                     attr,
-                    "`#[dispatch]` on an inherent impl block takes no arguments; the variants are named on each method",
+                    "`#[dispatch]` on an inherent impl block takes no arguments; each method says what it forwards to in its own `#[dispatch(..)]`",
                 ));
             }
             let request = BlockRequest {

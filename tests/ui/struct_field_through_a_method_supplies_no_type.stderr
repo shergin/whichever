@@ -1,0 +1,5 @@
+error: the field of `Wrapped` is reached through a field or a method, so its type cannot be named to supply `Unit`; fix it on the struct with `Unit = ..`
+  --> tests/ui/struct_field_through_a_method_supplies_no_type.rs:30:12
+   |
+30 | pub struct Wrapped {
+   |            ^^^^^^^

@@ -810,6 +810,7 @@ mod tests {
     use syn::parse_quote;
 
     use super::*;
+    use crate::words::Words;
 
     /// The site of a trait method on `Kind`, an enum, or on a struct.
     fn site(subject: &Ident, one_target: bool) -> ReturnSite<'_> {
@@ -820,6 +821,7 @@ mod tests {
                 on_trait: true,
                 has_body: false,
                 own_arms: false,
+                words: Words::Enum,
             },
             default: None,
         }

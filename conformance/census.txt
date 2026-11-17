@@ -588,7 +588,7 @@ suite own-arms-refusals
 
 suite pinned
   pass 113
-  limit 46
+  limit 49
   rejected 8
   malformed 0
 
