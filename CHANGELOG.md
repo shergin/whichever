@@ -5,6 +5,22 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+## 0.9.1 - 2026-11-17
+
+Forwarding reaches further, and the documentation is rewritten in plainer
+English. A dispatch struct now forwards a trait method without a receiver
+and a generic associated type to its field's type, a mutable borrow takes
+a route of its own with `via_mut`, `#[dispatch(*)]` takes a body holding
+the arms the enum handles itself, a struct's field may name a trait that a
+partial impl block implements, `remote` restates another crate's struct,
+and `whichever::foreign::Iterator` forwards 28 more provided methods. The
+tutorial, the glossary and the troubleshooting page are new, and are on
+docs.rs too, and the error messages use the glossary's words. The minor
+rises because a dispatch struct's provided method without a receiver now
+runs the field's override where it ran the trait's default, and three
+things over `foreign::Iterator` that compiled no longer do, each listed
+below with its way around. There is no 0.9.0.
+
 - The error messages use the words of `docs/glossary.md`: a method's body
   or the enum "handles" a variant where they said it "answers for" it, and
   a method is "forwarded" where it was "dispatched". So "whose body
