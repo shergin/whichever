@@ -1,4 +1,4 @@
-error: `B` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `B(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
+error: `B` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `B(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body handles it
   --> tests/ui/block_over_an_unforwardable_variant_beside_a_self_argument.rs:44:5
    |
 44 |     B(P1, u64),

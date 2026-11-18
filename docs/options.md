@@ -323,7 +323,12 @@ let wire: Wire = message.into();
 ```
 
 - You can repeat the option for several targets.
-- Every variant has to hold a payload and take part in the conversions.
+- Every variant has to hold a payload and nothing beside it, because
+  `From<Enum> for Target` has to convert every variant.
+- A variant under `#[dispatch(from = false)]` is converted like the rest.
+  `from = false` leaves it out of the `From` and `TryFrom` impls into and
+  out of the enum, but not out of `into`, which has to cover every variant
+  to be a `From` at all.
 
 ## Options on a variant
 
@@ -346,7 +351,8 @@ pub enum AnyShape<'a> {
 
 - **`from = false`** leaves the variant out of the `From` and `TryFrom`
   impls. Use it for a payload such as `String` that should not convert
-  into the enum.
+  into the enum. An `into` target still converts the variant, because
+  `into` has to cover every variant.
 - **`try_from = true`** adds the `TryFrom` impl for this variant's payload
   alone.
 - **`deref`** calls the trait on what the payload dereferences to. So a

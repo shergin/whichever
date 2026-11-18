@@ -337,7 +337,7 @@ axis! {
         /// and forwards as `block` does (limits.md).
         BlockMacroOff = "block-macro-off",
         /// `#[dispatch(*)] fn m(..) { match self { .. } }` in the block: the
-        /// arms the enum answers itself, every other variant forwarded
+        /// arms the enum handles itself, every other variant forwarded
         /// (partial-impl-blocks.md).
         BlockArms = "block-arms",
         /// An inherent `#[dispatch(*)] pub fn m(..) { match self { .. } }`

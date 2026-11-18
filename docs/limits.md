@@ -508,7 +508,9 @@ once, whatever attributes it has. See [options.md](options.md).
 - **`into = Target` needs every variant to hold a payload.** It converts
   every variant's payload, so a variant without one, or with other
   fields beside its payload, is an error. Write the `From<Enum> for
-  Target` impl by hand instead.
+  Target` impl by hand instead. `#[dispatch(from = false)]` does not take
+  a variant out of `into`, because `into` has to cover every variant, so
+  it is no way around this error.
 - **A restated enum takes no conversion options**, not even
   `from = false`. `From`, `TryFrom` and `into` would implement a foreign
   trait for another crate's type, which the orphan rules forbid, so it

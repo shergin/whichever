@@ -1429,7 +1429,7 @@ changed, and nothing changes at run time.
 Status: landed on 2026-11-15, unreleased, on the branch `arms-under-star`
 (issues #5 and #8), the record "Under `*`, a method's body holds the enum's
 own arms". A hand's forwarding `match` with exceptions has the arms that
-forward and the arms the enum answers itself, and no wildcard; the only
+forward and the arms the enum handles itself, and no wildcard; the only
 form that wrote it named every forwarded variant and made the body `_ =>
 body`, so a variant left off the list took the body silently. Under `*`, a
 body was an error. It is now one `match self` holding the method's own

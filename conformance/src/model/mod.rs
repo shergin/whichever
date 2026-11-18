@@ -198,7 +198,7 @@ impl Slot {
 }
 
 /// An arm a method under `*` writes in its body for a variant the enum
-/// answers itself.
+/// handles itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OwnArm {
     /// The variant the arm names.
@@ -457,7 +457,7 @@ impl Cell {
     }
 
     /// Returns whether the method under test may hold, under `*`, a body of
-    /// the arms the enum answers itself. "A trait method with a `Self`
+    /// the arms the enum handles itself. "A trait method with a `Self`
     /// argument cannot have arms you write yourself under `*`", and "An
     /// inherent method passes a `Self` argument on as it is, so this does
     /// not apply to it" (limits.md), which `reached_argument` says; nor

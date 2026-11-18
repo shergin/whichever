@@ -230,9 +230,9 @@ has a different value from the first.
 ### "holds no payload" or "has named fields, not one payload"
 
 ```text
-error: `Nothing` holds no payload, so no trait method can be forwarded to it; write it as `Nothing(Payload)`, or forward inherent methods instead, whose body answers for it
-error: `A` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
-error: `A` has named fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
+error: `Nothing` holds no payload, so no trait method can be forwarded to it; write it as `Nothing(Payload)`, or forward inherent methods instead, whose body handles it
+error: `A` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body handles it
+error: `A` has named fields, not one payload, so no trait method can be forwarded to it; write it as `A(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body handles it
 ```
 
 **What it means.** A variant a trait is forwarded to must hold exactly
@@ -398,10 +398,10 @@ is the only error you see.
 `#[whichever::dispatch(Same, mismatch(same = false))]`. If the trait is
 implemented by a partial impl block, put it on the block's attribute.
 
-### "has no receiver, so there is no variant to dispatch on"
+### "has no receiver, so there is no variant to forward to"
 
 ```text
-error: `presets` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] impl Factory for Kind` block
+error: `presets` has no receiver, so there is no variant to forward to; give it a default body, or write it in a `#[whichever::dispatch] impl Factory for Kind` block
 ```
 
 **What it means.** A method without `self`, such as `fn new() -> Self`,
@@ -455,10 +455,10 @@ method is called on, and a method without a receiver has none.
 **The fix.** Drop `field` or `value`, so the method calls the field
 type's function, or give the method a body.
 
-### "a return-position `impl Trait` is not dispatched by a `match`"
+### "a return-position `impl Trait` is not forwarded by a `match`"
 
 ```text
-error: a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
+error: a return-position `impl Trait` is not forwarded by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or implement the method by hand where every variant reaches one type
 ```
 
 **What it means.** A `match` must return one type, and each payload's
@@ -684,7 +684,7 @@ below it.
 ### "`#[typetag::serde]` has added its per-impl methods to the trait"
 
 ```text
-error: `#[typetag::serde]` has added its per-impl methods to the trait, which a forwarder would answer with the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = "..")]` on the enum's partial impl block
+error: `#[typetag::serde]` has added its per-impl methods to the trait, and forwarding them would return the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = "..")]` on the enum's partial impl block
 ```
 
 **What it means.** typetag is the other way round. With it on top, it

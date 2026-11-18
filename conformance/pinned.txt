@@ -318,7 +318,7 @@ path=block-macro
 # A method under `*` whose body holds the enum's own arms
 # (docs/decisions/under-star-a-methods-body-holds-the-enums-own-arms.md,
 # golden `own_arms_under_star`): a unit variant, a variant of two fields
-# whose arm reads one, a payload the enum answers itself, and an arm under
+# whose arm reads one, a payload the enum handles itself, and an arm under
 # a `#[cfg]` that holds and one that does not.
 s1=unit path=block-arms
 s1=pair path=block-arms

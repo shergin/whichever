@@ -1,5 +1,5 @@
 //! A return-type limit on a struct's method that has a body offers that
-//! body as the way out, which answers by itself once the mark is gone.
+//! body as the way out, which handles the call itself once the mark is gone.
 pub struct Circle(pub u32);
 
 impl Circle {

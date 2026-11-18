@@ -205,7 +205,7 @@ struct Method {
     /// The type the impl gives the subject's parameter, where it is for
     /// one instantiation.
     instance: Option<&'static str>,
-    /// The arms the enum answers itself under `*`, as written, after the
+    /// The arms the enum handles itself under `*`, as written, after the
     /// forwarding arms.
     own_arms: Vec<String>,
     /// The variants holding a payload whose own arm is under a `#[cfg]`,
@@ -220,7 +220,7 @@ struct Method {
 /// the field's type on a struct, and on an enum not at all: "A trait method
 /// without a receiver is the field type's, `<Square as Shape>::kind()`.
 /// That includes provided methods, so the field's override of one is what
-/// the struct answers" (structs.md).
+/// runs" (structs.md).
 fn write_function(writer: &mut Writer, context: &Context, item: &AssociatedItem, trait_path: &str) {
     if !is_struct(&context.slots) {
         return;

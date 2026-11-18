@@ -1,4 +1,4 @@
-error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Shape`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or drop its `#[dispatch(..)]`, and the body answers for every variant
+error: this return type mentions `Self` where `whichever` cannot wrap the payload's result back into `Shape`; return `Self`, `Option<Self>`, `Result<Self, E>` or a tuple of those, spelled with those names, or drop its `#[dispatch(..)]`, and the body handles every variant
   --> tests/ui/lift_over_a_wrapped_self.rs:22:28
    |
 22 |     pub fn grown(&self) -> Option<Option<Self>> {

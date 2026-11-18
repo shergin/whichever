@@ -1,4 +1,4 @@
-error: `Other` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `Other(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body answers for it
+error: `Other` holds 2 fields, not one payload, so no trait method can be forwarded to it; write it as `Other(Payload)`, mark the field to forward to with `#[dispatch]`, or forward inherent methods instead, whose body handles it
   --> tests/ui/conditional_mark_leaves_builds_to_the_forwarding.rs:21:5
    |
 21 |     Other(u8, u8),
