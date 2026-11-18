@@ -172,7 +172,7 @@ comes from that type, as you would write it by hand:
 
 - **A trait method without a receiver** is the field type's,
   `<Square as Shape>::kind()`. That includes provided methods, so the
-  field's override of one is what the struct answers.
+  field's override of one is what runs.
 - **`-> Self` and `Option<Self>`** are built around the result, where
   the struct has no other field: `Wrapper(<Square as Shape>::unit())`.
 - **A generic associated type** is the field type's too:

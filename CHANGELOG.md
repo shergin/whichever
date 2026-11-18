@@ -5,6 +5,20 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The error messages use the words of `docs/glossary.md`: a method's body
+  or the enum "handles" a variant where they said it "answers for" it, and
+  a method is "forwarded" where it was "dispatched". So "whose body
+  answers for it" is "whose body handles it", "the body answers for every
+  variant" and "answers by itself" are "the body handles every variant"
+  and "handles the call itself", "the variants the enum answers itself" and
+  "the variants it answers" say "handles", "no variant to dispatch on" is
+  "no variant to forward to", "is not dispatched by a `match`" and "can be
+  dispatched" say "forwarded", and the `typetag` error says "forwarding
+  them would return the payload's tag" where it said "a forwarder would
+  answer with" it. `docs/structs.md` says the field's override of a
+  provided method "is what runs", as the glossary does. The pages that
+  quote the messages, two headings of `docs/troubleshooting.md` among them,
+  and 23 snapshots changed.
 - The error for an `into` target over a variant with other fields beside
   its payload no longer ends "or is left out with `from = false`": a
   variant under `#[dispatch(from = false)]` was never left out of `into`,

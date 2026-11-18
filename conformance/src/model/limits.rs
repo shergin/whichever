@@ -127,10 +127,10 @@ pub const STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST: &str =
     "name the variants with a payload and give the method a body for the rest";
 
 /// The way out of [`Limit::BodyNeverRuns`] for a body under `*` on an enum,
-/// which may instead hold the arms the enum answers itself, as the snapshot
+/// which may instead hold the arms the enum handles itself, as the snapshot
 /// `inherent_all_with_body` spells it; a named list that names every
 /// variant, and a struct, keep the entry's.
-pub const BODY_NEVER_RUNS_UNDER_STAR: &str = "make the body one `match self` holding the arms of the variants the enum answers itself, or end the signature with `;`";
+pub const BODY_NEVER_RUNS_UNDER_STAR: &str = "make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`";
 
 /// The way out of the sentences that name a variant a method under `*`
 /// cannot reach and offer its arm, as the snapshot
@@ -244,7 +244,7 @@ impl Limit {
             ),
             Limit::OpaqueReturn => entry(
                 "opaque-return",
-                "is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one",
+                "is not forwarded by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one",
                 "rpitit",
             ),
             Limit::SelfInReturn => entry(
@@ -412,7 +412,7 @@ impl Limit {
             ),
             Limit::ArmNamingNoVariant => entry(
                 "arm-naming-no-variant",
-                "names the variants it answers, as `Self::Name(..)`, and every other variant is forwarded; this one names none",
+                "names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none",
                 "own_arm_naming_no_variant",
             ),
             Limit::ArmsBesideSelfArgument => entry(
@@ -480,7 +480,7 @@ impl Limit {
         };
         let (way_out, tail) = match self {
             Limit::Receiver => ("a receiver is `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Pin<&Self>` or `self: Pin<&mut Self>`", false),
-            Limit::UnitVariant => ("or forward inherent methods instead, whose body answers for it", false),
+            Limit::UnitVariant => ("or forward inherent methods instead, whose body handles it", false),
             Limit::TwoFields => ("mark the field to forward to with `#[dispatch]`, or forward inherent methods instead", false),
             Limit::SelfArgumentWithoutMismatch => ("give the result for two different variants with `#[dispatch(mismatch = <expr>)]` on the trait method or", false),
             Limit::OpaqueReturn => ("return a concrete type or a boxed trait object, or `impl Future<Output = T>`", false),
@@ -529,7 +529,7 @@ impl Limit {
             ),
             Limit::GenericAssociatedType => (" = ..;` in a `#[whichever::dispatch] impl", false),
             Limit::ArmNamingNoVariant => (
-                "name the variants it answers, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body",
+                "name the variants it handles, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body",
                 false,
             ),
             Limit::ArmsBesideSelfArgument | Limit::ArmsMatchedByPlace => (
@@ -728,7 +728,7 @@ impl Tail {
             Tail::Body => String::from("give it a body"),
             Tail::LeaveToBody => format!("leave {variant} to the body"),
             Tail::DropMark => {
-                String::from("drop its `#[dispatch(..)]`, and the body answers for every variant")
+                String::from("drop its `#[dispatch(..)]`, and the body handles every variant")
             }
             Tail::ArmInBody => format!("write the arm of {variant} in the method's body"),
             Tail::DropStar => {

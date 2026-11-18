@@ -38,15 +38,15 @@ pub(crate) struct WayOut {
 impl WayOut {
     /// The way out a sentence about the whole method offers: where the
     /// method names its variants and has a body for the rest, the body
-    /// answers for every variant once the mark is gone.
+    /// handles every variant once the mark is gone.
     pub(crate) fn of_method(self) -> &'static str {
         if self.own_arms {
             return "drop its `#[dispatch(*)]` and write every variant's arm in the body";
         }
         if self.has_body {
             return match self.words {
-                Words::Enum => "drop its `#[dispatch(..)]`, and the body answers for every variant",
-                Words::Struct => "drop its `#[dispatch(..)]`, and the body answers by itself",
+                Words::Enum => "drop its `#[dispatch(..)]`, and the body handles every variant",
+                Words::Struct => "drop its `#[dispatch(..)]`, and the body handles the call itself",
             };
         }
         self.by_hand()
@@ -295,7 +295,7 @@ mod tests {
             let with_body = way_out(on_trait, true);
             assert_eq!(
                 with_body.of_method(),
-                "drop its `#[dispatch(..)]`, and the body answers for every variant"
+                "drop its `#[dispatch(..)]`, and the body handles every variant"
             );
             assert_eq!(with_body.of_variant(&variant), "leave `Circle` to the body");
             assert_eq!(
@@ -314,7 +314,7 @@ mod tests {
             };
             assert_eq!(
                 with_body.of_method(),
-                "drop its `#[dispatch(..)]`, and the body answers by itself"
+                "drop its `#[dispatch(..)]`, and the body handles the call itself"
             );
         }
     }

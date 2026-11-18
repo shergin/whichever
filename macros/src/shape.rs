@@ -361,7 +361,7 @@ pub(crate) fn classify_return(
     if let Some(opaque) = first_impl_trait(ty) {
         return Err(Error::new_spanned(
             opaque,
-            format!("a return-position `impl Trait` is not dispatched by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or {} where every variant reaches one type", site.way_out.of_method()),
+            format!("a return-position `impl Trait` is not forwarded by a `match`: the arms of a `match` must return one type, and the attribute cannot tell that the variants' opaque types are one; return a concrete type or a boxed trait object, or `impl Future<Output = T>`, which is awaited like an `async fn`, or {} where every variant reaches one type", site.way_out.of_method()),
         ));
     }
     let conversion = return_model(ty, options, site)?;
@@ -813,7 +813,7 @@ pub(crate) fn argument_kind(ty: &Type) -> Result<ArgumentKind> {
     if mentions_self(ty) {
         return Err(Error::new_spanned(
             ty,
-            "only `Self`, `&Self` and `&mut Self` arguments can be dispatched; this type mentions `Self` elsewhere",
+            "only `Self`, `&Self` and `&mut Self` arguments can be forwarded; this type mentions `Self` elsewhere",
         ));
     }
     Ok(ArgumentKind::Plain)

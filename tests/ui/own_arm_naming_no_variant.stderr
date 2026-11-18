@@ -1,4 +1,4 @@
-error: an arm of `len` names the variants it answers, as `Self::Name(..)`, and every other variant is forwarded; this one names none: name the variants it answers, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body
+error: an arm of `len` names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none: name the variants it handles, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body
   --> tests/ui/own_arm_naming_no_variant.rs:24:13
    |
 24 |             _ => 1,

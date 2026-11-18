@@ -476,7 +476,7 @@ fn forward_trait_method(
         }
         return Err(Error::new_spanned(
             &function.sig,
-            format!("`{method}` has no receiver, so there is no variant to dispatch on; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
+            format!("`{method}` has no receiver, so there is no variant to forward to; give it a default body, or write it in a `#[whichever::dispatch] {block_header}` block"),
         ));
     }
     // The enum's `mismatch` wins over the trait method's, and the names the
@@ -519,8 +519,8 @@ fn forward_trait_method(
     };
     // A struct has one target, whose type it names: a method without a
     // receiver is that type's, the provided ones included, so that what
-    // the field's type overrides is what the struct answers. One the type
-    // cannot be asked is left to its default, or reported.
+    // the field's type overrides is what runs. One the type cannot be
+    // asked is left to its default, or reported.
     let generated = if has_receiver {
         forward(request)?
     } else {

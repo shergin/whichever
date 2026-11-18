@@ -72,7 +72,7 @@ impl<'a> OwnArms<'a> {
         let Some(written) = Self::written(body) else {
             return Err(Error::new_spanned(
                 body,
-                format!("`{method}` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum answers itself, or end the signature with `;`"),
+                format!("`{method}` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`"),
             ));
         };
         let mut answered = vec![];
@@ -81,7 +81,7 @@ impl<'a> OwnArms<'a> {
             if !names(&arm.pat, entries, &mut named) {
                 return Err(Error::new_spanned(
                     &arm.pat,
-                    format!("an arm of `{method}` names the variants it answers, as `Self::Name(..)`, and every other variant is forwarded; this one names none: name the variants it answers, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body"),
+                    format!("an arm of `{method}` names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none: name the variants it handles, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body"),
                 ));
             }
             let builds = Builds::of(&arm.attrs);
@@ -813,7 +813,7 @@ mod tests {
         let error = message(select(codecs(), quote!(*), Some(parse_quote!({ 0 }))));
         assert_eq!(
             error,
-            "`encode` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum answers itself, or end the signature with `;`"
+            "`encode` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`"
         );
         let error = message(select(
             codecs(),
@@ -827,7 +827,7 @@ mod tests {
         ));
         assert!(
             error.starts_with(
-                "an arm of `encode` names the variants it answers, as `Self::Name(..)`, and every other variant is forwarded; this one names none"
+                "an arm of `encode` names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none"
             ),
             "{error}"
         );

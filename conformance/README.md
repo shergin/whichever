@@ -452,7 +452,7 @@ takes no part in the check. Under `function` the trait declares a
 provided method without a receiver, `fn label() -> u64 { 7 }`, which
 every payload overrides: an enum leaves it to its default, and a struct
 forwards it to its field's type, `<P0 as Probe>::label()`, so that the
-field's override is what the struct answers
+field's override is what runs
 (`docs/structs.md`); the law
 calls it through the subject. A second trait would declare one of the same
 name, and a restatement one without its body, so it stands beside neither.

@@ -303,7 +303,7 @@ fn write_associated(writer: &mut Writer, context: &Context) {
             }
             // "Give the trait method a default body, which the enum then
             // uses" (limits.md), where a struct answers its field's: "the
-            // field's override of one is what the struct answers"
+            // field's override of one is what runs"
             // (structs.md).
             (ItemKind::Function, _) => {
                 let expected = match context.cell.s0.descriptor().is_struct() {

@@ -1,4 +1,4 @@
-//! An arm of a method under `#[dispatch(*)]` names the variants it answers,
+//! An arm of a method under `#[dispatch(*)]` names the variants it handles,
 //! and every other variant is forwarded: a wildcard names none, and would
 //! leave nothing to forward.
 pub struct IntBounds(pub u32);

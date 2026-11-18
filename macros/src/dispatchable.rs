@@ -147,8 +147,8 @@ pub(crate) fn expand_dispatchable(
 /// signatures after the carrier captured them, so the forwarding impl would
 /// not match the trait; it goes above. `#[typetag::serde]` above it has
 /// added typetag's per-impl methods to the trait before the carrier
-/// captured it, and a forwarder of those would answer with the payload's
-/// tag, silently; it goes below, and the block's own `#[typetag::serde(name
+/// captured it, and forwarding those would return the payload's tag,
+/// silently; it goes below, and the block's own `#[typetag::serde(name
 /// = ..)]` writes those methods.
 fn check_attribute_order(item_trait: &ItemTrait) -> Result<()> {
     if let Some(attribute) = item_trait.attrs.iter().find(|attribute| {
@@ -172,7 +172,7 @@ fn check_attribute_order(item_trait: &ItemTrait) -> Result<()> {
     if hidden_method("typetag_name") && hidden_method("typetag_deserialize") {
         return Err(Error::new_spanned(
             &item_trait.ident,
-            "`#[typetag::serde]` has added its per-impl methods to the trait, which a forwarder would answer with the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = \"..\")]` on the enum's partial impl block",
+            "`#[typetag::serde]` has added its per-impl methods to the trait, and forwarding them would return the payload's tag; put `#[whichever::dispatchable]` above it, and `#[typetag::serde(name = \"..\")]` on the enum's partial impl block",
         ));
     }
     Ok(())

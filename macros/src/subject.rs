@@ -1045,7 +1045,7 @@ fn variant_entry(variant: &Variant) -> Result<Entry> {
                 holds: Holds::Other(Unforwardable {
                     error: Error::new_spanned(
                         variant,
-                        format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body answers for it"),
+                        format!("`{ident}` {reason}, so no trait method can be forwarded to it; write it as `{ident}(Payload)`{marking}, or forward inherent methods instead, whose body handles it"),
                     ),
                     reason,
                     rest,

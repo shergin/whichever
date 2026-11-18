@@ -1,4 +1,4 @@
-error: `radius` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum answers itself, or end the signature with `;`
+error: `radius` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`
   --> tests/ui/inherent_all_with_body.rs:28:29
    |
 28 |       fn radius(&self) -> u32 {
