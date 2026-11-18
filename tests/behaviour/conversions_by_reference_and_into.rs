@@ -42,3 +42,21 @@ fn the_payload_is_reached_by_value_by_reference_and_mutably() {
     let printed: Printed = Value::Number(Number(3)).into();
     assert_eq!(printed, Printed("3".into()));
 }
+
+/// `from = false` leaves `Number` out of `From<Number> for Quiet` and
+/// `TryFrom<Quiet> for Number`, not out of `into`, which has to cover every
+/// variant.
+#[whichever::dispatch(into = Printed)]
+pub enum Quiet {
+    Text(Text),
+    #[dispatch(from = false)]
+    Number(Number),
+}
+
+#[test]
+fn a_variant_under_from_false_is_converted_by_into() {
+    let printed: Printed = Quiet::Number(Number(4)).into();
+    assert_eq!(printed, Printed("4".into()));
+    let printed: Printed = Quiet::Text(Text("y".into())).into();
+    assert_eq!(printed, Printed("y".into()));
+}

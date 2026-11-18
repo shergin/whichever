@@ -5,6 +5,13 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- The error for an `into` target over a variant with other fields beside
+  its payload no longer ends "or is left out with `from = false`": a
+  variant under `#[dispatch(from = false)]` was never left out of `into`,
+  which has to cover every variant, and still converts. `docs/options.md`,
+  `docs/limits.md` and the crate docs say so; the behaviour test
+  `conversions_by_reference_and_into` converts such a variant, and the
+  snapshot `into_with_a_marked_variant` changed.
 - `docs/limits.md`, `docs/options.md`, `docs/partial-impl-blocks.md`,
   `docs/troubleshooting.md` and the crate docs say that the automatic bound is a bare parameter's: a
   payload that only mentions a parameter, `Wrapped(Boxed<T>)`, gives the

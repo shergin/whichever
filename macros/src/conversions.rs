@@ -190,7 +190,7 @@ pub(crate) fn conversion_impls(
                     whole = false;
                     errors.push(Error::new(
                         key.span(),
-                        format!("`into` converts every variant's payload, and `{}` has other fields beside its payload, or is left out with `from = false`", variant.ident()),
+                        format!("`into` converts every variant's payload, and `{}` has other fields beside its payload", variant.ident()),
                     ));
                 }
                 None => {

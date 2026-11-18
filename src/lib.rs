@@ -182,7 +182,9 @@
 //!   error.
 //! - **`into = Target`** adds `From<Enum> for Target`. Each arm converts its
 //!   payload through the payload's own `Into<Target>`. You can repeat the
-//!   option for several targets.
+//!   option for several targets. Every variant has to hold a payload and
+//!   nothing beside it, because the impl has to convert every variant; a
+//!   variant under `#[dispatch(from = false)]` is converted like the rest.
 //!
 //! Two options go on a variant instead, in `#[dispatch(..)]` above it:
 //!

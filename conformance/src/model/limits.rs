@@ -349,7 +349,7 @@ impl Limit {
             ),
             Limit::IntoOtherFields => entry(
                 "into-other-fields",
-                "has other fields beside its payload, or is left out",
+                "has other fields beside its payload",
                 "into_with_a_marked_variant",
             ),
             Limit::IntoWithoutPayload => entry(
@@ -508,7 +508,7 @@ impl Limit {
             // `STAR_OVER_UNFORWARDABLE_BY_NAMED_LIST` instead (`wording`).
             Limit::StarOverUnforwardable => ("write its arm in the method's body, `match self { Self::", false),
             Limit::StructConversion => ("a struct gets no conversions", false),
-            Limit::IntoOtherFields => ("or is left out with `from = false`", false),
+            Limit::IntoOtherFields => ("has other fields beside its payload", false),
             Limit::IntoWithoutPayload => ("holds no payload", false),
             Limit::RestatedConversions => (
                 "would implement a foreign trait for another crate's type",
