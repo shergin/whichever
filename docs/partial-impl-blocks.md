@@ -241,9 +241,19 @@ A method you write or mark in the block is yours, and so are its
 attributes:
 
 - It carries what you write on it.
-- It gets `#[inline]` unless you wrote an `#[inline(..)]` yourself.
 - It carries nothing of the trait method's own attributes, just as a
   hand-written impl inherits nothing from the trait's declaration.
+
+Which of them gets `#[inline]` depends on its kind:
+
+- A method you mark to be forwarded gets `#[inline]` unless you wrote an
+  `#[inline(..)]` on it yourself. The attribute writes its `match`, so it
+  adds what it adds to every method it writes.
+- A method you write in full is emitted as you wrote it, with your
+  attributes and nothing added. If you want it `#[inline]`, write that on
+  it, as you would in a hand-written impl.
+- A method marked `#[dispatch(default)]` is not in the impl at all: the
+  trait's default runs.
 
 Only the methods the block leaves to plain forwarding, whose signatures
 the attribute writes, carry the trait method's `#[inline(..)]` and

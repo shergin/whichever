@@ -1159,8 +1159,10 @@
 //! ### Attributes on the methods
 //!
 //! A method you write or mark in the block carries what you write on it,
-//! and gets `#[inline]` unless you wrote an `#[inline(..)]` yourself. It
-//! carries nothing of the trait method's own attributes. Only the methods
+//! and nothing of the trait method's own attributes. A method you write in
+//! full is emitted as you wrote it, with nothing added. A method you mark
+//! to be forwarded gets `#[inline]` unless you wrote an `#[inline(..)]`
+//! yourself, since the attribute writes its `match`. Only the methods
 //! the block leaves to plain forwarding carry the trait method's
 //! `#[inline(..)]` and `#[allow]`.
 //!

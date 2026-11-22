@@ -5,6 +5,11 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- `docs/partial-impl-blocks.md` and the crate docs said that a method
+  written in full in a partial impl block gets `#[inline]`. Only a method
+  marked to be forwarded does; one written in full is emitted as written,
+  with nothing added, as the expansion goldens show.
+
 ## 0.9.1 - 2026-11-17
 
 Forwarding reaches further, and the documentation is rewritten in plainer
