@@ -577,6 +577,30 @@ under [Associated types and consts](#associated-types-and-consts).
   (`ambiguous_import_visibilities`, an error under
   `#![deny(future_incompatible)]`). Declare the trait in a module of its
   own and re-export it, or import the prelude's items by name there.
+- **Marking a published `pub` trait adds a macro of the trait's name to
+  the crate's public macro namespace.** The carrier macro is re-exported
+  beside the trait under the trait's name, so `pub use traits::Shape;`
+  exports the macro with the trait, and a glob import brings in both. A
+  crate that uses the trait and also imports another macro called
+  `Shape`, such as a derive, stops compiling once the trait is marked,
+  with no change on its side:
+  - two named imports, `use shape_derive::Shape;` and
+    `use shapes::Shape;`, give
+    ``error[E0252]: the name `Shape` is defined multiple times``, with the
+    note that `Shape` "must be defined only once in the macro namespace
+    of this module";
+  - two glob imports, `use shape_derive::*;` and `use shapes::*;`, give
+    ``error[E0659]: `Shape` is ambiguous`` where the name is used, "ambiguous
+    because of multiple glob imports of a name in the same module".
+
+  In the crate that uses the trait, name the other macro by its path,
+  `#[derive(shape_derive::Shape)]`, and drop its `use`. Beside two globs,
+  importing the other macro by name, `use shape_derive::Shape;`, also
+  works, because a named import wins over a glob. A library that
+  dispatches the trait only in its own crate can leave the trait
+  unmarked and restate it crate-privately instead; see
+  [Keep a `pub` trait's carrier macro in its crate](restatements.md#keep-a-pub-traits-carrier-macro-in-its-crate),
+  which also says what that costs a struct that forwards everything.
 
 ## Lints
 

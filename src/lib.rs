@@ -1751,6 +1751,20 @@
 //!   (`ambiguous_import_visibilities`, an error under
 //!   `#![deny(future_incompatible)]`). Declare the trait in a module of its
 //!   own and re-export it, or import the prelude's items by name there.
+//! - **Marking a published `pub` trait adds a macro of the trait's name to
+//!   the crate's public macro namespace**: the carrier macro, re-exported
+//!   beside the trait. A crate that uses the trait and imports another
+//!   macro called `Shape`, such as a derive, then stops compiling: two
+//!   named imports give ``error[E0252]: the name `Shape` is defined
+//!   multiple times``, and two glob imports give ``error[E0659]: `Shape`
+//!   is ambiguous``. In that crate, name the other macro by its path,
+//!   `#[derive(shape_derive::Shape)]`, or import it by name beside the
+//!   globs. A library that dispatches the trait only in its own crate can
+//!   leave it unmarked and restate it crate-privately,
+//!   `#[whichever::dispatchable(remote = crate::Shape)] pub(crate) trait Shape { .. }`.
+//!   The restatement forwards what it lists, and nothing checks the list
+//!   against the trait, so it does not suit a struct that means to forward
+//!   every method.
 //! - **A trait's items carry at most four distinct `#[cfg]`
 //!   predicates.** The carrier macro is written once per combination of
 //!   them, so you get the error on the fifth. Combine the predicates, or

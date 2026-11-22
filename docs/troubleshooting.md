@@ -829,6 +829,39 @@ rustc reports the conflict (lint `ambiguous_import_visibilities`).
 or import the prelude's items by name in that module instead of with a
 glob.
 
+### "the name `Shape` is defined multiple times" or "`Shape` is ambiguous" in a crate that uses the trait
+
+```text
+error[E0252]: the name `Shape` is defined multiple times
+   = note: `Shape` must be defined only once in the macro namespace of this module
+```
+
+```text
+error[E0659]: `Shape` is ambiguous
+   = note: ambiguous because of multiple glob imports of a name in the same module
+```
+
+**What it means.** You import a trait from another crate and another
+macro of the same name, such as a derive, and the trait's crate has
+marked the trait `#[dispatchable]`. Marking a `pub` trait adds a macro
+of the trait's name to its crate's public macro namespace: the carrier
+macro, re-exported beside the trait. So `use shapes::Shape;` now imports
+a macro too. Two named imports of `Shape` give E0252. Two glob imports,
+`use shape_derive::*;` and `use shapes::*;`, give E0659 where the name
+is used, as in `#[derive(Shape)]`. Your code did not change.
+
+**The fix.** In your crate, name the other macro by its path,
+`#[derive(shape_derive::Shape)]`, and drop its `use`. Beside two globs,
+importing the other macro by name, `use shape_derive::Shape;`, also
+works, because a named import wins over a glob.
+
+If you own the trait and dispatch it only in its own crate, you can
+leave it unmarked and restate it crate-privately instead; see
+[Traits, enums and structs from other crates][restatements]. The
+restatement forwards only what it lists, so it does not suit a struct
+that means to forward every method of the trait. See also
+[the limits][limits].
+
 ### Unused imports next to a restatement
 
 ```text

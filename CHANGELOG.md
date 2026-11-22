@@ -23,6 +23,17 @@ changes are expected and listed without apology.
   `#[deny(clippy::missing_trait_methods)]` on the block reports nothing,
   and a hand-written impl under that lint is the tool when every new
   method has to be looked at.
+- `docs/limits.md`, `docs/troubleshooting.md`, `docs/compatibility.md`
+  and the crate docs say that marking a published `pub` trait adds a
+  macro of the trait's name to the crate's public macro namespace, so a
+  crate that imports the trait and another macro of that name stops
+  compiling, with E0252 for two named imports and E0659 for two globs,
+  and how that crate gets around it. `docs/restatements.md` names the
+  crate-private restatement, `#[whichever::dispatchable(remote =
+  crate::Shape)] pub(crate) trait Shape { .. }`, as the way around for a
+  library that dispatches the trait only in its own crate, and says that
+  it forwards only what it lists, which does not suit a struct that
+  forwards everything.
 
 ## 0.9.1 - 2026-11-17
 
