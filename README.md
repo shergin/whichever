@@ -145,9 +145,10 @@ one stops:
   server. So an enum in another crate silently gets no impl, and
   associated types and consts, `&Self` arguments and traits you do not
   own are out of reach.
-- **`ambassador`** works across crates and handles associated types and
-  generic traits. It has no `Self` in arguments or returns, no
-  associated consts and no `From` impls.
+- **`ambassador`** works across crates and handles associated types,
+  associated consts and generic traits. It has no `Self` in arguments or
+  returns and no `From` impls, and no way to fix a const's value on the
+  enum.
 - **`enum_delegate`** handles `-> Self` and unifies associated types. It
   panics at runtime on `&Self` arguments, and has no `async`, no generic
   traits and no generic methods.

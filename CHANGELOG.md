@@ -34,6 +34,12 @@ changes are expected and listed without apology.
   library that dispatches the trait only in its own crate, and says that
   it forwards only what it lists, which does not suit a struct that
   forwards everything.
+- The comparison and the README no longer say `ambassador` has no
+  associated consts: 0.5.1 forwards one, checks on an enum that the
+  variants agree where the enum's const is used and its `==` is const,
+  and has no way to fix the value on the enum. Its `Box<T>` cell says
+  "with an extra block", its column names 0.5.1, and the page says what
+  `clippy::missing_trait_methods` and `auto_impl` give a struct's author.
 
 ## 0.9.1 - 2026-11-17
 
