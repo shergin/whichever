@@ -50,7 +50,42 @@ two reasons:
 **The fix.** Put `#[whichever::dispatchable]` on the trait, or import the
 trait in the enum's module, as in `use crate::shapes::Shape;`.
 
-If the trait is not yours, see the next two entries.
+If the trait is not yours, see the entries after the next.
+
+### "cannot find macro `Wrapper` in this scope" on a partial impl block
+
+```text
+error: cannot find macro `Wrapper` in this scope
+   = note: `Wrapper` is in scope, but it is a struct, not a macro
+```
+
+For an enum, the note ends "it is an enum, not a macro". The error points
+at the type in the block's header, `impl Shape for Wrapper {}`, and is
+often followed by "no method named `area` found".
+
+**What it means.** The name in the error is the struct's or the enum's,
+not the trait's. A [partial impl block][partial-impl-blocks] reads the
+struct's or the enum's definition from a hidden macro with the type's
+name, which `#[whichever::dispatch]` on the type leaves next to it. The
+type has no `#[whichever::dispatch]`, so there is no such macro. (When
+the trait is the one without `#[whichever::dispatchable]`, the error
+names the trait instead; see the entry above.)
+
+**The fix.** Put `#[whichever::dispatch]` on the struct or the enum the
+block implements the trait for:
+
+```rust
+#[whichever::dispatch]
+pub struct Wrapper {
+    inner: Square,
+}
+
+#[whichever::dispatch]
+impl Shape for Wrapper {}
+```
+
+If the type is another crate's, see "cannot find `Trait` in `other`"
+below.
 
 ### "`std::fmt::Display` is not `#[dispatchable]`"
 
@@ -150,7 +185,8 @@ Some details:
 - Paths that start with `crate::` are rewritten to the trait's crate, so
   they work anywhere.
 - `super::` and `self::` paths are not rewritten. Do not write them in a
-  `#[dispatchable]` trait's signatures.
+  `#[dispatchable]` trait's signatures. The errors they give are
+  [below](#a-super-path-in-the-trait-too-many-leading-super-keywords).
 - A private type or alias in a signature cannot be named from another
   module or crate. It limits the trait to its own crate.
 - The attribute does not add the imports for you, because a glob import
@@ -170,6 +206,47 @@ impl Client for ClientWrapper {}
 ```
 
 See [Which names must be in scope][partial-impl-blocks-names].
+
+#### A `super::` path in the trait: "too many leading `super` keywords"
+
+A `super::` path in the trait's signatures gives one of these errors
+where the enum or the block is in another crate or another module:
+
+```text
+error[E0433]: too many leading `super` keywords within `crate`
+   |      ^^^^^ this `super` would go above the crate root
+```
+
+Older Rust versions, such as 1.92, word it differently:
+
+```text
+error[E0433]: failed to resolve: there are too many leading `super` keywords
+```
+
+Or, when the enum or the block is one module below a crate root:
+
+```text
+error[E0425]: cannot find type `Policy` in module `super`
+```
+
+On Rust 1.88 the code is `E0412`, as above.
+
+**What it means.** The trait writes `super::Policy` in a signature, such
+as `fn set_policy(&mut self, policy: super::Policy);`. The path is not
+rewritten, so it is read where the impl is written: in the enum's or the
+block's module, not the trait's. At a crate root, `super` goes above the
+root. One module down, it is that crate's root, which has no `Policy`.
+The trait compiles, and an enum or a block in a sibling module of the
+trait works, because there `super::` means the same thing. So the
+trait's own crate may never see the error.
+
+**The fix.** It is in the trait. Write `crate::Policy` for
+`super::Policy`, and the full `crate::` path for a `self::` path: a `crate::`
+path is rewritten to the trait's crate, so it works anywhere.
+
+If the trait is not yours, put the enum or the block in a module whose
+parent module imports `Policy`, so that `super::Policy` names it there,
+and tell the trait's author.
 
 ### "the trait bound `B: Value` is not satisfied"
 

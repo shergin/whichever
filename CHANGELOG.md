@@ -9,6 +9,13 @@ changes are expected and listed without apology.
   written in full in a partial impl block gets `#[inline]`. Only a method
   marked to be forwarded does; one written in full is emitted as written,
   with nothing added, as the expansion goldens show.
+- `docs/troubleshooting.md` has two new entries. "cannot find macro
+  `Wrapper` in this scope", with rustc's note "it is a struct, not a
+  macro", on a partial impl block means the struct or the enum lacks
+  `#[whichever::dispatch]`. "too many leading `super` keywords" and
+  "cannot find type `Policy` in module `super`" mean a `super::` path in
+  the trait's signatures, met from another crate or module, and the fix
+  is `crate::Policy` in the trait.
 
 ## 0.9.1 - 2026-11-17
 
