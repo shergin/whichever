@@ -565,3 +565,60 @@ fn a_conditional_arm_answers_where_its_cfg_holds_and_forwards_elsewhere() {
     );
     assert_eq!(Load::Unknown(FourCc(*b"mp4a"), 33).weight(), 33);
 }
+
+pub struct Path(pub Vec<u32>);
+
+impl DenseNode {
+    pub fn join(&self, other: &Path) -> Vec<u32> {
+        self.0.iter().chain(&other.0).copied().collect()
+    }
+}
+
+impl LineNode {
+    pub fn join(&self, other: &Path) -> Vec<u32> {
+        let mut joined = vec![self.0];
+        joined.extend(&other.0);
+        joined
+    }
+}
+
+// PathMap's `pjoin_dyn`: a statement runs for every variant before the
+// `match` over the node kinds. The statement stays in a plain method, and
+// the `match` moves into a private method under `*` that calls the
+// payloads' `join`.
+#[whichever::dispatch]
+impl NodeRef {
+    pub fn join(&self, other: &Path) -> Vec<u32> {
+        let other = Path(other.0.iter().copied().filter(|&step| step != 0).collect());
+        self.join_by_kind(&other)
+    }
+
+    #[dispatch(*, call = join)]
+    fn join_by_kind(&self, other: &Path) -> Vec<u32> {
+        match self {
+            Self::Empty => other.0.clone(),
+        }
+    }
+}
+
+#[test]
+fn a_plain_method_runs_its_statements_and_calls_the_arms_under_star() {
+    let other = Path(vec![8]);
+    assert_eq!(NodeRef::from(DenseNode(vec![1, 2])).join(&other), [1, 2, 8]);
+    assert_eq!(NodeRef::from(LineNode(5)).join(&other), [5, 8]);
+    assert_eq!(
+        NodeRef::Empty.join(&other),
+        [8],
+        "the empty node answers its arm"
+    );
+    assert_eq!(
+        NodeRef::from(LineNode(5)).join(&Path(vec![0, 8])),
+        [5, 8],
+        "the statement before the `match` runs for a forwarded variant"
+    );
+    assert_eq!(
+        NodeRef::Empty.join(&Path(vec![0, 8])),
+        [8],
+        "and for a variant the enum answers itself"
+    );
+}

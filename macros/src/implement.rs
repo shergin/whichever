@@ -87,7 +87,15 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             &quote_spanned!(*site => impl #impl_generics #spec_path for #subject_path #ty_generics),
         )
     };
-    let mut entries = subject.read()?.for_trait(&spec_path)?;
+    // A struct whose fields choose no one field for the trait, or two, is
+    // one sentence about the struct, and the impl is written all the same,
+    // around no field: every item a field would have supplied holds the
+    // sentence, so the bound holds wherever the impl is used and the
+    // sentence stands alone.
+    let (mut entries, unchosen) = match subject.read()?.for_trait(&spec_path) {
+        Ok(entries) => (entries, None),
+        Err(error) => (Entries::none(&subject), Some(error)),
+    };
     if subject_remote.is_some() {
         entries.restated();
     }
@@ -99,7 +107,12 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
             entries.rename(&mut renaming);
         }
     }
-    let route_errors = entries.route(&options.routes, &options.mutable_routes);
+    // A route is keyed by the field the trait goes to, which a struct that
+    // chose none cannot be asked about.
+    let route_errors = match unchosen {
+        Some(_) => vec![],
+        None => entries.route(&options.routes, &options.mutable_routes),
+    };
     let variants = entries.targets();
     // The bounds a hand writes: a payload that is a type parameter of the
     // subject gets `Param: Trait` on the impl, which the arms need and
@@ -111,7 +124,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     };
     let generics = &generics;
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    if variants.is_empty() {
+    if variants.is_empty() && unchosen.is_none() {
         if entries.is_empty() {
             return Err(Error::new_spanned(
                 &subject,
@@ -144,6 +157,7 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
         block: block.as_ref(),
         block_header: &block_header,
         supplier: first,
+        unchosen: unchosen.as_ref(),
         site,
     };
     // What the impl names around a method's signature, in its header and in
@@ -179,8 +193,12 @@ pub(crate) fn expand_implement(input: ImplementInput) -> Result<TokenStream2> {
     } = writer;
     // An option naming nothing in the trait, or a route through no variant,
     // is reported beside the impl, which is right without it; only an item
-    // that cannot be written withholds the impl.
-    let mut reported = route_errors;
+    // that cannot be written withholds the impl. The sentence of a struct
+    // that chose no field stands here too, whatever the impl holds: rustc
+    // reports it once, the items that hold it repeating it word for word
+    // on the same token.
+    let mut reported: Vec<Error> = unchosen.iter().cloned().collect();
+    reported.extend(route_errors);
     reported.extend(options.unknown_names(item_trait, trait_ident, words, block.is_none()));
     // An item that withholds the impl is reported with the errors that
     // would have stood beside it, so that none waits for the next build.
@@ -259,6 +277,10 @@ pub(crate) struct Impl<'a> {
     /// first variant that is always compiled in and whose target has a
     /// type to name, when there is one.
     pub(crate) supplier: Option<Target<'a>>,
+    /// The sentence of a struct whose fields choose no one field for the
+    /// trait. The impl is then written around no field, and every item a
+    /// field would have supplied holds this.
+    pub(crate) unchosen: Option<&'a Error>,
     /// The span the impl's own tokens carry: the subject's.
     pub(crate) site: Site,
 }
@@ -266,8 +288,12 @@ pub(crate) struct Impl<'a> {
 impl Impl<'_> {
     /// Returns `<First as Trait>::name`, spelled at the first variant's
     /// payload so that an error about the projection lands there, or the
-    /// error for an enum whose every variant is under `#[cfg]`.
+    /// error for an enum whose every variant is under `#[cfg]`, or for a
+    /// struct that chose no field.
     pub(crate) fn supplied(&self, name: &Ident) -> Result<TokenStream2> {
+        if let Some(error) = self.unchosen {
+            return Err(error.clone());
+        }
         let subject = self.subject.ident();
         let Some(first) = self.supplier else {
             return Err(Error::new_spanned(

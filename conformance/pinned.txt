@@ -352,6 +352,15 @@ s1=unit ret=option-self path=inherent-arms lift=some
 # (`marked.rs`, `standing_alone`).
 ret=option-self path=inherent-arms lift=some arms=cfg-off
 
+# A body under `*` with a statement before its `match self` on an inherent
+# block was kept as written beside its sentence, so its `match`, naming only
+# the variants the enum handles itself, was rustc's E0004 as well (#45,
+# `inherent_all_with_code_around_its_match`); in a partial block it was the
+# sentence alone (`block_all_with_code_around_its_match`).
+path=inherent-arms arms=preceded
+path=block-arms arms=preceded
+s1=unit path=inherent-arms s2=unit arms=preceded
+
 # A marked field that is the last of its variant or struct was matched with
 # a rest pattern that had nothing left to skip, `Last(_, __inner, ..)` and
 # `Labelled(_, __inner, ..)`, where a hand writes `Last(_, inner)`.
@@ -469,3 +478,11 @@ s0=deref-box qual=generic-named path=block home=crate
 # `crate`, `self`, `super` or `::`, so it could not follow its home's
 # spelling, nor could the recovery for one name spelled two ways.
 s0=struct-trait-self s1=none path=block home=crate
+
+# A struct of several fields that marked none had its sentence and no impl,
+# so every use of the impl was rustc's E0277 beside it (#46,
+# `struct_without_marked_field_on_the_attribute`,
+# `struct_without_marked_field_in_a_block`): the impl is written around no
+# field, and the sentence stands alone.
+s0=struct-unmarked s1=none
+s0=struct-unmarked s1=none path=block

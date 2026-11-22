@@ -165,6 +165,11 @@ arm:
   is what a method with a list of variants and a body already says.
 - **The arms are the method's own.** They are written as they stand, in
   the declared return type, and read the fields their pattern binds.
+- **The body is the `match self` and nothing else.** A body with code
+  before or after its `match` gives an error, since the attribute writes
+  the whole body. Write the method in full instead, and have it call an
+  inherent method that holds the `match`, as in
+  [Call the payloads from a method you wrote](#call-the-payloads-from-a-method-you-wrote).
 - **In an `async fn`**, your arms sit where the forwarding arms sit:
   inside the future.
 - **An arm under `#[cfg]`** handles its variant where the `cfg` is on.
@@ -241,9 +246,19 @@ A method you write or mark in the block is yours, and so are its
 attributes:
 
 - It carries what you write on it.
-- It gets `#[inline]` unless you wrote an `#[inline(..)]` yourself.
 - It carries nothing of the trait method's own attributes, just as a
   hand-written impl inherits nothing from the trait's declaration.
+
+Which of them gets `#[inline]` depends on its kind:
+
+- A method you mark to be forwarded gets `#[inline]` unless you wrote an
+  `#[inline(..)]` on it yourself. The attribute writes its `match`, so it
+  adds what it adds to every method it writes.
+- A method you write in full is emitted as you wrote it, with your
+  attributes and nothing added. If you want it `#[inline]`, write that on
+  it, as you would in a hand-written impl.
+- A method marked `#[dispatch(default)]` is not in the impl at all: the
+  trait's default runs.
 
 Only the methods the block leaves to plain forwarding, whose signatures
 the attribute writes, carry the trait method's `#[inline(..)]` and
@@ -339,6 +354,32 @@ impl Describe for AnyShape {
 }
 ```
 
+The inherent method may hold arms of the enum's own as well, for a unit
+variant beside the payloads. That is the way to have code around a
+`match` with your arms, which a body under `*` cannot hold:
+
+```rust
+#[whichever::dispatch]
+impl AnyShape {
+    #[dispatch(*, call = describe)]
+    fn payload_describe(&self) -> String {
+        match self {
+            Self::Empty => String::from("nothing"),
+        }
+    }
+}
+
+#[whichever::dispatch]
+impl Describe for AnyShape {
+    fn describe(&self) -> String {
+        let described = self.payload_describe();
+        format!("a shape: {described}")
+    }
+}
+```
+
+See [Code around the `match`](inherent-methods.md#code-around-the-match).
+
 ## On a struct
 
 A partial impl block over a [dispatch struct](structs.md) goes to the
@@ -352,3 +393,45 @@ field that lists the trait as the block's header spells it:
 If no field lists the trait, the block goes to the field marked with a
 bare `#[dispatch]`, or to the only field, as the struct's attribute
 does. See [Forwarding from a struct field](structs.md).
+
+### Wrap some methods, forward the rest
+
+A struct often wraps a few of a trait's methods, with a retry or a check
+before the call, and forwards the others to its field as they are. You
+write that as a dispatch struct with a partial impl block that holds the
+wrapped methods:
+
+```rust
+#[whichever::dispatch]
+pub struct Retrying {
+    #[dispatch(deref)]
+    inner: Box<dyn Store>,
+    attempts: u32,
+}
+
+#[whichever::dispatch]
+impl Store for Retrying {
+    fn get(&self, key: &str) -> Result<u32, String> {
+        retry(self.attempts, || self.inner.get(key))
+    }
+}
+```
+
+Every method the block does not hold is forwarded as it is, without the
+wrapping. That includes a method added to the trait later. Nothing
+reports it: the struct still builds, and its file does not change, so
+the new method is not in the diff either. The call reaches the field,
+which is right, but it is not retried or checked.
+
+`#[deny(clippy::missing_trait_methods)]` on the block does not catch
+this. The lint does not look at an impl a macro writes, and the
+generated impl holds every method of the trait anyway, so the lint
+would have nothing to report.
+
+So when every new method of the trait has to be looked at before the
+struct passes it on, write the impl by hand under
+`#[deny(clippy::missing_trait_methods)]`. Then a new provided method
+stops `cargo clippy` until you write it into the impl, plain or wrapped,
+and a reviewer sees which. (A new required method stops the build
+either way.) When the struct should pass every new method on as it is,
+the partial impl block is the shorter impl, and it cannot forget one.

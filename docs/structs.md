@@ -30,6 +30,22 @@ pub struct StreamFlowCtrl {
 `StreamFlowCtrl` has two fields, so `#[dispatch]` marks the one that every
 call goes to. The `hooks` field is left alone.
 
+Without the mark you get an error, because the attribute cannot tell
+which field is meant:
+
+```text
+error: `StreamFlowCtrl` has several fields; mark the one to forward `FlowCtrlHooks` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`
+```
+
+When a field is a `Box`, an `Rc`, an `Arc` or a reference to the
+target, such as `inner: Box<dyn Shape>`, the error also names
+`#[dispatch(deref)]`, the mark that forwards to what the pointer points
+at. A pointer to a string or a slice, such as `&'static str`, is not
+taken for one, since it holds a label or a buffer. A bare `#[dispatch]`
+on the pointer forwards to the pointer itself, which is right only where
+the pointer implements the trait. The impl is still written, so this error is the only one you see,
+and the uses of the trait compile.
+
 ## Any implementor will do
 
 The field does not have to be a dispatch enum. Any type that implements
@@ -125,6 +141,13 @@ written by hand, because `Catalog` needs it as a supertrait.
   ```text
   error: `named` is a field of `Env`, but this trait is forwarded to `catalog`, and a trait is forwarded to one field; name the trait on `named`, `#[dispatch(Trait)]`, to forward it there
   ```
+
+A struct that wraps some of a trait's methods, with a retry or a check
+before the call, and forwards the rest is a partial impl block too. A
+method added to the trait later is then forwarded without the wrapping,
+and nothing reports it. See
+[Wrap some methods, forward the rest](partial-impl-blocks.md#wrap-some-methods-forward-the-rest)
+for when a hand-written impl is the better tool.
 
 ## Spelling: one name, two ways
 

@@ -1,0 +1,5 @@
+error: `Labelled` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `inner` points at, or name the trait on it, `#[dispatch(Trait)]`
+  --> tests/ui/struct_without_marked_field_on_the_attribute.rs:12:12
+   |
+12 | pub struct Labelled {
+   |            ^^^^^^^^

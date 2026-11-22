@@ -74,15 +74,18 @@ pub mod glossary {}
 /// [glossary-restatement]: crate::docs::glossary#restatement
 /// [glossary-target]: crate::docs::glossary#target
 /// [inherent-methods]: crate#inherent-methods
+/// [inherent-methods-around-the-match]: crate#code-around-the-match
 /// [limits]: crate#requirements-and-limits
 /// [limits-conversions]: crate#conversions
 /// [limits-receivers]: crate#receivers
+/// [limits-structs]: crate#structs-and-conversions
 /// [options-enum-inside-enum]: crate#conversions
 /// [options-from-false]: crate#conversions
 /// [options-mismatch]: crate#self-arguments-and-mismatch
 /// [options-name-type]: crate#associated-types-and-consts
 /// [options-name-value]: crate#associated-types-and-consts
 /// [partial-impl-blocks]: crate#partial-impl-blocks-write-some-methods-yourself
+/// [partial-impl-blocks-call]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [partial-impl-blocks-header]: crate#the-impl-header
 /// [partial-impl-blocks-names]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [restatements]: crate#traits-from-std-and-other-crates
@@ -91,6 +94,7 @@ pub mod glossary {}
 /// [restatements-enums]: crate#enums-from-other-crates
 /// [restatements-provided-methods]: crate#restate-any-other-trait
 /// [routes]: crate#reaching-the-target-pointers-fields-and-methods
+/// [structs]: crate#forwarding-from-a-struct-field
 /// [structs-cannot-be-asked]: crate#forwarding-from-a-struct-field
 /// [structs-some-builds]: crate#forwarding-from-a-struct-field
 /// [routes-mutable-borrow]: crate#where-you-write-a-route

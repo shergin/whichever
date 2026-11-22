@@ -328,7 +328,13 @@ and [inherent-methods.md](inherent-methods.md#forward-to-every-variant-but-a-few
   are written for `match self`. List the variants in `#[dispatch(..)]`
   and give the method a body for the rest.
 - **A body under `*` must be one `match self`.** Any other body would
-  never run, because every variant is forwarded, so you get an error.
+  never run, because every variant is forwarded, so you get an error. A
+  body with code around its `match self`, such as a check before it, is
+  told so: the attribute writes the whole body, and there is no place in
+  it for that code. Keep the code in a method without a mark, and move
+  the `match` into an inherent method marked `#[dispatch(*, call =
+  name)]` that the first one calls. See
+  [inherent-methods.md](inherent-methods.md#code-around-the-match).
 - **Each arm you write names its variants by path, `Self::Name(..)`.**
   An arm that names none, `_` or a binding, is an arm for every other
   variant, and that is what a list of variants with a body already
@@ -406,7 +412,17 @@ of its fields. See [structs.md](structs.md).
 - **A dispatch struct with several fields marks the one to forward to.**
   Mark it with `#[dispatch]`, or list the trait on it,
   `#[dispatch(Trait)]`. Otherwise the attribute cannot tell which field
-  is meant, and you get an error.
+  is meant, and you get an error. The impl is still written, around no
+  field, so you get the one error and no follow-on errors. The same
+  holds for a trait listed on two fields and for two fields marked bare.
+  When a field is a pointer to the [target](glossary.md#target), such as
+  `inner: Box<dyn Shape>`, mark it `#[dispatch(deref)]`, which forwards
+  to what the pointer points at. The error names that mark when a field
+  is a `Box`, an `Rc`, an `Arc` or a reference to the target. A field
+  that points at a string or a slice, such as `label: &'static str`, is
+  a label or a buffer, so the error does not name it. A bare
+  `#[dispatch]` on a pointer is not refused, because the pointer may
+  implement the trait itself, as `Box<dyn Iterator>` does.
 - **A dispatch struct with other fields beside the marked one cannot
   forward a method that returns `Self`.** The macro has no values for
   the other fields, so it cannot build the struct around the result.
@@ -577,6 +593,30 @@ under [Associated types and consts](#associated-types-and-consts).
   (`ambiguous_import_visibilities`, an error under
   `#![deny(future_incompatible)]`). Declare the trait in a module of its
   own and re-export it, or import the prelude's items by name there.
+- **Marking a published `pub` trait adds a macro of the trait's name to
+  the crate's public macro namespace.** The carrier macro is re-exported
+  beside the trait under the trait's name, so `pub use traits::Shape;`
+  exports the macro with the trait, and a glob import brings in both. A
+  crate that uses the trait and also imports another macro called
+  `Shape`, such as a derive, stops compiling once the trait is marked,
+  with no change on its side:
+  - two named imports, `use shape_derive::Shape;` and
+    `use shapes::Shape;`, give
+    ``error[E0252]: the name `Shape` is defined multiple times``, with the
+    note that `Shape` "must be defined only once in the macro namespace
+    of this module";
+  - two glob imports, `use shape_derive::*;` and `use shapes::*;`, give
+    ``error[E0659]: `Shape` is ambiguous`` where the name is used, "ambiguous
+    because of multiple glob imports of a name in the same module".
+
+  In the crate that uses the trait, name the other macro by its path,
+  `#[derive(shape_derive::Shape)]`, and drop its `use`. Beside two globs,
+  importing the other macro by name, `use shape_derive::Shape;`, also
+  works, because a named import wins over a glob. A library that
+  dispatches the trait only in its own crate can leave the trait
+  unmarked and restate it crate-privately instead; see
+  [Keep a `pub` trait's carrier macro in its crate](restatements.md#keep-a-pub-traits-carrier-macro-in-its-crate),
+  which also says what that costs a struct that forwards everything.
 
 ## Lints
 

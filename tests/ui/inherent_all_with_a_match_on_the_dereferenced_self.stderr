@@ -1,0 +1,10 @@
+error: `area` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`
+  --> tests/ui/inherent_all_with_a_match_on_the_dereferenced_self.rs:18:31
+   |
+18 |       pub fn area(&self) -> u32 {
+   |  _______________________________^
+19 | |         match *self {
+20 | |             Self::Empty => 0,
+21 | |         }
+22 | |     }
+   | |_____^

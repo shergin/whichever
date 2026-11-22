@@ -1,0 +1,5 @@
+error: `Shared` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `1` points at, or name the trait on it, `#[dispatch(Trait)]`
+  --> tests/ui/struct_without_marked_field_over_a_pointer.rs:20:12
+   |
+20 | pub struct Shared(u8, Rc<Circle>);
+   |            ^^^^^^

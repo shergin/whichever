@@ -99,7 +99,7 @@ suite inherent
   limit 2736
   rejected 66
   malformed 0
-  never 3912 non-canonical
+  never 4200 non-canonical
   never 43 unmodelled: a limit beside a rejection the limit does not replace
   never 168 unmodelled: a struct's inherent or block method naming its field, not modelled yet
   never 159 unmodelled: an `async fn` that returns a future
@@ -600,7 +600,7 @@ suite third-stacks
 
 suite own-arms
   pass 285
-  limit 675
+  limit 855
   rejected 0
   malformed 0
   never 120 non-canonical
@@ -641,36 +641,36 @@ suite own-arms-refusals
 
 suite pinned
   pass 128
-  limit 59
+  limit 64
   rejected 8
   malformed 0
 
 suite array
-  pass 11713
+  pass 11699
   limit 0
   rejected 0
   malformed 0
-  rows 11713
-  covered 111904
-  unreached 107881
+  rows 11699
+  covered 112058
+  unreached 111748
 
 suite array-limits
   pass 0
-  limit 669
+  limit 684
   rejected 0
   malformed 0
-  rows 669
-  covered 13689
-  unreached 4900
+  rows 684
+  covered 13841
+  unreached 5111
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 1012
+  rejected 1078
   malformed 0
-  rows 1012
-  covered 12727
-  unreached 5862
+  rows 1078
+  covered 12906
+  unreached 6046
 
 suite known
   pass 0

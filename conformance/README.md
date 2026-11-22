@@ -180,6 +180,17 @@ field, generics, whose arguments the field would repeat, and the
 conversions stay the plain struct's. A route keyed by another field, and a
 trait spelled with and without its generic arguments, are `tests/ui`'s.
 
+The `s0` value `struct-unmarked` is that struct with no mark at all, `E {
+label: u64, held: P0 }`: several fields and none marked, so the attribute
+cannot tell which is meant, and the struct's sentence on its name is the
+whole of what it reports. The impl is still written, around no field
+(`docs/limits.md`), so the probe through the trait resolves, where a
+withheld impl would be the probe's E0277 (#46). It is crossed with the two
+paths that name the trait and no field, the struct's attribute and a block
+silent about `m`, and nothing else. A trait named on two fields, two
+fields marked bare, a struct of no field, and the sentence's
+`#[dispatch(deref)]` over a pointer field are `tests/ui`'s.
+
 The `s0` value `marked-last` marks the last field of a tuple variant,
 `A(u64, #[dispatch] P0)`. No document shows the form; the hand binds it as
 `A(_, inner)`, with no rest pattern, since none would have anything left to
@@ -336,7 +347,11 @@ for the second variant, whatever it holds, and one for every later variant
 without a payload; the second variant's arm under a `#[cfg]` that holds or
 one that does not, where the variant is forwarded instead; an arm for the
 second variant alone, which leaves a third without a payload unanswered; a
-wildcard arm beside them; or a body that is no `match`. An arm answers the
+wildcard arm beside them; a body that is no `match`; or the arms of
+`answered` behind a statement, `if false { return .. }`, a body with code
+before its `match self`, which is the sentence of
+`inherent_all_with_code_around_its_match` alone on either path, the method
+written with the sentence as its body. An arm answers the
 constant a body for the rest answers, so the law tells it from the
 payload's, and the arm of a variant of two fields reads its label where the
 method answers a number. The hand writes the forwarding arms in the enum's

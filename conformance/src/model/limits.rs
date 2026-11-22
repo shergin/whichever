@@ -91,6 +91,8 @@ pub enum Limit {
     GenericAssociatedType,
     /// An arm of a method under `*` that names no variant.
     ArmNamingNoVariant,
+    /// A body under `*` with code around its `match self`.
+    BodyAroundItsMatch,
     /// Arms of its own beside a `Self` argument a trait method matches
     /// beside `self`.
     ArmsBesideSelfArgument,
@@ -116,6 +118,8 @@ pub enum Limit {
     IntoRepeated,
     /// A `dispatch` mark under `cfg_attr`.
     MarkUnderCfgAttr,
+    /// A struct of several fields that marks none.
+    NoFieldMarked,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -199,6 +203,7 @@ impl Limit {
         Limit::SizedOnObject,
         Limit::GenericAssociatedType,
         Limit::ArmNamingNoVariant,
+        Limit::BodyAroundItsMatch,
         Limit::ArmsBesideSelfArgument,
         Limit::ArmsMatchedByPlace,
         Limit::FieldTraitSpelt,
@@ -209,6 +214,7 @@ impl Limit {
         Limit::FromContradicted,
         Limit::IntoRepeated,
         Limit::MarkUnderCfgAttr,
+        Limit::NoFieldMarked,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -415,6 +421,11 @@ impl Limit {
                 "names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none",
                 "own_arm_naming_no_variant",
             ),
+            Limit::BodyAroundItsMatch => entry(
+                "body-around-its-match",
+                "so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else",
+                "inherent_all_with_code_around_its_match",
+            ),
             Limit::ArmsBesideSelfArgument => entry(
                 "arms-beside-self-argument",
                 "which are matched beside `self`, and an arm of its own is written for `self` alone",
@@ -471,6 +482,15 @@ impl Limit {
                 "mark-under-cfg-attr",
                 "a `dispatch` under `cfg_attr` is not read",
                 "mark_under_cfg_attr_on_a_variant",
+            ),
+            // The struct's sentence; the impl is written around no field
+            // beside it, every forwarded method holding it as its body
+            // (`struct_without_marked_field_in_a_block` holds the same
+            // sentence for a partial block).
+            Limit::NoFieldMarked => entry(
+                "no-field-marked",
+                "has several fields; mark the one to forward",
+                "struct_without_marked_field_on_the_attribute",
             ),
             Limit::ArmsMatchedByPlace => entry(
                 "arms-matched-by-place",
@@ -532,6 +552,10 @@ impl Limit {
                 "name the variants it handles, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body",
                 false,
             ),
+            Limit::BodyAroundItsMatch => (
+                "move this body's `match self` into an inherent method marked `#[dispatch(*, call = ",
+                false,
+            ),
             Limit::ArmsBesideSelfArgument | Limit::ArmsMatchedByPlace => (
                 "name the variants in `#[dispatch(..)]` and give the method a body for the rest",
                 false,
@@ -552,6 +576,7 @@ impl Limit {
                 "or leave it to the trait's default with `#[dispatch(default)]`",
                 false,
             ),
+            Limit::NoFieldMarked => ("or name the trait on it, `#[dispatch(Trait)]`", false),
         };
         Entry {
             way_out,
@@ -586,7 +611,8 @@ impl Limit {
             | Limit::BodilessInBlock
             | Limit::FromContradicted
             | Limit::IntoRepeated
-            | Limit::MarkUnderCfgAttr => false,
+            | Limit::MarkUnderCfgAttr
+            | Limit::NoFieldMarked => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -608,6 +634,7 @@ impl Limit {
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
+            | Limit::BodyAroundItsMatch
             | Limit::StarOverUnforwardable
             | Limit::SizedOnObject => true,
         }
@@ -625,6 +652,7 @@ impl Limit {
             | Limit::SelfInReturn
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
+            | Limit::BodyAroundItsMatch
             | Limit::ArmNamingNoVariant
             | Limit::ArmsBesideSelfArgument
             | Limit::ArmsMatchedByPlace
@@ -665,7 +693,8 @@ impl Limit {
             | Limit::BodilessInBlock
             | Limit::FromContradicted
             | Limit::IntoRepeated
-            | Limit::MarkUnderCfgAttr => false,
+            | Limit::MarkUnderCfgAttr
+            | Limit::NoFieldMarked => false,
         }
     }
 

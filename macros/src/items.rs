@@ -321,7 +321,11 @@ impl<'a> ItemWriter<'a> {
             } else {
                 format!("`{name}` is a generic associated type, which only the enum can declare; write `type {name}{parameters} = ..;` in a `#[whichever::dispatch] {block_header}` block")
             };
-            let error = Error::new_spanned(assoc, message).to_compile_error();
+            let error = match self.of.unchosen {
+                Some(error) => error.clone(),
+                None => Error::new_spanned(assoc, message),
+            }
+            .to_compile_error();
             return Ok(quote_spanned! { *site =>
                 #(#carried)* type #name #generics = [(); { #error; 0 }] #where_clause;
             });
@@ -410,14 +414,17 @@ impl<'a> ItemWriter<'a> {
                 (signature, renaming)
             }
         };
+        let carried = || match forwarded {
+            Some(forwarded) => forwarded.attrs.clone(),
+            None => method.carried_attributes(),
+        };
+        // A struct that chose no field for the trait has nothing to forward
+        // to, and its sentence is every forwarded method's.
+        if let Some(error) = self.of.unchosen {
+            return Ok(error_body(&signature, carried(), error.clone()));
+        }
         let written = forward_trait_method(self.of, method, signature.clone(), forwarded, renaming);
-        Ok(written.unwrap_or_else(|error| {
-            let carried = match forwarded {
-                Some(forwarded) => forwarded.attrs.clone(),
-                None => method.carried_attributes(),
-            };
-            error_body(&signature, carried, error)
-        }))
+        Ok(written.unwrap_or_else(|error| error_body(&signature, carried(), error)))
     }
 
     /// Writes a trait method that cannot be forwarded as the impl writes it:

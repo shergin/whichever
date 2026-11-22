@@ -1249,7 +1249,7 @@ pub fn write_struct(
     attributes: bool,
     anchored: bool,
 ) {
-    let Some((_, target)) = slot.target() else {
+    let Some((kind, target)) = slot.target() else {
         unreachable!("a struct subject holds a live target");
     };
     let stored = storage(slot, &target);
@@ -1270,6 +1270,7 @@ pub fn write_struct(
             // field every other trait goes to.
             let (label, mark) = match (attributes, target.trait_on_field()) {
                 (false, _) => ("", String::new()),
+                (true, _) if kind.marks_no_field() => ("", String::new()),
                 (true, _) if target.under_cfg_attr => {
                     ("", String::from("#[cfg_attr(all(), dispatch)] "))
                 }

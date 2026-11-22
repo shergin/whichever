@@ -128,10 +128,11 @@ fn without_unread_conditional_items(
 /// Rewrites every marked method of the block. A method that cannot be
 /// forwarded is reported and kept as written, without the attribute, or
 /// dropped when it has no body, so that the rest of the block still
-/// compiles and the real error stands alone. The sentence stands under the
-/// method's own `#[cfg]`, as the method does, so a build that compiles the
-/// method out has neither. When the enum itself was rejected nothing is
-/// reported here.
+/// compiles and the real error stands alone. A body refused under `*` is
+/// not kept: the method is written with the sentence as its body, see
+/// `Marked::refused`. The sentence stands under the method's own `#[cfg]`,
+/// as the method does, so a build that compiles the method out has
+/// neither. When the enum itself was rejected nothing is reported here.
 pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
     let BlockInput {
         rejected,
@@ -216,8 +217,11 @@ pub(crate) fn expand_inherent(input: BlockInput) -> Result<TokenStream2> {
         match forwarded {
             Ok(generated) => items.push(ImplItem::Verbatim(generated)),
             Err(error) => {
-                report(&cfgs, error);
-                items.extend(method.unmarked());
+                let (kept, beside) = method.refused(error);
+                items.extend(kept);
+                if let Some(error) = beside {
+                    report(&cfgs, error);
+                }
             }
         }
     }

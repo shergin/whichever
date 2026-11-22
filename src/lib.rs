@@ -947,6 +947,61 @@
 //! - under `#[cfg]`, handle their variant where the `cfg` is on. Where it
 //!   is off, the variant is forwarded.
 //!
+//! The body is the `match self` and nothing else.
+//!
+//! #### Code around the `match`
+//!
+//! The method you would write by hand often has a line or two before its
+//! `match`, such as a check. Under `*` that body gives an error, because
+//! the attribute writes the whole body: one `match` with the forwarding
+//! arms and yours, with no place for other code. Split the method in two
+//! instead: a plain method, without a mark, that runs the code and then
+//! calls a private method marked `#[dispatch(*, call = name)]`, where
+//! `name` is the payloads' method, whose body is the `match self` with
+//! your arms:
+//!
+//! ```
+//! # pub struct Circle(pub u32);
+//! # pub struct Square(pub u32);
+//! # impl Circle { pub fn describe(&self) -> String { format!("circle {}", self.0) } }
+//! # impl Square { pub fn describe(&self) -> String { format!("square {}", self.0) } }
+//! # #[whichever::dispatch]
+//! # pub enum AnyShape {
+//! #     Circle(Circle),
+//! #     Square(Square),
+//! #     Empty,
+//! # }
+//! #[whichever::dispatch]
+//! impl AnyShape {
+//!     pub fn describe(&self, verbose: bool) -> String {
+//!         if !verbose {
+//!             return String::from("a shape");
+//!         }
+//!         self.describe_variant()
+//!     }
+//!
+//!     #[dispatch(*, call = describe)]
+//!     fn describe_variant(&self) -> String {
+//!         match self {
+//!             Self::Empty => String::from("nothing"),
+//!         }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     assert_eq!(AnyShape::Square(Square(2)).describe(false), "a shape");
+//!     assert_eq!(AnyShape::Square(Square(2)).describe(true), "square 2");
+//!     assert_eq!(AnyShape::Empty.describe(true), "nothing");
+//! }
+//! ```
+//!
+//! The error on such a body names this way around, with the payloads'
+//! method in it. A body with no `match self` at all gets the other error,
+//! "its body would never run". A trait method works the same way: write
+//! it in full in a [partial impl
+//! block](#partial-impl-blocks-write-some-methods-yourself), and have it
+//! call the inherent method that holds the `match`.
+//!
 //! ### How the call is written
 //!
 //! Each arm calls the payload's method with method-call syntax,
@@ -1138,9 +1193,11 @@
 //! - **`#[dispatch(*)]` on a method with a body** holds the arms the enum
 //!   handles itself, as in an inherent block:
 //!   `#[dispatch(*)] fn encode(..) { match self { Self::Unknown(kind, data) => .. } }`.
-//!   Every other variant is forwarded. A trait method with a `Self`
-//!   argument, matched beside `self`, takes no such arms; list the
-//!   forwarded variants instead and give the method a body for the rest.
+//!   Every other variant is forwarded. The body is the `match` and
+//!   nothing else; for code around it, see "Calling the payloads from a
+//!   method you wrote" below. A trait method with a `Self` argument,
+//!   matched beside `self`, takes no such arms; list the forwarded
+//!   variants instead and give the method a body for the rest.
 //! - **`#[dispatch(default)]` on a method without a body** leaves the method
 //!   to the trait's default. Over a
 //!   [restatement](#traits-from-std-and-other-crates), that is the real
@@ -1159,8 +1216,10 @@
 //! ### Attributes on the methods
 //!
 //! A method you write or mark in the block carries what you write on it,
-//! and gets `#[inline]` unless you wrote an `#[inline(..)]` yourself. It
-//! carries nothing of the trait method's own attributes. Only the methods
+//! and nothing of the trait method's own attributes. A method you write in
+//! full is emitted as you wrote it, with nothing added. A method you mark
+//! to be forwarded gets `#[inline]` unless you wrote an `#[inline(..)]`
+//! yourself, since the attribute writes its `match`. Only the methods
 //! the block leaves to plain forwarding carry the trait method's
 //! `#[inline(..)]` and `#[allow]`.
 //!
@@ -1205,7 +1264,10 @@
 //!   `#[dispatch(default)]` on a method with a body.
 //! - **Calling the payloads from a method you wrote.** A method you write
 //!   in the block may still need the payloads' result. Have it call an
-//!   inherent `#[dispatch(*, call = name)]` method beside it.
+//!   inherent `#[dispatch(*, call = name)]` method beside it. That method
+//!   may hold arms of the enum's own, which is the way to have code around
+//!   a `match` with your arms; see [Code around the
+//!   `match`](#code-around-the-match).
 //!
 //! A partial impl block works on a
 //! [dispatch struct](#forwarding-from-a-struct-field) as it does on an enum.
@@ -1379,6 +1441,16 @@
 //! The field does not have to be a dispatch enum. Any implementor works, so
 //! the same attribute also replaces a field-delegation derive.
 //!
+//! **A struct with several fields marks one.** Without a mark the attribute
+//! cannot tell which field is meant, and you get an error that says to mark
+//! it with `#[dispatch]` or to name the trait on it, `#[dispatch(Trait)]`.
+//! Where a field is a `Box`, an `Rc`, an `Arc` or a reference to the target,
+//! the error also names `#[dispatch(deref)]`, which forwards to what the
+//! pointer points at; a bare mark forwards to the pointer itself, which is
+//! right only where the pointer implements the trait. A pointer to a string
+//! or a slice, such as `&'static str`, is not taken for one. The impl is
+//! still written, so this error is the only one.
+//!
 //! **Several traits, several fields.** A field may list the traits it is the
 //! target of: `#[dispatch(Rom)] rom: Cartridge` beside
 //! `#[dispatch(Interrupt)] signals: Signals`. The field marked with a bare
@@ -1397,6 +1469,15 @@
 //! One name spelled two ways, `Catalog` on the field and `traits::Catalog`
 //! at the home, gives an error. The impl is still written for that field,
 //! so this error is the only one.
+//!
+//! **Wrap some methods, forward the rest.** A struct that wraps a few
+//! methods, with a retry or a check before the call, writes them in a
+//! partial impl block, and every other method is forwarded as it is. A
+//! method added to the trait later is forwarded too, without the
+//! wrapping, and nothing reports it. `#[deny(clippy::missing_trait_methods)]`
+//! on the block reports nothing: the lint does not look at an impl a macro
+//! writes, and the generated impl holds every method anyway. When every
+//! new method has to be looked at, write the impl by hand under that lint.
 //!
 //! What is different from an enum:
 //!
@@ -1708,6 +1789,13 @@
 //!
 //! ### Structs and conversions
 //!
+//! - **A dispatch struct with several fields marks the one to forward to**,
+//!   with `#[dispatch]`, with `#[dispatch(deref)]` for what a pointer field
+//!   points at, or by naming the trait on it, `#[dispatch(Trait)]`.
+//!   Otherwise the attribute cannot tell which field is meant. The impl is
+//!   still written, around no field, so you get the one error and no
+//!   follow-on errors. A bare mark on a pointer is not refused, because the
+//!   pointer may implement the trait itself.
 //! - **A struct's field lists a trait as the struct's attribute or a
 //!   partial impl block's header spells it.** One name spelled two ways,
 //!   `Catalog` and `traits::Catalog` or `Encoder` and `Encoder<F>`, is an
@@ -1740,6 +1828,20 @@
 //!   (`ambiguous_import_visibilities`, an error under
 //!   `#![deny(future_incompatible)]`). Declare the trait in a module of its
 //!   own and re-export it, or import the prelude's items by name there.
+//! - **Marking a published `pub` trait adds a macro of the trait's name to
+//!   the crate's public macro namespace**: the carrier macro, re-exported
+//!   beside the trait. A crate that uses the trait and imports another
+//!   macro called `Shape`, such as a derive, then stops compiling: two
+//!   named imports give ``error[E0252]: the name `Shape` is defined
+//!   multiple times``, and two glob imports give ``error[E0659]: `Shape`
+//!   is ambiguous``. In that crate, name the other macro by its path,
+//!   `#[derive(shape_derive::Shape)]`, or import it by name beside the
+//!   globs. A library that dispatches the trait only in its own crate can
+//!   leave it unmarked and restate it crate-privately,
+//!   `#[whichever::dispatchable(remote = crate::Shape)] pub(crate) trait Shape { .. }`.
+//!   The restatement forwards what it lists, and nothing checks the list
+//!   against the trait, so it does not suit a struct that means to forward
+//!   every method.
 //! - **A trait's items carry at most four distinct `#[cfg]`
 //!   predicates.** The carrier macro is written once per combination of
 //!   them, so you get the error on the fifth. Combine the predicates, or

@@ -21,6 +21,7 @@ On this page:
 - [At the enum's `#[dispatch(..)]`](#at-the-enums-dispatch)
 - [Inside the generated impl](#inside-the-generated-impl)
 - [On a variant](#on-a-variant)
+- [On a struct](#on-a-struct)
 - [On a trait method](#on-a-trait-method)
 - [Conversions](#conversions)
 - [At the trait](#at-the-trait)
@@ -50,7 +51,42 @@ two reasons:
 **The fix.** Put `#[whichever::dispatchable]` on the trait, or import the
 trait in the enum's module, as in `use crate::shapes::Shape;`.
 
-If the trait is not yours, see the next two entries.
+If the trait is not yours, see the entries after the next.
+
+### "cannot find macro `Wrapper` in this scope" on a partial impl block
+
+```text
+error: cannot find macro `Wrapper` in this scope
+   = note: `Wrapper` is in scope, but it is a struct, not a macro
+```
+
+For an enum, the note ends "it is an enum, not a macro". The error points
+at the type in the block's header, `impl Shape for Wrapper {}`, and is
+often followed by "no method named `area` found".
+
+**What it means.** The name in the error is the struct's or the enum's,
+not the trait's. A [partial impl block][partial-impl-blocks] reads the
+struct's or the enum's definition from a hidden macro with the type's
+name, which `#[whichever::dispatch]` on the type leaves next to it. The
+type has no `#[whichever::dispatch]`, so there is no such macro. (When
+the trait is the one without `#[whichever::dispatchable]`, the error
+names the trait instead; see the entry above.)
+
+**The fix.** Put `#[whichever::dispatch]` on the struct or the enum the
+block implements the trait for:
+
+```rust
+#[whichever::dispatch]
+pub struct Wrapper {
+    inner: Square,
+}
+
+#[whichever::dispatch]
+impl Shape for Wrapper {}
+```
+
+If the type is another crate's, see "cannot find `Trait` in `other`"
+below.
 
 ### "`std::fmt::Display` is not `#[dispatchable]`"
 
@@ -150,7 +186,8 @@ Some details:
 - Paths that start with `crate::` are rewritten to the trait's crate, so
   they work anywhere.
 - `super::` and `self::` paths are not rewritten. Do not write them in a
-  `#[dispatchable]` trait's signatures.
+  `#[dispatchable]` trait's signatures. The errors they give are
+  [below](#a-super-path-in-the-trait-too-many-leading-super-keywords).
 - A private type or alias in a signature cannot be named from another
   module or crate. It limits the trait to its own crate.
 - The attribute does not add the imports for you, because a glob import
@@ -170,6 +207,47 @@ impl Client for ClientWrapper {}
 ```
 
 See [Which names must be in scope][partial-impl-blocks-names].
+
+#### A `super::` path in the trait: "too many leading `super` keywords"
+
+A `super::` path in the trait's signatures gives one of these errors
+where the enum or the block is in another crate or another module:
+
+```text
+error[E0433]: too many leading `super` keywords within `crate`
+   |      ^^^^^ this `super` would go above the crate root
+```
+
+Older Rust versions, such as 1.92, word it differently:
+
+```text
+error[E0433]: failed to resolve: there are too many leading `super` keywords
+```
+
+Or, when the enum or the block is one module below a crate root:
+
+```text
+error[E0425]: cannot find type `Policy` in module `super`
+```
+
+On Rust 1.88 the code is `E0412`, as above.
+
+**What it means.** The trait writes `super::Policy` in a signature, such
+as `fn set_policy(&mut self, policy: super::Policy);`. The path is not
+rewritten, so it is read where the impl is written: in the enum's or the
+block's module, not the trait's. At a crate root, `super` goes above the
+root. One module down, it is that crate's root, which has no `Policy`.
+The trait compiles, and an enum or a block in a sibling module of the
+trait works, because there `super::` means the same thing. So the
+trait's own crate may never see the error.
+
+**The fix.** It is in the trait. Write `crate::Policy` for
+`super::Policy`, and the full `crate::` path for a `self::` path: a `crate::`
+path is rewritten to the trait's crate, so it works anywhere.
+
+If the trait is not yours, put the enum or the block in a module whose
+parent module imports `Policy`, so that `super::Policy` names it there,
+and tell the trait's author.
 
 ### "the trait bound `B: Value` is not satisfied"
 
@@ -319,6 +397,48 @@ pub enum Any {
     Boxed(Square),
 }
 ```
+
+## On a struct
+
+### "has several fields; mark the one to forward `Shape` to"
+
+```text
+error: `Labelled` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`
+```
+
+When a field is a `Box`, an `Rc`, an `Arc` or a reference to the
+target, the error names one more mark:
+
+```text
+error: `Labelled` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `inner` points at, or name the trait on it, `#[dispatch(Trait)]`
+```
+
+A field that points at a string or a slice, such as `&'static str`,
+does not count: it holds a label or a buffer, not something to forward
+to.
+
+On an inherent method marked `#[dispatch(*)]`, the error names no trait:
+"mark the one to forward with `#[dispatch]`".
+
+**What it means.** A [dispatch struct][structs] forwards a trait to one
+field. Your struct has several, and none is marked, so the attribute
+cannot tell which one is meant. The impl is still written, so this error
+is the only one, and the uses of the trait compile.
+
+**The fix.** Mark the field to forward to. Pick the mark that fits:
+
+- `#[dispatch]` when the field implements the trait, as in
+  `#[dispatch] shape: Square`;
+- `#[dispatch(deref)]` when the field is a pointer and what it points at
+  implements the trait, as in `#[dispatch(deref)] inner: Box<dyn Shape>`.
+  A bare `#[dispatch]` there forwards to the `Box` itself, and rustc
+  says "the trait bound `Box<dyn Shape>: Shape` is not satisfied";
+- `#[dispatch(Trait)]` when the struct forwards several traits to
+  several fields, as in `#[dispatch(Shape)] inner: Square`.
+
+A bare `#[dispatch]` on a pointer is right where the pointer implements
+the trait itself, as `Box<dyn Iterator>` does, so it is not refused. See
+[Limits][limits-structs].
 
 ## On a trait method
 
@@ -549,6 +669,32 @@ rustc puts the error on the method's name in the route.
 the temporary, `&self.raw.parsed()`; for a trait, do it in a
 [partial impl block][partial-impl-blocks].
 
+### "its body is one `match self` holding the arms of the variants the enum handles itself and nothing else"
+
+```text
+error: `describe` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = describe)]`, and call that method from `describe`, written without a mark
+```
+
+You get this on an inherent method or a method of a partial impl block.
+
+**What it means.** The method is marked `#[dispatch(*)]` and its body
+has code around its `match self`, such as a check before it. Under `*`
+the attribute writes the whole body: one `match` with an arm for each
+forwarded variant and then your arms. So the body may be the
+`match self` and nothing else, and there is no place for the code
+around it.
+
+**The fix.** Split the method in two. Keep the code in a method without
+a mark, and have it call a private inherent method marked
+`#[dispatch(*, call = describe)]` whose body is the `match self` with
+your arms. The error names the payloads' method for you, `describe`
+here. For a trait method, write the method in full in a
+[partial impl block][partial-impl-blocks-call] and call the inherent
+method from it. See [Code around the `match`][inherent-methods-around-the-match].
+
+A body with no `match self` at all gets "its body would never run"
+instead. Make the body one `match self`, or end the signature with `;`.
+
 ### Other errors on a trait method
 
 The other one-sentence errors on a method, about `Self` in a return
@@ -752,6 +898,39 @@ rustc reports the conflict (lint `ambiguous_import_visibilities`).
 or import the prelude's items by name in that module instead of with a
 glob.
 
+### "the name `Shape` is defined multiple times" or "`Shape` is ambiguous" in a crate that uses the trait
+
+```text
+error[E0252]: the name `Shape` is defined multiple times
+   = note: `Shape` must be defined only once in the macro namespace of this module
+```
+
+```text
+error[E0659]: `Shape` is ambiguous
+   = note: ambiguous because of multiple glob imports of a name in the same module
+```
+
+**What it means.** You import a trait from another crate and another
+macro of the same name, such as a derive, and the trait's crate has
+marked the trait `#[dispatchable]`. Marking a `pub` trait adds a macro
+of the trait's name to its crate's public macro namespace: the carrier
+macro, re-exported beside the trait. So `use shapes::Shape;` now imports
+a macro too. Two named imports of `Shape` give E0252. Two glob imports,
+`use shape_derive::*;` and `use shapes::*;`, give E0659 where the name
+is used, as in `#[derive(Shape)]`. Your code did not change.
+
+**The fix.** In your crate, name the other macro by its path,
+`#[derive(shape_derive::Shape)]`, and drop its `use`. Beside two globs,
+importing the other macro by name, `use shape_derive::Shape;`, also
+works, because a named import wins over a glob.
+
+If you own the trait and dispatch it only in its own crate, you can
+leave it unmarked and restate it crate-privately instead; see
+[Traits, enums and structs from other crates][restatements]. The
+restatement forwards only what it lists, so it does not suit a struct
+that means to forward every method of the trait. See also
+[the limits][limits].
+
 ### Unused imports next to a restatement
 
 ```text
@@ -854,15 +1033,18 @@ reproduces the error helps most.
 [glossary-restatement]: glossary.md#restatement
 [glossary-target]: glossary.md#target
 [inherent-methods]: inherent-methods.md
+[inherent-methods-around-the-match]: inherent-methods.md#code-around-the-match
 [limits]: limits.md
 [limits-conversions]: limits.md#conversions
 [limits-receivers]: limits.md#receivers
+[limits-structs]: limits.md#structs
 [options-enum-inside-enum]: options.md#an-enum-inside-an-enum
 [options-from-false]: options.md#from--false-no-from-impls
 [options-mismatch]: options.md#mismatch-what-to-return-when-two-variants-differ
 [options-name-type]: options.md#name--type-override-an-associated-type
 [options-name-value]: options.md#name--value-override-an-associated-const
 [partial-impl-blocks]: partial-impl-blocks.md
+[partial-impl-blocks-call]: partial-impl-blocks.md#call-the-payloads-from-a-method-you-wrote
 [partial-impl-blocks-header]: partial-impl-blocks.md#the-impl-header
 [partial-impl-blocks-names]: partial-impl-blocks.md#which-names-must-be-in-scope
 [restatements]: restatements.md
@@ -871,6 +1053,7 @@ reproduces the error helps most.
 [restatements-enums]: restatements.md#enums-from-other-crates
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
+[structs]: structs.md
 [structs-cannot-be-asked]: structs.md#what-the-fields-type-cannot-be-asked
 [structs-some-builds]: structs.md#a-trait-in-some-builds-only
 [routes-mutable-borrow]: routes.md#a-route-for-a-mutable-borrow

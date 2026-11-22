@@ -47,7 +47,10 @@ an enum reaches the trait's signatures, even from another crate.
 Where it lives depends on the trait's visibility:
 
 - **A `pub` trait** adds one `#[doc(hidden)]` exported macro to the
-  crate root.
+  crate root. It is also re-exported beside the trait under the trait's
+  name, so it goes wherever the trait is re-exported, which can clash
+  with another macro of that name in a crate that uses the trait; see
+  [limits](limits.md#names-scope-and-imports).
 - **A trait of any other visibility** keeps its macro in its own module,
   and adds nothing to the crate root.
 

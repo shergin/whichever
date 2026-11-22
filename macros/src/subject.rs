@@ -238,6 +238,16 @@ struct Marks {
 }
 
 impl<'a> Entries<'a> {
+    /// Returns the entries of a struct whose fields choose no one field
+    /// for a trait: none, for an impl that is written around no field.
+    pub(crate) fn none(subject: &'a Subject) -> Self {
+        Self {
+            subject,
+            entries: vec![],
+            marks: None,
+        }
+    }
+
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, Entry> {
         self.entries.iter()
     }
@@ -351,10 +361,26 @@ impl<'a> Entries<'a> {
                     Some(segment) => format!(" `{}` to", segment.ident),
                     None => String::new(),
                 };
+                // A bare mark forwards to the field itself, and a field
+                // spelled as a pointer is more often there for what it
+                // points at, which is another mark.
+                let pointer = item
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, field)| points_at_a_target(&field.ty))
+                    .map(|(index, field)| member_of(field, index));
+                let deref = match pointer {
+                    Some(member) => format!(
+                        ", or with `#[dispatch(deref)]` to forward to what a pointer such as `{}` points at",
+                        member.to_token_stream()
+                    ),
+                    None => String::new(),
+                };
                 Err(Error::new_spanned(
                     &item.ident,
                     format!(
-                        "`{}` has several fields; mark the one to forward{about} with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`",
+                        "`{}` has several fields; mark the one to forward{about} with `#[dispatch]`{deref}, or name the trait on it, `#[dispatch(Trait)]`",
                         item.ident
                     ),
                 ))
@@ -1096,6 +1122,25 @@ fn member_of(field: &Field, index: usize) -> Member {
     }
 }
 
+/// Returns whether `ty` is spelled as a pointer to something a trait could
+/// be forwarded to: a `Box`, an `Rc`, an `Arc` or a `&T` over a type named
+/// by path or over a trait object. A `&str` and a `&[T]` are pointers too,
+/// and a field that holds one is a label or a buffer, not a target.
+fn points_at_a_target(ty: &Type) -> bool {
+    if matches!(Pointer::of(ty), Pointer::Other) {
+        return false;
+    }
+    let mut pointee = pointee(ty);
+    while let Some(Type::Paren(inner)) = pointee {
+        pointee = Some(&*inner.elem);
+    }
+    match pointee {
+        Some(Type::Path(named)) => !named.path.is_ident("str"),
+        Some(Type::TraitObject(_)) => true,
+        _ => false,
+    }
+}
+
 /// Returns the entry a struct's field is: named by the field, or `_<index>`
 /// for an unnamed one, with the field's own route. The one field of a
 /// struct of `count` fields is what the struct is built around.
@@ -1577,6 +1622,167 @@ mod tests {
         assert_eq!(
             error(parse_quote!(struct Mapper { a: A, b: B })),
             "`Mapper` has several fields; mark the one to forward `Rom` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`"
+        );
+    }
+
+    #[test]
+    fn a_struct_with_a_pointer_field_and_no_mark_says_how_to_forward_through_it() {
+        let for_rom =
+            |subject: Subject| message(subject.read().unwrap().for_trait(&parse_quote!(Rom)));
+        let for_star = |subject: Subject| message(subject.read().unwrap().star());
+        let with_trait = |member: &str| {
+            format!("`Mapper` has several fields; mark the one to forward `Rom` to with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `{member}` points at, or name the trait on it, `#[dispatch(Trait)]`")
+        };
+        let without_trait = |member: &str| {
+            format!("`Mapper` has several fields; mark the one to forward with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `{member}` points at, or name the trait on it, `#[dispatch(Trait)]`")
+        };
+        let named: [Subject; 4] = [
+            parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: Box<dyn Rom>,
+                }
+            ),
+            parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: Rc<Cartridge>,
+                }
+            ),
+            parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: std::sync::Arc<Cartridge>,
+                }
+            ),
+            parse_quote!(
+                struct Mapper<'a> {
+                    label: u8,
+                    inner: &'a Cartridge,
+                }
+            ),
+        ];
+        for subject in named {
+            assert_eq!(for_rom(subject.clone()), with_trait("inner"));
+            assert_eq!(for_star(subject), without_trait("inner"));
+        }
+        // An unnamed field is named by its index, as a pattern names it.
+        let unnamed: [Subject; 4] = [
+            parse_quote!(
+                struct Mapper(u8, Box<dyn Rom>);
+            ),
+            parse_quote!(
+                struct Mapper(u8, Rc<Cartridge>);
+            ),
+            parse_quote!(
+                struct Mapper(u8, Arc<Cartridge>);
+            ),
+            parse_quote!(
+                struct Mapper<'a>(u8, &'a Cartridge);
+            ),
+        ];
+        for subject in unnamed {
+            assert_eq!(for_rom(subject.clone()), with_trait("1"));
+            assert_eq!(for_star(subject), without_trait("1"));
+        }
+        // The first pointer is named when there are several.
+        assert_eq!(
+            for_rom(parse_quote!(
+                struct Mapper {
+                    a: Box<A>,
+                    b: Rc<B>,
+                }
+            )),
+            with_trait("a")
+        );
+        // A trait object is a target, in parentheses too.
+        let trait_objects: [Subject; 3] = [
+            parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: Box<dyn Shape>,
+                }
+            ),
+            parse_quote!(
+                struct Mapper<'a> {
+                    label: u8,
+                    inner: &'a dyn Shape,
+                }
+            ),
+            parse_quote!(
+                struct Mapper<'a> {
+                    label: u8,
+                    inner: &'a (dyn Shape + Send),
+                }
+            ),
+        ];
+        for subject in trait_objects {
+            assert_eq!(for_rom(subject), with_trait("inner"));
+        }
+        // A pointer to a string or a slice is passed over for the target.
+        assert_eq!(
+            for_rom(parse_quote!(
+                struct Mapper {
+                    label: &'static str,
+                    inner: Box<Circle>,
+                }
+            )),
+            with_trait("inner")
+        );
+        // A `&mut T` is rustc's to judge, as is a field that is no pointer.
+        let plain = "`Mapper` has several fields; mark the one to forward `Rom` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`";
+        assert_eq!(
+            for_rom(parse_quote!(
+                struct Mapper<'a> {
+                    label: u8,
+                    inner: &'a mut Cartridge,
+                }
+            )),
+            plain
+        );
+        assert_eq!(
+            for_rom(parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: Cartridge,
+                }
+            )),
+            plain
+        );
+        // A string or a slice behind a pointer is a label or a buffer, not
+        // a target.
+        let no_target: [Subject; 4] = [
+            parse_quote!(
+                struct Mapper {
+                    label: &'static str,
+                    inner: Cartridge,
+                }
+            ),
+            parse_quote!(
+                struct Mapper<'a> {
+                    label: u8,
+                    inner: &'a [u8],
+                }
+            ),
+            parse_quote!(
+                struct Mapper {
+                    label: Box<str>,
+                    inner: Cartridge,
+                }
+            ),
+            parse_quote!(
+                struct Mapper {
+                    label: u8,
+                    inner: Arc<[u8]>,
+                }
+            ),
+        ];
+        for subject in no_target {
+            assert_eq!(for_rom(subject), plain);
+        }
+        assert_eq!(
+            for_star(parse_quote!(struct Mapper(u8, Cartridge);)),
+            "`Mapper` has several fields; mark the one to forward with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`"
         );
     }
 

@@ -4,16 +4,16 @@
 //! An inherent block and a partial impl block hold the same kinds of items
 //! and differ in what each does with them, so the reading is one and the
 //! two paths decide.
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{TokenStream as TokenStream2, TokenTree};
 use quote::quote_spanned;
 use syn::parse::{Parse, ParseStream};
 use syn::{
     parse_quote_spanned, Attribute, Block, Error, Expr, FnArg, Ident, ImplItem, ImplItemFn,
-    ItemImpl, Pat, Result, Signature, Stmt, Token, Visibility,
+    ItemImpl, Meta, Pat, Result, Signature, Stmt, Token, Visibility,
 };
 
 use crate::arm::receiver_scrutinee;
-use crate::options::{self, is_dispatch_attribute, Carries, ForwardingOptions};
+use crate::options::{self, is_dispatch_attribute, Carries};
 use crate::selection::OwnArms;
 use crate::shape::{classify_receiver, ReceiverKind};
 use crate::site::Site;
@@ -124,6 +124,53 @@ impl Marked {
         standing_alone(&mut function, &self.attribute);
         Some(ImplItem::Fn(function))
     }
+
+    /// Returns what stands in the block when `error` keeps the method from
+    /// being forwarded, and the error where it is still to be reported
+    /// beside the block. The method stays as written, see `unmarked`,
+    /// unless its body is one the attribute refuses as a body: under `*` a
+    /// body that is not one `match self` is to be rewritten or dropped, and
+    /// need not compile as it stands, since a `match self` behind a
+    /// statement names only the variants the enum handles itself. Such a
+    /// method is written as the trait path writes one it cannot forward,
+    /// its signature with the sentence as its body, which rustc
+    /// type-checks no further, so the body as written never reaches it.
+    pub(crate) fn refused(self, error: Error) -> (Option<ImplItem>, Option<Error>) {
+        let body_is_refused = self
+            .body
+            .as_ref()
+            .is_some_and(|body| under_star(&self.attribute) && OwnArms::written(body).is_none());
+        if !body_is_refused {
+            return (self.unmarked(), Some(error));
+        }
+        let Marked {
+            attrs, vis, sig, ..
+        } = self;
+        let site = Site::at(sig.ident.span());
+        let sentence = error.to_compile_error();
+        let written = quote_spanned! { *site => #(#attrs)* #vis #sig { #sentence } };
+        (Some(ImplItem::Verbatim(written)), None)
+    }
+}
+
+/// Returns whether `mark` names `*`, every variant, whether or not the rest
+/// of it reads: a mark with an option that is refused still says what its
+/// method's body was written as. The `*` stands where a variant's name
+/// would, first in the list or after a comma; one inside an option's
+/// value, a route's `.boxed*`, follows something else.
+fn under_star(mark: &Attribute) -> bool {
+    let Meta::List(list) = &mark.meta else {
+        return false;
+    };
+    let mut names_a_target = true;
+    for token in list.tokens.clone() {
+        match token {
+            TokenTree::Punct(punct) if punct.as_char() == '*' && names_a_target => return true,
+            TokenTree::Punct(punct) => names_a_target = punct.as_char() == ',',
+            _ => names_a_target = false,
+        }
+    }
+    false
 }
 
 /// Closes the body of `function`, a method kept as written without its
@@ -138,10 +185,7 @@ impl Marked {
 /// Box<Self>`, or the pinned reference unpinned, which `match self` as
 /// written is not.
 pub(crate) fn standing_alone(function: &mut ImplItemFn, mark: &Attribute) {
-    let under_star = mark
-        .parse_args::<ForwardingOptions>()
-        .is_ok_and(|forwarding| forwarding.all);
-    if !under_star || OwnArms::written(&function.block).is_none() {
+    if !under_star(mark) || OwnArms::written(&function.block).is_none() {
         return;
     }
     let site = Site::at(function.sig.ident.span());
@@ -575,5 +619,160 @@ mod tests {
         };
         assert_eq!(closed.arms.len(), 2);
         assert!(function.attrs.is_empty(), "the mark is taken off");
+    }
+
+    /// The error a method that cannot be forwarded is reported with.
+    fn refusal() -> Error {
+        Error::new(proc_macro2::Span::call_site(), "refused")
+    }
+
+    #[test]
+    fn a_body_refused_under_star_is_written_with_the_sentence_as_its_body() {
+        let method = marked(parse_quote! {
+            #[inline]
+            #[dispatch(*)]
+            pub fn area(&self) -> u32 {
+                if false {
+                    return 0;
+                }
+                match self {
+                    Self::Empty => 0,
+                }
+            }
+        });
+        let (kept, beside) = method.refused(refusal());
+        assert!(beside.is_none(), "the sentence is the body, not beside it");
+        let Some(ImplItem::Verbatim(written)) = kept else {
+            panic!("the method with the sentence as its body");
+        };
+        let sentence = refusal().to_compile_error();
+        assert_eq!(
+            written.to_string(),
+            quote!(#[inline] pub fn area(&self) -> u32 { #sentence }).to_string(),
+            "its attributes, visibility and signature, and nothing of the body as written"
+        );
+    }
+
+    #[test]
+    fn a_refused_method_whose_body_is_one_match_self_is_kept_and_closed() {
+        let method = marked(parse_quote! {
+            #[dispatch(*)]
+            fn area(&self) -> u32 {
+                match self {
+                    Self::Empty => 0,
+                }
+            }
+        });
+        let (kept, beside) = method.refused(refusal());
+        assert!(beside.is_some(), "the sentence stands beside the block");
+        let Some(ImplItem::Fn(function)) = kept else {
+            panic!("the method as written");
+        };
+        let [Stmt::Expr(Expr::Match(closed), None)] = function.block.stmts.as_slice() else {
+            panic!("one `match self`");
+        };
+        assert_eq!(closed.arms.len(), 2, "closed by an arm for the rest");
+    }
+
+    #[test]
+    fn a_refused_method_under_a_named_list_or_without_a_body_is_kept_as_before() {
+        let listed = marked(parse_quote! {
+            #[dispatch(Square)]
+            fn area(&self) -> u32 {
+                let zero = 0;
+                match self {
+                    Self::Empty => zero,
+                }
+            }
+        });
+        let mut written: ImplItemFn = parse_quote! {
+            fn area(&self) -> u32 {
+                let zero = 0;
+                match self {
+                    Self::Empty => zero,
+                }
+            }
+        };
+        written.attrs.clear();
+        let (kept, beside) = listed.refused(refusal());
+        assert!(beside.is_some());
+        let Some(ImplItem::Fn(function)) = kept else {
+            panic!("the method as written");
+        };
+        assert_eq!(quote!(#function).to_string(), quote!(#written).to_string());
+        let bodiless = marked(parse_quote! {
+            #[dispatch(*)]
+            fn area(&self) -> u32;
+        });
+        let (kept, beside) = bodiless.refused(refusal());
+        assert!(kept.is_none(), "a method without a body is dropped");
+        assert!(beside.is_some());
+    }
+
+    #[test]
+    fn a_mark_is_under_star_where_a_star_names_a_target_whether_or_not_it_parses() {
+        let closed = |item: ImplItemFn| {
+            let (function, _) = standing(item);
+            let [Stmt::Expr(Expr::Match(kept), None)] = function.block.stmts.as_slice() else {
+                panic!("one `match`");
+            };
+            kept.arms.len() == 2
+        };
+        assert!(
+            closed(parse_quote! {
+                #[dispatch(*, call = Area::area)]
+                fn area(&self) -> u32 {
+                    match self {
+                        Self::Empty => 0,
+                    }
+                }
+            }),
+            "a mark naming `*` with an option that does not parse"
+        );
+        assert!(
+            closed(parse_quote! {
+                #[dispatch(with = Some, *)]
+                fn area(&self) -> u32 {
+                    match self {
+                        Self::Empty => 0,
+                    }
+                }
+            }),
+            "a `*` after a comma"
+        );
+        for item in [
+            parse_quote! {
+                #[dispatch(Square, via = .boxed*)]
+                fn area(&self) -> u32 {
+                    match self {
+                        Self::Empty => 0,
+                    }
+                }
+            },
+            parse_quote! {
+                #[dispatch(Square, via = *.base)]
+                fn area(&self) -> u32 {
+                    match self {
+                        Self::Empty => 0,
+                    }
+                }
+            },
+        ] {
+            assert!(!closed(item), "a `*` inside a route names no target");
+        }
+        let unparsed = marked(parse_quote! {
+            #[dispatch(*, call = Area::area)]
+            fn area(&self) -> u32 {
+                let zero = 0;
+                match self {
+                    Self::Empty => zero,
+                }
+            }
+        });
+        let (kept, beside) = unparsed.refused(refusal());
+        assert!(
+            matches!(kept, Some(ImplItem::Verbatim(_))) && beside.is_none(),
+            "a body refused under a mark that does not parse is replaced all the same"
+        );
     }
 }

@@ -5,6 +5,68 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A method of an inherent block marked `#[dispatch(*)]` whose body is not
+  one `match self` gets its error alone. Its body was compiled as written,
+  so a body with a check before a `match self` that names only the
+  variants the enum handles itself drew rustc's E0004 beside the error.
+  Such a body, with code around its `match self`, on an inherent block or
+  in a partial impl block, is now told so, where it was told it "would
+  never run": move the `match self` into an inherent method marked
+  `#[dispatch(*, call = name)]`, and call that method from a method
+  written without a mark. `docs/inherent-methods.md` shows the two
+  methods, and `docs/partial-impl-blocks.md`, `docs/limits.md`,
+  `docs/troubleshooting.md` and the crate docs point at them. A mark that
+  names `*` but has an option that does not parse, such as `call =
+  Circle::area`, gets its error alone too, where a body that is one
+  `match self` drew E0004 beside it. Four snapshots are new, and none
+  changed.
+- A dispatch struct whose fields choose no one field for a trait,
+  several fields and none marked, a trait listed on two fields or two
+  fields marked bare, still gets its impl, with the error in every item
+  a field would have supplied. So the error is the only one, and the
+  uses of the impl no longer add an E0277 each (#46). Where a field is
+  a `Box`, an `Rc`, an `Arc` or a reference to the target, the error for
+  several fields and none marked also names `#[dispatch(deref)]`, which
+  forwards to what the pointer points at; a pointer to a string or a
+  slice, such as `&'static str`, is not taken for one. `docs/limits.md`,
+  `docs/structs.md`, `docs/troubleshooting.md` and the crate docs say
+  both. Six snapshots are new, and none changed.
+- `docs/partial-impl-blocks.md` and the crate docs said that a method
+  written in full in a partial impl block gets `#[inline]`. Only a method
+  marked to be forwarded does; one written in full is emitted as written,
+  with nothing added, as the expansion goldens show.
+- `docs/troubleshooting.md` has two new entries. "cannot find macro
+  `Wrapper` in this scope", with rustc's note "it is a struct, not a
+  macro", on a partial impl block means the struct or the enum lacks
+  `#[whichever::dispatch]`. "too many leading `super` keywords" and
+  "cannot find type `Policy` in module `super`" mean a `super::` path in
+  the trait's signatures, met from another crate or module, and the fix
+  is `crate::Policy` in the trait.
+- `docs/partial-impl-blocks.md`, `docs/structs.md` and the crate docs say
+  what a struct that wraps some methods in a partial impl block does with
+  the rest: it forwards them as they are, a method added to the trait
+  later included, and nothing reports it.
+  `#[deny(clippy::missing_trait_methods)]` on the block reports nothing,
+  and a hand-written impl under that lint is the tool when every new
+  method has to be looked at.
+- `docs/limits.md`, `docs/troubleshooting.md`, `docs/compatibility.md`
+  and the crate docs say that marking a published `pub` trait adds a
+  macro of the trait's name to the crate's public macro namespace, so a
+  crate that imports the trait and another macro of that name stops
+  compiling, with E0252 for two named imports and E0659 for two globs,
+  and how that crate gets around it. `docs/restatements.md` names the
+  crate-private restatement, `#[whichever::dispatchable(remote =
+  crate::Shape)] pub(crate) trait Shape { .. }`, as the way around for a
+  library that dispatches the trait only in its own crate, and says that
+  it forwards only what it lists, which does not suit a struct that
+  forwards everything.
+- The comparison and the README no longer say `ambassador` has no
+  associated consts: 0.5.1 forwards one, checks on an enum that the
+  variants agree where the enum's const is used and its `==` is const,
+  and has no way to fix the value on the enum. Its `Box<T>` cell says
+  "with an extra block", its column names 0.5.1, and the page says what
+  `clippy::missing_trait_methods` and `auto_impl` give a struct's author.
+
 ## 0.9.1 - 2026-11-17
 
 Forwarding reaches further, and the documentation is rewritten in plainer

@@ -1,0 +1,10 @@
+error: `area` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = area)]`, and call that method from `area`, written without a mark
+  --> tests/ui/block_all_with_code_around_its_match.rs:23:27
+   |
+23 |       fn area(&self) -> u32 {
+   |  ___________________________^
+24 | |         if false {
+25 | |             return 0;
+...  |
+30 | |     }
+   | |_____^

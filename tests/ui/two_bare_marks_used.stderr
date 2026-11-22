@@ -1,0 +1,6 @@
+error: only one field can be the target of every trait not named elsewhere; name the traits on the others
+  --> tests/ui/two_bare_marks_used.rs:20:5
+   |
+20 | /     #[dispatch]
+21 | |     right: Circle,
+   | |_________________^

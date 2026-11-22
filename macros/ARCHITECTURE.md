@@ -709,9 +709,24 @@ variant gets its sentence. An associated item no variant can supply holds
 its sentence as what it is: a const its value, `{ compile_error!(..) }`,
 and a type an array whose length is the error, `[(); { compile_error!(..);
 0 }]`, which rustc takes as an erroneous type and checks nothing against.
+A struct whose fields choose no one field for the trait, several with none
+marked, the trait named on two, two marked bare, or none
+(`Entries::for_trait`), withholds nothing: the impl is written around no
+field (`Entries::none`, `Impl::unchosen`). Every forwarded method is
+written with its signature and the struct's sentence as its body
+(`error_body`), every associated type and const the field would have
+supplied holds the sentence (`Impl::supplied`, and the
+generic-associated-type branch of `associated_type`), and a partial
+block's own methods stand as written. The trait's routes are not checked,
+since a route is keyed by the field the struct did not choose. The
+sentence also stands once beside the impl, so it is reported where the
+block writes every item itself. It is thus emitted once per item that
+holds it, word for word on the same token; cargo and rust-analyzer show
+identical diagnostics once, so the user reads the one sentence and no
+E0277 where the impl is used, and only rustc's count of errors includes
+every copy.
 What withholds the impl is what leaves no impl to write, and it is this
-list. In `expand_implement`: a struct whose fields choose no one field
-for the trait, or two (`Entries::for_trait`); an enum with no variant;
+list. In `expand_implement`: an enum with no variant;
 an enum whose every variant is rejected, each with its own sentence, which
 an impl with nothing to forward to would only add rustc's errors to, so
 that a partial block's impl is then the shape errors alone; and a trait
@@ -747,8 +762,18 @@ forward, for the same reason, and a method it cannot forward stays as
 written, without its mark, or is dropped when it has no body; its sentence
 stands under the method's own `cfg` attributes, written beside the block
 in `expand_inherent`, so a build that compiles the method out has neither,
-as it would have no hand-written method. Tokens that are no method are
-reported in every build. At the subject the unit of rejection is the
+as it would have no hand-written method. A method whose mark names `*` and
+whose body is not one `match self` is not kept as written
+(`Marked::refused`): its body is one the attribute refuses as a body, and
+a `match self` behind a statement in it names only the variants the enum
+handles itself, rustc's E0004 as it stands. It is written as the trait
+path writes a method it cannot forward, its attributes, visibility and
+signature with the sentence as its body, under its own `cfg` as it was,
+and no sentence beside the block. Whether a mark names `*` is read from
+its tokens (`under_star`), so a mark with an option that does not parse
+still says what its method's body was written as, and a body that is one
+`match self` of the enum's own arms is closed by `standing_alone` under
+it. Tokens that are no method are reported in every build. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors
@@ -1480,6 +1505,81 @@ keep their `..`. Golden `marked_last_field` is new, and the unit tests
 `a_target_is_matched_and_built_as_its_holder_and_field_say` in `subject.rs`
 pin the patterns. No existing golden and no snapshot moved, and nothing
 changes at run time.
+
+### Stage 29: a body refused under `*` stays out of rustc
+
+Status: landed on 2026-11-21, unreleased, on the branch
+`issues-45-to-51` (issue #45). `expand_inherent`
+kept a method it could not forward as written, without its mark, so a
+body under `*` with a statement before a `match self` naming only the
+variants the enum handles itself was rustc's E0004 beside the sentence,
+where a partial block's method has the sentence as its body and the
+sentence alone. `Marked::refused` in `marked.rs` now writes such a method,
+under a mark naming `*` and with a body that is not one `match self`, as
+the trait path does, and keeps every other refused method as `unmarked`
+did, with the sentence beside the block. `under_star` reads the mark's
+tokens, a `*` first in the list or after a comma, so a mark naming `*`
+whose option does not parse closes a body of the enum's own arms with
+`standing_alone`, in `expand_inherent` and in `without_method_attributes`,
+and its sentence stands alone where it was followed by E0004. `OwnArms::read`
+in `selection.rs` takes the method the forwarding arms call, and a body
+that holds a `match self` in its own code, `holds_match_on_self`, which
+does not look into nested items, is told to move that `match` into an
+inherent method marked `#[dispatch(*, call = name)]` and call it from the
+method written without a mark; any other body keeps "would never run".
+The compile-fail cases `inherent_all_with_code_around_its_match`,
+`block_all_with_code_around_its_match`,
+`inherent_all_with_a_match_on_the_dereferenced_self` and
+`inherent_own_arms_under_a_mark_that_does_not_parse` are new; no existing
+snapshot and no golden moved. The behaviour test `own_arms_under_star`
+runs the way around on an inherent block, and the unit tests in
+`selection.rs` and `marked.rs` pin the sentences, `Marked::refused` and
+`under_star`. The conformance matrix's `arms` axis has the value
+`preceded`, the sentence `body-around-its-match` alone on either path,
+three pinned cells and the mutant `refused-body-kept-as-written`, whose
+witness is `path=inherent-arms arms=preceded`; no line of
+`conformance/known.tsv` is added or deleted. No build that compiled
+changes meaning.
+
+### Stage 30: the impl around no field
+
+Status: landed on 2026-11-21, unreleased, on the branch `issue-46-tests`
+(issue #46). A struct whose fields chose no one field for a trait had its
+sentence, and `expand_implement` returned before writing the impl, so
+every use of the impl added an E0277 and the sentence did not stand alone,
+against the promise the neighbouring case, one name spelled two ways,
+keeps. `for_trait`'s error no longer returns: the impl is written around
+no field, `Entries::none` and `Impl::unchosen`, with the sentence in every
+item a field would have supplied and once beside the impl (3.8). The
+sentence for several fields and none marked, `Entries::chosen`, also names
+`#[dispatch(deref)]`, with the first field that points at a target
+(`points_at_a_target`): a `Box`, an `Rc`, an `Arc` or a `&T` whose pointee
+is a type named by path other than `str`, or a trait object, through
+parentheses too, since a bare mark forwards to the pointer itself and is
+right only where the pointer implements the trait, so it is not refused. A
+`&str`, a `&[T]`, a `Box<str>` or an `Arc<[u8]>` is a label or a buffer
+and is not named. The unit test
+`a_struct_with_a_pointer_field_and_no_mark_says_how_to_forward_through_it`
+in `subject.rs` pins the sentence with and without a trait, over a named
+and an unnamed field, over a trait object behind a `Box`, a `&` and
+parentheses, past a `&'static str` to the `Box` after it, and unchanged
+without a pointer, over a `&mut T`, and over a string or a slice behind a
+pointer.
+The compile-fail cases `struct_without_marked_field_in_a_block`,
+`struct_without_marked_field_on_the_attribute`,
+`struct_without_marked_field_supplies_items`,
+`struct_without_marked_field_over_a_pointer`,
+`trait_named_on_two_fields_used` and `two_bare_marks_used` are new, each
+using the impl, so a withheld impl shows as E0277, or as E0599 where a
+method is called, as each did before the change. No existing snapshot
+moved: the `label: &'static str` of `struct_without_marked_field` points at
+no target, so its sentence names no `deref`. No golden moved. The
+conformance matrix gains the `s0` value `struct-unmarked`, a struct of two
+fields and no mark, with the limit `no-field-marked` on the struct's name,
+pinned over the attribute and a silent block, whose probe through the trait
+resolves; the mutant `struct-without-marked-field-withholds-impl` withholds
+the impl again, and its witness `s0=struct-unmarked s1=none` diverges with
+the probe's E0277.
 
 ## 5. Invariants every stage keeps
 

@@ -167,6 +167,9 @@ pub fn verdict(cell: &Cell) -> Verdict {
     if let Some(verdict) = two_fields(cell) {
         return verdict;
     }
+    if let Some(verdict) = no_field_marked(cell) {
+        return verdict;
+    }
     if let Some(verdict) = field_trait(cell) {
         return verdict;
     }
@@ -484,6 +487,37 @@ fn two_fields(cell: &Cell) -> Option<Verdict> {
     Some(Verdict::Limit(vec![Expected {
         limit: Limit::TwoFieldsNamed,
         anchor: Anchor::BlockMethod,
+    }]))
+}
+
+/// A struct of several fields that marks none, or `None` where the subject
+/// is another. "A dispatch struct with several fields marks the one to
+/// forward to. [..] Otherwise the attribute cannot tell which field is
+/// meant, and you get an error. The impl is still written, around no
+/// field, so you get the one error and no follow-on errors" (limits.md):
+/// the sentence is on the struct's name, whether the trait is named on the
+/// struct's attribute or a partial block implements it, and the probe
+/// through the trait resolves, where a withheld impl would be its error
+/// (#46). The sentence stands alone, so only the path departs from the
+/// neutral cell, and of the paths the two that name the trait without
+/// naming a field: the attribute and a block silent about the method.
+fn no_field_marked(cell: &Cell) -> Option<Verdict> {
+    if !cell.s0.marks_no_field() {
+        return None;
+    }
+    let neutral = Cell {
+        s0: cell.s0,
+        s1: Second::Absent,
+        path: cell.path,
+        ..Cell::neutral()
+    };
+    let named = matches!(cell.path, Path::Attribute | Path::Block);
+    if *cell != neutral || !named {
+        return Some(Verdict::NonCanonical);
+    }
+    Some(Verdict::Limit(vec![Expected {
+        limit: Limit::NoFieldMarked,
+        anchor: Anchor::Enum,
     }]))
 }
 
@@ -1418,6 +1452,20 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         if unmatched {
             expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
         }
+        // A body with code before its `match self` is told so, with the
+        // way around it, "move this body's `match self` into an inherent
+        // method marked `#[dispatch(*, call = name)]`"
+        // (`inherent_all_with_code_around_its_match`), and the sentence is
+        // the method's body, on an inherent block as in a partial block,
+        // so the body as written, whose `match` names only the variants
+        // the enum handles itself, never reaches rustc (#45). The body is
+        // refused before its arms are read, as a body that is no
+        // `match self` is.
+        let preceded = cell.arms == Arms::Preceded && !cell.s0.descriptor().is_struct();
+        if preceded {
+            expect(Limit::BodyAroundItsMatch, Anchor::BlockSignature);
+        }
+        let unmatched = unmatched || preceded;
         // Open question: the documents do not order the sentences on the
         // body; a wildcard arm, as a body that is no `match self`, is read
         // as reported alone, before what the arms would meet.

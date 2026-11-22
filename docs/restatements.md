@@ -168,6 +168,56 @@ The same advice applies to any trait with provided methods that a payload
 overrides, such as the `futures` crate's `AsyncRead` and its
 `poll_read_vectored`.
 
+## Keep a `pub` trait's carrier macro in its crate
+
+Marking a `pub` trait `#[dispatchable]` adds a macro of the trait's name
+to your crate's public macro namespace, next to the trait. A crate that
+uses the trait and imports another macro of that name, such as a derive,
+then stops compiling; [limits](limits.md#names-scope-and-imports) has the
+errors. If you dispatch the trait only inside your own crate, you do not
+need that macro to leave it.
+
+Leave the public trait unmarked, and restate it crate-privately beside
+it, with `remote` naming the trait itself:
+
+```rust
+pub trait Shape {
+    fn area(&self) -> u32;
+    fn name(&self) -> &str {
+        "shape"
+    }
+}
+
+#[whichever::dispatchable(remote = crate::Shape)]
+pub(crate) trait Shape {
+    fn area(&self) -> u32;
+    fn name(&self) -> &str;
+}
+```
+
+Nothing is exported. The restatement emits only its carrier macro, and a
+trait that is not `pub` keeps its carrier macro in its own module. An
+enum or a struct in your crate imports `Shape` and dispatches it as
+before, and the impl it gets is of the public trait.
+
+The fine print:
+
+- **A restatement forwards what it lists, and nothing checks the list
+  against the trait.** A provided method you add to the trait and not to
+  the restatement gets the trait's default, whatever the target does. (A
+  required method missing from the list, or a changed signature, fails
+  to compile, because the impl is of the real trait.) So the restatement
+  is a list you keep by hand.
+- **That suits an enum whose partial impl block writes most methods
+  itself.** The list is short, and the block is where you look anyway.
+- **It does not suit a struct that forwards everything**: a dispatch
+  struct over a field, perhaps with a
+  [partial impl block](partial-impl-blocks.md#wrap-some-methods-forward-the-rest)
+  for the few methods it wraps, that means to forward every other method
+  of the trait, today's and tomorrow's. For it, the restatement is the
+  hand-kept copy of the trait that marking the trait was there to
+  remove. Such a library chooses between the public macro and the list.
+
 ## `Iterator` in detail
 
 ### What is forwarded, and why it matters
