@@ -352,6 +352,15 @@ s1=unit ret=option-self path=inherent-arms lift=some
 # (`marked.rs`, `standing_alone`).
 ret=option-self path=inherent-arms lift=some arms=cfg-off
 
+# A body under `*` with a statement before its `match self` on an inherent
+# block was kept as written beside its sentence, so its `match`, naming only
+# the variants the enum handles itself, was rustc's E0004 as well (#45,
+# `inherent_all_with_code_around_its_match`); in a partial block it was the
+# sentence alone (`block_all_with_code_around_its_match`).
+path=inherent-arms arms=preceded
+path=block-arms arms=preceded
+s1=unit path=inherent-arms s2=unit arms=preceded
+
 # A marked field that is the last of its variant or struct was matched with
 # a rest pattern that had nothing left to skip, `Last(_, __inner, ..)` and
 # `Labelled(_, __inner, ..)`, where a hand writes `Last(_, inner)`.

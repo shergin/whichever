@@ -294,8 +294,8 @@ fn write_inherent(writer: &mut Writer, context: &Context) {
 
 /// Writes the body of a method under `*` that holds the enum's own arms:
 /// one `match self` holding them, as written, and a wildcard arm where the
-/// cell has one; or, for a body that is no `match self` and on a struct,
-/// the answer alone.
+/// cell has one, behind a statement where the cell has one; or, for a body
+/// that is no `match self` and on a struct, the answer alone.
 fn write_own_arms(writer: &mut Writer, context: &Context, site: Site) {
     let (unused, constant) = match site {
         Site::Inherent => (
@@ -311,6 +311,9 @@ fn write_own_arms(writer: &mut Writer, context: &Context, site: Site) {
         writer.line(unused);
         writer.line(constant);
         return;
+    }
+    if context.cell.arms == Arms::Preceded {
+        writer.line(format!("if false {{ {unused} return {constant}; }}"));
     }
     writer.open("match self {");
     for arm in context.cell.own_arms() {

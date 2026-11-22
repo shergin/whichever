@@ -747,8 +747,18 @@ forward, for the same reason, and a method it cannot forward stays as
 written, without its mark, or is dropped when it has no body; its sentence
 stands under the method's own `cfg` attributes, written beside the block
 in `expand_inherent`, so a build that compiles the method out has neither,
-as it would have no hand-written method. Tokens that are no method are
-reported in every build. At the subject the unit of rejection is the
+as it would have no hand-written method. A method whose mark names `*` and
+whose body is not one `match self` is not kept as written
+(`Marked::refused`): its body is one the attribute refuses as a body, and
+a `match self` behind a statement in it names only the variants the enum
+handles itself, rustc's E0004 as it stands. It is written as the trait
+path writes a method it cannot forward, its attributes, visibility and
+signature with the sentence as its body, under its own `cfg` as it was,
+and no sentence beside the block. Whether a mark names `*` is read from
+its tokens (`under_star`), so a mark with an option that does not parse
+still says what its method's body was written as, and a body that is one
+`match self` of the enum's own arms is closed by `standing_alone` under
+it. Tokens that are no method are reported in every build. At the subject the unit of rejection is the
 attribute: the
 subject and its carrier are always emitted, each attribute that parses is
 expanded, the conversions that can be written are written, and the errors
@@ -1480,6 +1490,41 @@ keep their `..`. Golden `marked_last_field` is new, and the unit tests
 `a_target_is_matched_and_built_as_its_holder_and_field_say` in `subject.rs`
 pin the patterns. No existing golden and no snapshot moved, and nothing
 changes at run time.
+
+### Stage 29: a body refused under `*` stays out of rustc
+
+Status: landed on 2026-11-21, unreleased, on the branch
+`issues-45-to-51` (issue #45). `expand_inherent`
+kept a method it could not forward as written, without its mark, so a
+body under `*` with a statement before a `match self` naming only the
+variants the enum handles itself was rustc's E0004 beside the sentence,
+where a partial block's method has the sentence as its body and the
+sentence alone. `Marked::refused` in `marked.rs` now writes such a method,
+under a mark naming `*` and with a body that is not one `match self`, as
+the trait path does, and keeps every other refused method as `unmarked`
+did, with the sentence beside the block. `under_star` reads the mark's
+tokens, a `*` first in the list or after a comma, so a mark naming `*`
+whose option does not parse closes a body of the enum's own arms with
+`standing_alone`, in `expand_inherent` and in `without_method_attributes`,
+and its sentence stands alone where it was followed by E0004. `OwnArms::read`
+in `selection.rs` takes the method the forwarding arms call, and a body
+that holds a `match self` in its own code, `holds_match_on_self`, which
+does not look into nested items, is told to move that `match` into an
+inherent method marked `#[dispatch(*, call = name)]` and call it from the
+method written without a mark; any other body keeps "would never run".
+The compile-fail cases `inherent_all_with_code_around_its_match`,
+`block_all_with_code_around_its_match`,
+`inherent_all_with_a_match_on_the_dereferenced_self` and
+`inherent_own_arms_under_a_mark_that_does_not_parse` are new; no existing
+snapshot and no golden moved. The behaviour test `own_arms_under_star`
+runs the way around on an inherent block, and the unit tests in
+`selection.rs` and `marked.rs` pin the sentences, `Marked::refused` and
+`under_star`. The conformance matrix's `arms` axis has the value
+`preceded`, the sentence `body-around-its-match` alone on either path,
+three pinned cells and the mutant `refused-body-kept-as-written`, whose
+witness is `path=inherent-arms arms=preceded`; no line of
+`conformance/known.tsv` is added or deleted. No build that compiled
+changes meaning.
 
 ## 5. Invariants every stage keeps
 

@@ -5,6 +5,21 @@ changes are expected and listed without apology.
 
 ## Unreleased
 
+- A method of an inherent block marked `#[dispatch(*)]` whose body is not
+  one `match self` gets its error alone. Its body was compiled as written,
+  so a body with a check before a `match self` that names only the
+  variants the enum handles itself drew rustc's E0004 beside the error.
+  Such a body, with code around its `match self`, on an inherent block or
+  in a partial impl block, is now told so, where it was told it "would
+  never run": move the `match self` into an inherent method marked
+  `#[dispatch(*, call = name)]`, and call that method from a method
+  written without a mark. `docs/inherent-methods.md` shows the two
+  methods, and `docs/partial-impl-blocks.md`, `docs/limits.md`,
+  `docs/troubleshooting.md` and the crate docs point at them. A mark that
+  names `*` but has an option that does not parse, such as `call =
+  Circle::area`, gets its error alone too, where a body that is one
+  `match self` drew E0004 beside it. Four snapshots are new, and none
+  changed.
 - `docs/partial-impl-blocks.md` and the crate docs said that a method
   written in full in a partial impl block gets `#[inline]`. Only a method
   marked to be forwarded does; one written in full is emitted as written,

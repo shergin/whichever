@@ -328,7 +328,13 @@ and [inherent-methods.md](inherent-methods.md#forward-to-every-variant-but-a-few
   are written for `match self`. List the variants in `#[dispatch(..)]`
   and give the method a body for the rest.
 - **A body under `*` must be one `match self`.** Any other body would
-  never run, because every variant is forwarded, so you get an error.
+  never run, because every variant is forwarded, so you get an error. A
+  body with code around its `match self`, such as a check before it, is
+  told so: the attribute writes the whole body, and there is no place in
+  it for that code. Keep the code in a method without a mark, and move
+  the `match` into an inherent method marked `#[dispatch(*, call =
+  name)]` that the first one calls. See
+  [inherent-methods.md](inherent-methods.md#code-around-the-match).
 - **Each arm you write names its variants by path, `Self::Name(..)`.**
   An arm that names none, `_` or a binding, is an arm for every other
   variant, and that is what a list of variants with a body already

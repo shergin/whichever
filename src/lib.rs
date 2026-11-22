@@ -947,6 +947,61 @@
 //! - under `#[cfg]`, handle their variant where the `cfg` is on. Where it
 //!   is off, the variant is forwarded.
 //!
+//! The body is the `match self` and nothing else.
+//!
+//! #### Code around the `match`
+//!
+//! The method you would write by hand often has a line or two before its
+//! `match`, such as a check. Under `*` that body gives an error, because
+//! the attribute writes the whole body: one `match` with the forwarding
+//! arms and yours, with no place for other code. Split the method in two
+//! instead: a plain method, without a mark, that runs the code and then
+//! calls a private method marked `#[dispatch(*, call = name)]`, where
+//! `name` is the payloads' method, whose body is the `match self` with
+//! your arms:
+//!
+//! ```
+//! # pub struct Circle(pub u32);
+//! # pub struct Square(pub u32);
+//! # impl Circle { pub fn describe(&self) -> String { format!("circle {}", self.0) } }
+//! # impl Square { pub fn describe(&self) -> String { format!("square {}", self.0) } }
+//! # #[whichever::dispatch]
+//! # pub enum AnyShape {
+//! #     Circle(Circle),
+//! #     Square(Square),
+//! #     Empty,
+//! # }
+//! #[whichever::dispatch]
+//! impl AnyShape {
+//!     pub fn describe(&self, verbose: bool) -> String {
+//!         if !verbose {
+//!             return String::from("a shape");
+//!         }
+//!         self.describe_variant()
+//!     }
+//!
+//!     #[dispatch(*, call = describe)]
+//!     fn describe_variant(&self) -> String {
+//!         match self {
+//!             Self::Empty => String::from("nothing"),
+//!         }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     assert_eq!(AnyShape::Square(Square(2)).describe(false), "a shape");
+//!     assert_eq!(AnyShape::Square(Square(2)).describe(true), "square 2");
+//!     assert_eq!(AnyShape::Empty.describe(true), "nothing");
+//! }
+//! ```
+//!
+//! The error on such a body names this way around, with the payloads'
+//! method in it. A body with no `match self` at all gets the other error,
+//! "its body would never run". A trait method works the same way: write
+//! it in full in a [partial impl
+//! block](#partial-impl-blocks-write-some-methods-yourself), and have it
+//! call the inherent method that holds the `match`.
+//!
 //! ### How the call is written
 //!
 //! Each arm calls the payload's method with method-call syntax,
@@ -1138,9 +1193,11 @@
 //! - **`#[dispatch(*)]` on a method with a body** holds the arms the enum
 //!   handles itself, as in an inherent block:
 //!   `#[dispatch(*)] fn encode(..) { match self { Self::Unknown(kind, data) => .. } }`.
-//!   Every other variant is forwarded. A trait method with a `Self`
-//!   argument, matched beside `self`, takes no such arms; list the
-//!   forwarded variants instead and give the method a body for the rest.
+//!   Every other variant is forwarded. The body is the `match` and
+//!   nothing else; for code around it, see "Calling the payloads from a
+//!   method you wrote" below. A trait method with a `Self` argument,
+//!   matched beside `self`, takes no such arms; list the forwarded
+//!   variants instead and give the method a body for the rest.
 //! - **`#[dispatch(default)]` on a method without a body** leaves the method
 //!   to the trait's default. Over a
 //!   [restatement](#traits-from-std-and-other-crates), that is the real
@@ -1207,7 +1264,10 @@
 //!   `#[dispatch(default)]` on a method with a body.
 //! - **Calling the payloads from a method you wrote.** A method you write
 //!   in the block may still need the payloads' result. Have it call an
-//!   inherent `#[dispatch(*, call = name)]` method beside it.
+//!   inherent `#[dispatch(*, call = name)]` method beside it. That method
+//!   may hold arms of the enum's own, which is the way to have code around
+//!   a `match` with your arms; see [Code around the
+//!   `match`](#code-around-the-match).
 //!
 //! A partial impl block works on a
 //! [dispatch struct](#forwarding-from-a-struct-field) as it does on an enum.

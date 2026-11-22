@@ -835,7 +835,7 @@ pub const ZONES: &[Zone] = &[
     },
     Zone {
         name: "own-arms",
-        summary: "a method under `*` whose body holds arms of its own, in a partial block and an inherent block: which variants they name, an arm under `#[cfg]`, a wildcard and a body that is no `match`, over the variants they answer and the receivers they bind under",
+        summary: "a method under `*` whose body holds arms of its own, in a partial block and an inherent block: which variants they name, an arm under `#[cfg]`, a wildcard, a body that is no `match` and one with a statement before its `match`, over the variants they answer and the receivers they bind under",
         vary: &[
             ("path", &["block-arms", "inherent-arms"]),
             ("arms", &[]),

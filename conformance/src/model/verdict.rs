@@ -1418,6 +1418,20 @@ fn limits(cell: &Cell) -> Vec<Expected> {
         if unmatched {
             expect(Limit::BodyNeverRuns, Anchor::BlockSignature);
         }
+        // A body with code before its `match self` is told so, with the
+        // way around it, "move this body's `match self` into an inherent
+        // method marked `#[dispatch(*, call = name)]`"
+        // (`inherent_all_with_code_around_its_match`), and the sentence is
+        // the method's body, on an inherent block as in a partial block,
+        // so the body as written, whose `match` names only the variants
+        // the enum handles itself, never reaches rustc (#45). The body is
+        // refused before its arms are read, as a body that is no
+        // `match self` is.
+        let preceded = cell.arms == Arms::Preceded && !cell.s0.descriptor().is_struct();
+        if preceded {
+            expect(Limit::BodyAroundItsMatch, Anchor::BlockSignature);
+        }
+        let unmatched = unmatched || preceded;
         // Open question: the documents do not order the sentences on the
         // body; a wildcard arm, as a body that is no `match self`, is read
         // as reported alone, before what the arms would meet.

@@ -142,6 +142,60 @@ One difference from a partial impl block: a `Self` argument is no
 obstacle here, because an inherent method hands it on as it is (see
 [`Self` arguments](#self-arguments)).
 
+The body is the `match self` and nothing else. To run code before the
+`match`, see [Code around the `match`](#code-around-the-match).
+
+### Code around the `match`
+
+The method you would write by hand often has a line or two before its
+`match`, such as a check. Under `*` that body gives an error, because
+the attribute writes the whole body: one `match` with the forwarding
+arms and yours, with no place for other code. Split the method in two
+instead:
+
+- a plain method, without a mark, that runs the code and then calls the
+  second one;
+- a private method marked `#[dispatch(*, call = name)]`, where `name` is
+  the payloads' method, whose body is the `match self` with your arms.
+
+```rust
+#[whichever::dispatch]
+impl AnyShape {
+    pub fn describe(&self, verbose: bool) -> String {
+        if !verbose {
+            return String::from("a shape");
+        }
+        self.describe_variant()
+    }
+
+    #[dispatch(*, call = describe)]
+    fn describe_variant(&self) -> String {
+        match self {
+            Self::Empty => String::from("nothing"),
+        }
+    }
+}
+```
+
+`describe` is written as it stands, and its check runs for every
+variant. `describe_variant` calls `Circle::describe` and
+`Square::describe`, and returns `"nothing"` for `Empty`. It is private,
+so only the block's own methods call it.
+
+The error on the body names this way around, with the payloads' method
+in it:
+
+```text
+error: `describe` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = describe)]`, and call that method from `describe`, written without a mark
+```
+
+A body with no `match self` at all gets the other error, "its body
+would never run".
+
+A trait method works the same way: write it in full in a
+[partial impl block](partial-impl-blocks.md#call-the-payloads-from-a-method-you-wrote),
+and have it call the inherent method that holds the `match`.
+
 ## How the call is written
 
 Each arm calls the payload's method with method-call syntax,

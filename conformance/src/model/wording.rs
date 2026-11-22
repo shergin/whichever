@@ -202,6 +202,7 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::UnsuppliedType
         | Limit::DefaultWithoutDefault
         | Limit::BodyNeverRuns
+        | Limit::BodyAroundItsMatch
         | Limit::StarOverUnforwardable
         | Limit::StructConversion
         | Limit::IntoOtherFields
@@ -404,6 +405,12 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             false => format!("{method} is forwarded to every variant"),
         })),
         Limit::ArmNamingNoVariant => push(Some(format!("an arm of {method} names the variants"))),
+        // The method, and the method that calls the helper the sentence
+        // offers (`inherent_all_with_code_around_its_match`).
+        Limit::BodyAroundItsMatch => {
+            push(Some(format!("{method} is forwarded to every variant")));
+            push(Some(format!("call that method from {method}")));
+        }
         Limit::ArmsBesideSelfArgument => push(Some(format!("{method} takes `Self` arguments"))),
         // The trait as the field spells it, the field, and the trait as
         // its home spells it.

@@ -600,7 +600,7 @@ suite third-stacks
 
 suite own-arms
   pass 285
-  limit 675
+  limit 855
   rejected 0
   malformed 0
   never 120 non-canonical
@@ -641,36 +641,36 @@ suite own-arms-refusals
 
 suite pinned
   pass 128
-  limit 59
+  limit 62
   rejected 8
   malformed 0
 
 suite array
-  pass 11713
+  pass 11669
   limit 0
   rejected 0
   malformed 0
-  rows 11713
-  covered 111904
-  unreached 107881
+  rows 11669
+  covered 112070
+  unreached 107910
 
 suite array-limits
   pass 0
-  limit 669
+  limit 686
   rejected 0
   malformed 0
-  rows 669
-  covered 13689
-  unreached 4900
+  rows 686
+  covered 13799
+  unreached 4985
 
 suite array-rejected
   pass 0
   limit 0
-  rejected 1012
+  rejected 1062
   malformed 0
-  rows 1012
-  covered 12727
-  unreached 5862
+  rows 1062
+  covered 12860
+  unreached 5924
 
 suite known
   pass 0

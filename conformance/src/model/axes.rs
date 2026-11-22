@@ -679,6 +679,10 @@ axis! {
         Wildcard = "wildcard",
         /// A body that is no `match self`: the answer alone.
         Unmatched = "unmatched",
+        /// The arms of `answered` behind a statement, `if false { return
+        /// .. }`: a body with code before its `match self`, as the hand's
+        /// method with a check before its `match` is written.
+        Preceded = "preceded",
     }
 }
 

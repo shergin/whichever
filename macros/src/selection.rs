@@ -4,8 +4,9 @@
 //! path.
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote_spanned, ToTokens};
+use syn::visit::Visit;
 use syn::{
-    parse_quote_spanned, Attribute, Block, Error, Expr, ExprMatch, Ident, Pat, Path, Result,
+    parse_quote_spanned, Attribute, Block, Error, Expr, ExprMatch, Ident, Item, Pat, Path, Result,
     Signature, Stmt,
 };
 
@@ -58,22 +59,23 @@ impl<'a> OwnArms<'a> {
         let [Stmt::Expr(Expr::Match(written), None)] = body.stmts.as_slice() else {
             return None;
         };
-        let Expr::Path(scrutinee) = &*written.expr else {
-            return None;
-        };
-        let plain =
-            written.attrs.is_empty() && scrutinee.attrs.is_empty() && scrutinee.qself.is_none();
-        (plain && scrutinee.path.is_ident("self")).then_some(written)
+        (written.attrs.is_empty() && matches_self(written)).then_some(written)
     }
 
     /// Reads `body`, the body of `method` under `*`, into the arms it
-    /// holds and the variants they name.
-    fn read(body: &'a Block, entries: &Entries, method: &Ident) -> Result<Self> {
+    /// holds and the variants they name. `called` is the payloads' method
+    /// the forwarding arms call. A body that is more than its `match self`
+    /// was written as the hand's method is, statements and then the
+    /// `match`, so its sentence names the way to keep both; any other body
+    /// would never run.
+    fn read(body: &'a Block, entries: &Entries, method: &Ident, called: &Ident) -> Result<Self> {
         let Some(written) = Self::written(body) else {
-            return Err(Error::new_spanned(
-                body,
-                format!("`{method}` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`"),
-            ));
+            let message = if holds_match_on_self(body) {
+                format!("`{method}` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = {called})]`, and call that method from `{method}`, written without a mark")
+            } else {
+                format!("`{method}` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`")
+            };
+            return Err(Error::new_spanned(body, message));
         };
         let mut answered = vec![];
         for arm in &written.arms {
@@ -116,6 +118,37 @@ impl<'a> OwnArms<'a> {
         }
         tokens
     }
+}
+
+/// Returns whether `written` looks at `self` and nothing else, `match self`.
+fn matches_self(written: &ExprMatch) -> bool {
+    let Expr::Path(scrutinee) = &*written.expr else {
+        return false;
+    };
+    scrutinee.attrs.is_empty() && scrutinee.qself.is_none() && scrutinee.path.is_ident("self")
+}
+
+/// Returns whether `body` holds a `match self` anywhere in its own code. An
+/// item written inside the body has a `self` of its own, or none, and is
+/// not looked into.
+fn holds_match_on_self(body: &Block) -> bool {
+    struct Finder(bool);
+
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_expr_match(&mut self, written: &'ast ExprMatch) {
+            if matches_self(written) {
+                self.0 = true;
+                return;
+            }
+            syn::visit::visit_expr_match(self, written);
+        }
+
+        fn visit_item(&mut self, _: &'ast Item) {}
+    }
+
+    let mut finder = Finder(false);
+    finder.visit_block(body);
+    finder.0
 }
 
 /// Collects into `named` the variants `pattern` names by path at its top
@@ -193,7 +226,8 @@ pub(crate) fn select_targets<'a>(
     // there is a body for the rest, which `*` leaves nothing to.
     let own = match body {
         Some(body) if forwarding.all && !subject.has_one_target() => {
-            Some(OwnArms::read(body, entries, method)?)
+            let called = forwarding.call.as_ref().unwrap_or(method);
+            Some(OwnArms::read(body, entries, method, called)?)
         }
         _ => None,
     };
@@ -585,7 +619,7 @@ mod tests {
                 Self::Labelled { .. } => 5,
             }
         });
-        let own = match OwnArms::read(&body, &entries, &method) {
+        let own = match OwnArms::read(&body, &entries, &method, &method) {
             Ok(own) => own,
             Err(error) => panic!("arms of the method's own: {error}"),
         };
@@ -639,7 +673,7 @@ mod tests {
                 Self::Unknown(..) => {}
             }
         });
-        let Ok(own) = OwnArms::read(&body, &entries, &method) else {
+        let Ok(own) = OwnArms::read(&body, &entries, &method, &method) else {
             panic!("arms of the method's own");
         };
         assert_eq!(
@@ -829,6 +863,114 @@ mod tests {
             error.starts_with(
                 "an arm of `encode` names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none"
             ),
+            "{error}"
+        );
+    }
+
+    /// The sentence `OwnArms::read` gives `body`, a body of `encode` under
+    /// `*` whose forwarding arms call `called`.
+    fn refused_body(body: Block, called: &str) -> String {
+        let subject = codecs();
+        let entries = subject.read().unwrap();
+        let method: Ident = parse_quote!(encode);
+        let called = Ident::new(called, Span::call_site());
+        message(OwnArms::read(&body, &entries, &method, &called))
+    }
+
+    #[test]
+    fn a_body_with_code_around_its_match_self_is_told_to_move_the_match_into_a_method() {
+        let moved = |called: &str| {
+            format!("`encode` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = {called})]`, and call that method from `encode`, written without a mark")
+        };
+        let never_runs = "`encode` is forwarded to every variant, so its body would never run; make the body one `match self` holding the arms of the variants the enum handles itself, or end the signature with `;`";
+        assert_eq!(
+            refused_body(
+                parse_quote!({
+                    if false {
+                        return 0;
+                    }
+                    match self {
+                        Self::Skip => 0,
+                    }
+                }),
+                "encode"
+            ),
+            moved("encode"),
+            "statements, then `match self`"
+        );
+        assert_eq!(
+            refused_body(
+                parse_quote!({
+                    Some(match self {
+                        Self::Skip => 0,
+                    })
+                }),
+                "encode"
+            ),
+            moved("encode"),
+            "a `match self` inside a call is still in the body's own code"
+        );
+        assert_eq!(
+            refused_body(
+                parse_quote!({
+                    let zero = 0;
+                    match self {
+                        Self::Skip => zero,
+                    }
+                }),
+                "size"
+            ),
+            moved("size"),
+            "the sentence names the method the forwarding arms call"
+        );
+        assert_eq!(
+            refused_body(
+                parse_quote!({
+                    match *self {
+                        Self::Skip => 0,
+                    }
+                }),
+                "encode"
+            ),
+            never_runs,
+            "`match *self` is no `match self`"
+        );
+        assert_eq!(
+            refused_body(parse_quote!({ 0 }), "encode"),
+            never_runs,
+            "no `match` at all"
+        );
+        assert_eq!(
+            refused_body(
+                parse_quote!({
+                    fn nested(value: &Codec) -> u32 {
+                        match self {
+                            Codec::Skip => 0,
+                        }
+                    }
+                    0
+                }),
+                "encode"
+            ),
+            never_runs,
+            "an item nested in the body has a `self` of its own and is not looked into"
+        );
+    }
+
+    #[test]
+    fn under_star_the_sentence_names_the_marks_call() {
+        let error = message(select(
+            codecs(),
+            quote!(*, call = size),
+            Some(parse_quote!({
+                let zero = 0;
+                match self {
+                    Self::Skip => zero,
+                }
+            })),
+        ));
+        assert!(
+            error.contains("`#[dispatch(*, call = size)]`, and call that method from `encode`"),
             "{error}"
         );
     }

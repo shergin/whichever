@@ -626,6 +626,32 @@ rustc puts the error on the method's name in the route.
 the temporary, `&self.raw.parsed()`; for a trait, do it in a
 [partial impl block][partial-impl-blocks].
 
+### "its body is one `match self` holding the arms of the variants the enum handles itself and nothing else"
+
+```text
+error: `describe` is forwarded to every variant, so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else; move this body's `match self` into an inherent method marked `#[dispatch(*, call = describe)]`, and call that method from `describe`, written without a mark
+```
+
+You get this on an inherent method or a method of a partial impl block.
+
+**What it means.** The method is marked `#[dispatch(*)]` and its body
+has code around its `match self`, such as a check before it. Under `*`
+the attribute writes the whole body: one `match` with an arm for each
+forwarded variant and then your arms. So the body may be the
+`match self` and nothing else, and there is no place for the code
+around it.
+
+**The fix.** Split the method in two. Keep the code in a method without
+a mark, and have it call a private inherent method marked
+`#[dispatch(*, call = describe)]` whose body is the `match self` with
+your arms. The error names the payloads' method for you, `describe`
+here. For a trait method, write the method in full in a
+[partial impl block][partial-impl-blocks-call] and call the inherent
+method from it. See [Code around the `match`][inherent-methods-around-the-match].
+
+A body with no `match self` at all gets "its body would never run"
+instead. Make the body one `match self`, or end the signature with `;`.
+
 ### Other errors on a trait method
 
 The other one-sentence errors on a method, about `Self` in a return
@@ -964,6 +990,7 @@ reproduces the error helps most.
 [glossary-restatement]: glossary.md#restatement
 [glossary-target]: glossary.md#target
 [inherent-methods]: inherent-methods.md
+[inherent-methods-around-the-match]: inherent-methods.md#code-around-the-match
 [limits]: limits.md
 [limits-conversions]: limits.md#conversions
 [limits-receivers]: limits.md#receivers
@@ -973,6 +1000,7 @@ reproduces the error helps most.
 [options-name-type]: options.md#name--type-override-an-associated-type
 [options-name-value]: options.md#name--value-override-an-associated-const
 [partial-impl-blocks]: partial-impl-blocks.md
+[partial-impl-blocks-call]: partial-impl-blocks.md#call-the-payloads-from-a-method-you-wrote
 [partial-impl-blocks-header]: partial-impl-blocks.md#the-impl-header
 [partial-impl-blocks-names]: partial-impl-blocks.md#which-names-must-be-in-scope
 [restatements]: restatements.md

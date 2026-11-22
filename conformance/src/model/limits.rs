@@ -91,6 +91,8 @@ pub enum Limit {
     GenericAssociatedType,
     /// An arm of a method under `*` that names no variant.
     ArmNamingNoVariant,
+    /// A body under `*` with code around its `match self`.
+    BodyAroundItsMatch,
     /// Arms of its own beside a `Self` argument a trait method matches
     /// beside `self`.
     ArmsBesideSelfArgument,
@@ -199,6 +201,7 @@ impl Limit {
         Limit::SizedOnObject,
         Limit::GenericAssociatedType,
         Limit::ArmNamingNoVariant,
+        Limit::BodyAroundItsMatch,
         Limit::ArmsBesideSelfArgument,
         Limit::ArmsMatchedByPlace,
         Limit::FieldTraitSpelt,
@@ -415,6 +418,11 @@ impl Limit {
                 "names the variants it handles, as `Self::Name(..)`, and every other variant is forwarded; this one names none",
                 "own_arm_naming_no_variant",
             ),
+            Limit::BodyAroundItsMatch => entry(
+                "body-around-its-match",
+                "so its body is one `match self` holding the arms of the variants the enum handles itself and nothing else",
+                "inherent_all_with_code_around_its_match",
+            ),
             Limit::ArmsBesideSelfArgument => entry(
                 "arms-beside-self-argument",
                 "which are matched beside `self`, and an arm of its own is written for `self` alone",
@@ -532,6 +540,10 @@ impl Limit {
                 "name the variants it handles, or name the forwarded ones in `#[dispatch(..)]` and make this the method's body",
                 false,
             ),
+            Limit::BodyAroundItsMatch => (
+                "move this body's `match self` into an inherent method marked `#[dispatch(*, call = ",
+                false,
+            ),
             Limit::ArmsBesideSelfArgument | Limit::ArmsMatchedByPlace => (
                 "name the variants in `#[dispatch(..)]` and give the method a body for the rest",
                 false,
@@ -608,6 +620,7 @@ impl Limit {
             | Limit::MethodRouteOnMutSelf
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
+            | Limit::BodyAroundItsMatch
             | Limit::StarOverUnforwardable
             | Limit::SizedOnObject => true,
         }
@@ -625,6 +638,7 @@ impl Limit {
             | Limit::SelfInReturn
             | Limit::DefaultWithoutDefault
             | Limit::BodyNeverRuns
+            | Limit::BodyAroundItsMatch
             | Limit::ArmNamingNoVariant
             | Limit::ArmsBesideSelfArgument
             | Limit::ArmsMatchedByPlace

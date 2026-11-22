@@ -165,6 +165,11 @@ arm:
   is what a method with a list of variants and a body already says.
 - **The arms are the method's own.** They are written as they stand, in
   the declared return type, and read the fields their pattern binds.
+- **The body is the `match self` and nothing else.** A body with code
+  before or after its `match` gives an error, since the attribute writes
+  the whole body. Write the method in full instead, and have it call an
+  inherent method that holds the `match`, as in
+  [Call the payloads from a method you wrote](#call-the-payloads-from-a-method-you-wrote).
 - **In an `async fn`**, your arms sit where the forwarding arms sit:
   inside the future.
 - **An arm under `#[cfg]`** handles its variant where the `cfg` is on.
@@ -348,6 +353,32 @@ impl Describe for AnyShape {
     }
 }
 ```
+
+The inherent method may hold arms of the enum's own as well, for a unit
+variant beside the payloads. That is the way to have code around a
+`match` with your arms, which a body under `*` cannot hold:
+
+```rust
+#[whichever::dispatch]
+impl AnyShape {
+    #[dispatch(*, call = describe)]
+    fn payload_describe(&self) -> String {
+        match self {
+            Self::Empty => String::from("nothing"),
+        }
+    }
+}
+
+#[whichever::dispatch]
+impl Describe for AnyShape {
+    fn describe(&self) -> String {
+        let described = self.payload_describe();
+        format!("a shape: {described}")
+    }
+}
+```
+
+See [Code around the `match`](inherent-methods.md#code-around-the-match).
 
 ## On a struct
 

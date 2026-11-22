@@ -74,6 +74,7 @@ pub mod glossary {}
 /// [glossary-restatement]: crate::docs::glossary#restatement
 /// [glossary-target]: crate::docs::glossary#target
 /// [inherent-methods]: crate#inherent-methods
+/// [inherent-methods-around-the-match]: crate#code-around-the-match
 /// [limits]: crate#requirements-and-limits
 /// [limits-conversions]: crate#conversions
 /// [limits-receivers]: crate#receivers
@@ -83,6 +84,7 @@ pub mod glossary {}
 /// [options-name-type]: crate#associated-types-and-consts
 /// [options-name-value]: crate#associated-types-and-consts
 /// [partial-impl-blocks]: crate#partial-impl-blocks-write-some-methods-yourself
+/// [partial-impl-blocks-call]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [partial-impl-blocks-header]: crate#the-impl-header
 /// [partial-impl-blocks-names]: crate#names-attributes-and-what-the-block-cannot-hold
 /// [restatements]: crate#traits-from-std-and-other-crates
