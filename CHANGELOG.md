@@ -16,6 +16,13 @@ changes are expected and listed without apology.
   "cannot find type `Policy` in module `super`" mean a `super::` path in
   the trait's signatures, met from another crate or module, and the fix
   is `crate::Policy` in the trait.
+- `docs/partial-impl-blocks.md`, `docs/structs.md` and the crate docs say
+  what a struct that wraps some methods in a partial impl block does with
+  the rest: it forwards them as they are, a method added to the trait
+  later included, and nothing reports it.
+  `#[deny(clippy::missing_trait_methods)]` on the block reports nothing,
+  and a hand-written impl under that lint is the tool when every new
+  method has to be looked at.
 
 ## 0.9.1 - 2026-11-17
 

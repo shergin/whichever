@@ -126,6 +126,13 @@ written by hand, because `Catalog` needs it as a supertrait.
   error: `named` is a field of `Env`, but this trait is forwarded to `catalog`, and a trait is forwarded to one field; name the trait on `named`, `#[dispatch(Trait)]`, to forward it there
   ```
 
+A struct that wraps some of a trait's methods, with a retry or a check
+before the call, and forwards the rest is a partial impl block too. A
+method added to the trait later is then forwarded without the wrapping,
+and nothing reports it. See
+[Wrap some methods, forward the rest](partial-impl-blocks.md#wrap-some-methods-forward-the-rest)
+for when a hand-written impl is the better tool.
+
 ## Spelling: one name, two ways
 
 Here the struct's attribute and the field spell one trait two ways:

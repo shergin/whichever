@@ -362,3 +362,45 @@ field that lists the trait as the block's header spells it:
 If no field lists the trait, the block goes to the field marked with a
 bare `#[dispatch]`, or to the only field, as the struct's attribute
 does. See [Forwarding from a struct field](structs.md).
+
+### Wrap some methods, forward the rest
+
+A struct often wraps a few of a trait's methods, with a retry or a check
+before the call, and forwards the others to its field as they are. You
+write that as a dispatch struct with a partial impl block that holds the
+wrapped methods:
+
+```rust
+#[whichever::dispatch]
+pub struct Retrying {
+    #[dispatch(deref)]
+    inner: Box<dyn Store>,
+    attempts: u32,
+}
+
+#[whichever::dispatch]
+impl Store for Retrying {
+    fn get(&self, key: &str) -> Result<u32, String> {
+        retry(self.attempts, || self.inner.get(key))
+    }
+}
+```
+
+Every method the block does not hold is forwarded as it is, without the
+wrapping. That includes a method added to the trait later. Nothing
+reports it: the struct still builds, and its file does not change, so
+the new method is not in the diff either. The call reaches the field,
+which is right, but it is not retried or checked.
+
+`#[deny(clippy::missing_trait_methods)]` on the block does not catch
+this. The lint does not look at an impl a macro writes, and the
+generated impl holds every method of the trait anyway, so the lint
+would have nothing to report.
+
+So when every new method of the trait has to be looked at before the
+struct passes it on, write the impl by hand under
+`#[deny(clippy::missing_trait_methods)]`. Then a new provided method
+stops `cargo clippy` until you write it into the impl, plain or wrapped,
+and a reviewer sees which. (A new required method stops the build
+either way.) When the struct should pass every new method on as it is,
+the partial impl block is the shorter impl, and it cannot forget one.

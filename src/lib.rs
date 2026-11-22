@@ -1400,6 +1400,15 @@
 //! at the home, gives an error. The impl is still written for that field,
 //! so this error is the only one.
 //!
+//! **Wrap some methods, forward the rest.** A struct that wraps a few
+//! methods, with a retry or a check before the call, writes them in a
+//! partial impl block, and every other method is forwarded as it is. A
+//! method added to the trait later is forwarded too, without the
+//! wrapping, and nothing reports it. `#[deny(clippy::missing_trait_methods)]`
+//! on the block reports nothing: the lint does not look at an impl a macro
+//! writes, and the generated impl holds every method anyway. When every
+//! new method has to be looked at, write the impl by hand under that lint.
+//!
 //! What is different from an enum:
 //!
 //! - **`#[dispatch(deref)]` on the field** reaches through a `Box` or
