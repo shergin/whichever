@@ -1441,6 +1441,16 @@
 //! The field does not have to be a dispatch enum. Any implementor works, so
 //! the same attribute also replaces a field-delegation derive.
 //!
+//! **A struct with several fields marks one.** Without a mark the attribute
+//! cannot tell which field is meant, and you get an error that says to mark
+//! it with `#[dispatch]` or to name the trait on it, `#[dispatch(Trait)]`.
+//! Where a field is a `Box`, an `Rc`, an `Arc` or a reference to the target,
+//! the error also names `#[dispatch(deref)]`, which forwards to what the
+//! pointer points at; a bare mark forwards to the pointer itself, which is
+//! right only where the pointer implements the trait. A pointer to a string
+//! or a slice, such as `&'static str`, is not taken for one. The impl is
+//! still written, so this error is the only one.
+//!
 //! **Several traits, several fields.** A field may list the traits it is the
 //! target of: `#[dispatch(Rom)] rom: Cartridge` beside
 //! `#[dispatch(Interrupt)] signals: Signals`. The field marked with a bare
@@ -1779,6 +1789,13 @@
 //!
 //! ### Structs and conversions
 //!
+//! - **A dispatch struct with several fields marks the one to forward to**,
+//!   with `#[dispatch]`, with `#[dispatch(deref)]` for what a pointer field
+//!   points at, or by naming the trait on it, `#[dispatch(Trait)]`.
+//!   Otherwise the attribute cannot tell which field is meant. The impl is
+//!   still written, around no field, so you get the one error and no
+//!   follow-on errors. A bare mark on a pointer is not refused, because the
+//!   pointer may implement the trait itself.
 //! - **A struct's field lists a trait as the struct's attribute or a
 //!   partial impl block's header spells it.** One name spelled two ways,
 //!   `Catalog` and `traits::Catalog` or `Encoder` and `Encoder<F>`, is an

@@ -116,6 +116,11 @@ axis! {
         /// `pub struct E { pub label: u64, #[cfg_attr(all(), dispatch)] pub
         /// held: P0 }`, the same mark on a struct's field.
         StructMarkedCfgAttr = "struct-marked-cfg-attr",
+        /// `pub struct E { pub label: u64, pub held: P0 }`, a struct of
+        /// several fields that marks none: "Otherwise the attribute cannot
+        /// tell which field is meant, and you get an error. The impl is
+        /// still written, around no field" (limits.md, #46).
+        StructUnmarked = "struct-unmarked",
     }
 }
 

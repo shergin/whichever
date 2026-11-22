@@ -709,9 +709,24 @@ variant gets its sentence. An associated item no variant can supply holds
 its sentence as what it is: a const its value, `{ compile_error!(..) }`,
 and a type an array whose length is the error, `[(); { compile_error!(..);
 0 }]`, which rustc takes as an erroneous type and checks nothing against.
+A struct whose fields choose no one field for the trait, several with none
+marked, the trait named on two, two marked bare, or none
+(`Entries::for_trait`), withholds nothing: the impl is written around no
+field (`Entries::none`, `Impl::unchosen`). Every forwarded method is
+written with its signature and the struct's sentence as its body
+(`error_body`), every associated type and const the field would have
+supplied holds the sentence (`Impl::supplied`, and the
+generic-associated-type branch of `associated_type`), and a partial
+block's own methods stand as written. The trait's routes are not checked,
+since a route is keyed by the field the struct did not choose. The
+sentence also stands once beside the impl, so it is reported where the
+block writes every item itself. It is thus emitted once per item that
+holds it, word for word on the same token; cargo and rust-analyzer show
+identical diagnostics once, so the user reads the one sentence and no
+E0277 where the impl is used, and only rustc's count of errors includes
+every copy.
 What withholds the impl is what leaves no impl to write, and it is this
-list. In `expand_implement`: a struct whose fields choose no one field
-for the trait, or two (`Entries::for_trait`); an enum with no variant;
+list. In `expand_implement`: an enum with no variant;
 an enum whose every variant is rejected, each with its own sentence, which
 an impl with nothing to forward to would only add rustc's errors to, so
 that a partial block's impl is then the shape errors alone; and a trait
@@ -1525,6 +1540,46 @@ three pinned cells and the mutant `refused-body-kept-as-written`, whose
 witness is `path=inherent-arms arms=preceded`; no line of
 `conformance/known.tsv` is added or deleted. No build that compiled
 changes meaning.
+
+### Stage 30: the impl around no field
+
+Status: landed on 2026-11-21, unreleased, on the branch `issue-46-tests`
+(issue #46). A struct whose fields chose no one field for a trait had its
+sentence, and `expand_implement` returned before writing the impl, so
+every use of the impl added an E0277 and the sentence did not stand alone,
+against the promise the neighbouring case, one name spelled two ways,
+keeps. `for_trait`'s error no longer returns: the impl is written around
+no field, `Entries::none` and `Impl::unchosen`, with the sentence in every
+item a field would have supplied and once beside the impl (3.8). The
+sentence for several fields and none marked, `Entries::chosen`, also names
+`#[dispatch(deref)]`, with the first field that points at a target
+(`points_at_a_target`): a `Box`, an `Rc`, an `Arc` or a `&T` whose pointee
+is a type named by path other than `str`, or a trait object, through
+parentheses too, since a bare mark forwards to the pointer itself and is
+right only where the pointer implements the trait, so it is not refused. A
+`&str`, a `&[T]`, a `Box<str>` or an `Arc<[u8]>` is a label or a buffer
+and is not named. The unit test
+`a_struct_with_a_pointer_field_and_no_mark_says_how_to_forward_through_it`
+in `subject.rs` pins the sentence with and without a trait, over a named
+and an unnamed field, over a trait object behind a `Box`, a `&` and
+parentheses, past a `&'static str` to the `Box` after it, and unchanged
+without a pointer, over a `&mut T`, and over a string or a slice behind a
+pointer.
+The compile-fail cases `struct_without_marked_field_in_a_block`,
+`struct_without_marked_field_on_the_attribute`,
+`struct_without_marked_field_supplies_items`,
+`struct_without_marked_field_over_a_pointer`,
+`trait_named_on_two_fields_used` and `two_bare_marks_used` are new, each
+using the impl, so a withheld impl shows as E0277, or as E0599 where a
+method is called, as each did before the change. No existing snapshot
+moved: the `label: &'static str` of `struct_without_marked_field` points at
+no target, so its sentence names no `deref`. No golden moved. The
+conformance matrix gains the `s0` value `struct-unmarked`, a struct of two
+fields and no mark, with the limit `no-field-marked` on the struct's name,
+pinned over the attribute and a silent block, whose probe through the trait
+resolves; the mutant `struct-without-marked-field-withholds-impl` withholds
+the impl again, and its witness `s0=struct-unmarked s1=none` diverges with
+the probe's E0277.
 
 ## 5. Invariants every stage keeps
 

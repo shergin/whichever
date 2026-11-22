@@ -78,6 +78,7 @@ pub mod glossary {}
 /// [limits]: crate#requirements-and-limits
 /// [limits-conversions]: crate#conversions
 /// [limits-receivers]: crate#receivers
+/// [limits-structs]: crate#structs-and-conversions
 /// [options-enum-inside-enum]: crate#conversions
 /// [options-from-false]: crate#conversions
 /// [options-mismatch]: crate#self-arguments-and-mismatch
@@ -93,6 +94,7 @@ pub mod glossary {}
 /// [restatements-enums]: crate#enums-from-other-crates
 /// [restatements-provided-methods]: crate#restate-any-other-trait
 /// [routes]: crate#reaching-the-target-pointers-fields-and-methods
+/// [structs]: crate#forwarding-from-a-struct-field
 /// [structs-cannot-be-asked]: crate#forwarding-from-a-struct-field
 /// [structs-some-builds]: crate#forwarding-from-a-struct-field
 /// [routes-mutable-borrow]: crate#where-you-write-a-route

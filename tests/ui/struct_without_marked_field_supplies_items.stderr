@@ -1,0 +1,5 @@
+error: `Labelled` has several fields; mark the one to forward `Source` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`
+  --> tests/ui/struct_without_marked_field_supplies_items.rs:22:12
+   |
+22 | pub struct Labelled {
+   |            ^^^^^^^^

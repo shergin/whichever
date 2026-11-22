@@ -226,7 +226,8 @@ fn takes(cell: &Cell, limit: Limit) -> String {
         | Limit::BodilessInBlock
         | Limit::FromContradicted
         | Limit::IntoRepeated
-        | Limit::MarkUnderCfgAttr => String::new(),
+        | Limit::MarkUnderCfgAttr
+        | Limit::NoFieldMarked => String::new(),
     }
 }
 
@@ -480,6 +481,12 @@ fn names(cell: &Cell, limit: Limit, slot: Option<Slot>) -> Vec<Fragment> {
             any = Some(Fragment(held));
         }
         Limit::IntoOtherFields | Limit::RestatedConversions => {}
+        // The struct and the trait, as the snapshot
+        // `struct_without_marked_field_on_the_attribute` names them; its
+        // fields hold no pointer, so the sentence names no `deref`.
+        Limit::NoFieldMarked => push(Some(String::from(
+            "`E` has several fields; mark the one to forward `Probe` to with `#[dispatch]`, or name",
+        ))),
         // The way around a variant's mark, and a struct's field's, as the
         // snapshots `mark_under_cfg_attr_on_a_variant` and
         // `mark_under_cfg_attr_on_a_struct_field` spell them.

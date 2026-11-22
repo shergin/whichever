@@ -412,7 +412,17 @@ of its fields. See [structs.md](structs.md).
 - **A dispatch struct with several fields marks the one to forward to.**
   Mark it with `#[dispatch]`, or list the trait on it,
   `#[dispatch(Trait)]`. Otherwise the attribute cannot tell which field
-  is meant, and you get an error.
+  is meant, and you get an error. The impl is still written, around no
+  field, so you get the one error and no follow-on errors. The same
+  holds for a trait listed on two fields and for two fields marked bare.
+  When a field is a pointer to the [target](glossary.md#target), such as
+  `inner: Box<dyn Shape>`, mark it `#[dispatch(deref)]`, which forwards
+  to what the pointer points at. The error names that mark when a field
+  is a `Box`, an `Rc`, an `Arc` or a reference to the target. A field
+  that points at a string or a slice, such as `label: &'static str`, is
+  a label or a buffer, so the error does not name it. A bare
+  `#[dispatch]` on a pointer is not refused, because the pointer may
+  implement the trait itself, as `Box<dyn Iterator>` does.
 - **A dispatch struct with other fields beside the marked one cannot
   forward a method that returns `Self`.** The macro has no values for
   the other fields, so it cannot build the struct around the result.

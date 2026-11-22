@@ -21,6 +21,7 @@ On this page:
 - [At the enum's `#[dispatch(..)]`](#at-the-enums-dispatch)
 - [Inside the generated impl](#inside-the-generated-impl)
 - [On a variant](#on-a-variant)
+- [On a struct](#on-a-struct)
 - [On a trait method](#on-a-trait-method)
 - [Conversions](#conversions)
 - [At the trait](#at-the-trait)
@@ -396,6 +397,48 @@ pub enum Any {
     Boxed(Square),
 }
 ```
+
+## On a struct
+
+### "has several fields; mark the one to forward `Shape` to"
+
+```text
+error: `Labelled` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or name the trait on it, `#[dispatch(Trait)]`
+```
+
+When a field is a `Box`, an `Rc`, an `Arc` or a reference to the
+target, the error names one more mark:
+
+```text
+error: `Labelled` has several fields; mark the one to forward `Shape` to with `#[dispatch]`, or with `#[dispatch(deref)]` to forward to what a pointer such as `inner` points at, or name the trait on it, `#[dispatch(Trait)]`
+```
+
+A field that points at a string or a slice, such as `&'static str`,
+does not count: it holds a label or a buffer, not something to forward
+to.
+
+On an inherent method marked `#[dispatch(*)]`, the error names no trait:
+"mark the one to forward with `#[dispatch]`".
+
+**What it means.** A [dispatch struct][structs] forwards a trait to one
+field. Your struct has several, and none is marked, so the attribute
+cannot tell which one is meant. The impl is still written, so this error
+is the only one, and the uses of the trait compile.
+
+**The fix.** Mark the field to forward to. Pick the mark that fits:
+
+- `#[dispatch]` when the field implements the trait, as in
+  `#[dispatch] shape: Square`;
+- `#[dispatch(deref)]` when the field is a pointer and what it points at
+  implements the trait, as in `#[dispatch(deref)] inner: Box<dyn Shape>`.
+  A bare `#[dispatch]` there forwards to the `Box` itself, and rustc
+  says "the trait bound `Box<dyn Shape>: Shape` is not satisfied";
+- `#[dispatch(Trait)]` when the struct forwards several traits to
+  several fields, as in `#[dispatch(Shape)] inner: Square`.
+
+A bare `#[dispatch]` on a pointer is right where the pointer implements
+the trait itself, as `Box<dyn Iterator>` does, so it is not refused. See
+[Limits][limits-structs].
 
 ## On a trait method
 
@@ -994,6 +1037,7 @@ reproduces the error helps most.
 [limits]: limits.md
 [limits-conversions]: limits.md#conversions
 [limits-receivers]: limits.md#receivers
+[limits-structs]: limits.md#structs
 [options-enum-inside-enum]: options.md#an-enum-inside-an-enum
 [options-from-false]: options.md#from--false-no-from-impls
 [options-mismatch]: options.md#mismatch-what-to-return-when-two-variants-differ
@@ -1009,6 +1053,7 @@ reproduces the error helps most.
 [restatements-enums]: restatements.md#enums-from-other-crates
 [restatements-provided-methods]: restatements.md#list-the-provided-methods-a-payload-overrides
 [routes]: routes.md
+[structs]: structs.md
 [structs-cannot-be-asked]: structs.md#what-the-fields-type-cannot-be-asked
 [structs-some-builds]: structs.md#a-trait-in-some-builds-only
 [routes-mutable-borrow]: routes.md#a-route-for-a-mutable-borrow

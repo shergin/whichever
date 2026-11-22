@@ -20,6 +20,17 @@ changes are expected and listed without apology.
   Circle::area`, gets its error alone too, where a body that is one
   `match self` drew E0004 beside it. Four snapshots are new, and none
   changed.
+- A dispatch struct whose fields choose no one field for a trait,
+  several fields and none marked, a trait listed on two fields or two
+  fields marked bare, still gets its impl, with the error in every item
+  a field would have supplied. So the error is the only one, and the
+  uses of the impl no longer add an E0277 each (#46). Where a field is
+  a `Box`, an `Rc`, an `Arc` or a reference to the target, the error for
+  several fields and none marked also names `#[dispatch(deref)]`, which
+  forwards to what the pointer points at; a pointer to a string or a
+  slice, such as `&'static str`, is not taken for one. `docs/limits.md`,
+  `docs/structs.md`, `docs/troubleshooting.md` and the crate docs say
+  both. Six snapshots are new, and none changed.
 - `docs/partial-impl-blocks.md` and the crate docs said that a method
   written in full in a partial impl block gets `#[inline]`. Only a method
   marked to be forwarded does; one written in full is emitted as written,

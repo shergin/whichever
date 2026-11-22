@@ -478,3 +478,11 @@ s0=deref-box qual=generic-named path=block home=crate
 # `crate`, `self`, `super` or `::`, so it could not follow its home's
 # spelling, nor could the recovery for one name spelled two ways.
 s0=struct-trait-self s1=none path=block home=crate
+
+# A struct of several fields that marked none had its sentence and no impl,
+# so every use of the impl was rustc's E0277 beside it (#46,
+# `struct_without_marked_field_on_the_attribute`,
+# `struct_without_marked_field_in_a_block`): the impl is written around no
+# field, and the sentence stands alone.
+s0=struct-unmarked s1=none
+s0=struct-unmarked s1=none path=block

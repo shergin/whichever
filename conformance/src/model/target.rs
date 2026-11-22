@@ -284,6 +284,12 @@ impl Target {
         self == Target::StructTraitSpelt
     }
 
+    /// Returns whether the struct has several fields and marks none, so
+    /// that no field is the trait's.
+    pub fn marks_no_field(self) -> bool {
+        self == Target::StructUnmarked
+    }
+
     /// Returns the segment the home spells the trait under test with in
     /// front of its name: a module of the cell, where the field spells it
     /// otherwise, or `self`, as the field spells it too.
@@ -481,6 +487,9 @@ impl Target {
                 under_cfg_attr: true,
                 ..Target::StructMarked.descriptor()
             },
+            // The struct with a marked field beside a label, its mark left
+            // out, which `write_struct` asks of the target.
+            Target::StructUnmarked => Target::StructMarked.descriptor(),
             Target::StructTraitSelf => TargetDescriptor {
                 storage: Storage::Payload,
                 form: Form::StructMarked,

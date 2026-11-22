@@ -118,6 +118,8 @@ pub enum Limit {
     IntoRepeated,
     /// A `dispatch` mark under `cfg_attr`.
     MarkUnderCfgAttr,
+    /// A struct of several fields that marks none.
+    NoFieldMarked,
 }
 
 /// The way out of [`Limit::StarOverUnforwardable`] for a method that holds
@@ -212,6 +214,7 @@ impl Limit {
         Limit::FromContradicted,
         Limit::IntoRepeated,
         Limit::MarkUnderCfgAttr,
+        Limit::NoFieldMarked,
     ];
 
     /// Returns the sentence's catalogue entry.
@@ -480,6 +483,15 @@ impl Limit {
                 "a `dispatch` under `cfg_attr` is not read",
                 "mark_under_cfg_attr_on_a_variant",
             ),
+            // The struct's sentence; the impl is written around no field
+            // beside it, every forwarded method holding it as its body
+            // (`struct_without_marked_field_in_a_block` holds the same
+            // sentence for a partial block).
+            Limit::NoFieldMarked => entry(
+                "no-field-marked",
+                "has several fields; mark the one to forward",
+                "struct_without_marked_field_on_the_attribute",
+            ),
             Limit::ArmsMatchedByPlace => entry(
                 "arms-matched-by-place",
                 "with `ref` bindings, which arms written for `match self` are not",
@@ -564,6 +576,7 @@ impl Limit {
                 "or leave it to the trait's default with `#[dispatch(default)]`",
                 false,
             ),
+            Limit::NoFieldMarked => ("or name the trait on it, `#[dispatch(Trait)]`", false),
         };
         Entry {
             way_out,
@@ -598,7 +611,8 @@ impl Limit {
             | Limit::BodilessInBlock
             | Limit::FromContradicted
             | Limit::IntoRepeated
-            | Limit::MarkUnderCfgAttr => false,
+            | Limit::MarkUnderCfgAttr
+            | Limit::NoFieldMarked => false,
             Limit::ArmNamingNoVariant
             | Limit::FieldElsewhere
             | Limit::TwoFieldsNamed
@@ -679,7 +693,8 @@ impl Limit {
             | Limit::BodilessInBlock
             | Limit::FromContradicted
             | Limit::IntoRepeated
-            | Limit::MarkUnderCfgAttr => false,
+            | Limit::MarkUnderCfgAttr
+            | Limit::NoFieldMarked => false,
         }
     }
 
